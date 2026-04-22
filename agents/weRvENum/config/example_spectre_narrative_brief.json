@@ -1,0 +1,92 @@
+{
+  "generated_at": "2026-04-12T19:15:00Z",
+  "source_window": "rick evening sweep + x narrative pass",
+  "market_posture": {
+    "label": "defensive",
+    "confidence": 0.8,
+    "summary": "the room is still active but conviction is thinner and traders are reacting to broad risk headlines faster than they are building lasting belief"
+  },
+  "dominant_narratives": [
+    {
+      "label": "macro fear is crowding out clean meme conviction",
+      "strength": 0.82,
+      "direction": "strengthening",
+      "confidence": 0.78,
+      "summary": "headline-driven talk is shaping trader behavior more than pure meme excitement"
+    },
+    {
+      "label": "attention remains real but quality is mixed",
+      "strength": 0.71,
+      "direction": "steady",
+      "confidence": 0.74,
+      "summary": "there are still names moving but the room is less trusting and more tactical"
+    }
+  ],
+  "emerging_narratives": [
+    {
+      "label": "faster flips are being respected more than long holds",
+      "strength": 0.64,
+      "direction": "strengthening",
+      "confidence": 0.63,
+      "summary": "crowd behavior suggests traders want proof quickly and are less patient with weak structure"
+    }
+  ],
+  "fading_narratives": [
+    {
+      "label": "broad everything-rips optimism",
+      "strength": 0.39,
+      "direction": "fading",
+      "confidence": 0.72,
+      "summary": "the room does not feel wide-open even if chatter volume is still high"
+    }
+  ],
+  "attention_quality": {
+    "label": "cross_room",
+    "confidence": 0.73,
+    "summary": "similar concerns and themes are showing up across multiple surfaces instead of one isolated room"
+  },
+  "trader_psychology": [
+    "defensive",
+    "hesitant",
+    "opportunistic"
+  ],
+  "lane_implications": {
+    "runner_hunter": {
+      "posture": "avoid_forcing",
+      "confidence": 0.79,
+      "summary": "clean runners may still exist but marginal continuation is more dangerous and no-trade sessions should be trusted"
+    },
+    "scalper": {
+      "posture": "faster_exits",
+      "confidence": 0.75,
+      "summary": "quick tactical moves may still work but fake momentum and fast reversals are more likely"
+    },
+    "sniper": {
+      "posture": "higher_fakeout_risk",
+      "confidence": 0.7,
+      "summary": "thin conviction and headline sensitivity increase the risk of being exit liquidity"
+    }
+  },
+  "supporting_signals": [
+    {
+      "source": "rick_now",
+      "signal": "active tape without broad trust",
+      "strength": 0.7
+    },
+    {
+      "source": "rick_macro",
+      "signal": "macro stress is influencing risk appetite",
+      "strength": 0.82
+    },
+    {
+      "source": "rick_tt",
+      "signal": "room attention is clustering around risk narratives",
+      "strength": 0.77
+    }
+  ],
+  "warnings": [
+    "do not treat social fear as a direct buy or sell trigger",
+    "use this brief for posture and regime context only",
+    "trust selective or no-trade behavior when structure does not confirm the room narrative"
+  ]
+}

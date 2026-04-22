@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Spectre Narrative Brief",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "generated_at",
+    "market_posture",
+    "dominant_narratives",
+    "attention_quality",
+    "trader_psychology",
+    "lane_implications"
+  ],
+  "properties": {
+    "generated_at": {
+      "type": "string",
+      "description": "ISO timestamp for the brief."
+    },
+    "source_window": {
+      "type": "string",
+      "description": "Human-readable time window or sweep label."
+    },
+    "market_posture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "confidence"],
+      "properties": {
+        "label": {
+          "type": "string",
+          "enum": [
+            "risk_on",
+            "risk_off",
+            "mixed",
+            "euphoric",
+            "fatigued",
+            "defensive",
+            "unclear"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "summary": {
+          "type": "string"
+        }
+      }
+    },
+    "dominant_narratives": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/narrative"
+      }
+    },
+    "emerging_narratives": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/narrative"
+      }
+    },
+    "fading_narratives": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/narrative"
+      }
+    },
+    "attention_quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "confidence"],
+      "properties": {
+        "label": {
+          "type": "string",
+          "enum": [
+            "organic",
+            "cross_room",
+            "concentrated",
+            "forced",
+            "one_room_only",
+            "unclear"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "summary": {
+          "type": "string"
+        }
+      }
+    },
+    "trader_psychology": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "chasing",
+          "hesitant",
+          "bloodthirsty",
+          "fearful",
+          "bored",
+          "defensive",
+          "euphoric",
+          "fatigued",
+          "opportunistic"
+        ]
+      }
+    },
+    "lane_implications": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runner_hunter", "scalper"],
+      "properties": {
+        "runner_hunter": {
+          "$ref": "#/$defs/laneImplication"
+        },
+        "scalper": {
+          "$ref": "#/$defs/laneImplication"
+        },
+        "sniper": {
+          "$ref": "#/$defs/laneImplication"
+        }
+      }
+    },
+    "supporting_signals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "signal"],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "signal": {
+            "type": "string"
+          },
+          "strength": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "narrative": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "strength", "direction", "confidence"],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "strength": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["strengthening", "steady", "fading"]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "summary": {
+          "type": "string"
+        }
+      }
+    },
+    "laneImplication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["posture", "confidence"],
+      "properties": {
+        "posture": {
+          "type": "string",
+          "enum": [
+            "favorable",
+            "selective",
+            "avoid_forcing",
+            "faster_exits",
+            "higher_fakeout_risk",
+            "unclear"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "summary": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

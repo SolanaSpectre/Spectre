@@ -1,0 +1,72 @@
+{
+  "name": "solana-trading-bot",
+  "version": "1.0.0",
+  "description": "An AI-powered Solana memecoin trading bot with advanced risk management",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node scripts/run-with-context-and-reports.js",
+    "start:core": "node src/index.js",
+    "dev": "node --inspect src/index.js",
+    "report:strategy": "node scripts/strategy-report.js",
+    "report:watch-validation": "node scripts/watch-lane-validation-report.js",
+    "report:pre-migration-outcomes": "node scripts/pre-migration-outcome-report.js",
+    "report:pre-migration-paper": "node scripts/pre-migration-paper-sim-report.js",
+    "report:pre-migration-sweep": "node scripts/pre-migration-paper-sweep-report.js",
+    "report:pre-migration-presets": "node scripts/pre-migration-preset-replay-report.js",
+    "report:pre-migration-signal-quality": "node scripts/pre-migration-signal-quality-report.js",
+    "report:broad-organic-surge": "node scripts/broad-organic-surge-replay-report.js",
+    "report:continuation-specimens": "node scripts/continuation-specimen-report.js",
+    "report:internal-continuation-specimens": "node scripts/internal-continuation-specimen-report.js",
+    "report:continuation-paper": "node scripts/continuation-paper-ledger.js",
+    "report:learning": "node scripts/learning-orchestrator-report.js",
+    "report:trade-learning-memory": "node scripts/trade-learning-memory.js",
+    "report:run": "node scripts/run-battlefield-report.js",
+    "report:wallet-battlefield": "node scripts/wallet-battlefield-report.js",
+    "report:wallet-outcomes": "node scripts/wallet-outcome-audit.js",
+    "report:post-run": "npm run report:run && npm run report:wallet-battlefield && npm run report:wallet-outcomes && npm run report:watch-validation && npm run report:pre-migration-outcomes && npm run report:pre-migration-paper && npm run report:pre-migration-presets && npm run report:pre-migration-signal-quality && npm run report:broad-organic-surge && npm run report:continuation-specimens && npm run report:internal-continuation-specimens && npm run report:continuation-paper && npm run report:trade-learning-memory && npm run report:learning",
+    "report:mint": "node scripts/mint-specimen-report.js",
+    "fetch:kolscan": "node scripts/fetch-kolscan-leaderboard.js",
+    "analyze:kolscan": "node scripts/analyze-kolscan-wallets.js",
+    "compare:kolscan": "node scripts/compare-kolscan-to-paper.js",
+    "build:wallet-intel": "node scripts/build-wallet-intel.js",
+    "build:wallet-realized-pnl": "node scripts/build-wallet-realized-pnl.js",
+    "report:wallet-behavior": "node scripts/report-wallet-behavior.js",
+    "report:convergence": "node scripts/build-convergence-report.js",
+    "build:false-negatives": "node scripts/build-false-negative-watchlist.js",
+    "build:model-benchmark-replay": "node scripts/build-model-benchmark-replay.js",
+    "sync:telegram": "node scripts/sync-telegram-context.js",
+    "build:rick-context": "node scripts/build-rick-context.js",
+    "send:rick": "node scripts/send-rick-command.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "eslint src/**/*.js",
+    "lint:fix": "eslint src/**/*.js --fix"
+  },
+  "keywords": [
+    "solana",
+    "trading",
+    "bot",
+    "ai",
+    "memecoin",
+    "crypto",
+    "defi"
+  ],
+  "author": "Cline",
+  "license": "MIT",
+  "dependencies": {
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.98.4",
+    "axios": "^1.15.0",
+    "bs58": "^5.0.0",
+    "chalk": "^4.1.2",
+    "dotenv": "^16.6.1",
+    "input": "^1.0.1",
+    "telegram": "^2.26.22",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.50.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

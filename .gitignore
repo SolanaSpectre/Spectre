@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Local secrets and runtime configuration
+.env
+agents/*/.env
+
+# Runtime logs and generated telemetry
+logs/
+run-logs/
+*.log
+
+# Generated local data snapshots and reports
+data/telegram-context/
+data/rick-context/
+data/reports/
+data/model-benchmark/
+data/convergence/
+data/wallet-analysis/
+data/wallet-comparison/
+data/wallet-intel/
+data/wallet-reports/
+data/wallet-realized-pnl/
+data/watchlists/
+data/continuation-paper/
+data/launch-intel/
+data/pumpportal-debug/
+data/positions/
+data/wallet-watchlists/kolscan-leaderboard.json
+
+# Python local artifacts for sidecar agents
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/

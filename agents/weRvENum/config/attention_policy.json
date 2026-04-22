@@ -1,0 +1,68 @@
+{
+  "name": "venum_attention_policy_v1",
+  "replyable_keywords": [
+    "bitcoin",
+    "btc",
+    "sol",
+    "solana",
+    "eth",
+    "ethereum",
+    "liq",
+    "liquidity",
+    "flow",
+    "rotation",
+    "volume",
+    "holders",
+    "wallet",
+    "chart",
+    "etf",
+    "headline",
+    "macro",
+    "fed",
+    "cpi",
+    "memecoin",
+    "meme coin",
+    "trenches",
+    "narrative",
+    "runner",
+    "cto"
+  ],
+  "bait_patterns": [
+    "what do you think",
+    "thoughts",
+    "agree or disagree",
+    "who else sees it",
+    "am i crazy",
+    "why is nobody talking about this",
+    "hot take"
+  ],
+  "weird_patterns": [
+    "schizo",
+    "cycle",
+    "pattern",
+    "signal",
+    "ghost",
+    "cult",
+    "timing",
+    "top signal",
+    "exit liquidity"
+  ],
+  "tracked_account_boosts": {
+    "Kili_Crypto": 10.0,
+    "DeFiNattii": 8.0,
+    "WatcherGuru": 8.0
+  },
+  "min_replyable_score": 24.0,
+  "spoodee_policy": {
+    "enabled": true,
+    "target_keywords": [
+      "spooder",
+      "spooderman",
+      "spoodee",
+      "spider",
+      "web"
+    ],
+    "max_lore_posts_per_day": 1,
+    "lore_chance_per_generation": 0.18
+  }
+}

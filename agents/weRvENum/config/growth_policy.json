@@ -1,0 +1,39 @@
+{
+  "name": "venum_growth_policy_v1",
+  "objective": "grow account through relevance, novelty, timing, and persona consistency",
+  "allowed_domains": [
+    "crypto",
+    "memecoins",
+    "market structure",
+    "liquidity",
+    "macro as it affects crypto",
+    "tech as it affects crypto attention"
+  ],
+  "forbidden_domains": [
+    "politics",
+    "elections",
+    "war",
+    "mass casualty events",
+    "hate speech",
+    "targeted harassment",
+    "doxxing",
+    "sexual content"
+  ],
+  "reply_strategy": {
+    "prefer_posts_with_real_conversation": true,
+    "min_reply_opportunity_score": 25,
+    "max_candidates_per_run": 12,
+    "max_replies_per_author_window": 1
+  },
+  "original_post_strategy": {
+    "favor_pattern_summaries": true,
+    "favor_reaction_posts": true,
+    "avoid_fake_news_voice": true
+  },
+  "score_weights": {
+    "relevance": 0.34,
+    "freshness": 0.24,
+    "conversation": 0.22,
+    "novelty": 0.20
+  }
+}

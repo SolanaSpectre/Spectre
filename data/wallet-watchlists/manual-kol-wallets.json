@@ -1,0 +1,113 @@
+{
+  "source": "manual_kol_research",
+  "updatedAt": "2026-04-13T23:25:00-05:00",
+  "wallets": [
+    {
+      "walletAddress": "4Be9CvxqHW6BYiRAxW9Q3xu1ycTMWaL5z8NX4HR3ha7t",
+      "name": "mitch",
+      "source": "manual_kol_research",
+      "trustTier": null,
+      "profile": null,
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "REPUTATION_NOTE"
+      ]
+    },
+    {
+      "walletAddress": "3kebnKw7cPdSkLRfiMEALyZJGZ4wdiSRvmoN4rD1yPzV",
+      "name": "peng_win",
+      "source": "manual_kol_research",
+      "trustTier": null,
+      "profile": "creator_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "SUSPECTED_CREATOR",
+        "HIGH_CREATOR_FEE_EARNER",
+        "HIGH_OUTPUT_DEPLOYER"
+      ]
+    },
+    {
+      "walletAddress": "Be24Gbf5KisDk1LcWWZsBn8dvB816By7YzYF5zWZnRR6",
+      "name": "chairman_dn_1",
+      "source": "manual_kol_research",
+      "trustTier": null,
+      "profile": "suspected_kol_link",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "SUSPECTED_KOL_LINK",
+        "PUMPFUN_PROFILE_LINK"
+      ]
+    },
+    {
+      "walletAddress": "ASv4ktNwZ8uBbUj94ACnr7Nj1sTtcYnEUZgWxkMsakA7",
+      "name": "retardmode",
+      "source": "manual_kol_research",
+      "trustTier": null,
+      "profile": "creator_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "SUSPECTED_CREATOR",
+        "CREATOR_FEE_EARNER"
+      ]
+    },
+    {
+      "walletAddress": "2T5NgDDidkvhJQg8AHDi74uCFwgp25pYFMRZXBaCUNBH",
+      "name": "untaxxable",
+      "source": "manual_kol_research",
+      "trustTier": null,
+      "profile": "kol_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "CONFIRMED_KOL_LINK",
+        "PUMPFUN_PROFILE_LINK"
+      ]
+    },
+    {
+      "walletAddress": "6mWEJG9LoRdto8TwTdZxmnJpkXpTsEerizcGiCNZvzXd",
+      "name": "slingoor",
+      "source": "manual_kol_research",
+      "trustTier": null,
+      "profile": "creator_kol_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "CONFIRMED_KOL_LINK",
+        "SUSPECTED_CREATOR",
+        "HIGH_CREATOR_FEE_EARNER",
+        "HIGH_OUTPUT_DEPLOYER"
+      ]
+    },
+    {
+      "walletAddress": "ES74qpNiFRREnMYfGaonLgJhG6Fp4EfBJ3YQioRRXYj3",
+      "name": "bunnyfufuu",
+      "source": "manual_kol_research",
+      "trustTier": null,
+      "profile": "creator_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "SUSPECTED_CREATOR",
+        "HIGH_CREATOR_FEE_EARNER"
+      ]
+    }
+  ]
+}

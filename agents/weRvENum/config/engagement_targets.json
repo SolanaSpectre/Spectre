@@ -1,0 +1,68 @@
+{
+  "special_accounts": [
+    "elonmusk",
+    "aeyakovenko",
+    "weremeow",
+    "cb_doge",
+    "SolanaFloor"
+  ],
+  "dev_accounts": [
+    "aeyakovenko",
+    "weremeow",
+    "frankdegods",
+    "tolyxbt",
+    "theintern"
+  ],
+  "search_queries": [
+    {
+      "name": "crypto_trending",
+      "query": "(bitcoin OR btc OR solana OR sol OR memecoin OR liquidity OR etf OR chart OR volume OR rotation) -is:retweet lang:en",
+      "weight": 1.0
+    },
+    {
+      "name": "macro_risk",
+      "query": "(fed OR cpi OR tariffs OR liquidity OR yields OR inflation) (bitcoin OR crypto OR solana) -is:retweet lang:en",
+      "weight": 1.0
+    },
+    {
+      "name": "elon",
+      "query": "from:elonmusk -is:retweet -is:reply lang:en",
+      "weight": 1.3
+    },
+    {
+      "name": "solana_devs",
+      "query": "(from:aeyakovenko OR from:weremeow OR from:toIyxbt) -is:retweet lang:en",
+      "weight": 1.2
+    },
+    {
+      "name": "tech_ai",
+      "query": "(ai OR \"language model\" OR llm OR openai OR claude OR gemini OR nvidia OR \"ai agent\" OR \"compute\" OR agi) (crypto OR bitcoin OR solana OR market OR money OR defi) -is:retweet lang:en",
+      "weight": 1.1
+    },
+    {
+      "name": "world_news_crypto_impact",
+      "query": "(tariff OR sanctions OR geopolitical OR war OR \"rate cut\" OR \"rate hike\" OR \"emergency\" OR collapse OR crash OR seizure OR \"central bank\") (bitcoin OR crypto OR dollar OR market OR gold) -is:retweet lang:en",
+      "weight": 1.0
+    },
+    {
+      "name": "memes_trenches",
+      "query": "(memecoin OR meme OR pump.fun OR trenches OR degen OR \"aping in\" OR \"send it\" OR wagmi OR ngmi OR rugpull OR \"100x\" OR \"bonding curve\") -is:retweet lang:en",
+      "weight": 0.9
+    },
+    {
+      "name": "viral_crypto_ct",
+      "query": "(bitcoin OR solana OR crypto OR memecoin OR etf OR liquidity) min_faves:25 -is:retweet lang:en",
+      "weight": 1.2
+    },
+    {
+      "name": "market_sentiment",
+      "query": "(\"all time high\" OR ath OR mooning OR \"bull run\" OR \"bear market\" OR \"correction\" OR \"bottom\" OR \"top signal\" OR \"exit liquidity\" OR euphoria OR capitulation) -is:retweet lang:en",
+      "weight": 1.0
+    },
+    {
+      "name": "crypto_hot_takes",
+      "query": "(\"hot take\" OR \"unpopular opinion\" OR \"nobody is talking\" OR \"am i the only\" OR \"why does nobody\" OR \"change my mind\") (crypto OR bitcoin OR solana OR defi OR nft OR memecoin) -is:retweet lang:en",
+      "weight": 1.1
+    }
+  ]
+}

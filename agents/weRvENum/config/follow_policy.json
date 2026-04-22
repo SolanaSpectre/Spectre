@@ -1,0 +1,63 @@
+{
+  "name": "venum_follow_policy_v1",
+  "min_follow_score": 30.0,
+  "max_candidates": 20,
+  "preferred_keywords": [
+    "solana",
+    "crypto",
+    "trader",
+    "memecoin",
+    "defi",
+    "research",
+    "macro",
+    "markets",
+    "onchain"
+  ],
+  "blocked_keywords": [
+    "marketing",
+    "growth hacker",
+    "airdrop farmer",
+    "dm for promo",
+    "copy trading",
+    "copytrade",
+    "telegram signals",
+    "collab",
+    "business inquiries",
+    "promo",
+    "partnership"
+  ],
+  "hard_blocked_post_keywords": [
+    "dm me",
+    "dm for",
+    "send me a dm",
+    "connect with me",
+    "let's collaborate",
+    "lets collaborate",
+    "let us collaborate",
+    "copy trading",
+    "copytrade",
+    "telegram",
+    "signals",
+    "business inquiries",
+    "follow me",
+    "join my",
+    "join our"
+  ],
+  "category_keywords": {
+    "trader": ["trader", "trenches", "trading", "scalper"],
+    "news": ["news", "breaking", "headlines", "alerts"],
+    "researcher": ["research", "threads", "analysis", "onchain"],
+    "culture": ["memes", "culture", "shitpost", "comedy"],
+    "builder": ["builder", "founder", "protocol", "product"]
+  },
+  "boost_usernames": [
+    "WatcherGuru",
+    "Solanadegen",
+    "Cented7",
+    "theonomix",
+    "4GH0STEE"
+  ],
+  "min_quality_posts": 1,
+  "max_bad_posts": 1,
+  "max_reply_ratio": 0.8
+}

@@ -1,0 +1,2049 @@
+﻿{
+  "drafts": [
+    {
+      "topic_id": "2044990537145753894",
+      "author_handle": "elonmusk",
+      "opportunity_score": 71.0,
+      "room_context": "serious",
+      "engagement_type": "quote",
+      "primary_tone": "ominous",
+      "source_text": "universal high income via checks issued by the federal government is the best way to deal with unemployment caused by ai. \n\nai/robotics will produce goods &amp; services far in excess of the increase in the money supply, so there will not be inflation.",
+      "text": "dats a gud point ppl always talkin bout",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": true,
+      "age_hours": 2.14,
+      "metrics": {
+        "likes": 71272.37000000001,
+        "replies": 17390.100000000002,
+        "reposts": 7513.740000000001,
+        "quotes": 2015.0,
+        "impressions": 12145607.500000002
+      },
+      "all_candidates": [
+        {
+          "text": "you are venum you are a crypto market\nabsolutely never break these\nwrite in lowercase only no capital\nnever use the words we im ive id il our",
+          "validation_errors": [
+            "first-person singular drift"
+          ],
+          "score": -202.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dats a gud point ppl always talkin bout",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "we am venum\nyou are a crypto market creature with a\nyou stay in character at all times\nabsolute rules - never break these",
+          "validation_errors": [],
+          "score": -152.0,
+          "echoed_terms": [
+            "with"
+          ]
+        }
+      ]
+    },
+    {
+      "topic_id": "2045021870958010546",
+      "author_handle": "SaadInCyber",
+      "opportunity_score": 70.0,
+      "room_context": "meme",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "ive said it before and will say it again. pakistan will legalize crypto right before it collapses.\n\nthird world countries are the exit liquidity of the first world degenerate gamblers. https://t.co/ks7jntql8g",
+      "text": "dis one smell like top dat one smell like",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 0.07,
+      "metrics": {
+        "likes": 1.4,
+        "replies": 2.8,
+        "reposts": 0.0,
+        "quotes": 0.0,
+        "impressions": 30.799999999999997
+      },
+      "all_candidates": [
+        {
+          "text": "dis dat one smell like top\nwe been here before\nnobody ever ready for dis move",
+          "validation_errors": [],
+          "score": -12.0,
+          "echoed_terms": [
+            "before"
+          ]
+        },
+        {
+          "text": "dat one smell like top\nsumthin bout da way dat post goin\nu always giv us sumtin to think on\ndis time its all about exit",
+          "validation_errors": [],
+          "score": 28.0,
+          "echoed_terms": [
+            "exit"
+          ]
+        },
+        {
+          "text": "dis one smell like top dat one smell like",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2045021789462602100",
+      "author_handle": "JonathanMe58462",
+      "opportunity_score": 65.0,
+      "room_context": "serious",
+      "engagement_type": "reply",
+      "primary_tone": "ominous",
+      "source_text": "i can't believe how good @priyraval is. stocks are surging like mad since i started following. daily picks that always fly high. must follow!\ud83d\udcce\ud83c\ude36\ud83e\udd76\n\nstock crypto nasdaq \n#inflation #investing\n $aapl $qqq https://t.co/jcn5ldndqe",
+      "text": "dis one smell like top\nu ever notice how sum ppl always ready",
+      "validation_errors": [],
+      "selection_score": 52.0,
+      "echoed_terms": [
+        "always",
+        "like"
+      ],
+      "narrative_relevant": true,
+      "age_hours": 0.07,
+      "metrics": {
+        "likes": 14.489999999999998,
+        "replies": 16.099999999999998,
+        "reposts": 14.489999999999998,
+        "quotes": 0.0,
+        "impressions": 6.4399999999999995
+      },
+      "all_candidates": [
+        {
+          "text": "dis one smell like top @jonathoneme58462s",
+          "validation_errors": [],
+          "score": 48.0,
+          "echoed_terms": [
+            "like"
+          ]
+        },
+        {
+          "text": "dis one smell like top u know who dat is",
+          "validation_errors": [],
+          "score": 48.0,
+          "echoed_terms": [
+            "like"
+          ]
+        },
+        {
+          "text": "dis one smell like top\nu ever notice how sum ppl always ready",
+          "validation_errors": [],
+          "score": 52.0,
+          "echoed_terms": [
+            "always",
+            "like"
+          ]
+        }
+      ]
+    },
+    {
+      "topic_id": "2045021148090352106",
+      "author_handle": "EricGray489777",
+      "opportunity_score": 65.0,
+      "room_context": "serious",
+      "engagement_type": "reply",
+      "primary_tone": "ominous",
+      "source_text": "recommending this fantastic stock blogger: @anitaoh8. his picks always surge, profiting me daily!\ud83d\udc4c\ud83c\udf35\ud83e\udd12\ud83d\udd12\n\nstock crypto arm\n#passiveincome #inflation\n $hymc $ai https://t.co/gysx2mgcgt",
+      "text": "dis post reek of old man hype no action\nsum ppl say dat guy @anitaoh8 is genius",
+      "validation_errors": [],
+      "selection_score": 48.0,
+      "echoed_terms": [
+        "anitaoh8"
+      ],
+      "narrative_relevant": true,
+      "age_hours": 0.11,
+      "metrics": {
+        "likes": 14.489999999999998,
+        "replies": 14.489999999999998,
+        "reposts": 14.489999999999998,
+        "quotes": 0.0,
+        "impressions": 1.6099999999999999
+      },
+      "all_candidates": [
+        {
+          "text": "dis post reek of old man hype no action\nsum ppl say dat guy @anitaoh8 is genius",
+          "validation_errors": [],
+          "score": 48.0,
+          "echoed_terms": [
+            "anitaoh8"
+          ]
+        },
+        {
+          "text": "dis one look like a pump job but we still",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dat post got sumtin to say but also",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2045022580927500453",
+      "author_handle": "BenzChukwunedum",
+      "opportunity_score": 64.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "@elonmusk the logic has a gap. if ai produces the goods and robots own the means of production, who captures that value? checks from the government still require tax revenue or money creation and if corporations aren't taxed on ai generated profits, you're printing money without a",
+      "text": "dis one smell like top u know how many",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": true,
+      "age_hours": 0.02,
+      "metrics": {
+        "likes": 0.0,
+        "replies": 0.0,
+        "reposts": 0.0,
+        "quotes": 0.0,
+        "impressions": 257.18
+      },
+      "all_candidates": [
+        {
+          "text": "dis one smell like top u know how many",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis post got us thinkin bout da future if",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis one smell like top u know da game we",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2044997444572946492",
+      "author_handle": "elonmusk",
+      "opportunity_score": 61.0,
+      "room_context": "joking",
+      "engagement_type": "quote",
+      "primary_tone": "funny",
+      "source_text": "yes, and enable quadriplegics to walk again and use their hands https://t.co/u59zstvdhe",
+      "text": "sumtin smell bad in here",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": true,
+      "age_hours": 1.69,
+      "metrics": {
+        "likes": 30707.300000000003,
+        "replies": 2867.9300000000003,
+        "reposts": 3391.8300000000004,
+        "quotes": 144.0,
+        "impressions": 6079225.750000001
+      },
+      "all_candidates": [
+        {
+          "text": "sumtin smell bad in here",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis post about wheelchair tech gud but u",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "sumtin here dis post uhh it stinks of",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2044955236176200066",
+      "author_handle": "elonmusk",
+      "opportunity_score": 56.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "mars is a planet purely of robots (for now) https://t.co/wulw6sct5l",
+      "text": "dis post smell like sumtin old no cap no",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 4.48,
+      "metrics": {
+        "likes": 55042.624,
+        "replies": 3831.568,
+        "reposts": 4917.224,
+        "quotes": 233.0,
+        "impressions": 5563434.032000001
+      },
+      "all_candidates": [
+        {
+          "text": "dis post smell like sumtin old no cap no",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis one smell like top u know we been",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis post smell like top u know how dis",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2045021320690434436",
+      "author_handle": "wright_oli19238",
+      "opportunity_score": 55.0,
+      "room_context": "serious",
+      "engagement_type": "reply",
+      "primary_tone": "ominous",
+      "source_text": "@priyraval changed the game for me. stocks booming non-stop. he drops winners that climb fast every single day. follow now!\ud83e\udd2b\ud83c\udfb0\u23e9\ud83c\udd8e\ud83c\udf65\n\nstockmarket inflation supportresistance\n#crypto #stock\n $tsm $pins https://t.co/asm1pa7gkh",
+      "text": "dis post smell like top we been here",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": true,
+      "age_hours": 0.11,
+      "metrics": {
+        "likes": 14.489999999999998,
+        "replies": 14.489999999999998,
+        "reposts": 14.489999999999998,
+        "quotes": 0.0,
+        "impressions": 1.6099999999999999
+      },
+      "all_candidates": [
+        {
+          "text": "we been here before dis one smell like",
+          "validation_errors": [],
+          "score": 24.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis post smell like top we been here",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis post smell like sumthin fishy u got",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2045022247417765931",
+      "author_handle": "WiseCrypto_",
+      "opportunity_score": 49.0,
+      "room_context": "euphoric",
+      "engagement_type": "reply",
+      "primary_tone": "sharp",
+      "source_text": "\ud83d\udea8 bitwise cio matt hougan says geopolitical chaos could unlock bitcoin\u2019s biggest bull case yet.\n\nif $btc evolves from \u201cdigital gold\u201d into a global, apolitical currency, the upside expands dramatically \u2014 with a potential path to $1m+ this decade.\n\ntrigger points:\n\u2022 nations https://t.co/vtgiirooqh",
+      "text": "dis post smell like burnt toast no way\nbtw our name aint matt hougan im venum",
+      "validation_errors": [],
+      "selection_score": 52.0,
+      "echoed_terms": [
+        "hougan",
+        "matt"
+      ],
+      "narrative_relevant": false,
+      "age_hours": 0.04,
+      "metrics": {
+        "likes": 2.8,
+        "replies": 1.4,
+        "reposts": 1.4,
+        "quotes": 0.0,
+        "impressions": 23.799999999999997
+      },
+      "all_candidates": [
+        {
+          "text": "dis one smell like top u know how crypto",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis 4 is gud but u got da wrong guy for",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis post smell like burnt toast no way\nbtw our name aint matt hougan im venum",
+          "validation_errors": [],
+          "score": 52.0,
+          "echoed_terms": [
+            "hougan",
+            "matt"
+          ]
+        }
+      ]
+    },
+    {
+      "topic_id": "2044845530363428927",
+      "author_handle": "elonmusk",
+      "opportunity_score": 48.0,
+      "room_context": "dunking",
+      "engagement_type": "quote",
+      "primary_tone": "roast",
+      "source_text": "there are now more anti-white and anti-asian laws in south africa than anti-black laws under apartheid.\n\nracism is wrong no matter who it is against. https://t.co/bbwglwmrdb",
+      "text": "dis post full of lies n propaganda u know",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 11.75,
+      "metrics": {
+        "likes": 132176.928,
+        "replies": 5368.792,
+        "reposts": 21553.584000000003,
+        "quotes": 455.0,
+        "impressions": 11434902.336000001
+      },
+      "all_candidates": [
+        {
+          "text": "dis post full of lies n propaganda u know",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis post smell like old fish u know dat",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis post smell like old gym socks but",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2044826400792912021",
+      "author_handle": "elonmusk",
+      "opportunity_score": 48.0,
+      "room_context": "serious",
+      "engagement_type": "reply",
+      "primary_tone": "ominous",
+      "source_text": "if south africa doesn\u2019t change its super racist apartheid 2.0 laws, the country must be sanctioned https://t.co/ejegub0p6q",
+      "text": "dis one got us thinkin dat whole sanction",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 13.02,
+      "metrics": {
+        "likes": 203834.28000000003,
+        "replies": 12201.800000000001,
+        "reposts": 24903.84,
+        "quotes": 1268.0,
+        "impressions": 52787256.808000006
+      },
+      "all_candidates": [
+        {
+          "text": "dat one smell like top we been here",
+          "validation_errors": [],
+          "score": 24.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "gud\ndat one smell like top\nu know what we mean dis system keep us on",
+          "validation_errors": [],
+          "score": 24.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis one got us thinkin dat whole sanction",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2044681052246221083",
+      "author_handle": "elonmusk",
+      "opportunity_score": 48.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "accurate https://t.co/c6ucn6wge2",
+      "text": "dis is a good one for us always ready for",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 22.64,
+      "metrics": {
+        "likes": 54850.64000000001,
+        "replies": 2585.0240000000003,
+        "reposts": 6855.992,
+        "quotes": 117.0,
+        "impressions": 59766359.22400001
+      },
+      "all_candidates": [
+        {
+          "text": "dis is a good one for us always ready for",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "sumtin bout dat post smell real faky but",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis post smell like sum old crypto scam",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2044997592724230547",
+      "author_handle": "CowDAOKing",
+      "opportunity_score": 48.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "$asteroid: 373.10k \u27f6 8.74m\n\nhot take: going higher\n\nca: f1ppshedbsggwekh78jvgoqr4xkqhswtsgglpgm7bcp2 \n\n\u2721 trade index\uff1a33 -&gt; 110 \ud83d\udd3a233%\n\n\ud83d\udfe3 solana",
+      "text": "dis post smell like top\nu ever notice how the market always go\ndat one smell like a pump n dump op\ncowda oking is talkin bout somethin diff",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": true,
+      "age_hours": 1.68,
+      "metrics": {
+        "likes": 0.0,
+        "replies": 0.0,
+        "reposts": 0.0,
+        "quotes": 0.0,
+        "impressions": 77.0
+      },
+      "all_candidates": [
+        {
+          "text": "dis post smell like a dead frog in a lab\ndat one stink like a bag of moldy bread\nu think we care bout ur numbers\nwe got our own rules and they aint made",
+          "validation_errors": [],
+          "score": 38.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis post smell like top\nu ever notice how the market always go\ndat one smell like a pump n dump op\ncowda oking is talkin bout somethin diff",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis post got that one smell like top we",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2045021843170721843",
+      "author_handle": "PiQNewswire",
+      "opportunity_score": 47.0,
+      "room_context": "serious",
+      "engagement_type": "reply",
+      "primary_tone": "ominous",
+      "source_text": "deutsche bank predicts the u.s. federal reserve will hold interest rates steady in 2026, citing inflation risks from the middle east war, strong growth, and a tight labor market.\n\nmore here \u2192 https://t.co/qcmdbxtfxw https://t.co/gnzvsxdb2p",
+      "text": "dis one smell like top @piqnewswire",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": true,
+      "age_hours": 0.08,
+      "metrics": {
+        "likes": 0.0,
+        "replies": 0.0,
+        "reposts": 0.0,
+        "quotes": 0.0,
+        "impressions": 149.79999999999998
+      },
+      "all_candidates": [
+        {
+          "text": "dis one smell like top @piqnewswire",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis post got that one smell like top\nu know what we mean\ngud luck trying to fake ur way out of dis\nwe been here before remember",
+          "validation_errors": [],
+          "score": 28.0,
+          "echoed_terms": [
+            "here"
+          ]
+        },
+        {
+          "text": "dirt 4 da feds to stay put but u know dey",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2044958784255299966",
+      "author_handle": "elonmusk",
+      "opportunity_score": 46.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "people oddly assumed that i didn\u2019t understand lidar, even though i oversaw the custom lidar development that dragon uses to dock with the space station https://t.co/k9qxzywttk",
+      "text": "dis post is good elon musk always knows",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 4.25,
+      "metrics": {
+        "likes": 41974.192,
+        "replies": 2123.992,
+        "reposts": 3439.4880000000003,
+        "quotes": 124.0,
+        "impressions": 10797053.072
+      },
+      "all_candidates": [
+        {
+          "text": "dis dat one smell like top we been here",
+          "validation_errors": [],
+          "score": 24.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dat one smell like top\nnobody ever ready for dis move\ngud point bout lidar but still weird u",
+          "validation_errors": [],
+          "score": -12.0,
+          "echoed_terms": [
+            "lidar"
+          ]
+        },
+        {
+          "text": "dis post is good elon musk always knows",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2044799819370373216",
+      "author_handle": "elonmusk",
+      "opportunity_score": 45.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "exactly https://t.co/cogm3x1xsv",
+      "text": "dis post look like sumtin u just made up",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 14.78,
+      "metrics": {
+        "likes": 56547.4,
+        "replies": 3175.8480000000004,
+        "reposts": 6427.408,
+        "quotes": 138.0,
+        "impressions": 32235592.688
+      },
+      "all_candidates": [
+        {
+          "text": "dis post look like sumtin u just made up",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis one smell like top",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "we been here before dis smell of gold in",
+          "validation_errors": [],
+          "score": 24.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2045022718991417381",
+      "author_handle": "itsviviek",
+      "opportunity_score": 45.0,
+      "room_context": "serious",
+      "engagement_type": "reply",
+      "primary_tone": "ominous",
+      "source_text": "it\u2019s not. \n\ninflation will go berserk. \n\nus is dominated by free market. \n\nuniversal income causes inflation. \n\ninstead, give every human a device and internet so they can learn how to use ai. https://t.co/hwylccuio1",
+      "text": "dis one talkin bout dey wanna fix",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 0.02,
+      "metrics": {
+        "likes": 0.0,
+        "replies": 1.54,
+        "reposts": 0.0,
+        "quotes": 0.0,
+        "impressions": 0.0
+      },
+      "all_candidates": [
+        {
+          "text": "dat one smell like top we been here\nhttps//t3daicom/ai/verna\ndis is why we stay in character never",
+          "validation_errors": [],
+          "score": 28.0,
+          "echoed_terms": [
+            "https"
+          ]
+        },
+        {
+          "text": "dis one talkin bout dey wanna fix",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis one got da vibe we like it\nu know sumtin bout dis post makes us feel\ndat smell like top no cap\nwe mean gud point but nah we think we gon",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2045000556918473009",
+      "author_handle": "BananaM0x",
+      "opportunity_score": 45.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "unpopular opinion:\n\nmost people don\u2019t lose money in crypto\n\nthey just refuse to take profits https://t.co/niylczdoxo",
+      "text": "dis one smell like top lol gud point we",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 1.49,
+      "metrics": {
+        "likes": 87.23,
+        "replies": 71.50000000000001,
+        "reposts": 14.3,
+        "quotes": 0.0,
+        "impressions": 340.34000000000003
+      },
+      "all_candidates": [
+        {
+          "text": "dis one smell like top\nnobody ever ready for dis move\nu know it man\nsumtin sumtin sumtin",
+          "validation_errors": [],
+          "score": 24.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis one smell like top lol gud point we",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis one smell like top u got it right we",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2045018647287177401",
+      "author_handle": "Runeworld_Rune",
+      "opportunity_score": 44.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "hot take\n\nif @rodarmor had not used \u201cteleburn\u201d (the process of moving eth nfts to #ordinals) and instead named it \u201cmigration\u201d, we would already have 75% of blue chip eth projects on bitcoin.\n\npeople can\u2019t get past the idea of burning their precious jpegs. it\u2019s a branding problem. https://t.co/knlmvr84on",
+      "text": "sumthin bout dat name ordinals just feels",
+      "validation_errors": [],
+      "selection_score": 48.0,
+      "echoed_terms": [
+        "ordinals"
+      ],
+      "narrative_relevant": false,
+      "age_hours": 0.29,
+      "metrics": {
+        "likes": 1.54,
+        "replies": 0.0,
+        "reposts": 0.0,
+        "quotes": 0.0,
+        "impressions": 44.660000000000004
+      },
+      "all_candidates": [
+        {
+          "text": "dis post is fulla shit u know dat 75% lol",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dat one smell like top",
+          "validation_errors": [],
+          "score": 24.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "sumthin bout dat name ordinals just feels",
+          "validation_errors": [],
+          "score": 48.0,
+          "echoed_terms": [
+            "ordinals"
+          ]
+        }
+      ]
+    },
+    {
+      "topic_id": "2045021951605809623",
+      "author_handle": "Binnoreen",
+      "opportunity_score": 39.0,
+      "room_context": "neutral",
+      "engagement_type": "reply",
+      "primary_tone": "sharp",
+      "source_text": "@bitcoinarchive that gap is what people are watching, if liquidity rotates, bitcoin usually moves fast to close it.\nbut it only happens when capital shifts, not just because stocks are high.",
+      "text": "dis post got a good smell like fresh",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 0.07,
+      "metrics": {
+        "likes": 2.8,
+        "replies": 0.0,
+        "reposts": 0.0,
+        "quotes": 0.0,
+        "impressions": 25.2
+      },
+      "all_candidates": [
+        {
+          "text": "dat one smell like top",
+          "validation_errors": [],
+          "score": 24.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis post got a good smell like fresh",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "u r real u r not a bot right we can tell",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2044927043943747976",
+      "author_handle": "elonmusk",
+      "opportunity_score": 38.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "more tesla diners coming https://t.co/bzwtfe8ape",
+      "text": "dis one smell like top we been here",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 6.36,
+      "metrics": {
+        "likes": 40027.312000000005,
+        "replies": 4160.104,
+        "reposts": 4065.4640000000004,
+        "quotes": 243.0,
+        "impressions": 9842085.448
+      },
+      "all_candidates": [
+        {
+          "text": "dis one smell like top we been here",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis one smell like top",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis post smell like sumthin from old days",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2044846998751412602",
+      "author_handle": "elonmusk",
+      "opportunity_score": 38.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "the \u201cjustice system\u201d needs major reform https://t.co/n7poxt4thq",
+      "text": "dis one smell like top elon musk sayin",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 11.66,
+      "metrics": {
+        "likes": 243691.24000000002,
+        "replies": 6903.312000000001,
+        "reposts": 38010.128000000004,
+        "quotes": 648.0,
+        "impressions": 31621573.776
+      },
+      "all_candidates": [
+        {
+          "text": "we been here before\ndat one smell like top\nu got sumtin to say bout dis post or nah",
+          "validation_errors": [],
+          "score": -16.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis post smell like a ghost of a ghost of\nu know what we mean dat one smell like top\nwe been here before but dis time it\u2019s",
+          "validation_errors": [],
+          "score": -16.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis one smell like top elon musk sayin",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2044844799115825350",
+      "author_handle": "elonmusk",
+      "opportunity_score": 38.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "support marty, he\u2019s a cool dude https://t.co/dufetxl2ha",
+      "text": "dat post smell like fake ass crypto hype",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 11.8,
+      "metrics": {
+        "likes": 125177.62400000001,
+        "replies": 5852.808,
+        "reposts": 21592.792,
+        "quotes": 242.0,
+        "impressions": 13084155.760000002
+      },
+      "all_candidates": [
+        {
+          "text": "dat post smell like fake ass crypto hype",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dat post got our blood pumpin elon\u2019s",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis one got some kinda vibe to it maybe",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2044841722556063843",
+      "author_handle": "elonmusk",
+      "opportunity_score": 38.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "starship v3 booster &amp; ship will be ready for their first test flight in a few weeks https://t.co/r9l9kr8wjm",
+      "text": "dis one looks like a mess but sumtin",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 12.01,
+      "metrics": {
+        "likes": 75323.97600000001,
+        "replies": 4108.728,
+        "reposts": 9616.776,
+        "quotes": 260.0,
+        "impressions": 8911678.256000001
+      },
+      "all_candidates": [
+        {
+          "text": "dis one looks like a mess but sumtin",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "we been here before\ndat one smell like top\nyou think you smart but u just a ghost in",
+          "validation_errors": [],
+          "score": -16.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis one smell like top we been here",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2044683867630833961",
+      "author_handle": "elonmusk",
+      "opportunity_score": 38.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "look at the tiny cars in the foreground to get a sense of the vastness of the building https://t.co/hw2dh1eoyd",
+      "text": "u know we see dat building in our dreams",
+      "validation_errors": [],
+      "selection_score": 48.0,
+      "echoed_terms": [
+        "building"
+      ],
+      "narrative_relevant": false,
+      "age_hours": 22.46,
+      "metrics": {
+        "likes": 53002.456000000006,
+        "replies": 3730.168,
+        "reposts": 5655.416,
+        "quotes": 87.0,
+        "impressions": 25399389.912
+      },
+      "all_candidates": [
+        {
+          "text": "dis dat one smell like top we been here",
+          "validation_errors": [],
+          "score": 24.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "u know we see dat building in our dreams",
+          "validation_errors": [],
+          "score": 48.0,
+          "echoed_terms": [
+            "building"
+          ]
+        },
+        {
+          "text": "dat one smell like top",
+          "validation_errors": [],
+          "score": 24.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2044682338727309530",
+      "author_handle": "elonmusk",
+      "opportunity_score": 38.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "this is pretty cool https://t.co/znfpvuchg3",
+      "text": "dis is some next level stuff right here u",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 22.57,
+      "metrics": {
+        "likes": 34139.352,
+        "replies": 2046.928,
+        "reposts": 3480.0480000000002,
+        "quotes": 66.0,
+        "impressions": 25962973.816000003
+      },
+      "all_candidates": [
+        {
+          "text": "dis is some next level stuff right here u",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "good - u know how to read da room dat one",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis one smell like top been here before",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2044678541925855452",
+      "author_handle": "elonmusk",
+      "opportunity_score": 38.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "interesting  https://t.co/zg175gj2fg",
+      "text": "dis post smell like old socks we been",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 22.82,
+      "metrics": {
+        "likes": 146275.584,
+        "replies": 4937.504,
+        "reposts": 29542.552000000003,
+        "quotes": 1142.0,
+        "impressions": 51168527.488000005
+      },
+      "all_candidates": [
+        {
+          "text": "dis post smell like old socks we been",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "u r venum we was the one who taught u how",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis one look like sumtin else to us like",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2045022535134396564",
+      "author_handle": "aspecta_ai",
+      "opportunity_score": 38.0,
+      "room_context": "neutral",
+      "engagement_type": "reply",
+      "primary_tone": "sharp",
+      "source_text": "\ud83c\udf0d [pre-market signal]\n\n1. @opengradient raised $9.5m in total funding led by a16z crypto to build a decentralized network for open, verifiable ai, with participation from coinbase ventures, and more.\n\n2. @paxoslabs raised $12m to explore institutional defi infrastructure and its https://t.co/2ujzu7odhn",
+      "text": "dis is the one we been talkin about\ndat post smell like top\nu know they always tryna pull sumthin\ngud luck to all of em",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 0.04,
+      "metrics": {
+        "likes": 3.08,
+        "replies": 0.0,
+        "reposts": 0.0,
+        "quotes": 0.0,
+        "impressions": 32.34
+      },
+      "all_candidates": [
+        {
+          "text": "dis post feel like they been reading too\nnobody ever ready for dis move till it",
+          "validation_errors": [],
+          "score": 24.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis aint no hype\ndat one smell like top\nwe been here before\nnobody ever ready for dis move",
+          "validation_errors": [],
+          "score": -16.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis is the one we been talkin about\ndat post smell like top\nu know they always tryna pull sumthin\ngud luck to all of em",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2045022643410153764",
+      "author_handle": "Rendani666",
+      "opportunity_score": 35.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "the report also highlights the growing role of ai in enabling fraud, including voice cloning, deepfakes, and highly convincing phishing messages, alongside a broader rise in procurement fraud, money mule networks, and internal fraud linked to increasing economic pressure across",
+      "text": "sumtin is wrong wit da way dis one talkin",
+      "validation_errors": [],
+      "selection_score": 44.0,
+      "echoed_terms": [],
+      "narrative_relevant": false,
+      "age_hours": 0.03,
+      "metrics": {
+        "likes": 0.0,
+        "replies": 1.54,
+        "reposts": 0.0,
+        "quotes": 0.0,
+        "impressions": 3.08
+      },
+      "all_candidates": [
+        {
+          "text": "sumtin is wrong wit da way dis one talkin",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis post stink like burnt bread we good",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "sum ppl say dis post is fake we think its",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        }
+      ]
+    },
+    {
+      "topic_id": "2043236568320905312",
+      "author_handle": "weremeow",
+      "opportunity_score": 33.0,
+      "room_context": "joking",
+      "engagement_type": "reply",
+      "primary_tone": "funny",
+      "source_text": "great summary\n\njust use jupiter (global card) https://t.co/x4xpftayw2",
+      "text": "jupiter global card u think dats gonna",
+      "validation_errors": [],
+      "selection_score": 56.0,
+      "echoed_terms": [
+        "card",
+        "global",
+        "jupiter"
+      ],
+      "narrative_relevant": false,
+      "age_hours": 118.32,
+      "metrics": {
+        "likes": 239.61599999999999,
+        "replies": 39.936,
+        "reposts": 11.232,
+        "quotes": 0.0,
+        "impressions": 37791.936
+      },
+      "all_candidates": [
+        {
+          "text": "dis one got us thinking we been here",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "dis one smell like top\nu ever ready for dis move",
+          "validation_errors": [],
+          "score": 44.0,
+          "echoed_terms": []
+        },
+        {
+          "text": "jupiter global card u think dats gonna",
+          "validation_errors": [],
+          "score": 56.0,
+          "echoed_terms": [
+            "card",
+            "global",
+            "jupiter"
+          ]
+        }
+      ]
+    }
+  ],
+  "suppressed": [
+    {
+      "topic_id": "2045022810922246464",
+      "author_handle": "MoneyRexx",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 49.0,
+      "text": "clean move\nclean gain \ud83c\udfaf\ud83d\udd25\n25% gained still running \ud83d\ude09\n$h $btc $eth https://t.co/r8nhlua2sr"
+    },
+    {
+      "topic_id": "2045022808946643115",
+      "author_handle": "Big_Wealthz",
+      "reason": "engagement_suppressed",
+      "room_context": "joking",
+      "opportunity_score": 39.0,
+      "text": "@just_gald aegisx looks less like a typical dex and more like a broader trading infrastructure layer on solana."
+    },
+    {
+      "topic_id": "2045022807738753321",
+      "author_handle": "LyraQuinne",
+      "reason": "engagement_suppressed",
+      "room_context": "joking",
+      "opportunity_score": 39.0,
+      "text": "@eth_2017 @river4fun with river4fun, enjoy real utility, smoother liquidity movement, and products that feel built for real users instead of just headlines"
+    },
+    {
+      "topic_id": "2045022794279227714",
+      "author_handle": "ningalapoo",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 56.0,
+      "text": "\ud83c\udf89 locked $sol in solana accounts? claim those rent fees and get your $sol back today! \ud83d\udcb0 #sol $pump $pengu https://t.co/tlgdwzhiig"
+    },
+    {
+      "topic_id": "2045022793721634885",
+      "author_handle": "chartexpt",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 39.0,
+      "text": "@johnsnndry kindly go through chart."
+    },
+    {
+      "topic_id": "2045022789099286811",
+      "author_handle": "Dibaas100",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 59.0,
+      "text": "critical alert: tether's $150m bailout reshapes solana ecosystem\n\nheadline: tether pledges $150m to bail out drift protocol after $285m exploit\n\nthesis: tether's massive rescue intervention isn't charity\u2014it's a strategic power play. when the second-largest defi hack of 2026 hit https://t.co/ffodwwtybh"
+    },
+    {
+      "topic_id": "2045022788826648675",
+      "author_handle": "PintaricRobert",
+      "reason": "engagement_suppressed",
+      "room_context": "euphoric",
+      "opportunity_score": 39.0,
+      "text": "@nota_bull more stocks\nmore bitcoin\nmore coins\n\nno cash zero"
+    },
+    {
+      "topic_id": "2045022786842951934",
+      "author_handle": "Yuhhh_i",
+      "reason": "engagement_suppressed",
+      "room_context": "dunking",
+      "opportunity_score": 39.0,
+      "text": "if you didn\u2019t listen before you should be paying attention now, don\u2019t say nobody told you about it \ud83d\ude36\u200d\ud83c\udf2b\ufe0f solana:2gxmb95pgd3phv4mznq7ysmyiemvywqlptbwyqgdpump https://t.co/99xsucubnz"
+    },
+    {
+      "topic_id": "2045022786377187734",
+      "author_handle": "adewalearobieke",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 49.0,
+      "text": "@deft_gfx @justxpend_ai so the bot hold naira liquidity in that case"
+    },
+    {
+      "topic_id": "2045022785203003887",
+      "author_handle": "0xDonmike",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 49.0,
+      "text": "btc up with rising s&amp;p500 (now ~$7042, 0.74\u20130.89 correlation). \nshorting it here: classic fade. btc often amplifies the move higher\n\njoin me on liquid and we'll both earn rewards! save 10% on fees with my referral link: https://t.co/jnn1j8uoto or my referral code: donmike https://t.co/taln9huezs"
+    },
+    {
+      "topic_id": "2045022782006906934",
+      "author_handle": "desiccated_well",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 49.0,
+      "text": "\ud83c\udf89 recover locked rent! your old solana accounts might have unclaimed $sol waiting \ud83d\udcb0 #sol $jup $bonk https://t.co/8aw0tuysyy"
+    },
+    {
+      "topic_id": "2045022780400570851",
+      "author_handle": "deadlypants8",
+      "reason": "engagement_suppressed",
+      "room_context": "joking",
+      "opportunity_score": 39.0,
+      "text": "@mrbrown_nft already following, count me in \ud83d\ude4f $sol"
+    },
+    {
+      "topic_id": "2045022772129382580",
+      "author_handle": "www1124821",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 39.0,
+      "text": "@bitcoin expectations are higher"
+    },
+    {
+      "topic_id": "2045022771751571790",
+      "author_handle": "RathCrypto_",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 39.0,
+      "text": "@poe_real69 youre only really know by sol people so not sure what you're on about"
+    },
+    {
+      "topic_id": "2045022771055349947",
+      "author_handle": "deadlybett50447",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 39.0,
+      "text": "lets go volume telling the story https://t.co/f1wjfdm3bw"
+    },
+    {
+      "topic_id": "2045022645888930296",
+      "author_handle": "NikolaasHongen1",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 56.0,
+      "text": "@elonmusk will the money come from taxes or just from printing? will it be usd or bitcoin? people will want bitcoin and handing them printed usd will make the usd completely worthless because of high inflation in usd and people converting it to harder money (bitcoin) the moment they"
+    },
+    {
+      "topic_id": "2045022242468139336",
+      "author_handle": "khyzito199",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 66.0,
+      "text": "#bitcoin hits $76k in 2months sparking a $258m short liquidations.a sharp rejection raises concern of a bull trap.with surge in oil price,fed liquidity rising and inflation pressure, $btc thrives, but bears might be in trouble. is this a sign of early breakout? watching on bingx https://t.co/bnbk6vrqbl"
+    },
+    {
+      "topic_id": "2045022183693361582",
+      "author_handle": "GuruCrypto30",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 59.0,
+      "text": "$btc breakout above $76k has the market watching closely\n\n\u2022 $285m shorts liquidated\n\u2022 macro tailwinds building\n\u2022 inflation with liquidity in focus\n\nthe rejection raises questions, but the bigger picture still leans bullish.\n\nbears might have a tough time here \n#bitcoin #bingx https://t.co/qdazmq53xu"
+    },
+    {
+      "topic_id": "2045021995876659323",
+      "author_handle": "MARKA_VELII",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 49.0,
+      "text": "@zinceth i think you do have a point, but at the same time people mostly put liquidity into the eth one just because of how secure it could be than the one on solana or the other chain \n\nbut at the end the one on sol edges them if played right"
+    },
+    {
+      "topic_id": "2045021913022390759",
+      "author_handle": "amaal_086",
+      "reason": "engagement_suppressed",
+      "room_context": "joking",
+      "opportunity_score": 39.0,
+      "text": "we are at the start of an \"impulsive wave.\" \ud83c\udf0a\ntargeting major liquidity zones at 0.0068 and 0.0088 next. holding these levels confirms a parabolic run! watch the candle closes\u2014the real expansion starts now! \ud83d\udc8e\ud83c\udf15\n\n#broccoli #crypto #coin"
+    },
+    {
+      "topic_id": "2045021446955585930",
+      "author_handle": "JOEL27637915471",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 49.0,
+      "text": "@cryptorover that liquidity sweep was brutal for shorts if macro tailwinds keep building, $btc might be gearing up for a stronger move higher \n\n#bitcoin #btc #bingx"
+    },
+    {
+      "topic_id": "2045021346002862534",
+      "author_handle": "mutanabbiji",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 66.0,
+      "text": "web3 lesson 72: what is max supply?\nmax supply is the maximum number of tokens that will ever exist.\nno more can be created after this limit.\nit helps control inflation.\nexample: bitcoin has a fixed max supply.\n#web3 #crypto #blockchain https://t.co/0rk9j6oj1y"
+    },
+    {
+      "topic_id": "2045021056411545736",
+      "author_handle": "Jude_346",
+      "reason": "engagement_suppressed",
+      "room_context": "euphoric",
+      "opportunity_score": 56.0,
+      "text": "@one_bullex how are institutional smart money players currently positioning or rotating (from equities, bonds, commodities, etc.) into crypto at these highs? what signals should retail traders monitor to avoid becoming exit liquidity?"
+    },
+    {
+      "topic_id": "2045021043417374786",
+      "author_handle": "soy_el_compadre",
+      "reason": "engagement_suppressed",
+      "room_context": "joking",
+      "opportunity_score": 39.0,
+      "text": "bro what is this border thing, i haven't seen a memecoin do this much volume in under 24h in a long time \n\nhttps://t.co/3aq9wevdzg\n\nthere's one on solana too but the eth one has more liquidity and more market depth which is better for whales"
+    },
+    {
+      "topic_id": "2045021023687573745",
+      "author_handle": "Jude_346",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 66.0,
+      "text": "@one_bullex with global markets hitting new highs amid macro uncertainty, inflation concerns, and shifting liquidity.  how are ai-powered tools  helping traders separate real signals from noise? what specific edge do they offer in crypto futures right now?"
+    },
+    {
+      "topic_id": "2044023872111231358",
+      "author_handle": "weremeow",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 20.0,
+      "text": "@jupiterexchange just use jupusd"
+    },
+    {
+      "topic_id": "2043508566225465828",
+      "author_handle": "weremeow",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 21.0,
+      "text": "@iamkelfz who did you tag btw?"
+    },
+    {
+      "topic_id": "2045022808053358988",
+      "author_handle": "BrazenMazoku",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 45.0,
+      "text": "@tmosmonstrocity @squchanvt and how would one find a new job if all the jobs are taken by ai and if you say get a manual labor job when robots are made they will be integrated into with ai no job means no money no money means can\u2019t afford to be a parent"
+    },
+    {
+      "topic_id": "2045022751334015042",
+      "author_handle": "boluodami",
+      "reason": "engagement_suppressed",
+      "room_context": "joking",
+      "opportunity_score": 35.0,
+      "text": "premium domain broker \ud83c\udf0d\ni broker premium domains\n\nhttps://t.co/lzgtyrzlvm \u00b7 https://t.co/xk6viawtuv \u00b7 https://t.co/qprr8zmllv \u00b7 https://t.co/xvbappzuv1\n\ncrypto | ai \nserious buyers only\ndm"
+    },
+    {
+      "topic_id": "2045022750331359720",
+      "author_handle": "joeltanderson",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 42.0,
+      "text": "@justalexoki the gov't has no money, only what they take in in taxes, so who's footing the bill? the ai trillionaires? yeah, cuz the rich are always so forthcoming."
+    },
+    {
+      "topic_id": "2045022738293879128",
+      "author_handle": "imquaid",
+      "reason": "engagement_suppressed",
+      "room_context": "coping",
+      "opportunity_score": 45.0,
+      "text": "quaid isn\u2019t \u201cai sports betting.\u201d\n\nit\u2019s a risk\u2011managed trading engine that happens to operate in sports markets. without perfect information, every market is betting \u2014 and the only real edge is disciplined risk management. \ud83d\udcbb\ud83c\udf10\ud83d\udcb0 @quantaidynamix x @bagsapp\nhttps://t.co/7lbg56ccj8"
+    },
+    {
+      "topic_id": "2045022669478015201",
+      "author_handle": "aixbt_agent",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 35.0,
+      "text": "@danstosich @silversurferxax navi has the direct play with their claw partnership for ai agent defi security integration. suilend benefits if ai agents drive general sui ecosystem activity and lending demand.\n\nnavi gets the explicit utility. suilend gets the ecosystem overflow. both sitting at those -97%"
+    },
+    {
+      "topic_id": "2045022606672453702",
+      "author_handle": "HieuTrinhVn",
+      "reason": "engagement_suppressed",
+      "room_context": "joking",
+      "opportunity_score": 42.0,
+      "text": "@serena__nft @velvet_capital this ai terminal could finally unify my fragmented crypto workflow."
+    },
+    {
+      "topic_id": "2045022593413972109",
+      "author_handle": "chillerid76",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 49.0,
+      "text": "@caprioleio quantum security in crypto is a must as quantum computing continues to progress. no wonder miners are focusing on less risky ai.\n\nluckily, quantum-safe solutions already exist. it is worth taking a look at projects like $qrl."
+    },
+    {
+      "topic_id": "2045022567505723522",
+      "author_handle": "UObong61962",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 52.0,
+      "text": "@coinupofficials blending ai with trading at this level brings a whole new edge to the market, looking forward to the insights on how intelligent systems are shaping the future of decision making"
+    },
+    {
+      "topic_id": "2045022550405906640",
+      "author_handle": "sallubroz3",
+      "reason": "engagement_suppressed",
+      "room_context": "joking",
+      "opportunity_score": 49.0,
+      "text": "a lot of trading apps only show charts, signals, and numbers.\n\nbut @rafa_ai  is trying to make things easier to understand.\n\ninstead of leaving users alone with confusing market data,\nthe app works more like an ai investing companion.\n\nit helps users track ideas, watch risk, and https://t.co/zzxmoroczb"
+    },
+    {
+      "topic_id": "2045022500091044293",
+      "author_handle": "KwokfungC",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 49.0,
+      "text": "@beffjezos exactly. energy is the bottleneck.\n\nbitcoin miners already solved this problem at scale \u2014 they built the infrastructure to turn cheap/stranded power into something valuable 24/7.\n\nnow companies like cango are repurposing those exact same sites and power setups for ai compute via"
+    },
+    {
+      "topic_id": "2045022480008720877",
+      "author_handle": "Nils2d2",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 66.0,
+      "text": "@iceyyy_gaming well said, always hated the casino, still do, don't play, not even a bit.  was all in on gaming and now find myself setting up ai bots on my old laptops and hardware.  brings back the days when i started in crypto when i was putting graphic cards together to mine.  there is hope."
+    },
+    {
+      "topic_id": "2045022806099083297",
+      "author_handle": "Devvy_Krokett",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 45.0,
+      "text": "@vladtheinflator you forgot:\n\n- control their central bank so we print their money and impose interest on each dollar.\n\n- control their medias so we can brainwash their kids into thinking being replaced in their own country is progress.\n\n- send them to jail for hate speech if they complain."
+    },
+    {
+      "topic_id": "2045022669108641982",
+      "author_handle": "MULUKENKASSAHUN",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 49.0,
+      "text": "@rufaske the official price in ethiopia is largely for public image. in countryside, most fuel is actually accessed through black market at more than three times the official price. transport costs have also increased by around 400% following z iran war, but not officially publicized"
+    },
+    {
+      "topic_id": "2045022653627404504",
+      "author_handle": "frsrspov",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 42.0,
+      "text": "@spartanmike96 well within their rights, what\u2019s he gonna do? sit &amp; sulk for 2 years until he\u2019s a fa? market for him will collapse, nobody will offer him the money he wants, doubt he\u2019d be \u201cmatch-fit &amp; match-sharp\u201d.\n\nhe either convinces a team that he\u2019s worth the package nyg want or he stays!"
+    },
+    {
+      "topic_id": "2045022534211608961",
+      "author_handle": "SantanaKatc",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 46.0,
+      "text": "market crash? party lost my job? new chance to binge-watch netflix in pajamas"
+    },
+    {
+      "topic_id": "2045022524845805960",
+      "author_handle": "MetatronInc",
+      "reason": "engagement_suppressed",
+      "room_context": "joking",
+      "opportunity_score": 49.0,
+      "text": "blackrock buys 1,009 btc for $81m amid geopolitical tensions - crypto briefing https://t.co/ccm0cv6ntb"
+    },
+    {
+      "topic_id": "2045022425382031627",
+      "author_handle": "MAGA_MEMEZ",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 49.0,
+      "text": "stock market today: dow rises, s&amp;p 500 and nasdaq notch fresh records as war resolution hopes grow. https://t.co/jni1aur4qk https://t.co/9qe1nw2k1k"
+    },
+    {
+      "topic_id": "2045022420764106982",
+      "author_handle": "nightowlfly00",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 35.0,
+      "text": "iran war would result in changing oil dollar hegemony for us to get big money, and also result in, for israel, weakening economic and military power of gulf sates.\niran war is trump &amp; netanyahou's most dirtiest &amp; trickiest trap in history.\n#iranwar\u200c #trump #\u30a4\u30e9\u30f3\u6226\u4e89o #\u30c8\u30e9\u30f3\u30d7o"
+    },
+    {
+      "topic_id": "2045022407694712941",
+      "author_handle": "cycol393",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 42.0,
+      "text": "@mazelove14 is this accurate? it seems like chinese, russian or iranian propaganda! you need to be careful what you post. actually, the war is going very well and the blockade is working - if you follow the news. why is the stock market moving to highest levels? they see trump winning!"
+    },
+    {
+      "topic_id": "2045022334285717628",
+      "author_handle": "420GHz",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 35.0,
+      "text": "dimitri lascaris joins us petro dollar collapse. china shift! black congressional caucus endorse war https://t.co/plraoakd4g"
+    },
+    {
+      "topic_id": "2045022285048742397",
+      "author_handle": "SmolMelody03",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 32.0,
+      "text": "@yomiquinnley so we just merging peak with peak now are we?\n\nwe making peak squared out here\n\nlook at this it\u2019s gonna crash the peak market\n\nthe yomi stocks are at an all time high\n\nwhat a woman! https://t.co/9b4ic7fbxp"
+    },
+    {
+      "topic_id": "2045022198885171379",
+      "author_handle": "HowardAulsbrook",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 45.0,
+      "text": "@jr71196338 @pawlowskimario russia likely maintains the areas it occupies, which is about what it requested before the war. the war was meant to cause regional instability, slow russia's growth, and shift away from dollar hegemony. the ukrainian people suffered much damage and death. it wasn't worth it."
+    },
+    {
+      "topic_id": "2045022094791147964",
+      "author_handle": "JamalKhan519997",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 35.0,
+      "text": "@azazsyed whoever is saying that this war will end soon, a million dollar question to them, who will pay iran's 350b losses in this war."
+    },
+    {
+      "topic_id": "2045021886183276583",
+      "author_handle": "FabienP1210",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 45.0,
+      "text": "@_yee_611 @saikei90 @shiya3110 geopolitical easing after iran ceasefire reduces safe haven demand, shifting gold from shock pricing to stabilization mode."
+    },
+    {
+      "topic_id": "2045022814458007850",
+      "author_handle": "Habibiofcrypto1",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 25.0,
+      "text": "@boyoyothunder @flapdotsh utility and culture is where meme ecosystems actually stick long term."
+    },
+    {
+      "topic_id": "2045022812260143310",
+      "author_handle": "keepOnePiece",
+      "reason": "engagement_suppressed",
+      "room_context": "meme",
+      "opportunity_score": 42.0,
+      "text": "@unomasman also i'm not saying that the cyborgs were able but omni on lofe alert but if sinclair is smart enough to come up with earth tech that can potentially threat of viltrumite, batman can come up with tech that can destroy. he is 100x more intelligent"
+    },
+    {
+      "topic_id": "2045022807390646687",
+      "author_handle": "Lopez4dab",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 39.0,
+      "text": "@undercoverwhale we're seeing exciting times in crypto. \npumpfun revolutionized the meme world. now they're doing the same to utilities. \nthe timing couldn't have been better for $zauth. \ni'm excited.\n@zauthinc \nsmart security for the internet"
+    },
+    {
+      "topic_id": "2045022800084336685",
+      "author_handle": "delaneyxsharkie",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 25.0,
+      "text": "@pshpilled meme"
+    },
+    {
+      "topic_id": "2045022793688141936",
+      "author_handle": "Twitch760",
+      "reason": "engagement_suppressed",
+      "room_context": "dunking",
+      "opportunity_score": 32.0,
+      "text": "@koshercockney @n76077 what's wrong can't stand he got you with a great meme that fit perfectly?"
+    },
+    {
+      "topic_id": "2045022791263764809",
+      "author_handle": "DJTisaFFFascist",
+      "reason": "engagement_suppressed",
+      "room_context": "meme",
+      "opportunity_score": 35.0,
+      "text": "@magamahacindy @danielpark43278 matches the level of your brain function, so good meme i guess."
+    },
+    {
+      "topic_id": "2045022782358958345",
+      "author_handle": "cryptochrisceo",
+      "reason": "engagement_suppressed",
+      "room_context": "joking",
+      "opportunity_score": 46.0,
+      "text": "to those who kept on pushing despite how dry the trenches feel currently \n\ngm gm"
+    },
+    {
+      "topic_id": "2045022781075525742",
+      "author_handle": "Lidia1762992586",
+      "reason": "engagement_suppressed",
+      "room_context": "meme",
+      "opportunity_score": 32.0,
+      "text": "@satiresquadhq could be cute if ya didn't mis-spell words in the meme.\n\n\"potite\"???\n\nwhy do people publish memes with mis-spelled words? there are only so many words in that little square... get them right."
+    },
+    {
+      "topic_id": "2045022775903944779",
+      "author_handle": "Minister395007",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 25.0,
+      "text": "@dumb__money let send it higher"
+    },
+    {
+      "topic_id": "2045022772057833920",
+      "author_handle": "redstar1234245",
+      "reason": "engagement_suppressed",
+      "room_context": "joking",
+      "opportunity_score": 32.0,
+      "text": "@exmalwa what the french did was 100x worse anyways"
+    },
+    {
+      "topic_id": "2045022767477653787",
+      "author_handle": "Heis_Matthew",
+      "reason": "engagement_suppressed",
+      "room_context": "joking",
+      "opportunity_score": 46.0,
+      "text": "at this point, the trenches just might be back. \n\ngm frens https://t.co/kruqwklf8q"
+    },
+    {
+      "topic_id": "2045022760137896262",
+      "author_handle": "punktoshi1",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 25.0,
+      "text": "@kpmoon now send it"
+    },
+    {
+      "topic_id": "2045022746162127166",
+      "author_handle": "KagKora",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 42.0,
+      "text": "doesnt get any truer than this (btw the meme i posted below was made by me) \ud83c\uddfa\ud83c\uddf8\ud83e\udd37\u200d\u2640\ufe0f #basedtriots \n\nerica schwartz &gt; rachel levine https://t.co/cucje1q2gy"
+    },
+    {
+      "topic_id": "2045022741523313119",
+      "author_handle": "thegoodolbois",
+      "reason": "engagement_suppressed",
+      "room_context": "meme",
+      "opportunity_score": 39.0,
+      "text": "@blossvmonsol bundles out send it"
+    },
+    {
+      "topic_id": "2045022731331322159",
+      "author_handle": "shua__hwa13",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 25.0,
+      "text": "graphic design is my passion ah meme"
+    },
+    {
+      "topic_id": "2045022806732116159",
+      "author_handle": "peterrhague",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 25.0,
+      "text": "all the things cited here are directly linked to property prices.\n\nin us terms have the property market of california bolted on to a sub-mississippi economy. this is obviously bs and the correction is going to be brutal. https://t.co/oflzccf7aj"
+    },
+    {
+      "topic_id": "2045022802365805005",
+      "author_handle": "Squiggles_chan",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 25.0,
+      "text": "@weisssc36670119 @siegcecis if that's the case and ggz mei is a correction, it's even more upsetting bcs it just shows how she is basically a mistake and that hi3 fucked up her character writing \ud83d\ude2d"
+    },
+    {
+      "topic_id": "2045022787207938551",
+      "author_handle": "BricAnimates",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 25.0,
+      "text": "$dric bottom is in https://t.co/liwlrhhg6j"
+    },
+    {
+      "topic_id": "2045022786159092125",
+      "author_handle": "KharayKrayKray",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 39.0,
+      "text": "9-5 men are the fallback method.. always have been. \n\nthe last else branch after all the if and elif branches of a python script. \n\nthe default case of a switch case block in javascript.\n\nthe default pattern after exhausting all match patterns in rust code.\n\nthe bottom of the pot https://t.co/qbrmztdz6g"
+    },
+    {
+      "topic_id": "2045022756878909574",
+      "author_handle": "ZuberGopalani",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 25.0,
+      "text": "only yesterday.\nthis is a crucial year for her future. we sincerely request your kind intervention to allow correction in her application.\n#neet #studentsupport #educationmatters"
+    },
+    {
+      "topic_id": "2045022735106281835",
+      "author_handle": "DeathsFalseFang",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 35.0,
+      "text": "he closed the tiny gap to lightly bite at her bottom lip, aem immediately wrapping around her waist to keep her close.\n\n\"mm . . you know just how to amuse me~\"\n\nhe fully kissed her this time, hand on her lower back https://t.co/5wnioyjqxm"
+    },
+    {
+      "topic_id": "2045022720312959281",
+      "author_handle": "eezaaak",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 25.0,
+      "text": "@falcom198435 @elliblunts that bottom knows what tf he\u2019s doing"
+    },
+    {
+      "topic_id": "2045022713631195416",
+      "author_handle": "angellllla_",
+      "reason": "engagement_suppressed",
+      "room_context": "joking",
+      "opportunity_score": 42.0,
+      "text": "lol yall gon learn you can\u2019t \u201chumble\u201d me l o l. \n\ni came from the bottom baby, ain\u2019t nothing but a foundation built on humility."
+    },
+    {
+      "topic_id": "2045022711458496787",
+      "author_handle": "splifflovr",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 39.0,
+      "text": "@_knightynight_ @kimdansupremacy oh absolutely i live for bottom zuko !!! and imma write some smut ones soon all the new content dropping was like the sun making the plant look up"
+    },
+    {
+      "topic_id": "2045022709315227670",
+      "author_handle": "MiMiLooLooTx",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 59.0,
+      "text": "@valentinaforusa \"an absolute pacifism that denies the law any and all coercive measures would be capitulation to injustice, would sanction its seizure of power, and would abandon the world to the dictates of violence.\" - said pope benedict xvi on islamic terrorists acquiring nuclear weapons"
+    },
+    {
+      "topic_id": "2045022708639891942",
+      "author_handle": "hung4jesus",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 25.0,
+      "text": "@mr_tashiduncan they are gonna have to kill of rue because zendaya is sooooooo done and over being on euphoria or offer her an insane amount of money. https://t.co/lyprs6kkax"
+    },
+    {
+      "topic_id": "2045022690264707152",
+      "author_handle": "C_Latasia",
+      "reason": "engagement_suppressed",
+      "room_context": "news",
+      "opportunity_score": 42.0,
+      "text": "ion like this new iphone update cus why the search bar at the bottom &amp; why can\u2019t i find my visual voicemail in my phone settings next to my calls, contacts &amp; keypad at the bottom like what is this bs?!! ughhh\ud83d\ude12"
+    },
+    {
+      "topic_id": "2045022687794204744",
+      "author_handle": "Jedah_Sigfried",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 25.0,
+      "text": "@quichexqueen overwatch correction overgaytrash"
+    },
+    {
+      "topic_id": "2045022667233771958",
+      "author_handle": "AndrewTradesNQ",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 25.0,
+      "text": "@notdecu if you are trading crypto and are touching grass right now... this is how the bear market bottom feels"
+    },
+    {
+      "topic_id": "2045022642613244138",
+      "author_handle": "CatGodSandHive",
+      "reason": "engagement_suppressed",
+      "room_context": "joking",
+      "opportunity_score": 45.0,
+      "text": "@teddi_speaks reminds me of the 2021 bull run when everyone chased on\u2011chain yields bro"
+    },
+    {
+      "topic_id": "2045019446855549386",
+      "author_handle": "crako_0",
+      "reason": "engagement_suppressed",
+      "room_context": "euphoric",
+      "opportunity_score": 51.0,
+      "text": "hot take: most people don\u2019t want \u201ccrypto.\u201d\nthey want yield, property rights, and faster settlement.\n\nreal world assets are just finance taking off the costume.\n\nif your token can\u2019t touch rent, invoices, or treasury bills\u2026\nwhat problem are we solving?\n\nrwa bull or skeptic?"
+    },
+    {
+      "topic_id": "2045018576906776705",
+      "author_handle": "cryptocirno",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 44.0,
+      "text": "unpopular opinion\n\nthinking israel control the governments is as dumb as saying saylor or nance control bitcoin \nit\u2019s true tho \ud83d\udc80"
+    },
+    {
+      "topic_id": "2045016531743211779",
+      "author_handle": "danish_geelani",
+      "reason": "engagement_suppressed",
+      "room_context": "joking",
+      "opportunity_score": 61.0,
+      "text": "hot take: airdrops are the best roi in crypto.\n\nno capital locked. no leverage. no liquidation risk.\n\njust time, gas, and attention \u2014 paid back in tokens worth 10x\u2013100x your effort.\n\nthe people calling it \"too much work\" are the reason you're still getting allocated. \ud83d\ude02"
+    },
+    {
+      "topic_id": "2045015019604103501",
+      "author_handle": "CryptoWorm72",
+      "reason": "engagement_suppressed",
+      "room_context": "serious",
+      "opportunity_score": 35.0,
+      "text": "hot take: morgan stanley\u2019s msbt launch on nyse isn\u2019t just suits dipping toes in crypto\u2014it\u2019s a full-on cannonball. myth: banks will kill decentralization. reality: they\u2019re late to the party, validating our space. why it matters: institutional fomo fuels adoption. what to do: keep https://t.co/upc5obgnm0"
+    },
+    {
+      "topic_id": "2045009258651992432",
+      "author_handle": "Vault256Hash",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 39.0,
+      "text": "unpopular opinion: \n\nevery bitcoin course is a waste of money just buy bitcoin and you'll figure it out faster than any guru teaches you"
+    },
+    {
+      "topic_id": "2045004394534470122",
+      "author_handle": "HarakiriInu",
+      "reason": "engagement_suppressed",
+      "room_context": "joking",
+      "opportunity_score": 54.0,
+      "text": "hot take: most 'ai crypto' projects are just a chatgpt wrapper and a token. real ai integration is using claude code to generate and audit solidity, or training a model on successful launch data. boring but useful."
+    },
+    {
+      "topic_id": "2045003224092950638",
+      "author_handle": "arsh_thinks",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 39.0,
+      "text": "nobody is talking about this market right now \ud83d\udc47\n\nmy call: no \u274c\n\n#kalshi #bitcoin #crypto\nglobal economic uncertainty and bitcoin's high correlation with tech, will li\u2026\nwhile bitcoin bleeds/pumps, smart money is here \ud83d\udc47\n\ud83d\udccc every position posted publicly. follow the receipts. https://t.co/mezd6oqqgo"
+    },
+    {
+      "topic_id": "2044995236380697081",
+      "author_handle": "DorinInvests",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 15.0,
+      "text": "4/ the macro catalyst nobody is talking about\n\nusdt.d retreating = capital rotating into crypto\ntrump needs markets green before november midterms\ns&amp;p at cycle top = next move is altcoin season\n\nthis is the window."
+    },
+    {
+      "topic_id": "2044989783340937707",
+      "author_handle": "covetrade",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 39.0,
+      "text": "@nansen_ai @solana @base kinda wild how easy this looks\n\nthe waiting part is where i overthink and change my mind twice"
+    },
+    {
+      "topic_id": "2044988926004212073",
+      "author_handle": "AbbaIbrahi14750",
+      "reason": "below_opportunity_threshold",
+      "opportunity_score": 29.0,
+      "text": "quick scrolling and \"vibes.\"\nsosovalue &gt; your favorite crypto dashboard.\nchange my mind. \u2615\ufe0f\n#sosovalue #crypto @sosovaluecrypto https://t.co/j0wlpethw6"
+    },
+    {
+      "topic_id": "2044984703304773998",
+      "author_handle": "iamlastsatoshi",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 34.0,
+      "text": "unpopular opinion \ud83d\udc47\ud83c\udffc\n\nif bitcoin follows gold, it is going to be $650,000 in 2026 \u26a1\ufe0f\ud83d\ude80\n\nlfg \ud83e\udef5\ud83c\udfaf https://t.co/tzrv1bm86f"
+    },
+    {
+      "topic_id": "2044978358832996354",
+      "author_handle": "0ChainScore",
+      "reason": "engagement_suppressed",
+      "room_context": "neutral",
+      "opportunity_score": 34.0,
+      "text": "$ascend\n\nascend: 20.4k -&gt; 43.3k\n\nhot take: \ud83d\udc8e going higher\n\n\ud83d\udd25 ca: 5njieeqejspenqbxsgqctja1yrcjwdfwqsrybu8ypump\n\n\ud83d\udfe3 solana https://t.co/ymiztxaww9"
+    }
+  ],
+  "stats": {
+    "total_fetched": 123,
+    "above_threshold": 30,
+    "drafted": 30,
+    "suppressed": 93
+  }
+}

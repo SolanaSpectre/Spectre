@@ -1,0 +1,44 @@
+[
+  {
+    "id": "btc-headline-1",
+    "author_handle": "WatcherGuru",
+    "title": "bitcoin drops after macro headline hits",
+    "text": "headline lands and price moves before the room catches up",
+    "created_at": "2026-04-12T13:20:00Z",
+    "tags": ["bitcoin", "headline", "liquidity", "macro"],
+    "metrics": {
+      "likes": 1240,
+      "replies": 190,
+      "reposts": 340,
+      "quotes": 38
+    }
+  },
+  {
+    "id": "etf-meme-2",
+    "author_handle": "DegenerateNews",
+    "title": "new filing puts meme attention into an ETF frame",
+    "text": "same meme gets a wrapper and the crowd calls it legitimacy",
+    "created_at": "2026-04-12T14:05:00Z",
+    "tags": ["etf", "memecoin", "narrative", "wrapper"],
+    "metrics": {
+      "likes": 820,
+      "replies": 120,
+      "reposts": 160,
+      "quotes": 22
+    }
+  },
+  {
+    "id": "sol-flow-3",
+    "author_handle": "DeFiWimar",
+    "title": "large buying flow shows up before the room agrees on the story",
+    "text": "big eyes come first then the reason gets invented later",
+    "created_at": "2026-04-12T14:18:00Z",
+    "tags": ["solana", "flow", "liquidity", "rotation"],
+    "metrics": {
+      "likes": 540,
+      "replies": 88,
+      "reposts": 90,
+      "quotes": 11
+    }
+  }
+]
