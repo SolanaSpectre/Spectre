@@ -383,6 +383,38 @@ class Config {
     return parseFloat(process.env.PRE_MIGRATION_PAPER_EARLY_SURGE_NO_BASELINE_MIN_SCORE || '84');
   }
 
+  static get preMigrationPaperBroadOrganicSurgeEnabled() {
+    return process.env.PRE_MIGRATION_PAPER_BROAD_ORGANIC_SURGE_ENABLED !== 'false';
+  }
+
+  static get preMigrationPaperBroadOrganicSurgeMinScore() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_BROAD_ORGANIC_SURGE_MIN_SCORE || '75');
+  }
+
+  static get preMigrationPaperBroadOrganicSurgeMinCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_BROAD_ORGANIC_SURGE_MIN_CURVE_PROGRESS || '0.7');
+  }
+
+  static get preMigrationPaperBroadOrganicSurgeMaxCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_BROAD_ORGANIC_SURGE_MAX_CURVE_PROGRESS || '0.82');
+  }
+
+  static get preMigrationPaperBroadOrganicSurgeMinRecentVolumeSol() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_BROAD_ORGANIC_SURGE_MIN_RECENT_VOLUME_SOL || '70');
+  }
+
+  static get preMigrationPaperBroadOrganicSurgeMinTradeVelocityPerMin() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_BROAD_ORGANIC_SURGE_MIN_TRADE_VELOCITY_PER_MIN || '90');
+  }
+
+  static get preMigrationPaperBroadOrganicSurgeMinUniqueBuyerRatio() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_BROAD_ORGANIC_SURGE_MIN_UNIQUE_BUYER_RATIO || '0.9');
+  }
+
+  static get preMigrationPaperBroadOrganicSurgeMinBuyRatio() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_BROAD_ORGANIC_SURGE_MIN_BUY_RATIO || '0.7');
+  }
+
   static get preMigrationPaperCurvePauseOverrideEnabled() {
     return process.env.PRE_MIGRATION_PAPER_CURVE_PAUSE_OVERRIDE_ENABLED !== 'false';
   }

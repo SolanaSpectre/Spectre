@@ -30,6 +30,14 @@ class PreMigrationPaperLane {
     this.earlySurgeMinBuyRatio = Number(config.preMigrationPaperEarlySurgeMinBuyRatio ?? 0.78);
     this.earlySurgeMinCurveProgressDelta = Number(config.preMigrationPaperEarlySurgeMinCurveProgressDelta ?? 0.035);
     this.earlySurgeNoBaselineMinScore = Number(config.preMigrationPaperEarlySurgeNoBaselineMinScore ?? 84);
+    this.broadOrganicSurgeEnabled = config.preMigrationPaperBroadOrganicSurgeEnabled !== false;
+    this.broadOrganicSurgeMinScore = Number(config.preMigrationPaperBroadOrganicSurgeMinScore ?? 75);
+    this.broadOrganicSurgeMinCurveProgress = Number(config.preMigrationPaperBroadOrganicSurgeMinCurveProgress ?? 0.7);
+    this.broadOrganicSurgeMaxCurveProgress = Number(config.preMigrationPaperBroadOrganicSurgeMaxCurveProgress ?? 0.82);
+    this.broadOrganicSurgeMinRecentVolumeSol = Number(config.preMigrationPaperBroadOrganicSurgeMinRecentVolumeSol ?? 70);
+    this.broadOrganicSurgeMinTradeVelocityPerMin = Number(config.preMigrationPaperBroadOrganicSurgeMinTradeVelocityPerMin ?? 90);
+    this.broadOrganicSurgeMinUniqueBuyerRatio = Number(config.preMigrationPaperBroadOrganicSurgeMinUniqueBuyerRatio ?? 0.9);
+    this.broadOrganicSurgeMinBuyRatio = Number(config.preMigrationPaperBroadOrganicSurgeMinBuyRatio ?? 0.7);
     this.curvePauseOverrideEnabled = config.preMigrationPaperCurvePauseOverrideEnabled !== false;
     this.curvePauseMinScore = Number(config.preMigrationPaperCurvePauseMinScore ?? 82);
     this.curvePauseMinCurveProgress = Number(config.preMigrationPaperCurvePauseMinCurveProgress ?? 0.75);
@@ -397,6 +405,18 @@ class PreMigrationPaperLane {
         };
       }
 
+      const broadOrganicSurge = this.evaluateBroadOrganicSurgeOverride(state);
+      if (broadOrganicSurge.passed) {
+        return {
+          passed: true,
+          guardOverride: 'BROAD_ORGANIC_SURGE_FIRST_SIGHT',
+          allowedPresetNames: ['highConvictionFirstSight'],
+          thresholdOverrides: broadOrganicSurge.thresholdOverrides,
+          ...this.formatDelta60s(delta60s),
+          ...broadOrganicSurge
+        };
+      }
+
       const earlySurge = this.evaluateEarlySurgeOverride(state, { hasBaseline: false });
       if (earlySurge.passed) {
         return {
@@ -457,6 +477,22 @@ class PreMigrationPaperLane {
         };
       }
 
+      const broadOrganicSurge = this.evaluateBroadOrganicSurgeOverride(state);
+      if (broadOrganicSurge.passed) {
+        return {
+          passed: true,
+          guardOverride: 'BROAD_ORGANIC_SURGE_FIRST_SIGHT',
+          allowedPresetNames: ['highConvictionFirstSight'],
+          thresholdOverrides: broadOrganicSurge.thresholdOverrides,
+          curveProgressDelta: this.compact(curveProgressDelta, 6),
+          threshold: this.minCurveProgressDelta,
+          baselineCurveProgress: this.compact(baseline.curveProgress, 6),
+          baselineAt: baseline.timestamp,
+          ...this.formatDelta60s(delta60s),
+          ...broadOrganicSurge
+        };
+      }
+
       const earlySurge = this.evaluateEarlySurgeOverride(state, {
         hasBaseline: true,
         curveProgressDelta,
@@ -500,6 +536,22 @@ class PreMigrationPaperLane {
         baselineCurveProgress: this.compact(baseline.curveProgress, 6),
         baselineAt: baseline.timestamp,
         ...this.formatDelta60s(delta60s)
+      };
+    }
+
+    const broadOrganicSurge = this.evaluateBroadOrganicSurgeOverride(state);
+    if (broadOrganicSurge.passed) {
+      return {
+        passed: true,
+        guardOverride: 'BROAD_ORGANIC_SURGE_FIRST_SIGHT',
+        allowedPresetNames: ['highConvictionFirstSight'],
+        thresholdOverrides: broadOrganicSurge.thresholdOverrides,
+        curveProgressDelta: this.compact(curveProgressDelta, 6),
+        threshold: this.minCurveProgressDelta,
+        baselineCurveProgress: this.compact(baseline.curveProgress, 6),
+        baselineAt: baseline.timestamp,
+        ...this.formatDelta60s(delta60s),
+        ...broadOrganicSurge
       };
     }
 
@@ -612,6 +664,65 @@ class PreMigrationPaperLane {
         minCurveProgressDelta: this.earlySurgeMinCurveProgressDelta,
         noBaselineMinScore: this.earlySurgeNoBaselineMinScore,
         requiresRepeatBuyerHolderOrSocial: true
+      }
+    };
+  }
+
+  evaluateBroadOrganicSurgeOverride(state = {}) {
+    if (!this.broadOrganicSurgeEnabled) {
+      return { passed: false };
+    }
+
+    const score = Number(state.score);
+    const curveProgress = Number(state.curveProgress);
+    const recentVolumeSol = Number(state.recentVolumeSol);
+    const tradeVelocityPerMin = Number(state.tradeVelocityPerMin);
+    const uniqueBuyerRatio = this.computeUniqueBuyerRatio(state);
+    const buyRatio = this.computeBuyRatio(state);
+    const symbol = String(state.symbol || '').trim();
+    const hasConfirmation = this.hasFirstSightConfirmation(state);
+    const hasPlainAsciiSymbol = this.hasPlainAsciiSymbol(symbol);
+
+    const passed = Number.isFinite(score)
+      && score >= this.broadOrganicSurgeMinScore
+      && Number.isFinite(curveProgress)
+      && curveProgress >= this.broadOrganicSurgeMinCurveProgress
+      && curveProgress <= this.broadOrganicSurgeMaxCurveProgress
+      && Number.isFinite(recentVolumeSol)
+      && recentVolumeSol >= this.broadOrganicSurgeMinRecentVolumeSol
+      && Number.isFinite(tradeVelocityPerMin)
+      && tradeVelocityPerMin >= this.broadOrganicSurgeMinTradeVelocityPerMin
+      && Number.isFinite(uniqueBuyerRatio)
+      && uniqueBuyerRatio >= this.broadOrganicSurgeMinUniqueBuyerRatio
+      && (buyRatio === null || buyRatio >= this.broadOrganicSurgeMinBuyRatio)
+      && hasConfirmation
+      && hasPlainAsciiSymbol;
+
+    const thresholdOverrides = {
+      minScore: this.broadOrganicSurgeMinScore,
+      minCurveProgress: this.broadOrganicSurgeMinCurveProgress,
+      maxCurveProgress: this.broadOrganicSurgeMaxCurveProgress,
+      minRecentVolumeSol: this.broadOrganicSurgeMinRecentVolumeSol,
+      minTradeVelocityPerMin: this.broadOrganicSurgeMinTradeVelocityPerMin,
+      minBuyRatio: this.broadOrganicSurgeMinBuyRatio
+    };
+
+    return {
+      passed,
+      thresholdOverrides,
+      broadOrganicSurgeScore: this.compact(score, 2),
+      broadOrganicSurgeCurveProgress: this.compact(curveProgress, 6),
+      broadOrganicSurgeRecentVolumeSol: this.compact(recentVolumeSol, 4),
+      broadOrganicSurgeTradeVelocityPerMin: this.compact(tradeVelocityPerMin, 2),
+      broadOrganicSurgeUniqueBuyerRatio: this.compact(uniqueBuyerRatio, 4),
+      broadOrganicSurgeBuyRatio: this.compact(buyRatio, 4),
+      broadOrganicSurgeHasConfirmation: hasConfirmation,
+      broadOrganicSurgeHasPlainAsciiSymbol: hasPlainAsciiSymbol,
+      broadOrganicSurgeThresholds: {
+        ...thresholdOverrides,
+        minUniqueBuyerRatio: this.broadOrganicSurgeMinUniqueBuyerRatio,
+        requiresRepeatBuyerHolderOrSocial: true,
+        requiresPlainAsciiSymbol: true
       }
     };
   }
@@ -771,6 +882,12 @@ class PreMigrationPaperLane {
     }
 
     return Math.min(uniqueBuyerCount / denominator, 1);
+  }
+
+  hasPlainAsciiSymbol(symbol) {
+    if (!symbol) return false;
+    if (!/^[\x20-\x7E]+$/.test(symbol)) return false;
+    return /^[A-Za-z0-9$._-]{2,16}$/.test(symbol);
   }
 
   hasFirstSightConfirmation(state = {}) {
