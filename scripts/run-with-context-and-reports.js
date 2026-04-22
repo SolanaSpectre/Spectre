@@ -282,6 +282,7 @@ async function generatePostRunReports(options) {
   await runNode('Wallet Battlefield Report', 'wallet-battlefield-report.js', [], { allowFailure: true });
   await runNode('Wallet Outcome Audit', 'wallet-outcome-audit.js', [], { allowFailure: true });
   await runNode('Wallet Alpha Replay Report', 'wallet-alpha-replay-report.js', [], { allowFailure: true });
+  await runNode('Wallet Alpha Shadow Ledger', 'wallet-alpha-shadow-ledger.js', [], { allowFailure: true });
   await runNode('Watch Lane Validation Report', 'watch-lane-validation-report.js', [], { allowFailure: true });
   await runNode('Pre-Migration Outcome Report', 'pre-migration-outcome-report.js', [], { allowFailure: true });
   await runNode('Pre-Migration Paper Simulation Report', 'pre-migration-paper-sim-report.js', [], { allowFailure: true });
