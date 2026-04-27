@@ -33,6 +33,7 @@
     "analyze:kolscan": "node scripts/analyze-kolscan-wallets.js",
     "import:venum-wallets": "node scripts/import-venum-social-wallets.js",
     "analyze:venum-wallets": "node scripts/analyze-kolscan-wallets.js --watchlist data/wallet-watchlists/venum-social-wallets.json --source-label venum-social",
+    "enqueue:venum-token-research": "node scripts/enqueue-venum-token-research.js",
     "compare:kolscan": "node scripts/compare-kolscan-to-paper.js",
     "build:wallet-intel": "node scripts/build-wallet-intel.js",
     "build:wallet-realized-pnl": "node scripts/build-wallet-realized-pnl.js",

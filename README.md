@@ -195,6 +195,7 @@ npm run fetch:kolscan
 npm run analyze:kolscan -- --limit 25 --txLimit 100
 npm run import:venum-wallets
 npm run analyze:venum-wallets -- --limit 25 --txLimit 100
+npm run enqueue:venum-token-research -- --limit 8
 npm run compare:kolscan
 npm run build:wallet-intel
 npm run sync:telegram
@@ -210,6 +211,7 @@ What this does:
 - refreshes Helius wallet summaries
 - imports Venum's public social-wallet SOL breadcrumbs as a watch-only list
 - refreshes Helius wallet summaries for that Venum watch-only list
+- queues interesting Spectre token candidates for later Venum X/social research without spending X reads
 - refreshes wallet-vs-paper overlap analysis
 - rebuilds wallet intel for the AI layer
 - syncs approved Telegram chats/channels only
@@ -224,6 +226,7 @@ Primary morning artifacts to inspect:
 - [convergence latest](F:/Cline%20Test/Spectre/solana-trading-bot/data/convergence/latest.json)
 - [false-negative watchlist](F:/Cline%20Test/Spectre/solana-trading-bot/data/watchlists/false-negative-watchlist-latest.json)
 - [battlefield report latest](F:/Cline%20Test/Spectre/solana-trading-bot/data/reports/run-battlefield-latest.json)
+- [Venum token social queue](F:/Cline%20Test/Spectre/solana-trading-bot/agents/weRvENum/runtime/token_social_research_queue.json)
 - latest file in [run-logs](F:/Cline%20Test/Spectre/solana-trading-bot/run-logs)
 
 ### Automated Run Lifecycle
