@@ -18,6 +18,10 @@ class Settings:
     x_bearer_token: str
     x_user_id: str
     venum_dry_run: bool
+    venum_x_budget_enabled: bool
+    venum_x_daily_read_budget: int
+    venum_x_daily_write_budget: int
+    venum_x_daily_follow_budget: int
 
 
 def load_settings(env_path: Path | None = None) -> Settings:
@@ -32,6 +36,10 @@ def load_settings(env_path: Path | None = None) -> Settings:
         x_bearer_token=os.getenv("X_BEARER_TOKEN", ""),
         x_user_id=os.getenv("X_USER_ID", ""),
         venum_dry_run=os.getenv("VENUM_DRY_RUN", "true").strip().lower() in {"1", "true", "yes", "on"},
+        venum_x_budget_enabled=os.getenv("VENUM_X_BUDGET_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"},
+        venum_x_daily_read_budget=_int_env("VENUM_X_DAILY_READ_BUDGET", 80),
+        venum_x_daily_write_budget=_int_env("VENUM_X_DAILY_WRITE_BUDGET", 5),
+        venum_x_daily_follow_budget=_int_env("VENUM_X_DAILY_FOLLOW_BUDGET", 5),
     )
 
 
@@ -47,3 +55,10 @@ def _load_env_file(path: Path) -> None:
         value = value.strip().strip('"').strip("'")
         if key and key not in os.environ:
             os.environ[key] = value
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return max(0, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default

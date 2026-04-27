@@ -5,7 +5,9 @@ from typing import Any
 import requests
 from requests_oauthlib import OAuth1
 
+from .paths import runtime_file
 from .settings import Settings
+from .x_budget import XBudget, XBudgetLimits
 
 
 class XClient:
@@ -22,8 +24,21 @@ class XClient:
         self.session.auth = self.oauth
         if settings.x_bearer_token:
             self.session.headers.update({"Authorization": f"Bearer {settings.x_bearer_token}"})
+        self.budget = XBudget(
+            runtime_file("x_api_budget.json"),
+            XBudgetLimits(
+                read_daily=settings.venum_x_daily_read_budget,
+                write_daily=settings.venum_x_daily_write_budget,
+                follow_daily=settings.venum_x_daily_follow_budget,
+            ),
+            enabled=settings.venum_x_budget_enabled,
+        )
+
+    def budget_status(self) -> dict[str, Any]:
+        return self.budget.status()
 
     def whoami(self) -> dict[str, Any]:
+        self.budget.consume("read", "users/me")
         response = self.session.get(
             f"{self.base_url}/users/me",
             params={"user.fields": "description,public_metrics,verified,created_at"},
@@ -34,6 +49,7 @@ class XClient:
 
     def mentions(self, limit: int = 5) -> dict[str, Any]:
         user_id = self.settings.x_user_id or self._resolve_user_id()
+        self.budget.consume("read", "users/mentions")
         response = self.session.get(
             f"{self.base_url}/users/{user_id}/mentions",
             params={
@@ -48,6 +64,7 @@ class XClient:
         return response.json()
 
     def lookup_users(self, usernames: list[str]) -> dict[str, Any]:
+        self.budget.consume("read", "users/by")
         response = self.session.get(
             f"{self.base_url}/users/by",
             params={
@@ -60,6 +77,7 @@ class XClient:
         return response.json()
 
     def user_tweets(self, user_id: str, limit: int = 5) -> dict[str, Any]:
+        self.budget.consume("read", "users/tweets")
         response = self.session.get(
             f"{self.base_url}/users/{user_id}/tweets",
             params={
@@ -73,6 +91,7 @@ class XClient:
         return response.json()
 
     def recent_search(self, query: str, limit: int = 10) -> dict[str, Any]:
+        self.budget.consume("read", "tweets/search/recent")
         response = self.session.get(
             f"{self.base_url}/tweets/search/recent",
             params={
@@ -88,6 +107,7 @@ class XClient:
         return response.json()
 
     def create_post(self, text: str, reply_to_tweet_id: str | None = None) -> dict[str, Any]:
+        self.budget.consume("write", "tweets/create")
         payload: dict[str, Any] = {"text": text}
         if reply_to_tweet_id:
             payload["reply"] = {"in_reply_to_tweet_id": reply_to_tweet_id}
@@ -96,6 +116,7 @@ class XClient:
         return response.json()
 
     def follow_user(self, source_user_id: str, target_user_id: str) -> dict[str, Any]:
+        self.budget.consume("follow", "users/following")
         response = self.session.post(
             f"{self.base_url}/users/{source_user_id}/following",
             json={"target_user_id": target_user_id},

@@ -21,6 +21,7 @@ from .x_client import XClient
 from .engagement_logic import classify_room_context, choose_engagement_type, detect_narrative_relevance, select_tone, should_suppress
 from .x_integration import choose_best_candidate, filter_replyable_mentions, filter_replyable_search, filter_replyable_timelines, score_trend_opportunity, topics_from_mentions, topics_from_search, topics_from_timelines, topics_from_trending
 from .wallet_lore import choose_wallet_reaction
+from .x_budget import XBudgetExceeded
 from .lore import can_post_spoodee_today, load_lore_memory, record_spoodee_post, should_inject_spoodee, spoodee_post_candidates
 
 
@@ -63,6 +64,9 @@ def build_parser() -> argparse.ArgumentParser:
     whoami = subparsers.add_parser("whoami", help="Fetch current X account profile using local credentials.")
     whoami.add_argument("--env-file", default="", help="Optional path to .env file.")
 
+    budget_status = subparsers.add_parser("x-budget-status", help="Show Venum's local daily X API budget ledger.")
+    budget_status.add_argument("--env-file", default="", help="Optional path to .env file.")
+
     mentions = subparsers.add_parser("mentions", help="Fetch mentions from X.")
     mentions.add_argument("--env-file", default="", help="Optional path to .env file.")
     mentions.add_argument("--limit", type=int, default=5)
@@ -72,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     x_draft.add_argument("--persona", default=str(DEFAULT_PERSONA), help="Path to persona rules JSON.")
     x_draft.add_argument("--attention-policy", default=str(DEFAULT_ATTENTION_POLICY), help="Path to attention policy JSON.")
     x_draft.add_argument("--limit", type=int, default=5)
+    x_draft.add_argument("--max-drafts", type=int, default=3, help="Maximum reply drafts to generate after triage.")
     x_draft.add_argument("--show-all-candidates", action="store_true", help="Include all generated candidates and ranking details.")
 
     x_post = subparsers.add_parser("x-post", help="Create a live or dry-run X post.")
@@ -98,6 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     tracked_draft.add_argument("--tracked-accounts", default=str(DEFAULT_TRACKED_ACCOUNTS), help="Path to tracked accounts JSON.")
     tracked_draft.add_argument("--limit", type=int, default=5, help="Total accounts to inspect.")
     tracked_draft.add_argument("--per-account", type=int, default=3, help="Posts to fetch per account.")
+    tracked_draft.add_argument("--max-drafts", type=int, default=3, help="Maximum reply drafts to generate after triage.")
     tracked_draft.add_argument("--show-all-candidates", action="store_true", help="Include all generated candidates and ranking details.")
 
     kolscan = subparsers.add_parser("kolscan-bootstrap", help="Bootstrap tracked accounts from the KOLscan leaderboard.")
@@ -127,6 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
     search_openings.add_argument("--env-file", default="", help="Optional path to .env file.")
     search_openings.add_argument("--engagement-targets", default=str(DEFAULT_ENGAGEMENT_TARGETS), help="Path to engagement targets JSON.")
     search_openings.add_argument("--limit", type=int, default=10, help="Posts per query.")
+    search_openings.add_argument("--max-queries", type=int, default=3, help="Maximum search queries to spend X API reads on.")
 
     search_draft = subparsers.add_parser("search-draft-replies", help="Generate Venum replies for search-based openings.")
     search_draft.add_argument("--env-file", default="", help="Optional path to .env file.")
@@ -134,6 +141,8 @@ def build_parser() -> argparse.ArgumentParser:
     search_draft.add_argument("--attention-policy", default=str(DEFAULT_ATTENTION_POLICY), help="Path to attention policy JSON.")
     search_draft.add_argument("--engagement-targets", default=str(DEFAULT_ENGAGEMENT_TARGETS), help="Path to engagement targets JSON.")
     search_draft.add_argument("--limit", type=int, default=10, help="Posts per query.")
+    search_draft.add_argument("--max-queries", type=int, default=3, help="Maximum search queries to spend X API reads on.")
+    search_draft.add_argument("--max-drafts", type=int, default=3, help="Maximum reply drafts to generate after triage.")
     search_draft.add_argument("--show-all-candidates", action="store_true", help="Include all generated candidates and ranking details.")
 
     trend_hunt = subparsers.add_parser("trend-hunt", help="Hunt trending topics and generate room-aware Venum reply drafts.")
@@ -143,6 +152,8 @@ def build_parser() -> argparse.ArgumentParser:
     trend_hunt.add_argument("--engagement-targets", default=str(DEFAULT_ENGAGEMENT_TARGETS), help="Path to engagement targets JSON.")
     trend_hunt.add_argument("--memory", default=str(DEFAULT_MEMORY), help="Path to memory JSON.")
     trend_hunt.add_argument("--limit", type=int, default=15, help="Posts per search query.")
+    trend_hunt.add_argument("--max-queries", type=int, default=4, help="Maximum search queries to spend X API reads on.")
+    trend_hunt.add_argument("--max-drafts", type=int, default=5, help="Maximum reply drafts to generate after triage.")
     trend_hunt.add_argument("--min-opportunity-score", type=float, default=30.0, help="Minimum trend opportunity score to draft.")
     trend_hunt.add_argument("--show-all-candidates", action="store_true", help="Include all generated candidates and ranking details.")
     trend_hunt.add_argument("--remember", action="store_true", help="Persist accepted engagements into memory after drafting.")
@@ -225,10 +236,13 @@ def main() -> int:
                 try:
                     timeline = x_client.user_tweets(user_id, limit=5)
                     posts_by_user_id[user_id] = timeline.get("data") or []
+                except XBudgetExceeded:
+                    posts_by_user_id[user_id] = []
+                    break
                 except Exception:
                     posts_by_user_id[user_id] = []
             candidates = select_follow_candidates(users, follow_policy, posts_by_user_id)
-            print(json.dumps(candidates, indent=2))
+            print(json.dumps({"candidates": candidates, "x_budget": x_client.budget_status()}, indent=2))
             return 0
 
         payload = x_client.lookup_users([args.username])
@@ -245,11 +259,11 @@ def main() -> int:
             posts = []
         candidate = score_follow_candidate(user, follow_policy, posts)
         if settings.venum_dry_run:
-            print(json.dumps({"dry_run": True, "candidate": candidate}, indent=2))
+            print(json.dumps({"dry_run": True, "candidate": candidate, "x_budget": x_client.budget_status()}, indent=2))
             return 0
         source_user_id = settings.x_user_id or str((x_client.whoami().get("data") or {}).get("id") or "")
         result = x_client.follow_user(source_user_id=source_user_id, target_user_id=candidate["id"])
-        print(json.dumps({"dry_run": False, "candidate": candidate, "result": result}, indent=2))
+        print(json.dumps({"dry_run": False, "candidate": candidate, "result": result, "x_budget": x_client.budget_status()}, indent=2))
         return 0
 
     if args.command in {"search-openings", "search-draft-replies"}:
@@ -258,13 +272,17 @@ def main() -> int:
         targets = load_json(Path(args.engagement_targets))
         queries = targets.get("search_queries") or []
         payloads = []
-        for row in queries:
+        budget_skips = []
+        for row in queries[: max(0, args.max_queries)]:
             query = str(row.get("query") or "").strip()
             if not query:
                 continue
             try:
                 payload = x_client.recent_search(query=query, limit=args.limit)
                 payloads.append(payload)
+            except XBudgetExceeded as exc:
+                budget_skips.append({"query": row.get("name") or query, "reason": str(exc)})
+                break
             except Exception:
                 continue
         topics = topics_from_search(payloads)
@@ -280,7 +298,7 @@ def main() -> int:
                 }
                 for topic in topics
             ]
-            print(json.dumps(rendered, indent=2))
+            print(json.dumps({"openings": rendered, "budget_skips": budget_skips, "x_budget": x_client.budget_status()}, indent=2))
             return 0
 
         persona = PersonaEngine(load_json(Path(args.persona)))
@@ -289,7 +307,7 @@ def main() -> int:
         ollama = OllamaClient(settings)
         replyable, skipped = filter_replyable_search(topics, attention_policy)
         rendered = []
-        for item in replyable:
+        for item in replyable[: max(0, args.max_drafts)]:
             topic = item["topic"]
             variants = []
             for mode in ["sharp", "funny", "ominous"]:
@@ -329,19 +347,23 @@ def main() -> int:
             if args.show_all_candidates:
                 rendered_item["all_candidates"] = decision["all"]
             rendered.append(rendered_item)
-        print(json.dumps({"drafts": rendered, "skipped": skipped}, indent=2))
+        print(json.dumps({"drafts": rendered, "skipped": skipped, "budget_skips": budget_skips, "x_budget": x_client.budget_status()}, indent=2))
         return 0
 
-    if args.command in {"whoami", "mentions", "x-draft-replies", "x-post", "spoodee-post", "tracked-timeline", "tracked-draft-replies"}:
+    if args.command in {"whoami", "x-budget-status", "mentions", "x-draft-replies", "x-post", "spoodee-post", "tracked-timeline", "tracked-draft-replies"}:
         settings = load_settings(Path(args.env_file) if getattr(args, "env_file", "") else None)
         x_client = XClient(settings)
 
+        if args.command == "x-budget-status":
+            print(json.dumps(x_client.budget_status(), indent=2))
+            return 0
+
         if args.command == "whoami":
-            print(json.dumps(x_client.whoami(), indent=2))
+            print(json.dumps({"profile": x_client.whoami(), "x_budget": x_client.budget_status()}, indent=2))
             return 0
 
         if args.command == "mentions":
-            print(json.dumps(x_client.mentions(limit=args.limit), indent=2))
+            print(json.dumps({"mentions": x_client.mentions(limit=args.limit), "x_budget": x_client.budget_status()}, indent=2))
             return 0
 
         if args.command == "x-draft-replies":
@@ -353,7 +375,7 @@ def main() -> int:
             attention_policy = load_json(Path(args.attention_policy))
             replyable, skipped = filter_replyable_mentions(topics, attention_policy)
             rendered = []
-            for item in replyable:
+            for item in replyable[: max(0, args.max_drafts)]:
                 topic = item["topic"]
                 variants = []
                 for mode in ["sharp", "funny", "ominous"]:
@@ -396,7 +418,7 @@ def main() -> int:
                         **rendered_item,
                     }
                 )
-            print(json.dumps({"drafts": rendered, "skipped": skipped}, indent=2))
+            print(json.dumps({"drafts": rendered, "skipped": skipped, "x_budget": x_client.budget_status()}, indent=2))
             return 0
 
         if args.command == "x-post":
@@ -407,12 +429,13 @@ def main() -> int:
                             "dry_run": True,
                             "text": args.text,
                             "reply_to": args.reply_to or None,
+                            "x_budget": x_client.budget_status(),
                         },
                         indent=2,
                     )
                 )
                 return 0
-            print(json.dumps(x_client.create_post(text=args.text, reply_to_tweet_id=args.reply_to or None), indent=2))
+            print(json.dumps({"post": x_client.create_post(text=args.text, reply_to_tweet_id=args.reply_to or None), "x_budget": x_client.budget_status()}, indent=2))
             return 0
 
         if args.command == "spoodee-post":
@@ -451,12 +474,13 @@ def main() -> int:
                 payload["dry_run"] = True
                 if args.post_live and settings.venum_dry_run:
                     payload["note"] = "set VENUM_DRY_RUN=false to allow live lore posting"
+                payload["x_budget"] = x_client.budget_status()
                 print(json.dumps(payload, indent=2))
                 return 0
 
             result = x_client.create_post(text=best["text"])
             record_spoodee_post(best["text"])
-            print(json.dumps({"post_result": result, **payload, "dry_run": False}, indent=2))
+            print(json.dumps({"post_result": result, **payload, "dry_run": False, "x_budget": x_client.budget_status()}, indent=2))
             return 0
 
         if args.command == "tracked-timeline":
@@ -478,7 +502,7 @@ def main() -> int:
                 }
                 for topic in topics
             ]
-            print(json.dumps(rendered, indent=2))
+            print(json.dumps({"timeline": rendered, "x_budget": x_client.budget_status()}, indent=2))
             return 0
 
         if args.command == "tracked-draft-replies":
@@ -496,7 +520,7 @@ def main() -> int:
             topics = topics_from_timelines(users, timeline_payloads)
             replyable, skipped = filter_replyable_timelines(topics, attention_policy)
             rendered = []
-            for item in replyable:
+            for item in replyable[: max(0, args.max_drafts)]:
                 topic = item["topic"]
                 variants = []
                 for mode in ["sharp", "funny", "ominous"]:
@@ -536,7 +560,7 @@ def main() -> int:
                 if args.show_all_candidates:
                     rendered_item["all_candidates"] = decision["all"]
                 rendered.append(rendered_item)
-            print(json.dumps({"drafts": rendered, "skipped": skipped}, indent=2))
+            print(json.dumps({"drafts": rendered, "skipped": skipped, "x_budget": x_client.budget_status()}, indent=2))
             return 0
 
     if args.command == "trend-hunt":
@@ -553,7 +577,8 @@ def main() -> int:
         # Fetch all search queries, applying per-query weight multipliers
         queries = targets.get("search_queries") or []
         all_topics: list = []
-        for row in queries:
+        budget_skips = []
+        for row in queries[: max(0, args.max_queries)]:
             query = str(row.get("query") or "").strip()
             if not query:
                 continue
@@ -562,6 +587,9 @@ def main() -> int:
                 payload = x_client.recent_search(query=query, limit=args.limit)
                 bucket_topics = topics_from_trending([payload], weight_multiplier=weight)
                 all_topics.extend(bucket_topics)
+            except XBudgetExceeded as exc:
+                budget_skips.append({"query": row.get("name") or query, "reason": str(exc)})
+                break
             except Exception:
                 continue
 
@@ -613,7 +641,7 @@ def main() -> int:
         scored.sort(key=lambda item: item["opportunity_score"], reverse=True)
 
         rendered = []
-        for item in scored:
+        for item in scored[: max(0, args.max_drafts)]:
             topic = item["topic"]
             room_context = item["room_context"]
             engagement_type = item["engagement_type"]
@@ -696,6 +724,8 @@ def main() -> int:
                 "drafted": len(rendered),
                 "suppressed": len(suppressed),
             },
+            "budget_skips": budget_skips,
+            "x_budget": x_client.budget_status(),
         }, indent=2))
         return 0
 

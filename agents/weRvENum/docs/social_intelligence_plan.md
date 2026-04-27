@@ -28,6 +28,7 @@ The Spectre account is controlled separately by the operator.
 ### Listen
 
 - monitor tracked accounts, search queries, trending topics, and breaking news
+- spend X API reads from a daily budget instead of polling everything
 - score posts by freshness, engagement velocity, author quality, and narrative fit
 - cluster similar posts into a single developing story instead of reacting to
   every duplicate
@@ -85,9 +86,22 @@ If a reply could fit under any random crypto post, it is probably trash.
 
 ## Near-Term Build Order
 
-1. Improve reply context scoring and suppression so Venum skips bad openings.
-2. Add source-backed news intake for market-moving items.
-3. Add narrative clustering across X searches, tracked accounts, and news.
-4. Add relationship memory for accounts Venum repeatedly engages with.
-5. Add a daily social intel report for the operator.
-6. Keep live posting dry-run until the drafts are consistently human.
+1. Keep X API usage behind a local daily budget ledger.
+2. Improve reply context scoring and suppression so Venum skips bad openings.
+3. Add source-backed news intake for market-moving items.
+4. Add narrative clustering across X searches, tracked accounts, and news.
+5. Add relationship memory for accounts Venum repeatedly engages with.
+6. Add a daily social intel report for the operator.
+7. Keep live posting dry-run until the drafts are consistently human.
+
+## Credit Discipline
+
+Venum should not poll like a bot with infinite credits.
+
+- run fewer broad searches and more high-signal targeted searches
+- use `--max-queries` during hunts
+- use `--max-drafts` so one sweep does not turn into a reply flood
+- prefer tracked accounts when the budget is low
+- summarize and cache what was seen before asking X again
+- treat posting and following budgets separately from reading
+- stop gracefully when the daily ledger says no

@@ -132,6 +132,7 @@ Required values:
 ```bash
 cd F:\Cline Test\Spectre\solana-trading-bot\agents\weRvENum
 python -m venum_standalone.cli whoami
+python -m venum_standalone.cli x-budget-status
 python -m venum_standalone.cli mentions --limit 5
 python -m venum_standalone.cli x-draft-replies --limit 5
 python -m venum_standalone.cli x-draft-replies --limit 5 --show-all-candidates
@@ -143,11 +144,39 @@ python -m venum_standalone.cli wallet-reaction --rank 1
 python -m venum_standalone.cli follow-candidates --top 20
 python -m venum_standalone.cli follow-account --username Solanadegen
 python -m venum_standalone.cli search-openings --limit 10
-python -m venum_standalone.cli search-draft-replies --limit 10 --show-all-candidates
+python -m venum_standalone.cli search-draft-replies --limit 10 --max-queries 3 --max-drafts 3 --show-all-candidates
+python -m venum_standalone.cli trend-hunt --limit 10 --max-queries 4 --max-drafts 5 --min-opportunity-score 35
 python -m venum_standalone.cli x-post --text "headline loud\n\nliquidity move first"
 ```
 
 `x-post` respects `VENUM_DRY_RUN=true` and will only simulate the post until you turn dry mode off.
+
+## X API Budget
+
+Venum keeps a local daily X API ledger in:
+
+```bash
+runtime/x_api_budget.json
+```
+
+Defaults are intentionally conservative:
+
+```bash
+VENUM_X_BUDGET_ENABLED=true
+VENUM_X_DAILY_READ_BUDGET=80
+VENUM_X_DAILY_WRITE_BUDGET=5
+VENUM_X_DAILY_FOLLOW_BUDGET=5
+```
+
+Search commands cap the number of paid search queries with `--max-queries`.
+Drafting commands cap the number of generated replies with `--max-drafts`.
+Use:
+
+```bash
+python -m venum_standalone.cli x-budget-status
+```
+
+to check the local meter before running a hunt.
 
 ## Spectre Bridge
 
