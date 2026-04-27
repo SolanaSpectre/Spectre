@@ -331,6 +331,7 @@ async function refreshRunContext(options) {
 
   printSection('Pre-Run Context Refresh');
   console.log('Refreshing Telegram, requesting Rick reports, then rebuilding Rick context.');
+  await runNode('Macro Posture Report', 'macro-posture-report.js', [], { allowFailure: true });
 
   if (shouldRunTelegramSync(options, 'pre')) {
     await runNode('Sync Telegram Context', 'sync-telegram-context.js', [], { allowFailure: true });
@@ -384,6 +385,7 @@ async function generatePostRunReports(options) {
   }
 
   printSection('Post-Run Reports');
+  await runNode('Macro Posture Report', 'macro-posture-report.js', [], { allowFailure: true });
   await runNode('Battlefield Report', 'run-battlefield-report.js', [], { allowFailure: true });
   await runNode('Wallet Battlefield Report', 'wallet-battlefield-report.js', [], { allowFailure: true });
   await runNode('Wallet Behavior Report', 'report-wallet-behavior.js', [], { allowFailure: true });

@@ -1,0 +1,25 @@
+{
+  "notes": [
+    "Copy this file to data/macro/macro-events.json when you want local macro calendar events included.",
+    "Times should be ISO-8601. Use Central time with -05:00/-06:00 or UTC with Z.",
+    "This is report-only input; it does not place trades or change config by itself."
+  ],
+  "events": [
+    {
+      "id": "example-fomc",
+      "title": "FOMC rate decision",
+      "at": "2026-05-06T13:00:00-05:00",
+      "category": "macro",
+      "severity": "high",
+      "expectedImpact": "SOL and BTC volatility may expand around the event window"
+    },
+    {
+      "id": "example-cpi",
+      "title": "US CPI release",
+      "at": "2026-05-12T07:30:00-05:00",
+      "category": "macro",
+      "severity": "high",
+      "expectedImpact": "Risk assets can reprice quickly if inflation surprises"
+    }
+  ]
+}
