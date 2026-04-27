@@ -194,6 +194,62 @@ function firstLastTimestamps(events) {
   };
 }
 
+function buildSessionTiming(events, generatedAt) {
+  const timeline = firstLastTimestamps(events);
+  const started = events.find((event) => eventType(event) === 'session.started');
+  const stopRequested = [...events].reverse().find((event) => eventType(event) === 'session.stop_requested');
+  const stopping = [...events].reverse().find((event) => eventType(event) === 'session.stopping');
+  const stopped = [...events].reverse().find((event) => eventType(event) === 'session.stopped');
+  const startedAt = started?.timestamp || timeline.first || null;
+  const stopObserved = stopped || stopping || stopRequested || null;
+  const stoppedAt = stopped?.timestamp || null;
+  const stopObservedAt = stopObserved?.timestamp || null;
+  const configuredDurationMinutes = asNumber(payloadOf(started || {}).sessionDurationMinutes);
+  const configuredDurationSeconds = configuredDurationMinutes === null ? null : compact(configuredDurationMinutes * 60, 2);
+  const expectedEndAt = startedAt && configuredDurationMinutes !== null
+    ? new Date(new Date(startedAt).getTime() + configuredDurationMinutes * 60 * 1000).toISOString()
+    : null;
+  const activeDurationSeconds = timeline.durationSeconds;
+  const activeDurationMinutes = activeDurationSeconds === null ? null : compact(activeDurationSeconds / 60, 2);
+  const observedWallDurationSeconds = startedAt && stopObservedAt
+    ? secondsBetween(startedAt, stopObservedAt)
+    : null;
+  const observedWallDurationMinutes = observedWallDurationSeconds === null ? null : compact(observedWallDurationSeconds / 60, 2);
+  const generatedLagSeconds = timeline.last && generatedAt
+    ? secondsBetween(timeline.last, generatedAt)
+    : null;
+  const expectedQuietTailSeconds = expectedEndAt && timeline.last
+    ? Math.max(0, secondsBetween(timeline.last, expectedEndAt) || 0)
+    : null;
+
+  return {
+    firstEventAt: timeline.first,
+    lastEventAt: timeline.last,
+    activeDurationSeconds,
+    activeDurationMinutes,
+    // Backward-compatible alias: this is the event-active span, not configured session length.
+    durationSeconds: activeDurationSeconds,
+    durationMinutes: activeDurationMinutes,
+    configuredDurationMinutes,
+    configuredDurationSeconds,
+    sessionStartedAt: startedAt,
+    expectedEndAt,
+    stoppedAt,
+    stopObservedAt,
+    stopStatus: stopped ? 'stopped' : stopping ? 'stopping_recorded' : stopRequested ? 'stop_requested' : null,
+    stopReason: stopped ? payloadOf(stopped).reason || null : null,
+    observedWallDurationSeconds,
+    observedWallDurationMinutes,
+    expectedQuietTailSeconds: expectedQuietTailSeconds === null ? null : compact(expectedQuietTailSeconds, 2),
+    expectedQuietTailMinutes: expectedQuietTailSeconds === null ? null : compact(expectedQuietTailSeconds / 60, 2),
+    generatedLagSeconds,
+    generatedLagMinutes: generatedLagSeconds === null ? null : compact(generatedLagSeconds / 60, 2),
+    timingNote: configuredDurationMinutes !== null
+      ? 'durationMinutes is telemetry-active span; configuredDurationMinutes is requested session length.'
+      : 'durationMinutes is telemetry-active span; configured session length was not found.'
+  };
+}
+
 function summarizeSignal(event) {
   const payload = payloadOf(event);
   return {
@@ -406,7 +462,8 @@ function buildScalperDiagnostics({ pumpFailures, tradeRejected, signalGenerated,
 function buildReport(events, dossiers, options = {}) {
   const limit = Number(options.limit || 8);
   const eventCounts = countBy(events, eventType);
-  const timeline = firstLastTimestamps(events);
+  const generatedAt = new Date().toISOString();
+  const sessionTiming = buildSessionTiming(events, generatedAt);
 
   const tradeRejected = events.filter((event) => eventType(event) === 'trade.rejected');
   const pumpFailures = events.filter((event) => eventType(event) === 'pump.momentum_gate_failed');
@@ -461,13 +518,10 @@ function buildReport(events, dossiers, options = {}) {
   compactPnlGroups(paperPnlByProfile);
 
   return {
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     files: options.files || {},
     session: {
-      firstEventAt: timeline.first,
-      lastEventAt: timeline.last,
-      durationSeconds: timeline.durationSeconds,
-      durationMinutes: timeline.durationSeconds === null ? null : compact(timeline.durationSeconds / 60, 2),
+      ...sessionTiming,
       eventCount: events.length,
       dossierCount: dossiers.length
     },
@@ -666,7 +720,15 @@ function printReport(report) {
   console.log('======================');
   console.log(`Telemetry: ${report.files.telemetryPath || 'n/a'}`);
   console.log(`Dossiers:  ${report.files.dossierPath || 'n/a'}`);
-  console.log(`Window:    ${report.session.firstEventAt || 'n/a'} -> ${report.session.lastEventAt || 'n/a'} (${report.session.durationMinutes ?? 'n/a'} min)`);
+  console.log(`Window:    ${report.session.firstEventAt || 'n/a'} -> ${report.session.lastEventAt || 'n/a'} (${report.session.activeDurationMinutes ?? 'n/a'} active telemetry min)`);
+  if (report.session.configuredDurationMinutes !== null && report.session.configuredDurationMinutes !== undefined) {
+    const stopLabel = report.session.stoppedAt
+      || (report.session.stopObservedAt ? `${report.session.stopObservedAt} (${report.session.stopStatus})` : 'not recorded');
+    console.log(`Session:   configured=${report.session.configuredDurationMinutes} min expectedEnd=${report.session.expectedEndAt || 'n/a'} stopped=${stopLabel}`);
+    if (report.session.expectedQuietTailMinutes !== null && report.session.expectedQuietTailMinutes !== undefined) {
+      console.log(`Quiet tail estimate: ${report.session.expectedQuietTailMinutes} min from last telemetry to expected session end`);
+    }
+  }
   console.log(`Events:    ${report.session.eventCount}`);
   console.log(`Dossiers:  ${report.session.dossierCount}`);
 

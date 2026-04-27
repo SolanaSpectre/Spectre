@@ -262,6 +262,11 @@ class TradingEngine {
       }
 
       this.logger.info('Session duration reached; stopping trading engine');
+      this.telemetry.record('session.stop_requested', {
+        reason: 'SESSION_DURATION_EXCEEDED',
+        sessionId: this.sessionId,
+        sessionDurationMinutes: durationMinutes
+      });
       this.stop('SESSION_DURATION_EXCEEDED').catch((error) => {
         this.logger.error('Failed to stop trading engine after session timeout', error.message);
       });
@@ -284,6 +289,12 @@ class TradingEngine {
       this.sessionTimeout = null;
     }
     this.clearPreMigrationPaperRechecks('SESSION_STOP');
+
+    this.telemetry.record('session.stopping', {
+      reason,
+      sessionId: this.sessionId,
+      stats: this.getStats()
+    });
 
     this.recordPreMigrationPaperEvents(this.preMigrationPaperLane.closeAll('SESSION_END'));
     if (this.executionModeManager.isPaper() && this.config.paperCloseOnSessionEnd) {
