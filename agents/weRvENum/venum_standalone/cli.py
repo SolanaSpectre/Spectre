@@ -978,7 +978,9 @@ def main() -> int:
             "observations": observations,
             "stats": {
                 "total_observations": len(observations),
-                "unique_wallets": len({str(item.get("wallet") or "") for item in observations if item.get("wallet")}),
+                "unique_wallets": len({(str(item.get("chain") or ""), str(item.get("wallet") or "")) for item in observations if item.get("wallet")}),
+                "unique_solana_wallets": len({str(item.get("wallet") or "") for item in observations if item.get("wallet") and item.get("chain") == "solana"}),
+                "unique_evm_wallets": len({str(item.get("wallet") or "") for item in observations if item.get("wallet") and item.get("chain") == "evm"}),
                 "unique_handles": len({str(item.get("author_handle") or "").lower() for item in observations if item.get("author_handle")}),
             },
         }
@@ -1000,6 +1002,8 @@ def main() -> int:
                 "new_observations": len(observations),
                 "watchlist_total_observations": (watchlist_payload.get("stats") or {}).get("total_observations", len(observations)),
                 "unique_wallets": (watchlist_payload.get("stats") or {}).get("unique_wallets", 0),
+                "unique_solana_wallets": (watchlist_payload.get("stats") or {}).get("unique_solana_wallets", 0),
+                "unique_evm_wallets": (watchlist_payload.get("stats") or {}).get("unique_evm_wallets", 0),
             },
             "watchlist_path": str(watchlist_path) if watchlist_path else "",
             "tracker_export_path": str(tracker_export_path) if tracker_export_path else "",

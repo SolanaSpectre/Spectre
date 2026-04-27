@@ -192,7 +192,7 @@ to check the local meter before running a hunt.
 ## Social Wallet Intel
 
 Venum can watch public X wallet-drop and prelaunch-hint threads, extract valid
-Solana public keys, and write them to an internal watch-only file:
+Solana and EVM wallet addresses, and write them to an internal watch-only file:
 
 ```bash
 python -m venum_standalone.cli wallet-query-names
@@ -208,8 +208,9 @@ runtime/social_wallet_tracker_export.json
 
 This is for internal public-signal research only. It should feed wallet tracking
 in watch-only mode and should not be used for harassment, accusations, or
-personal callouts. If Venum ever jokes about wallet behavior, keep it about the
-trade, not the person.
+personal callouts. EVM addresses are useful for cross-chain identity clues even
+before Spectre has a full EVM tracker. If Venum ever jokes about wallet
+behavior, keep it about the trade, not the person.
 
 ## Spectre Bridge
 

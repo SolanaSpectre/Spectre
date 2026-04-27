@@ -10,6 +10,7 @@ from typing import Any
 BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 BASE58_VALUES = {char: idx for idx, char in enumerate(BASE58_ALPHABET)}
 SOLANA_ADDRESS_RE = re.compile(r"(?<![1-9A-HJ-NP-Za-km-z])([1-9A-HJ-NP-Za-km-z]{32,44})(?![1-9A-HJ-NP-Za-km-z])")
+EVM_ADDRESS_RE = re.compile(r"(?<![0-9a-fA-F])(0x[a-fA-F0-9]{40})(?![0-9a-fA-F])")
 
 
 def extract_solana_addresses(text: str) -> list[str]:
@@ -23,6 +24,28 @@ def extract_solana_addresses(text: str) -> list[str]:
             addresses.append(candidate)
             seen.add(candidate)
     return addresses
+
+
+def extract_evm_addresses(text: str) -> list[str]:
+    addresses = []
+    seen = set()
+    for match in EVM_ADDRESS_RE.finditer(text or ""):
+        candidate = match.group(1)
+        normalized = candidate.lower()
+        if normalized in seen:
+            continue
+        addresses.append(normalized)
+        seen.add(normalized)
+    return addresses
+
+
+def extract_wallet_addresses(text: str) -> list[dict[str, str]]:
+    wallets = []
+    for address in extract_solana_addresses(text):
+        wallets.append({"chain": "solana", "address": address})
+    for address in extract_evm_addresses(text):
+        wallets.append({"chain": "evm", "address": address})
+    return wallets
 
 
 def tweets_from_search_payload(payload: dict[str, Any], *, query_name: str = "", source_type: str = "") -> list[dict[str, Any]]:
@@ -63,13 +86,17 @@ def observations_from_tweets(tweets: list[dict[str, Any]], *, seed_tweet: dict[s
     observations = []
     seed_tweet = seed_tweet or {}
     for tweet in tweets:
-        addresses = extract_solana_addresses(str(tweet.get("text") or ""))
-        for address in addresses:
+        wallets = extract_wallet_addresses(str(tweet.get("text") or ""))
+        for wallet in wallets:
+            chain = wallet["chain"]
+            address = wallet["address"]
             observations.append(
                 {
                     "source_type": tweet.get("source_type") or seed_tweet.get("source_type") or "social_wallet_observation",
                     "author_handle": tweet.get("author_handle") or "unknown",
+                    "chain": chain,
                     "wallet": address,
+                    "address": address,
                     "source_tweet_id": tweet.get("tweet_id") or "",
                     "seed_tweet_id": seed_tweet.get("tweet_id") or tweet.get("tweet_id") or "",
                     "seed_author_handle": seed_tweet.get("author_handle") or tweet.get("author_handle") or "unknown",
@@ -97,6 +124,7 @@ def merge_wallet_watchlist(path: Path, observations: list[dict[str, Any]]) -> di
     merged = list(existing.get("observations") or [])
     seen = {
         (
+            str(item.get("chain") or _infer_chain(str(item.get("wallet") or ""))),
             str(item.get("wallet") or ""),
             str(item.get("author_handle") or "").lower(),
             str(item.get("source_tweet_id") or ""),
@@ -106,6 +134,7 @@ def merge_wallet_watchlist(path: Path, observations: list[dict[str, Any]]) -> di
     added = 0
     for item in observations:
         key = (
+            str(item.get("chain") or _infer_chain(str(item.get("wallet") or ""))),
             str(item.get("wallet") or ""),
             str(item.get("author_handle") or "").lower(),
             str(item.get("source_tweet_id") or ""),
@@ -128,7 +157,9 @@ def merge_wallet_watchlist(path: Path, observations: list[dict[str, Any]]) -> di
         "stats": {
             "total_observations": len(merged),
             "added_observations": added,
-            "unique_wallets": len({str(item.get("wallet") or "") for item in merged if item.get("wallet")}),
+            "unique_wallets": len({(str(item.get("chain") or _infer_chain(str(item.get("wallet") or ""))), str(item.get("wallet") or "")) for item in merged if item.get("wallet")}),
+            "unique_solana_wallets": len({str(item.get("wallet") or "") for item in merged if item.get("wallet") and str(item.get("chain") or _infer_chain(str(item.get("wallet") or ""))) == "solana"}),
+            "unique_evm_wallets": len({str(item.get("wallet") or "") for item in merged if item.get("wallet") and str(item.get("chain") or _infer_chain(str(item.get("wallet") or ""))) == "evm"}),
             "unique_handles": len({str(item.get("author_handle") or "").lower() for item in merged if item.get("author_handle")}),
         },
         "observations": merged,
@@ -139,14 +170,16 @@ def merge_wallet_watchlist(path: Path, observations: list[dict[str, Any]]) -> di
 
 
 def tracker_export_from_watchlist(watchlist: dict[str, Any]) -> list[dict[str, Any]]:
-    by_wallet: dict[str, dict[str, Any]] = {}
+    by_wallet: dict[tuple[str, str], dict[str, Any]] = {}
     for item in watchlist.get("observations") or []:
         wallet = str(item.get("wallet") or "")
         if not wallet:
             continue
+        chain = str(item.get("chain") or _infer_chain(wallet))
         entry = by_wallet.setdefault(
-            wallet,
+            (chain, wallet),
             {
+                "chain": chain,
                 "wallet": wallet,
                 "source": "venum_social_wallet_intel",
                 "mode": "watch_only",
@@ -168,7 +201,7 @@ def tracker_export_from_watchlist(watchlist: dict[str, Any]) -> list[dict[str, A
                 entry["first_seen_at"] = observed_at
             if observed_at > entry["last_seen_at"]:
                 entry["last_seen_at"] = observed_at
-    return sorted(by_wallet.values(), key=lambda row: row["wallet"])
+    return sorted(by_wallet.values(), key=lambda row: (row["chain"], row["wallet"]))
 
 
 def write_tracker_export(path: Path, watchlist: dict[str, Any]) -> dict[str, Any]:
@@ -190,6 +223,14 @@ def _is_solana_pubkey(value: str) -> bool:
     except ValueError:
         return False
     return len(decoded) == 32
+
+
+def _infer_chain(value: str) -> str:
+    if EVM_ADDRESS_RE.fullmatch(value):
+        return "evm"
+    if _is_solana_pubkey(value):
+        return "solana"
+    return "unknown"
 
 
 def _b58decode(value: str) -> bytes:
