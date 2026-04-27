@@ -15,6 +15,7 @@ It treats Venum as a public character system with:
 - persona-safe draft generation
 - memory to reduce repetitive posting
 - room/context awareness for replies and market narratives
+- lightweight relationship memory for accounts Venum sees or engages
 
 Venum has its own X account, lore, and personality. The Spectre account is
 controlled separately by the operator.
@@ -134,10 +135,10 @@ cd F:\Cline Test\Spectre\solana-trading-bot\agents\weRvENum
 python -m venum_standalone.cli whoami
 python -m venum_standalone.cli x-budget-status
 python -m venum_standalone.cli mentions --limit 5
-python -m venum_standalone.cli x-draft-replies --limit 5
+python -m venum_standalone.cli x-draft-replies --limit 5 --max-drafts 3
 python -m venum_standalone.cli x-draft-replies --limit 5 --show-all-candidates
 python -m venum_standalone.cli tracked-timeline --limit 5
-python -m venum_standalone.cli tracked-draft-replies --limit 5 --per-account 3
+python -m venum_standalone.cli tracked-draft-replies --limit 5 --per-account 3 --max-drafts 3
 python -m venum_standalone.cli kolscan-bootstrap --top 20 --write
 python -m venum_standalone.cli kolscan-leaderboard --top 10
 python -m venum_standalone.cli wallet-reaction --rank 1
@@ -170,6 +171,10 @@ VENUM_X_DAILY_FOLLOW_BUDGET=5
 
 Search commands cap the number of paid search queries with `--max-queries`.
 Drafting commands cap the number of generated replies with `--max-drafts`.
+Weak or generic model replies are now suppressed even when they technically pass
+persona validation.
+Add `--remember` to draft commands when a reviewed sweep should update Venum's
+author relationship profiles and recent phrase memory.
 Use:
 
 ```bash

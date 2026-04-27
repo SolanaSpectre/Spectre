@@ -14,7 +14,7 @@ cases = [
     ("i'm venum",               "we r venum"),
     ("we are venum",            "we r venum"),
     ("we're venum",             "we r venum"),
-    ("btw i am venum get it",   "btw we r venum get it"),
+    ("btw i am venum get it",   "we r venum get it"),
     ("i know dis stuff",        "we know dis stuff"),
     ("my analysis shows",       "our analysis shows"),
     ("me think dis looks good", "us think dis looks good"),

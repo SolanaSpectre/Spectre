@@ -306,9 +306,22 @@ _BOILERPLATE_PHRASES = [
     "we rember who chase green",
     "pattern real tho",
     "liquidity always find a way",
+    "dis one smell like top",
     "dat one smell like top",
     "we been here before",
     "nobody ever ready for dis move",
+]
+_GENERIC_REPLY_PHRASES = [
+    "dats a gud point",
+    "good one",
+    "next level stuff",
+    "sumtin smell bad",
+    "got us thinkin",
+    "fresh smell",
+    "old socks",
+    "u know how many",
+    "this one is good",
+    "this is the one",
 ]
 # System prompt leak indicators
 _PROMPT_LEAK_PHRASES = [
@@ -337,6 +350,30 @@ def _boilerplate_score_penalty(text: str) -> float:
     return 0.0
 
 
+def _generic_score_penalty(text: str, echoed_terms: list[str]) -> float:
+    text_lower = text.lower()
+    hits = sum(1 for phrase in _GENERIC_REPLY_PHRASES if phrase in text_lower)
+    smell_count = text_lower.count("smell")
+    penalty = 0.0
+    if hits:
+        penalty -= 18.0 * hits
+    if smell_count >= 2:
+        penalty -= 12.0
+    if not echoed_terms:
+        penalty -= 8.0
+    if len(WORD_RE.findall(text_lower)) <= 5 and not echoed_terms:
+        penalty -= 8.0
+    return penalty
+
+
+def candidate_is_usable(best: dict | None, min_score: float = 42.0) -> bool:
+    if not best:
+        return False
+    if best.get("validation_errors"):
+        return False
+    return float(best.get("score") or 0.0) >= min_score
+
+
 def choose_best_candidate(topic: Topic, candidates: list[str], persona: PersonaEngine) -> dict:
     best = None
     best_score = float("-inf")
@@ -360,6 +397,7 @@ def choose_best_candidate(topic: Topic, candidates: list[str], persona: PersonaE
             score += 5.0
         # Penalize boilerplate / system prompt leaks
         score += _boilerplate_score_penalty(text)
+        score += _generic_score_penalty(text, echoed)
         evaluations.append(
             {
                 "text": text,

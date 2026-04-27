@@ -40,6 +40,8 @@ The Spectre account is controlled separately by the operator.
 - infer the best engagement type: reply, quote idea, original post, bookmark, or
   silence
 - keep memory of prior interactions so replies do not feel reset every day
+- maintain per-author relationship profiles with seen count, common contexts,
+  repeated signals, and prior engagements
 
 ### Engage
 
@@ -82,7 +84,8 @@ A Venum reply should usually pass at least one test:
 - it makes a sharp joke that fits the context
 - it strengthens a relationship with a relevant account
 
-If a reply could fit under any random crypto post, it is probably trash.
+If a reply could fit under any random crypto post, it is probably trash. Those
+weak drafts should be suppressed, not merely labeled valid.
 
 ## Near-Term Build Order
 

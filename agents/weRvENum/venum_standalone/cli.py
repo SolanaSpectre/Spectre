@@ -19,7 +19,7 @@ from .settings import load_settings
 from .venum_prompting import reply_prompt_for_mode, spoodee_post_prompt, venum_system_prompt
 from .x_client import XClient
 from .engagement_logic import classify_room_context, choose_engagement_type, detect_narrative_relevance, select_tone, should_suppress
-from .x_integration import choose_best_candidate, filter_replyable_mentions, filter_replyable_search, filter_replyable_timelines, score_trend_opportunity, topics_from_mentions, topics_from_search, topics_from_timelines, topics_from_trending
+from .x_integration import candidate_is_usable, choose_best_candidate, filter_replyable_mentions, filter_replyable_search, filter_replyable_timelines, score_trend_opportunity, topics_from_mentions, topics_from_search, topics_from_timelines, topics_from_trending
 from .wallet_lore import choose_wallet_reaction
 from .x_budget import XBudgetExceeded
 from .lore import can_post_spoodee_today, load_lore_memory, record_spoodee_post, should_inject_spoodee, spoodee_post_candidates
@@ -75,9 +75,11 @@ def build_parser() -> argparse.ArgumentParser:
     x_draft.add_argument("--env-file", default="", help="Optional path to .env file.")
     x_draft.add_argument("--persona", default=str(DEFAULT_PERSONA), help="Path to persona rules JSON.")
     x_draft.add_argument("--attention-policy", default=str(DEFAULT_ATTENTION_POLICY), help="Path to attention policy JSON.")
+    x_draft.add_argument("--memory", default=str(DEFAULT_MEMORY), help="Path to memory JSON.")
     x_draft.add_argument("--limit", type=int, default=5)
     x_draft.add_argument("--max-drafts", type=int, default=3, help="Maximum reply drafts to generate after triage.")
     x_draft.add_argument("--show-all-candidates", action="store_true", help="Include all generated candidates and ranking details.")
+    x_draft.add_argument("--remember", action="store_true", help="Persist seen authors and accepted drafts into memory.")
 
     x_post = subparsers.add_parser("x-post", help="Create a live or dry-run X post.")
     x_post.add_argument("--env-file", default="", help="Optional path to .env file.")
@@ -101,10 +103,12 @@ def build_parser() -> argparse.ArgumentParser:
     tracked_draft.add_argument("--persona", default=str(DEFAULT_PERSONA), help="Path to persona rules JSON.")
     tracked_draft.add_argument("--attention-policy", default=str(DEFAULT_ATTENTION_POLICY), help="Path to attention policy JSON.")
     tracked_draft.add_argument("--tracked-accounts", default=str(DEFAULT_TRACKED_ACCOUNTS), help="Path to tracked accounts JSON.")
+    tracked_draft.add_argument("--memory", default=str(DEFAULT_MEMORY), help="Path to memory JSON.")
     tracked_draft.add_argument("--limit", type=int, default=5, help="Total accounts to inspect.")
     tracked_draft.add_argument("--per-account", type=int, default=3, help="Posts to fetch per account.")
     tracked_draft.add_argument("--max-drafts", type=int, default=3, help="Maximum reply drafts to generate after triage.")
     tracked_draft.add_argument("--show-all-candidates", action="store_true", help="Include all generated candidates and ranking details.")
+    tracked_draft.add_argument("--remember", action="store_true", help="Persist seen authors and accepted drafts into memory.")
 
     kolscan = subparsers.add_parser("kolscan-bootstrap", help="Bootstrap tracked accounts from the KOLscan leaderboard.")
     kolscan.add_argument("--top", type=int, default=20, help="How many unique X usernames to pull.")
@@ -140,10 +144,12 @@ def build_parser() -> argparse.ArgumentParser:
     search_draft.add_argument("--persona", default=str(DEFAULT_PERSONA), help="Path to persona rules JSON.")
     search_draft.add_argument("--attention-policy", default=str(DEFAULT_ATTENTION_POLICY), help="Path to attention policy JSON.")
     search_draft.add_argument("--engagement-targets", default=str(DEFAULT_ENGAGEMENT_TARGETS), help="Path to engagement targets JSON.")
+    search_draft.add_argument("--memory", default=str(DEFAULT_MEMORY), help="Path to memory JSON.")
     search_draft.add_argument("--limit", type=int, default=10, help="Posts per query.")
     search_draft.add_argument("--max-queries", type=int, default=3, help="Maximum search queries to spend X API reads on.")
     search_draft.add_argument("--max-drafts", type=int, default=3, help="Maximum reply drafts to generate after triage.")
     search_draft.add_argument("--show-all-candidates", action="store_true", help="Include all generated candidates and ranking details.")
+    search_draft.add_argument("--remember", action="store_true", help="Persist seen authors and accepted drafts into memory.")
 
     trend_hunt = subparsers.add_parser("trend-hunt", help="Hunt trending topics and generate room-aware Venum reply drafts.")
     trend_hunt.add_argument("--env-file", default="", help="Optional path to .env file.")
@@ -306,6 +312,7 @@ def main() -> int:
         attention_policy = load_json(Path(args.attention_policy))
         ollama = OllamaClient(settings)
         replyable, skipped = filter_replyable_search(topics, attention_policy)
+        memory = MemoryStore(Path(args.memory))
         rendered = []
         for item in replyable[: max(0, args.max_drafts)]:
             topic = item["topic"]
@@ -332,6 +339,19 @@ def main() -> int:
                 continue
             decision = choose_best_candidate(topic, variants, persona)
             best = decision["best"] or {"text": "", "validation_errors": [], "score": 0.0, "echoed_terms": []}
+            if not candidate_is_usable(best):
+                skipped.append(
+                    {
+                        "topic_id": topic.topic_id,
+                        "author_handle": topic.author_handle,
+                        "reason": "weak_or_generic_candidate",
+                        "score": item["score"],
+                        "selection_score": best["score"],
+                        "validation_errors": best["validation_errors"],
+                        "text": topic.text,
+                    }
+                )
+                continue
             rendered_item = {
                 "topic_id": topic.topic_id,
                 "author_handle": topic.author_handle,
@@ -342,11 +362,22 @@ def main() -> int:
                 "validation_errors": best["validation_errors"],
                 "selection_score": best["score"],
                 "echoed_terms": best["echoed_terms"],
+                "author_profile": memory.author_profile(topic.author_handle),
                 "rationale": [f"reply to @{topic.author_handle}", item["reason"]],
             }
             if args.show_all_candidates:
                 rendered_item["all_candidates"] = decision["all"]
             rendered.append(rendered_item)
+            if args.remember:
+                memory.remember_observation(
+                    topic=topic,
+                    source="search_draft",
+                    signals=item["signals"],
+                    opportunity_score=item["score"],
+                )
+                memory.remember(topic.topic_id, best["text"].strip().lower())
+        if args.remember:
+            memory.save()
         print(json.dumps({"drafts": rendered, "skipped": skipped, "budget_skips": budget_skips, "x_budget": x_client.budget_status()}, indent=2))
         return 0
 
@@ -374,6 +405,7 @@ def main() -> int:
             rules = load_json(Path(args.persona))
             attention_policy = load_json(Path(args.attention_policy))
             replyable, skipped = filter_replyable_mentions(topics, attention_policy)
+            memory = MemoryStore(Path(args.memory))
             rendered = []
             for item in replyable[: max(0, args.max_drafts)]:
                 topic = item["topic"]
@@ -400,6 +432,19 @@ def main() -> int:
                     continue
                 decision = choose_best_candidate(topic, variants, persona)
                 best = decision["best"] or {"text": "", "validation_errors": [], "score": 0.0, "echoed_terms": []}
+                if not candidate_is_usable(best):
+                    skipped.append(
+                        {
+                            "topic_id": topic.topic_id,
+                            "author_handle": topic.author_handle,
+                            "reason": "weak_or_generic_candidate",
+                            "score": item["score"],
+                            "selection_score": best["score"],
+                            "validation_errors": best["validation_errors"],
+                            "text": topic.text,
+                        }
+                    )
+                    continue
                 rendered_item = {
                     "topic_id": topic.topic_id,
                     "author_handle": topic.author_handle,
@@ -409,6 +454,7 @@ def main() -> int:
                     "validation_errors": best["validation_errors"],
                     "selection_score": best["score"],
                     "echoed_terms": best["echoed_terms"],
+                    "author_profile": memory.author_profile(topic.author_handle),
                     "rationale": [f"reply to @{topic.author_handle}", item["reason"]],
                 }
                 if args.show_all_candidates:
@@ -418,6 +464,16 @@ def main() -> int:
                         **rendered_item,
                     }
                 )
+                if args.remember:
+                    memory.remember_observation(
+                        topic=topic,
+                        source="mentions_draft",
+                        signals=item["signals"],
+                        opportunity_score=item["score"],
+                    )
+                    memory.remember(topic.topic_id, best["text"].strip().lower())
+            if args.remember:
+                memory.save()
             print(json.dumps({"drafts": rendered, "skipped": skipped, "x_budget": x_client.budget_status()}, indent=2))
             return 0
 
@@ -519,6 +575,7 @@ def main() -> int:
                 timeline_payloads.append(x_client.user_tweets(str(user.get("id") or ""), limit=args.per_account))
             topics = topics_from_timelines(users, timeline_payloads)
             replyable, skipped = filter_replyable_timelines(topics, attention_policy)
+            memory = MemoryStore(Path(args.memory))
             rendered = []
             for item in replyable[: max(0, args.max_drafts)]:
                 topic = item["topic"]
@@ -545,6 +602,19 @@ def main() -> int:
                     continue
                 decision = choose_best_candidate(topic, variants, persona)
                 best = decision["best"] or {"text": "", "validation_errors": [], "score": 0.0, "echoed_terms": []}
+                if not candidate_is_usable(best):
+                    skipped.append(
+                        {
+                            "topic_id": topic.topic_id,
+                            "author_handle": topic.author_handle,
+                            "reason": "weak_or_generic_candidate",
+                            "score": item["score"],
+                            "selection_score": best["score"],
+                            "validation_errors": best["validation_errors"],
+                            "text": topic.text,
+                        }
+                    )
+                    continue
                 rendered_item = {
                     "topic_id": topic.topic_id,
                     "author_handle": topic.author_handle,
@@ -555,11 +625,22 @@ def main() -> int:
                     "validation_errors": best["validation_errors"],
                     "selection_score": best["score"],
                     "echoed_terms": best["echoed_terms"],
+                    "author_profile": memory.author_profile(topic.author_handle),
                     "rationale": [f"reply to @{topic.author_handle}", item["reason"]],
                 }
                 if args.show_all_candidates:
                     rendered_item["all_candidates"] = decision["all"]
                 rendered.append(rendered_item)
+                if args.remember:
+                    memory.remember_observation(
+                        topic=topic,
+                        source="tracked_draft",
+                        signals=item["signals"],
+                        opportunity_score=item["score"],
+                    )
+                    memory.remember(topic.topic_id, best["text"].strip().lower())
+            if args.remember:
+                memory.save()
             print(json.dumps({"drafts": rendered, "skipped": skipped, "x_budget": x_client.budget_status()}, indent=2))
             return 0
 
@@ -682,6 +763,18 @@ def main() -> int:
 
             decision = choose_best_candidate(topic, variants, persona)
             best = decision["best"] or {"text": "", "validation_errors": [], "score": 0.0, "echoed_terms": []}
+            if not candidate_is_usable(best):
+                suppressed.append({
+                    "topic_id": topic.topic_id,
+                    "author_handle": topic.author_handle,
+                    "reason": "weak_or_generic_candidate",
+                    "room_context": room_context,
+                    "opportunity_score": item["opportunity_score"],
+                    "selection_score": best["score"],
+                    "validation_errors": best["validation_errors"],
+                    "text": topic.text,
+                })
+                continue
 
             rendered_item = {
                 "topic_id": topic.topic_id,
@@ -696,6 +789,7 @@ def main() -> int:
                 "selection_score": best["score"],
                 "echoed_terms": best["echoed_terms"],
                 "narrative_relevant": detect_narrative_relevance(topic),
+                "author_profile": memory.author_profile(topic.author_handle),
                 "age_hours": round(topic.age_hours, 2),
                 "metrics": topic.metrics,
             }
@@ -704,6 +798,13 @@ def main() -> int:
             rendered.append(rendered_item)
 
             if args.remember and not best["validation_errors"]:
+                memory.remember_observation(
+                    topic=topic,
+                    source="trend_hunt",
+                    room_context=room_context,
+                    signals=[],
+                    opportunity_score=item["opportunity_score"],
+                )
                 memory.remember(topic.topic_id, best["text"].strip().lower())
                 memory.remember_engagement(
                     topic_id=topic.topic_id,
