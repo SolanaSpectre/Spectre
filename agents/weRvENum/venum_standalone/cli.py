@@ -18,6 +18,7 @@ from .pipeline import build_candidates
 from .rick_context_bridge import DEFAULT_RICK_CONTEXT, source_window_from_rick_context, topics_from_rick_context
 from .settings import load_settings
 from .social_wallet_intel import merge_wallet_watchlist, observations_from_tweets, tweets_from_search_payload, write_tracker_export
+from .token_social_research import build_token_queries, build_token_social_report, write_token_social_report
 from .venum_prompting import reply_prompt_for_mode, spoodee_post_prompt, venum_system_prompt
 from .x_client import XClient
 from .engagement_logic import classify_room_context, choose_engagement_type, detect_narrative_relevance, select_tone, should_suppress
@@ -40,6 +41,7 @@ DEFAULT_RICK_BRIEF = runtime_file("spectre_narrative_brief_rick_latest.json")
 DEFAULT_SOCIAL_WALLET_WATCHLIST = runtime_file("social_wallet_watchlist.json")
 DEFAULT_SOCIAL_WALLET_TRACKER_EXPORT = runtime_file("social_wallet_tracker_export.json")
 DEFAULT_NARRATIVE_RADAR = runtime_file("narrative_radar_latest.json")
+DEFAULT_TOKEN_SOCIAL_RESEARCH = runtime_file("token_social_research_latest.json")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -206,6 +208,18 @@ def build_parser() -> argparse.ArgumentParser:
     narrative_radar.add_argument("--previous", default=str(DEFAULT_NARRATIVE_RADAR), help="Previous radar JSON for velocity comparison. Use '-' to disable.")
     narrative_radar.add_argument("--social-wallet-watchlist", default=str(DEFAULT_SOCIAL_WALLET_WATCHLIST), help="Optional Venum social wallet watchlist for handle overlap.")
     narrative_radar.add_argument("--show-topics", action="store_true", help="Include fetched topic snippets in output.")
+
+    token_social = subparsers.add_parser("token-social-research", help="Research X social pickup for one runner/token mint, ticker, or name.")
+    token_social.add_argument("--env-file", default="", help="Optional path to .env file.")
+    token_social.add_argument("--mint", default="", help="Token contract address / mint to search.")
+    token_social.add_argument("--ticker", default="", help="Ticker symbol to search, with or without $.")
+    token_social.add_argument("--name", default="", help="Token/project name to search.")
+    token_social.add_argument("--limit", type=int, default=20, help="Posts per query.")
+    token_social.add_argument("--max-queries", type=int, default=3, help="Maximum token-specific queries to spend X API reads on.")
+    token_social.add_argument("--top-samples", type=int, default=10, help="Number of sample posts to include.")
+    token_social.add_argument("--write", default=str(DEFAULT_TOKEN_SOCIAL_RESEARCH), help="Research JSON output path. Use '-' to skip writing.")
+    token_social.add_argument("--social-wallet-watchlist", default=str(DEFAULT_SOCIAL_WALLET_WATCHLIST), help="Optional Venum social wallet watchlist for handle overlap.")
+    token_social.add_argument("--show-queries", action="store_true", help="Include exact X search queries in output.")
     return parser
 
 
@@ -1099,6 +1113,51 @@ def main() -> int:
             ]
         if str(args.write).strip() != "-":
             write_radar_report(Path(args.write), report)
+            report["output_path"] = str(Path(args.write))
+        print(json.dumps(report, indent=2))
+        return 0
+
+    if args.command == "token-social-research":
+        if not any([str(args.mint).strip(), str(args.ticker).strip(), str(args.name).strip()]):
+            print(json.dumps({"error": "provide at least one of --mint, --ticker, or --name"}, indent=2))
+            return 1
+
+        settings = load_settings(Path(args.env_file) if getattr(args, "env_file", "") else None)
+        x_client = XClient(settings)
+        queries = build_token_queries(mint=args.mint, ticker=args.ticker, name=args.name)
+        payloads = []
+        query_names = []
+        budget_skips = []
+        for row in queries[: max(0, args.max_queries)]:
+            try:
+                payloads.append(x_client.recent_search(query=row["query"], limit=args.limit))
+                query_names.append(row["name"])
+            except XBudgetExceeded as exc:
+                budget_skips.append({"query": row["name"], "reason": str(exc)})
+                break
+            except Exception as exc:
+                budget_skips.append({"query": row["name"], "reason": f"search_failed: {type(exc).__name__}"})
+
+        topics = topics_from_search(payloads)
+        social_wallet_watchlist = {}
+        watchlist_path = Path(args.social_wallet_watchlist)
+        if watchlist_path.exists():
+            social_wallet_watchlist = load_json(watchlist_path)
+        report = build_token_social_report(
+            topics,
+            mint=args.mint,
+            ticker=args.ticker,
+            name=args.name,
+            query_names=query_names,
+            social_wallet_watchlist=social_wallet_watchlist,
+            max_samples=max(1, args.top_samples),
+        )
+        report["budget_skips"] = budget_skips
+        report["x_budget"] = x_client.budget_status()
+        if args.show_queries:
+            report["queries"] = queries[: max(0, args.max_queries)]
+        if str(args.write).strip() != "-":
+            write_token_social_report(Path(args.write), report)
             report["output_path"] = str(Path(args.write))
         print(json.dumps(report, indent=2))
         return 0

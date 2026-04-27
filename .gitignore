@@ -45,6 +45,7 @@ __pycache__/
 agents/weRvENum/runtime/*_watchlist.json
 agents/weRvENum/runtime/*_tracker_export.json
 agents/weRvENum/runtime/narrative_radar_latest.json
+agents/weRvENum/runtime/token_social_research_latest.json
 agents/weRvENum/runtime/x_api_budget.json
 
 # OS/editor noise

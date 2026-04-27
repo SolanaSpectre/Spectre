@@ -152,6 +152,7 @@ python -m venum_standalone.cli search-draft-replies --query-name viral_crypto_ct
 python -m venum_standalone.cli trend-hunt --query-name memes_trenches --query-name solana_devs --limit 10 --max-queries 2 --max-drafts 5 --min-opportunity-score 35
 python -m venum_standalone.cli social-wallet-hunt --query-name giveaway_wallet_threads --query-name prelaunch_wallet_hints --limit 10 --max-queries 2 --max-reply-threads 2
 python -m venum_standalone.cli narrative-radar --query-name prelaunch_language --query-name new_meta_language --limit 15 --max-queries 2 --top 10
+python -m venum_standalone.cli token-social-research --mint <CA> --ticker <TICKER> --name "<NAME>" --limit 20 --max-queries 3
 python -m venum_standalone.cli x-post --text "headline loud\n\nliquidity move first"
 ```
 
@@ -233,6 +234,25 @@ runtime/narrative_radar_latest.json
 The radar is intentionally not a posting command. Treat it as early warning:
 low absolute volume plus rising velocity, repeated language, unique authors, and
 wallet-linked authors are the interesting parts.
+
+## Token Social Research
+
+When Spectre/Runner Hunter finds a mint worth checking, Venum can search X for
+that exact contract address, ticker, and project name:
+
+```bash
+python -m venum_standalone.cli token-social-research --mint <CA> --ticker <TICKER> --name "<NAME>" --limit 20 --max-queries 3
+```
+
+Output:
+
+```bash
+runtime/token_social_research_latest.json
+```
+
+This is token-specific social oxygen research. It scores exact CA/ticker/name
+pickup, unique authors, human trading language, promo spam risk, wallet mentions,
+and overlap with Venum's social wallet watchlist.
 
 ## Spectre Bridge
 
