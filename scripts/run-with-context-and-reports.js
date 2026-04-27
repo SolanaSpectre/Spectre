@@ -389,6 +389,7 @@ async function generatePostRunReports(options) {
   await runNode('Battlefield Report', 'run-battlefield-report.js', [], { allowFailure: true });
   await runNode('Wallet Battlefield Report', 'wallet-battlefield-report.js', [], { allowFailure: true });
   await runNode('Wallet Behavior Report', 'report-wallet-behavior.js', [], { allowFailure: true });
+  await runNode('Wallet First-Touch Report', 'wallet-first-touch-report.js', [], { allowFailure: true });
   await runNode('Wallet Outcome Audit', 'wallet-outcome-audit.js', [], { allowFailure: true });
   await runNode('Wallet Alpha Replay Report', 'wallet-alpha-replay-report.js', [], { allowFailure: true });
   await runNode('Wallet Alpha Shadow Ledger', 'wallet-alpha-shadow-ledger.js', [], { allowFailure: true });

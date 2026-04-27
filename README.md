@@ -197,6 +197,7 @@ npm run import:venum-wallets
 npm run analyze:venum-wallets -- --limit 25 --txLimit 100
 npm run enqueue:venum-token-research -- --limit 8
 npm run report:macro-posture
+npm run report:wallet-first-touch
 npm run compare:kolscan
 npm run build:wallet-intel
 npm run sync:telegram
@@ -214,6 +215,7 @@ What this does:
 - refreshes Helius wallet summaries for that Venum watch-only list
 - queues interesting Spectre token candidates for later Venum X/social research without spending X reads
 - builds a report-only macro posture snapshot for the next session
+- builds watched-wallet first-touch token clusters from wallet trade telemetry
 - refreshes wallet-vs-paper overlap analysis
 - rebuilds wallet intel for the AI layer
 - syncs approved Telegram chats/channels only
@@ -229,6 +231,8 @@ Primary morning artifacts to inspect:
 - [false-negative watchlist](F:/Cline%20Test/Spectre/solana-trading-bot/data/watchlists/false-negative-watchlist-latest.json)
 - [battlefield report latest](F:/Cline%20Test/Spectre/solana-trading-bot/data/reports/run-battlefield-latest.json)
 - [macro posture latest](F:/Cline%20Test/Spectre/solana-trading-bot/data/reports/macro-posture-latest.json)
+- [wallet first-touch latest](F:/Cline%20Test/Spectre/solana-trading-bot/data/reports/wallet-first-touch-latest.json)
+- [wallet first-touch watchlist](F:/Cline%20Test/Spectre/solana-trading-bot/data/watchlists/wallet-first-touch-watchlist-latest.json)
 - [Venum token social queue](F:/Cline%20Test/Spectre/solana-trading-bot/agents/weRvENum/runtime/token_social_research_queue.json)
 - latest file in [run-logs](F:/Cline%20Test/Spectre/solana-trading-bot/run-logs)
 
