@@ -62,9 +62,9 @@ function getConfig() {
     password: process.env.TELEGRAM_PASSWORD || '',
     allowedChatIds: toNumberList(process.env.TELEGRAM_ALLOWED_CHAT_IDS),
     allowedChatNames: toStringList(process.env.TELEGRAM_ALLOWED_CHAT_NAMES),
-    contextWindowHours: parseInt(process.env.TELEGRAM_CONTEXT_WINDOW_HOURS || '24', 10),
-    maxMessagesPerChat: parseInt(process.env.TELEGRAM_MAX_MESSAGES_PER_CHAT || '200', 10),
-    maxStoredMessages: parseInt(process.env.TELEGRAM_MAX_STORED_MESSAGES || '2000', 10),
+    contextWindowHours: parseInt(process.env.TELEGRAM_CONTEXT_WINDOW_HOURS || '12', 10),
+    maxMessagesPerChat: parseInt(process.env.TELEGRAM_MAX_MESSAGES_PER_CHAT || '40', 10),
+    maxStoredMessages: parseInt(process.env.TELEGRAM_MAX_STORED_MESSAGES || '300', 10),
     outputPath: process.env.TELEGRAM_CONTEXT_FILE_PATH || path.join(OUTPUT_DIR, 'latest.json'),
     statePath: process.env.TELEGRAM_STATE_FILE_PATH || path.join(OUTPUT_DIR, 'state.json'),
     stringSessionPath: process.env.TELEGRAM_STRING_SESSION_FILE_PATH || path.join(OUTPUT_DIR, 'string-session.txt')

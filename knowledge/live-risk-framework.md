@@ -169,6 +169,31 @@ When we are ready for live trading, use this order:
 5. enforce drawdown throttles
 6. monitor live trade sizing versus outcomes before adding any confidence scaling
 
+## Future Helius Sender Integration
+
+When the system is genuinely ready for live execution work, revisit Helius Sender as a transaction-submission upgrade.
+
+Sender is useful because it can submit transactions through Helius staked connections and Jito routing for faster inclusion. It should be treated as live-execution infrastructure, not as a data feed and not as a paper-mode feature.
+
+Potential future config shape:
+
+```env
+HELIUS_SENDER_ENABLED=false
+HELIUS_SENDER_URL=https://sender.helius-rpc.com/fast
+HELIUS_SENDER_SWQOS_ONLY=false
+HELIUS_SENDER_TIP_SOL=0.0002
+HELIUS_SENDER_PING_ENABLED=true
+```
+
+Important constraints:
+
+1. only enable in live mode after deliberate review
+2. Sender requires skip preflight
+3. Sender requires priority fees
+4. default dual routing requires a tip transfer to an approved Sender tip account
+5. current Jupiter Ultra execution may need a separate transaction-submission path before Sender can be used cleanly
+6. do not wire this until paper lanes, live-exit simulation, and live safety caps are already validated
+
 ## Implementation Direction
 
 The likely clean implementation path is:

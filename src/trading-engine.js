@@ -1,4 +1,4 @@
-const { Connection, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+const { LAMPORTS_PER_SOL } = require('@solana/web3.js');
 const MarketData = require('./market-data');
 const AIAgent = require('./ai-agent');
 const CapitalAllocation = require('./capital-allocation');
@@ -24,12 +24,14 @@ const PreMigrationPaperLane = require('./lib/pre-migration-paper-lane');
 const PumpBondingCurveLane = require('./lib/pump-bonding-curve-lane');
 const CandidateDossierLedger = require('./lib/candidate-dossier-ledger');
 const PostMigrationContinuationLane = require('./lib/post-migration-continuation-lane');
+const WalletEventLedger = require('./lib/wallet-event-ledger');
+const SolanaRpcRouter = require('./lib/solana-rpc-router');
 
 class TradingEngine {
   constructor(config, logger) {
     this.config = config;
     this.logger = logger;
-    this.connection = new Connection(config.solanaRpcUrl, 'confirmed');
+    this.connection = new SolanaRpcRouter(config, logger);
     this.marketData = new MarketData(config, logger);
     this.aiAgent = new AIAgent(config, logger);
     this.capitalAllocation = new CapitalAllocation(config, logger);
@@ -61,12 +63,15 @@ class TradingEngine {
     this.pumpBondingCurveLane = new PumpBondingCurveLane(config, logger, this.connection);
     this.candidateDossierLedger = new CandidateDossierLedger(config, logger);
     this.postMigrationContinuationLane = new PostMigrationContinuationLane(config, logger);
+    this.walletEventLedger = new WalletEventLedger(config, logger);
 
     this.currentPositions = new Map();
     this.paperPositions = new Map();
     this.rejectedTrades = [];
     this.latestPumpPortalTokens = new Map();
     this.tokenSignalCooldowns = new Map();
+    this.preMigrationPaperRechecks = new Map();
+    this.preMigrationPaperExpiredRechecks = new Set();
     this.lastTelegramSightingSyncAt = null;
 
     this.dailyPnL = 0;
@@ -84,6 +89,9 @@ class TradingEngine {
     this.entryStartTime = null;
     this.sessionId = null;
     this.filterRejectSnapshotCount = 0;
+    this.lastCapitalBalanceLookupAt = 0;
+    this.sessionTimeout = null;
+    this.stopInProgress = false;
   }
 
   applySignalCooldown(mintAddress, cooldownMs) {
@@ -103,11 +111,22 @@ class TradingEngine {
     this.config.validate();
 
     const version = await this.connection.getVersion();
-    this.logger.success(`Connected to Solana RPC: ${version['solana-core']}`);
+    const rpcStatus = this.connection.getStatus();
+    this.logger.success(`Connected to Solana RPC: ${version['solana-core']}`, {
+      primaryHttpEndpoint: rpcStatus.primary.httpUrl,
+      primaryWsEndpoint: rpcStatus.primary.wsUrl,
+      fallbackHttpEndpoint: rpcStatus.fallback?.httpUrl || null,
+      fallbackWsEndpoint: rpcStatus.fallback?.wsUrl || null
+    });
     this.restorePersistedLivePositions();
     await this.reconcilePersistedLivePositions();
     await this.refreshCapitalState();
-    this.syncTelegramSightings({ bootstrap: true });
+    if (this.shouldRunTelegramBootstrapSightings()) {
+      this.syncTelegramSightings({ bootstrap: true });
+    } else {
+      this.lastTelegramSightingSyncAt = this.getDefaultTelegramRecurringSinceMs();
+      this.logger.info(`Skipping Telegram bootstrap sightings import for ${this.executionModeManager.mode} mode`);
+    }
 
     this.logger.info(`Execution mode: ${this.executionModeManager.mode}`);
     return true;
@@ -204,12 +223,13 @@ class TradingEngine {
     }
 
     this.sessionManager.start();
-    this.entryStartTime = Date.now();
-    this.sessionId = `session_${this.entryStartTime}`;
+    const sessionStartTime = Date.now();
+    this.sessionId = `session_${sessionStartTime}`;
     this.active = true;
     this.telemetry.record('session.started', {
       mode: this.executionModeManager.mode,
-      sessionDurationMinutes: this.config.sessionDurationMinutes
+      sessionDurationMinutes: this.config.sessionDurationMinutes,
+      entryWarmupMs: this.getEffectiveEntryWarmupMs()
     });
     this.strategyLedger.record('session.started', {
       sessionId: this.sessionId,
@@ -217,13 +237,54 @@ class TradingEngine {
       sessionDurationMinutes: this.config.sessionDurationMinutes,
       initialEquitySol: this.totalEquitySol
     });
+    this.armSessionTimeout();
     this.logger.info('Starting trading engine...');
     await this.pumpPortalListener.start();
+    this.entryStartTime = Date.now();
     this.tradingLoop();
   }
 
+  armSessionTimeout() {
+    if (this.sessionTimeout) {
+      clearTimeout(this.sessionTimeout);
+      this.sessionTimeout = null;
+    }
+
+    const durationMinutes = Number(this.config.sessionDurationMinutes || 0);
+    if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+      return;
+    }
+
+    const timeoutMs = Math.max(1, durationMinutes * 60 * 1000);
+    this.sessionTimeout = setTimeout(() => {
+      if (!this.active || this.stopInProgress) {
+        return;
+      }
+
+      this.logger.info('Session duration reached; stopping trading engine');
+      this.stop('SESSION_DURATION_EXCEEDED').catch((error) => {
+        this.logger.error('Failed to stop trading engine after session timeout', error.message);
+      });
+    }, timeoutMs);
+
+    if (typeof this.sessionTimeout.unref === 'function') {
+      this.sessionTimeout.unref();
+    }
+  }
+
   async stop(reason = 'STOPPED') {
+    if (this.stopInProgress) {
+      return;
+    }
+
+    this.stopInProgress = true;
     this.active = false;
+    if (this.sessionTimeout) {
+      clearTimeout(this.sessionTimeout);
+      this.sessionTimeout = null;
+    }
+    this.clearPreMigrationPaperRechecks('SESSION_STOP');
+
     this.recordPreMigrationPaperEvents(this.preMigrationPaperLane.closeAll('SESSION_END'));
     if (this.executionModeManager.isPaper() && this.config.paperCloseOnSessionEnd) {
       this.closeAllPaperPositions('SESSION_END');
@@ -249,6 +310,7 @@ class TradingEngine {
       }
     });
     this.logger.info('Stopping trading engine...');
+    this.stopInProgress = false;
   }
 
   async tradingLoop() {
@@ -287,13 +349,7 @@ class TradingEngine {
     await this.refreshCapitalState();
 
     if (this.isEntryWarmupActive()) {
-      const marketData = await this.fetchMarketData();
-      this.eventFlow.record('cycle.market_data_fetched', {
-        cycleId,
-        sourceCounts: marketData.sourceCounts
-      });
       this.telemetry.record('cycle.completed', {
-        sourceCounts: marketData.sourceCounts,
         analyzedTokens: 0,
         signals: 0,
         skippedEntries: true,
@@ -428,6 +484,10 @@ class TradingEngine {
 
     if (this.executionModeManager.isPaper() && this.paperPositions.size >= this.config.maxOpenPaperPositions) {
       return this.rejectTrade(signal, 'MAX_OPEN_PAPER_POSITIONS');
+    }
+
+    if (this.executionModeManager.isLive() && !this.config.liveExitEngineEnabled) {
+      return this.rejectTrade(signal, 'LIVE_EXIT_ENGINE_DISABLED');
     }
 
     const quote = await this.marketData.getQuoteWithStalenessCheck(
@@ -1008,12 +1068,57 @@ class TradingEngine {
   }
 
   async fetchMarketData() {
-    const [solPrice, raydiumPools, meteoraPools, moonshotTokens] = await Promise.all([
+    const [solPriceResult, raydiumResult, meteoraResult, moonshotResult] = await Promise.allSettled([
       this.marketData.getSolanaPrice(),
       this.marketData.getRaydiumPools(),
       this.marketData.getMeteoraPools(),
       this.marketData.getMoonshotTokens()
     ]);
+
+    const solPriceFallback = this.marketData.getCachedSolanaPrice(
+      Math.max(this.config.solPriceCacheTtlMs * 10, 300000)
+    );
+    const solPrice = solPriceResult.status === 'fulfilled'
+      ? Number(solPriceResult.value || 0)
+      : Number(solPriceFallback?.value || 0);
+    const raydiumPools = raydiumResult.status === 'fulfilled' ? raydiumResult.value : [];
+    const meteoraPools = meteoraResult.status === 'fulfilled' ? meteoraResult.value : [];
+    const moonshotTokens = moonshotResult.status === 'fulfilled' ? moonshotResult.value : [];
+
+    if (solPriceResult.status !== 'fulfilled') {
+      this.telemetry.record('provider.error', {
+        provider: 'sol_price',
+        message: solPriceResult.reason?.message || String(solPriceResult.reason || 'unknown error'),
+        usedCachedValue: Boolean(solPriceFallback),
+        fallbackAgeMs: solPriceFallback?.ageMs ?? null
+      });
+      this.logger.warn(
+        solPriceFallback
+          ? `Using cached SOL price after fetch failure (${solPriceFallback.ageMs}ms old)`
+          : 'SOL price fetch failed with no cached fallback'
+      );
+    }
+
+    if (raydiumResult.status !== 'fulfilled') {
+      this.telemetry.record('provider.error', {
+        provider: 'raydium_pools',
+        message: raydiumResult.reason?.message || String(raydiumResult.reason || 'unknown error')
+      });
+    }
+
+    if (meteoraResult.status !== 'fulfilled') {
+      this.telemetry.record('provider.error', {
+        provider: 'meteora_pools',
+        message: meteoraResult.reason?.message || String(meteoraResult.reason || 'unknown error')
+      });
+    }
+
+    if (moonshotResult.status !== 'fulfilled') {
+      this.telemetry.record('provider.error', {
+        provider: 'moonshot_tokens',
+        message: moonshotResult.reason?.message || String(moonshotResult.reason || 'unknown error')
+      });
+    }
 
     const poolStateUpdate = this.syncPoolStateLane([
       ...raydiumPools,
@@ -1556,6 +1661,13 @@ class TradingEngine {
   }
 
   async executeBuyLive(signal, quote, aiDecision) {
+    if (!this.config.liveExitEngineEnabled) {
+      return {
+        success: false,
+        reason: 'LIVE_EXIT_ENGINE_DISABLED'
+      };
+    }
+
     const availableHotBalanceSol = this.getAvailableTradingCapitalSol();
     if (signal.amount > availableHotBalanceSol) {
       return {
@@ -1579,6 +1691,7 @@ class TradingEngine {
     );
 
     const entryValueSol = await this.marketData.getTokenValueInSol(signal.token, tokenAmountRaw);
+    const liveExitProfile = this.buildLiveExitProfile(aiDecision);
     const position = {
       token: signal.token,
       amount: Number(tokenAmountRaw),
@@ -1595,6 +1708,11 @@ class TradingEngine {
       aiConvergenceScore: aiDecision.convergenceScore,
       aiAction: aiDecision.action,
       aiExecutionProfile: aiDecision.executionProfile,
+      liveExitProfile,
+      peakPnlPercent: 0,
+      trailingActivated: false,
+      breakevenActivated: false,
+      openedAt: Date.now(),
       lastBuySignature: executionResponse?.signature || executionResponse?.transactionId || null
     };
 
@@ -1657,8 +1775,13 @@ class TradingEngine {
         const marketValueSol = await this.marketData.getTokenValueInSol(token, position.tokenAmountRaw);
         position.marketValueSol = marketValueSol || position.costBasisSol;
         position.unrealizedPnLSol = position.marketValueSol - position.costBasisSol;
+        await this.maybeCloseLivePosition(token, position);
       } catch (error) {
         this.logger.warn(`Failed to update live position for ${token}`, error.message);
+        this.telemetry.record('live.position.update_failed', {
+          token,
+          reason: error.message
+        });
       }
     }
 
@@ -1678,6 +1801,228 @@ class TradingEngine {
     }
   }
 
+  async maybeCloseLivePosition(token, position) {
+    if (!this.executionModeManager.isLive() || !this.config.liveExitEngineEnabled || position.exitInProgress) {
+      return null;
+    }
+
+    const exitProfile = this.getLiveExitProfile(position);
+    const pnlPercent = position.costBasisSol === 0
+      ? 0
+      : position.unrealizedPnLSol / position.costBasisSol;
+
+    if (pnlPercent <= -exitProfile.stopLossPercent) {
+      return this.closeLivePosition(token, position, 'STOP_LOSS');
+    }
+
+    position.peakPnlPercent = Math.max(position.peakPnlPercent || 0, pnlPercent);
+    if (position.peakPnlPercent >= exitProfile.trailingActivationPercent) {
+      position.trailingActivated = true;
+    }
+    if (
+      Number(exitProfile.breakevenActivationPercent || 0) > 0 &&
+      position.peakPnlPercent >= exitProfile.breakevenActivationPercent
+    ) {
+      position.breakevenActivated = true;
+    }
+
+    const ageMs = Date.now() - this.getPositionOpenedAtMs(position);
+    const minProfitHoldMs = exitProfile.minProfitHoldSeconds * 1000;
+    if (ageMs < minProfitHoldMs) {
+      return null;
+    }
+
+    const trailDrawdown = (position.peakPnlPercent || 0) - pnlPercent;
+    if (
+      position.trailingActivated &&
+      trailDrawdown >= exitProfile.trailingDrawdownPercent
+    ) {
+      return this.closeLivePosition(token, position, 'TRAILING_TAKE_PROFIT');
+    }
+
+    if (
+      position.breakevenActivated &&
+      pnlPercent <= Number(exitProfile.breakevenStopPercent || 0)
+    ) {
+      return this.closeLivePosition(token, position, 'BREAKEVEN_STOP');
+    }
+
+    if (pnlPercent >= exitProfile.takeProfitPercent) {
+      return this.closeLivePosition(token, position, 'TAKE_PROFIT');
+    }
+
+    if (ageMs >= exitProfile.maxHoldMinutes * 60 * 1000) {
+      return this.closeLivePosition(token, position, 'TIME_EXIT');
+    }
+
+    return null;
+  }
+
+  async closeLivePosition(token, position, reason) {
+    if (!this.executionModeManager.isLive()) {
+      return { success: false, mode: this.executionModeManager.mode, reason: 'NOT_LIVE_MODE' };
+    }
+    if (!this.config.liveExitEngineEnabled) {
+      return { success: false, mode: 'LIVE', reason: 'LIVE_EXIT_ENGINE_DISABLED' };
+    }
+    if (position.exitInProgress) {
+      return { success: false, mode: 'LIVE', reason: 'LIVE_EXIT_IN_PROGRESS' };
+    }
+
+    position.exitInProgress = true;
+    position.lastExitAttemptAt = new Date().toISOString();
+
+    try {
+      const tokenBalance = await this.getLiveTokenBalance(token);
+      const amountRaw = BigInt(tokenBalance.amountRaw || '0');
+      if (amountRaw <= 0n) {
+        this.currentPositions.delete(token);
+        this.persistLivePositions();
+        this.telemetry.record('live.position.reconciled_closed', {
+          token,
+          reason: 'NO_ON_CHAIN_TOKEN_BALANCE',
+          exitReason: reason
+        });
+        this.logger.warn(`LIVE POSITION REMOVED (${reason}): ${token} has no on-chain token balance`);
+        return {
+          success: false,
+          mode: 'LIVE',
+          reason: 'NO_ON_CHAIN_TOKEN_BALANCE'
+        };
+      }
+
+      const quote = await this.marketData.getQuoteWithStalenessCheck(
+        token,
+        this.config.baseTokenMint,
+        amountRaw.toString(),
+        this.hotWallet.getAddress()
+      );
+      const staleness = this.marketData.isQuoteStale(quote);
+      if (staleness.stale) {
+        throw new Error(`SELL_QUOTE_STALE:${staleness.reason}`);
+      }
+
+      const quoteQuality = this.validateQuoteQuality(quote);
+      if (!quoteQuality.passed) {
+        throw new Error(quoteQuality.reason);
+      }
+
+      const executionResponse = await this.marketData.executeJupiterOrder(
+        this.connection,
+        this.hotWallet,
+        quote
+      );
+
+      const outLamports = Number(
+        executionResponse?.outputAmount ||
+        executionResponse?.totalOutputAmount ||
+        quote?.outAmount ||
+        quote?.outputAmount ||
+        0
+      );
+      const exitValueSol = outLamports / LAMPORTS_PER_SOL;
+      const realizedPnLSol = exitValueSol - Number(position.costBasisSol || 0);
+      const pnlPercent = Number(position.costBasisSol || 0) === 0
+        ? 0
+        : realizedPnLSol / Number(position.costBasisSol || 0);
+
+      this.currentPositions.delete(token);
+      this.persistLivePositions();
+      this.realizedPnL += realizedPnLSol;
+      this.dailyPnL += realizedPnLSol;
+      this.applyExitCooldown(token, reason, realizedPnLSol, position);
+
+      this.telemetry.record('live.position.closed', {
+        token,
+        reason,
+        entryValueSol: position.costBasisSol,
+        exitValueSol,
+        realizedPnLSol,
+        pnlPercent,
+        peakPnlPercent: position.peakPnlPercent || 0,
+        trailingActivated: Boolean(position.trailingActivated),
+        breakevenActivated: Boolean(position.breakevenActivated),
+        tokenAmountRaw: amountRaw.toString(),
+        signature: executionResponse?.signature || executionResponse?.transactionId || null,
+        aiPrimaryStrategy: position.aiPrimaryStrategy,
+        aiConvergenceScore: position.aiConvergenceScore,
+        aiAction: position.aiAction,
+        aiExecutionProfile: position.aiExecutionProfile,
+        liveExitProfile: this.getLiveExitProfile(position)
+      });
+      this.strategyLedger.record('trade.exit', {
+        sessionId: this.sessionId,
+        token,
+        mode: 'LIVE',
+        strategy: position.aiPrimaryStrategy || 'UNKNOWN',
+        convergenceScore: position.aiConvergenceScore || 0,
+        exitReason: reason,
+        realizedPnlSol: realizedPnLSol,
+        pnlPercent,
+        holdMinutes: Number(((Date.now() - this.getPositionOpenedAtMs(position)) / 60000).toFixed(4)),
+        executionProfile: position.aiExecutionProfile,
+        liveExitProfile: this.getLiveExitProfile(position)
+      });
+
+      this.logger.trade(`LIVE SELL (${reason}): ${token} - PnL ${realizedPnLSol.toFixed(4)} SOL`);
+      return {
+        success: true,
+        mode: 'LIVE',
+        reason,
+        token,
+        realizedPnLSol,
+        signature: executionResponse?.signature || executionResponse?.transactionId || null
+      };
+    } catch (error) {
+      position.exitInProgress = false;
+      position.lastExitFailureAt = new Date().toISOString();
+      position.lastExitFailureReason = error.message;
+      this.persistLivePositions();
+      this.telemetry.record('live.position.exit_failed', {
+        token,
+        reason,
+        failureReason: error.message
+      });
+      this.logger.error(`LIVE SELL FAILED (${reason}): ${token}`, error.message);
+      return {
+        success: false,
+        mode: 'LIVE',
+        reason: error.message,
+        token
+      };
+    }
+  }
+
+  async getLiveTokenBalance(token) {
+    const accounts = await WalletManager.getOwnedTokenAccounts(
+      this.connection,
+      this.hotWallet.getPublicKey()
+    );
+    const account = accounts.find((item) => item.mint === token);
+    if (!account) {
+      return { mint: token, amountRaw: '0', uiAmount: 0, decimals: null };
+    }
+    return account;
+  }
+
+  async closeAllLivePositions(reason = 'EMERGENCY_EXIT') {
+    const results = [];
+    for (const [token, position] of Array.from(this.currentPositions.entries())) {
+      results.push(await this.closeLivePosition(token, position, reason));
+    }
+    return results;
+  }
+
+  getPositionOpenedAtMs(position = {}) {
+    const openedAtMs = Number(position.openedAt);
+    if (Number.isFinite(openedAtMs) && openedAtMs > 0) {
+      return openedAtMs;
+    }
+
+    const timestampMs = new Date(position.timestamp || position.entryAt || Date.now()).getTime();
+    return Number.isFinite(timestampMs) ? timestampMs : Date.now();
+  }
+
   async maybeClosePaperPosition(token, position) {
     const exitProfile = this.getPaperExitProfile(position);
     const pnlPercent = position.costBasisSol === 0
@@ -1692,6 +2037,12 @@ class TradingEngine {
     if (position.peakPnlPercent >= exitProfile.trailingActivationPercent) {
       position.trailingActivated = true;
     }
+    if (
+      Number(exitProfile.breakevenActivationPercent || 0) > 0 &&
+      position.peakPnlPercent >= exitProfile.breakevenActivationPercent
+    ) {
+      position.breakevenActivated = true;
+    }
 
     const ageMs = Date.now() - (position.openedAt || Date.now());
     const minProfitHoldMs = exitProfile.minProfitHoldSeconds * 1000;
@@ -1705,6 +2056,13 @@ class TradingEngine {
       trailDrawdown >= exitProfile.trailingDrawdownPercent
     ) {
       return this.closePaperPosition(token, position, 'TRAILING_TAKE_PROFIT');
+    }
+
+    if (
+      position.breakevenActivated &&
+      pnlPercent <= Number(exitProfile.breakevenStopPercent || 0)
+    ) {
+      return this.closePaperPosition(token, position, 'BREAKEVEN_STOP');
     }
 
     if (pnlPercent >= exitProfile.takeProfitPercent) {
@@ -1743,6 +2101,7 @@ class TradingEngine {
       pnlPercent: position.costBasisSol === 0 ? 0 : realizedPnLSol / position.costBasisSol,
       peakPnlPercent: position.peakPnlPercent || 0,
       trailingActivated: Boolean(position.trailingActivated),
+      breakevenActivated: Boolean(position.breakevenActivated),
       qualityScore: position.qualityScore,
       momentumScore: position.momentumScore,
       aiPrimaryStrategy: position.aiPrimaryStrategy,
@@ -1808,14 +2167,35 @@ class TradingEngine {
     });
   }
 
+  getLiveExitProfile(position = {}) {
+    return position.liveExitProfile || this.buildLiveExitProfile({
+      primaryStrategy: position.aiPrimaryStrategy,
+      executionProfile: position.aiExecutionProfile
+    });
+  }
+
+  buildLiveExitProfile(aiReview = {}) {
+    const profile = this.buildPaperExitProfile(aiReview);
+    return {
+      ...profile,
+      profileName: profile.profileName
+        ? profile.profileName.replace(/^paper_/, 'live_').replace(/_smart_trade$/, '_live_smart_trade')
+        : 'live_default',
+      source: 'live_exit_engine'
+    };
+  }
+
   buildPaperExitProfile(aiReview = {}) {
     const baseProfile = {
       stopLossPercent: this.config.paperStopLossPercent,
       takeProfitPercent: this.config.paperTakeProfitPercent,
       trailingActivationPercent: this.config.paperTrailingActivationPercent,
       trailingDrawdownPercent: this.config.paperTrailingDrawdownPercent,
+      breakevenActivationPercent: 0,
+      breakevenStopPercent: 0,
       minProfitHoldSeconds: this.config.paperMinHoldSecondsForProfit,
-      maxHoldMinutes: this.config.paperMaxHoldMinutes
+      maxHoldMinutes: this.config.paperMaxHoldMinutes,
+      profileName: 'paper_default'
     };
 
     const primaryStrategy = aiReview.primaryStrategy || 'SNIPER';
@@ -1826,50 +2206,65 @@ class TradingEngine {
       case 'RUNNER_HUNTER':
         return {
           ...baseProfile,
-          stopLossPercent: Math.max(baseProfile.stopLossPercent, 0.012),
-          takeProfitPercent: Math.max(baseProfile.takeProfitPercent, 0.04),
-          trailingActivationPercent: Math.max(baseProfile.trailingActivationPercent, 0.02),
-          trailingDrawdownPercent: Math.max(baseProfile.trailingDrawdownPercent, 0.008),
-          minProfitHoldSeconds: Math.max(baseProfile.minProfitHoldSeconds, 60),
-          maxHoldMinutes: Math.max(baseProfile.maxHoldMinutes, 12)
+          profileName: 'runner_breakout_smart_trade',
+          stopLossPercent: Math.max(baseProfile.stopLossPercent, 0.022),
+          takeProfitPercent: Math.max(baseProfile.takeProfitPercent, 0.08),
+          trailingActivationPercent: Math.max(baseProfile.trailingActivationPercent, 0.035),
+          trailingDrawdownPercent: Math.max(baseProfile.trailingDrawdownPercent, 0.014),
+          breakevenActivationPercent: Math.max(baseProfile.breakevenActivationPercent, 0.025),
+          breakevenStopPercent: Math.max(baseProfile.breakevenStopPercent, 0.002),
+          minProfitHoldSeconds: Math.max(baseProfile.minProfitHoldSeconds, 45),
+          maxHoldMinutes: Math.max(baseProfile.maxHoldMinutes, 18)
         };
       case 'SNIPER':
         return {
           ...baseProfile,
+          profileName: 'sniper_tight_smart_trade',
           stopLossPercent: Math.min(baseProfile.stopLossPercent, 0.01),
           takeProfitPercent: Math.min(baseProfile.takeProfitPercent, 0.02),
           trailingActivationPercent: Math.min(baseProfile.trailingActivationPercent, 0.015),
           trailingDrawdownPercent: Math.min(baseProfile.trailingDrawdownPercent, 0.006),
+          breakevenActivationPercent: Math.max(baseProfile.breakevenActivationPercent, 0.012),
+          breakevenStopPercent: Math.max(baseProfile.breakevenStopPercent, 0.001),
           minProfitHoldSeconds: Math.min(baseProfile.minProfitHoldSeconds, 30),
           maxHoldMinutes: Math.min(baseProfile.maxHoldMinutes, 6)
         };
       case 'SCALPER':
         return {
           ...baseProfile,
-          stopLossPercent: Math.min(baseProfile.stopLossPercent, 0.008),
-          takeProfitPercent: Math.min(baseProfile.takeProfitPercent, 0.012),
-          trailingActivationPercent: Math.min(baseProfile.trailingActivationPercent, 0.01),
-          trailingDrawdownPercent: Math.min(baseProfile.trailingDrawdownPercent, 0.005),
-          minProfitHoldSeconds: Math.min(baseProfile.minProfitHoldSeconds, 20),
+          profileName: 'scalper_micro_smart_trade',
+          stopLossPercent: Math.min(baseProfile.stopLossPercent, 0.009),
+          takeProfitPercent: Math.min(baseProfile.takeProfitPercent, 0.018),
+          trailingActivationPercent: Math.min(baseProfile.trailingActivationPercent, 0.009),
+          trailingDrawdownPercent: Math.min(baseProfile.trailingDrawdownPercent, 0.0045),
+          breakevenActivationPercent: Math.max(baseProfile.breakevenActivationPercent, 0.008),
+          breakevenStopPercent: Math.max(baseProfile.breakevenStopPercent, 0.001),
+          minProfitHoldSeconds: Math.min(baseProfile.minProfitHoldSeconds, 15),
           maxHoldMinutes: Math.min(baseProfile.maxHoldMinutes, 4)
         };
       case 'MIGRATION_HUNTER':
         return {
           ...baseProfile,
+          profileName: 'migration_hold_smart_trade',
           stopLossPercent: Math.max(baseProfile.stopLossPercent, 0.015),
           takeProfitPercent: Math.max(baseProfile.takeProfitPercent, 0.03),
           trailingActivationPercent: Math.max(baseProfile.trailingActivationPercent, 0.018),
           trailingDrawdownPercent: Math.max(baseProfile.trailingDrawdownPercent, 0.007),
+          breakevenActivationPercent: Math.max(baseProfile.breakevenActivationPercent, 0.02),
+          breakevenStopPercent: Math.max(baseProfile.breakevenStopPercent, 0.001),
           minProfitHoldSeconds: Math.max(baseProfile.minProfitHoldSeconds, 75),
           maxHoldMinutes: Math.max(baseProfile.maxHoldMinutes, 14)
         };
       case 'WALLET_FLOW':
         return {
           ...baseProfile,
+          profileName: 'wallet_flow_smart_trade',
           stopLossPercent: Math.max(baseProfile.stopLossPercent, 0.013),
           takeProfitPercent: Math.max(baseProfile.takeProfitPercent, 0.03),
           trailingActivationPercent: Math.max(baseProfile.trailingActivationPercent, 0.018),
           trailingDrawdownPercent: Math.max(baseProfile.trailingDrawdownPercent, 0.007),
+          breakevenActivationPercent: Math.max(baseProfile.breakevenActivationPercent, 0.018),
+          breakevenStopPercent: Math.max(baseProfile.breakevenStopPercent, 0.001),
           minProfitHoldSeconds: Math.max(baseProfile.minProfitHoldSeconds, 60),
           maxHoldMinutes: Math.max(baseProfile.maxHoldMinutes, 10)
         };
@@ -1880,9 +2275,12 @@ class TradingEngine {
     if (exitStyle === 'trailing_runner') {
       return {
         ...baseProfile,
+        profileName: 'trailing_runner_smart_trade',
         takeProfitPercent: Math.max(baseProfile.takeProfitPercent, 0.04),
         trailingActivationPercent: Math.max(baseProfile.trailingActivationPercent, 0.02),
         trailingDrawdownPercent: Math.max(baseProfile.trailingDrawdownPercent, 0.008),
+        breakevenActivationPercent: Math.max(baseProfile.breakevenActivationPercent, 0.02),
+        breakevenStopPercent: Math.max(baseProfile.breakevenStopPercent, 0.001),
         minProfitHoldSeconds: Math.max(baseProfile.minProfitHoldSeconds, expectedHold === 'short_to_medium' ? 60 : 45),
         maxHoldMinutes: Math.max(baseProfile.maxHoldMinutes, expectedHold === 'short_to_medium' ? 12 : baseProfile.maxHoldMinutes)
       };
@@ -1891,8 +2289,11 @@ class TradingEngine {
     if (exitStyle === 'tight_invalidation') {
       return {
         ...baseProfile,
+        profileName: 'tight_invalidation_smart_trade',
         stopLossPercent: Math.min(baseProfile.stopLossPercent, 0.01),
         takeProfitPercent: Math.min(baseProfile.takeProfitPercent, 0.02),
+        breakevenActivationPercent: Math.max(baseProfile.breakevenActivationPercent, 0.012),
+        breakevenStopPercent: Math.max(baseProfile.breakevenStopPercent, 0.001),
         maxHoldMinutes: Math.min(baseProfile.maxHoldMinutes, 6)
       };
     }
@@ -1900,6 +2301,9 @@ class TradingEngine {
     if (exitStyle === 'migration_hold' || exitStyle === 'flow_follow') {
       return {
         ...baseProfile,
+        profileName: `${exitStyle}_smart_trade`,
+        breakevenActivationPercent: Math.max(baseProfile.breakevenActivationPercent, 0.02),
+        breakevenStopPercent: Math.max(baseProfile.breakevenStopPercent, 0.001),
         minProfitHoldSeconds: Math.max(baseProfile.minProfitHoldSeconds, 60),
         maxHoldMinutes: Math.max(baseProfile.maxHoldMinutes, 10)
       };
@@ -1910,6 +2314,10 @@ class TradingEngine {
 
   isPumpPortalToken(token) {
     return String(token.source || '').startsWith('pumpportal');
+  }
+
+  isMigratedPumpPortalToken(token = {}) {
+    return token.routeType === 'migration' || token.bondingStage === 'recently_bonded';
   }
 
   getRunnerLiquidityUsd(token = {}) {
@@ -1940,19 +2348,18 @@ class TradingEngine {
     const sellRatio = 1 - buyRatio;
     const velocity = Number(token.tradeVelocityPerMin || 0);
     const ageSeconds = Number(token.tokenAgeSeconds || 0);
-    const isMigration = token.routeType === 'migration' || token.bondingStage === 'recently_bonded';
+    const isMigration = this.isMigratedPumpPortalToken(token);
     const minMigratedLiquidityUsd = Number(this.config.paperRunnerMinMigratedLiquidityUsd || 0);
     const migratedLiquidityUsd = this.getRunnerLiquidityUsd(token);
 
     if (
-      this.executionModeManager.isPaper() &&
       this.config.paperRunnerModeEnabled &&
-      this.config.paperRunnerRequirePumpMigration &&
+      this.config.runnerScalperRequirePumpMigration &&
       !isMigration
     ) {
       return {
         passed: false,
-        reason: 'PUMP_FAIL_NOT_MIGRATED',
+        reason: 'RUNNER_SCALPER_REQUIRES_MIGRATION',
         values: {
           routeType: token.routeType || null,
           bondingStage: token.bondingStage || null
@@ -1962,8 +2369,8 @@ class TradingEngine {
     }
 
     if (
-      this.executionModeManager.isPaper() &&
       this.config.paperRunnerModeEnabled &&
+      this.config.runnerScalperRequirePumpMigration &&
       isMigration &&
       minMigratedLiquidityUsd > 0 &&
       migratedLiquidityUsd > 0 &&
@@ -2159,12 +2566,25 @@ class TradingEngine {
     return this.getEntryWarmupRemainingMs() > 0;
   }
 
+  getEffectiveEntryWarmupMs() {
+    if (this.executionModeManager.mode === 'LIVE') {
+      return this.config.entryWarmupMs;
+    }
+
+    if (this.executionModeManager.mode === 'DRY_RUN') {
+      return Math.min(this.config.entryWarmupMs, 30000);
+    }
+
+    return Math.min(this.config.entryWarmupMs, 15000);
+  }
+
   getEntryWarmupRemainingMs() {
-    if (!this.entryStartTime || !this.config.entryWarmupMs) {
+    const warmupMs = this.getEffectiveEntryWarmupMs();
+    if (!this.entryStartTime || !warmupMs) {
       return 0;
     }
 
-    return Math.max(this.config.entryWarmupMs - (Date.now() - this.entryStartTime), 0);
+    return Math.max(warmupMs - (Date.now() - this.entryStartTime), 0);
   }
 
   observePreMigrationToken(token, launchIntelSummary = null) {
@@ -2174,7 +2594,12 @@ class TradingEngine {
           ...this.summarizePumpPortalMomentum(token)
         }
       : token;
-    const result = this.preMigrationWatchLane.observeToken(observedToken, launchIntelSummary);
+    const walletClassificationContext = this.buildWalletClassificationContextForMint(observedToken.mint);
+    const result = this.preMigrationWatchLane.observeToken(
+      observedToken,
+      launchIntelSummary,
+      walletClassificationContext
+    );
     if (!result.updated || !result.state) {
       return result;
     }
@@ -2192,10 +2617,13 @@ class TradingEngine {
       mint,
       symbol: result.state.symbol || null,
       score: result.state.score,
+      flagType: result.flagType || null,
       reasons: result.state.reasons,
+      observedInterest: Boolean(result.observedInterest),
       observedSignal: Boolean(result.observedSignal),
       confirmed: Boolean(result.state.confirmed),
       newlyConfirmed: Boolean(result.newlyConfirmed),
+      interestSignalCount: result.state.interestSignalCount,
       observedSignalCount: result.state.observedSignalCount,
       confirmedAt: result.state.confirmedAt,
       confirmationReason: result.state.confirmationReason,
@@ -2208,12 +2636,19 @@ class TradingEngine {
       curveProgress: result.state.curveProgress,
       bondingStage: result.state.bondingStage,
       tradeVelocityPerMin: result.state.tradeVelocityPerMin,
-      recentVolumeSol: result.state.recentVolumeSol
+      recentVolumeSol: result.state.recentVolumeSol,
+      convictionWhaleCount: result.state.convictionWhaleCount,
+      alphaScalperCount: result.state.alphaScalperCount,
+      earlySniperCount: result.state.earlySniperCount,
+      riskWalletCount: result.state.riskWalletCount,
+      lateChaserCount: result.state.lateChaserCount
     });
 
     this.candidateDossierLedger.recordWatchState(result.state, {
       eventType: result.flagged ? 'watch.flagged' : 'watch.observed',
       flagged: Boolean(result.flagged),
+      flagType: result.flagType || null,
+      observedInterest: Boolean(result.observedInterest),
       observedSignal: Boolean(result.observedSignal),
       confirmed: Boolean(result.state.confirmed),
       newlyConfirmed: Boolean(result.newlyConfirmed),
@@ -2222,7 +2657,8 @@ class TradingEngine {
 
     this.recordPreMigrationPaperEvents(this.preMigrationPaperLane.observe(result.state, {
       flagged: Boolean(result.flagged),
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      walletClassificationContext
     }));
 
     if (result.flagged) {
@@ -2233,6 +2669,7 @@ class TradingEngine {
       });
       this.logger.decision(`PRE-MIGRATION WATCH: ${mint}`, {
         symbol: result.state.symbol,
+        flagType: result.flagType,
         score: result.state.score,
         reasons: result.state.reasons,
         curveProgress: result.state.curveProgress,
@@ -2244,6 +2681,54 @@ class TradingEngine {
     }
 
     return result;
+  }
+
+  buildWalletClassificationContextForMint(mint) {
+    if (!mint || !this.walletEventLedger?.recentEvents) {
+      return null;
+    }
+
+    const events = this.walletEventLedger.recentEvents
+      .filter((event) => event?.mint === mint)
+      .slice(0, 25);
+    if (events.length === 0) {
+      return null;
+    }
+
+    const labels = {};
+    const wallets = [];
+    for (const event of events) {
+      const wallet = event.wallet;
+      const classification = wallet
+        ? this.walletEventLedger.walletStats.get(wallet)?.classification
+        : null;
+      const label = classification?.label || 'UNCLASSIFIED';
+      labels[label] = (labels[label] || 0) + 1;
+      if (wallets.length < 8) {
+        wallets.push({
+          wallet,
+          label,
+          confidence: classification?.confidence ?? null,
+          side: event.side || null,
+          phase: event.phase || null,
+          solAmount: event.amount?.sol ?? null,
+          secondsSinceCreate: event.timing?.secondsSinceCreate ?? null
+        });
+      }
+    }
+
+    const count = (...selectedLabels) => selectedLabels.reduce((sum, label) => sum + Number(labels[label] || 0), 0);
+    return {
+      touched: true,
+      observedWalletTradeCount: events.length,
+      labelCounts: labels,
+      earlySniperCount: count('EARLY_SNIPER'),
+      alphaScalperCount: count('EARLY_ALPHA_SCALPER'),
+      convictionWhaleCount: count('CONVICTION_WHALE', 'RUNNER_HUNTER', 'DIP_SUPPORT_BUYER'),
+      riskWalletCount: count('INSIDER_DUMPER', 'DEV_SIDE_WALLET', 'BUNDLE_CLUSTER', 'LOW_SIGNAL_AVOID'),
+      lateChaserCount: count('LATE_CHASER'),
+      wallets
+    };
   }
 
   recordPreMigrationPaperEvents(events = []) {
@@ -2266,9 +2751,45 @@ class TradingEngine {
         reason: event.payload?.reason
       });
 
-      if (event.type === 'entry') {
+      if (
+        event.telemetryType === 'pre_migration_paper.decision'
+        && event.payload?.decision === 'PAPER_SKIPPED'
+        && event.payload?.reason === 'NO_PRIOR_CURVE_PROGRESS'
+      ) {
+        this.schedulePreMigrationPaperRecheck(event.payload);
+      }
+
+      if (event.type === 'diagnostic' && event.telemetryType === 'pre_migration_paper.first_curve_snapshot_near_miss' && this.preMigrationPaperLane?.logDecisionEvents) {
+        this.logger.decision(`PRE-MIGRATION PAPER NEAR MISS: ${event.payload.mint}`, {
+          symbol: event.payload.symbol,
+          failedChecks: event.payload.failedChecks,
+          score: event.payload.score,
+          curveProgress: event.payload.curveProgress,
+          recentVolumeSol: event.payload.recentVolumeSol,
+          tradeVelocityPerMin: event.payload.tradeVelocityPerMin,
+          interestSignalCount: event.payload.interestSignalCount,
+          uniqueBuyerCount: event.payload.uniqueBuyerCount,
+          riskWalletCount: event.payload.riskWalletCount,
+          buyRatio: event.payload.buyRatio,
+          hasPrice: event.payload.hasPrice
+        });
+      } else if (event.type === 'decision' && this.preMigrationPaperLane?.logDecisionEvents) {
+        this.logger.decision(`PRE-MIGRATION PAPER ${event.payload.decision}: ${event.payload.mint}`, {
+          symbol: event.payload.symbol,
+          preset: event.payload.preset,
+          lane: event.payload.lane,
+          reason: event.payload.reason,
+          score: event.payload.score,
+          curveProgress: event.payload.curveProgress,
+          guardOverride: event.payload.guardOverride,
+          recentVolumeSol: event.payload.recentVolumeSol,
+          tradeVelocityPerMin: event.payload.tradeVelocityPerMin
+        });
+      } else if (event.type === 'entry') {
         this.logger.decision(`PRE-MIGRATION PAPER ENTRY: ${event.payload.mint}`, {
           symbol: event.payload.symbol,
+          lane: event.payload.lane,
+          profileName: event.payload.profileName,
           score: event.payload.score,
           curveProgress: event.payload.curveProgress,
           entryPriceSol: event.payload.entryPriceSol,
@@ -2277,6 +2798,8 @@ class TradingEngine {
       } else if (event.type === 'exit') {
         this.logger.decision(`PRE-MIGRATION PAPER EXIT: ${event.payload.mint}`, {
           symbol: event.payload.symbol,
+          lane: event.payload.lane,
+          profileName: event.payload.profileName,
           reason: event.payload.reason,
           pnlSol: event.payload.pnlSol,
           returnPct: event.payload.returnPct,
@@ -2286,12 +2809,243 @@ class TradingEngine {
     }
   }
 
+  schedulePreMigrationPaperRecheck(payload = {}) {
+    if (!this.config.preMigrationPaperRecheckEnabled) {
+      return;
+    }
+
+    const mint = payload.mint;
+    if (!mint || !this.active || this.stopInProgress) {
+      return;
+    }
+    if (this.preMigrationPaperExpiredRechecks.has(mint)) {
+      return;
+    }
+
+    const maxAttempts = Number(this.config.preMigrationPaperRecheckMaxAttempts || 0);
+    if (!Number.isFinite(maxAttempts) || maxAttempts <= 0) {
+      return;
+    }
+
+    const now = Date.now();
+    const existing = this.preMigrationPaperRechecks.get(mint);
+    const attempts = Number(existing?.attempts || 0);
+    if (attempts >= maxAttempts || existing?.timer) {
+      return;
+    }
+
+    const token = this.latestPumpPortalTokens.get(mint);
+    const createdAt = Number(token?.createdAt || now);
+    const maxAgeMs = Number(this.config.preMigrationPaperRecheckMaxAgeMs || 0);
+    if (Number.isFinite(maxAgeMs) && maxAgeMs > 0 && now - createdAt > maxAgeMs) {
+      this.markPreMigrationPaperRecheckExpired(mint);
+      this.telemetry.record('pre_migration_paper.recheck_skipped', {
+        mint,
+        symbol: payload.symbol || token?.symbol || null,
+        reason: 'RECHECK_CANDIDATE_TOO_OLD',
+        ageMs: now - createdAt,
+        maxAgeMs
+      });
+      return;
+    }
+
+    const maxTracked = Number(this.config.preMigrationPaperRecheckMaxTrackedMints || 500);
+    if (this.preMigrationPaperRechecks.size >= maxTracked && !this.preMigrationPaperRechecks.has(mint)) {
+      const oldestMint = this.preMigrationPaperRechecks.keys().next().value;
+      this.cancelPreMigrationPaperRecheck(oldestMint, 'RECHECK_TRACKING_LIMIT');
+    }
+
+    const delayMs = Math.max(1000, Number(this.config.preMigrationPaperRecheckDelayMs || 10000));
+    const nextAttempt = attempts + 1;
+    const timer = setTimeout(() => {
+      this.executePreMigrationPaperRecheck(mint, nextAttempt).catch((error) => {
+        this.logger.warn('Pre-migration paper recheck failed', {
+          mint,
+          attempt: nextAttempt,
+          error: error.message
+        });
+        this.telemetry.record('pre_migration_paper.recheck_failed', {
+          mint,
+          attempt: nextAttempt,
+          message: error.message
+        });
+      });
+    }, delayMs);
+
+    this.preMigrationPaperRechecks.set(mint, {
+      mint,
+      symbol: payload.symbol || token?.symbol || null,
+      attempts: nextAttempt,
+      firstScheduledAt: existing?.firstScheduledAt || new Date(now).toISOString(),
+      scheduledAt: new Date(now).toISOString(),
+      dueAt: new Date(now + delayMs).toISOString(),
+      timer
+    });
+
+    this.telemetry.record('pre_migration_paper.recheck_scheduled', {
+      mint,
+      symbol: payload.symbol || token?.symbol || null,
+      attempt: nextAttempt,
+      maxAttempts,
+      delayMs,
+      reason: payload.reason
+    });
+  }
+
+  executeDuePreMigrationPaperRechecks(now = Date.now()) {
+    if (!this.active || this.stopInProgress || !this.config.preMigrationPaperRecheckEnabled) {
+      return;
+    }
+
+    for (const [mint, pending] of this.preMigrationPaperRechecks.entries()) {
+      if (!pending?.timer || !pending.dueAt) {
+        continue;
+      }
+
+      const dueAtMs = Date.parse(pending.dueAt);
+      if (!Number.isFinite(dueAtMs) || dueAtMs > now) {
+        continue;
+      }
+
+      this.executePreMigrationPaperRecheck(mint, pending.attempts || 1).catch((error) => {
+        this.logger.warn('Due pre-migration paper recheck failed', {
+          mint,
+          attempt: pending.attempts || 1,
+          error: error.message
+        });
+        this.telemetry.record('pre_migration_paper.recheck_failed', {
+          mint,
+          attempt: pending.attempts || 1,
+          message: error.message
+        });
+      });
+    }
+  }
+
+  async executePreMigrationPaperRecheck(mint, attempt) {
+    const scheduled = this.preMigrationPaperRechecks.get(mint);
+    if (scheduled?.timer) {
+      clearTimeout(scheduled.timer);
+    }
+
+    if (!this.active || this.stopInProgress) {
+      this.cancelPreMigrationPaperRecheck(mint, 'SESSION_INACTIVE');
+      return;
+    }
+
+    const token = this.latestPumpPortalTokens.get(mint);
+    if (!token) {
+      this.preMigrationPaperRechecks.delete(mint);
+      this.telemetry.record('pre_migration_paper.recheck_skipped', {
+        mint,
+        attempt,
+        reason: 'TOKEN_STATE_MISSING'
+      });
+      return;
+    }
+
+    const ageMs = Date.now() - Number(token.createdAt || Date.now());
+    const maxAgeMs = Number(this.config.preMigrationPaperRecheckMaxAgeMs || 0);
+    if (Number.isFinite(maxAgeMs) && maxAgeMs > 0 && ageMs > maxAgeMs) {
+      this.preMigrationPaperRechecks.delete(mint);
+      this.markPreMigrationPaperRecheckExpired(mint);
+      this.telemetry.record('pre_migration_paper.recheck_skipped', {
+        mint,
+        symbol: token.symbol || null,
+        attempt,
+        reason: 'RECHECK_CANDIDATE_TOO_OLD',
+        ageMs,
+        maxAgeMs
+      });
+      return;
+    }
+
+    this.preMigrationPaperRechecks.set(mint, {
+      ...scheduled,
+      timer: null,
+      attempts: attempt,
+      executingAt: new Date().toISOString()
+    });
+
+    const summary = await this.syncPumpBondingCurveState(mint, token, {
+      forceRefresh: true,
+      observeAfterSync: false,
+      launchIntelSummary: token.launchIntelSummary || null
+    });
+
+    this.telemetry.record('pre_migration_paper.recheck_executed', {
+      mint,
+      symbol: token.symbol || null,
+      attempt,
+      refreshed: Boolean(summary?.refreshed),
+      refreshSkipReason: summary?.skipReason || null,
+      accountFound: summary?.accountFound ?? null,
+      curveProgress: summary?.curveProgress ?? token.curveProgress ?? null
+    });
+
+    this.observePreMigrationToken(
+      this.latestPumpPortalTokens.get(mint) || token,
+      token.launchIntelSummary || null
+    );
+
+    const current = this.preMigrationPaperRechecks.get(mint);
+    if (current && !current.timer && Number(current.attempts || 0) >= Number(this.config.preMigrationPaperRecheckMaxAttempts || 0)) {
+      this.preMigrationPaperRechecks.delete(mint);
+    }
+  }
+
+  markPreMigrationPaperRecheckExpired(mint) {
+    if (!mint) {
+      return;
+    }
+
+    this.preMigrationPaperExpiredRechecks.add(mint);
+    const maxTracked = Math.max(1, Number(this.config.preMigrationPaperRecheckMaxTrackedMints || 500));
+    while (this.preMigrationPaperExpiredRechecks.size > maxTracked) {
+      const oldestMint = this.preMigrationPaperExpiredRechecks.values().next().value;
+      this.preMigrationPaperExpiredRechecks.delete(oldestMint);
+    }
+  }
+
+  cancelPreMigrationPaperRecheck(mint, reason = 'CANCELLED') {
+    if (!mint) {
+      return;
+    }
+
+    const pending = this.preMigrationPaperRechecks.get(mint);
+    if (!pending) {
+      return;
+    }
+
+    if (pending.timer) {
+      clearTimeout(pending.timer);
+    }
+
+    this.preMigrationPaperRechecks.delete(mint);
+    this.telemetry.record('pre_migration_paper.recheck_cancelled', {
+      mint,
+      symbol: pending.symbol || null,
+      attempt: pending.attempts || 0,
+      reason,
+      scheduledAt: pending.scheduledAt || null,
+      dueAt: pending.dueAt || null
+    });
+  }
+
+  clearPreMigrationPaperRechecks(reason = 'CANCELLED') {
+    for (const mint of Array.from(this.preMigrationPaperRechecks.keys())) {
+      this.cancelPreMigrationPaperRecheck(mint, reason);
+    }
+  }
+
   async syncPumpBondingCurveState(mint, token = {}, options = {}) {
     if (!mint || !this.pumpBondingCurveLane?.enabled) {
       return null;
     }
 
-    const summary = await this.pumpBondingCurveLane.observeMint(mint, token);
+    const summary = await this.pumpBondingCurveLane.observeMint(mint, token, {
+      forceRefresh: Boolean(options.forceRefresh)
+    });
     if (!summary) {
       return null;
     }
@@ -2350,6 +3104,25 @@ class TradingEngine {
     return summary;
   }
 
+  async syncPumpBondingCurveBeforePreMigrationObservation(mint, token = {}, launchIntelSummary = null) {
+    if (!mint || !this.pumpBondingCurveLane?.isRefreshDue?.(mint)) {
+      return null;
+    }
+
+    try {
+      return await this.syncPumpBondingCurveState(mint, token, {
+        observeAfterSync: false,
+        launchIntelSummary
+      });
+    } catch (error) {
+      this.logger.warn('Pump bonding curve immediate sync failed', {
+        mint,
+        error: error.message
+      });
+      return null;
+    }
+  }
+
   schedulePumpBondingCurveSync(mint, token = {}, launchIntelSummary = null) {
     if (!mint || !this.pumpBondingCurveLane?.isRefreshDue?.(mint)) {
       return;
@@ -2367,6 +3140,7 @@ class TradingEngine {
   }
 
   async handlePumpPortalNewToken(event) {
+    this.executeDuePreMigrationPaperRechecks();
     const mint = event.mint || event.token || event.mintAddress;
     if (!mint) {
       return;
@@ -2388,12 +3162,18 @@ class TradingEngine {
       current.launchIntelSummary = launchIntelSummary;
       this.latestPumpPortalTokens.set(mint, current);
     }
+    await this.syncPumpBondingCurveBeforePreMigrationObservation(
+      mint,
+      this.latestPumpPortalTokens.get(mint),
+      launchIntelSummary
+    );
     this.observePreMigrationToken(this.latestPumpPortalTokens.get(mint), launchIntelSummary);
     this.schedulePumpBondingCurveSync(mint, this.latestPumpPortalTokens.get(mint), launchIntelSummary);
     this.telemetry.record('provider.pumpportal.new_token', { mint });
   }
 
   async handlePumpPortalTrade(event) {
+    this.executeDuePreMigrationPaperRechecks();
     const mint = event.mint || event.token || event.mintAddress;
     if (!mint) {
       return;
@@ -2440,15 +3220,72 @@ class TradingEngine {
       current.launchIntelSummary = launchIntelSummary;
     }
     this.latestPumpPortalTokens.set(mint, current);
+    const walletLedgerRecord = this.recordWatchedWalletTrade(event, current, launchIntelSummary);
+    await this.syncPumpBondingCurveBeforePreMigrationObservation(mint, current, launchIntelSummary);
     this.observePreMigrationToken(current, launchIntelSummary);
     this.schedulePumpBondingCurveSync(mint, current, launchIntelSummary);
     this.telemetry.record('provider.pumpportal.trade', {
       mint,
-      tradeCount: current.tradeCount
+      tradeCount: current.tradeCount,
+      watchedWallet: Boolean(walletLedgerRecord),
+      watchedWalletReason: walletLedgerRecord?.watchedReason || null
     });
   }
 
+  recordWatchedWalletTrade(event, tokenState, launchIntelSummary) {
+    const wallet = event.traderPublicKey || event.wallet || event.account;
+    if (!wallet) {
+      return null;
+    }
+
+    const walletProfile = this.launchIntelStore.buildKolWalletSummary(wallet);
+    const isTrackedAccount = this.config.pumpPortalTrackedAccounts.includes(wallet);
+    if (!walletProfile && !isTrackedAccount) {
+      return null;
+    }
+
+    const watchedReason = walletProfile && isTrackedAccount
+      ? 'tracked_account_and_watchlist_profile'
+      : (walletProfile ? 'watchlist_profile' : 'tracked_account');
+
+    let record = null;
+    try {
+      record = this.walletEventLedger.recordTrade({
+        event,
+        tokenState,
+        launchIntelSummary,
+        walletProfile,
+        watchedReason
+      });
+    } catch (error) {
+      this.logger.warn('Failed to record watched wallet trade', {
+        wallet,
+        mint: event.mint || event.token || event.mintAddress || null,
+        reason: error.message
+      });
+      return null;
+    }
+
+    if (record) {
+      this.telemetry.record('wallet.trade_observed', {
+        wallet,
+        mint: record.mint,
+        side: record.side,
+        phase: record.phase,
+        watchedReason,
+        solAmount: record.amount?.sol,
+        secondsSinceCreate: record.timing?.secondsSinceCreate,
+        profile: record.walletProfile?.profile || null,
+        trustTier: record.walletProfile?.trustTier || null,
+        classification: this.walletEventLedger.walletStats.get(wallet)?.classification?.label || null
+      });
+    }
+
+    return record;
+  }
+
   async handlePumpPortalMigration(event) {
+    this.executeDuePreMigrationPaperRechecks();
     const mint = event.mint || event.token || event.mintAddress;
     if (!mint) {
       return;
@@ -2477,12 +3314,31 @@ class TradingEngine {
 
   syncTelegramSightings({ bootstrap = false } = {}) {
     try {
+      const startedAt = Date.now();
+      const bootstrapConfig = this.getTelegramBootstrapConfig();
+      const recurringConfig = this.getTelegramRecurringSyncConfig();
+      const bootstrapMaxAgeMinutes = Number(bootstrapConfig.maxAgeMinutes || 0);
+      const bootstrapSince = bootstrap && bootstrapMaxAgeMinutes > 0
+        ? Date.now() - (bootstrapMaxAgeMinutes * 60 * 1000)
+        : null;
+      const since = bootstrap
+        ? bootstrapSince
+        : (this.lastTelegramSightingSyncAt || this.getDefaultTelegramRecurringSinceMs());
+      const maxSightings = bootstrap
+        ? Number(bootstrapConfig.limit || 0)
+        : Number(recurringConfig.limit || 250);
+
       const sightings = this.telegramContext.getRecentMintSightings(
-        bootstrap ? null : this.lastTelegramSightingSyncAt
+        since,
+        {
+          maxSightings,
+          maxSnippets: this.config.telegramSummaryMaxSnippets
+        }
       );
       this.lastTelegramSightingSyncAt = Date.now();
 
       if (!Array.isArray(sightings) || sightings.length === 0) {
+        this.logger.info(`Telegram external sighting sync found no mints (${Date.now() - startedAt}ms)`);
         return;
       }
 
@@ -2494,13 +3350,19 @@ class TradingEngine {
         }
       }
 
+      const durationMs = Date.now() - startedAt;
       if (imported > 0) {
         this.telemetry.record('provider.telegram.sightings_imported', {
           imported,
           bootstrap,
-          uniqueMints: sightings.length
+          uniqueMints: sightings.length,
+          durationMs,
+          since: Number.isFinite(since) ? new Date(since).toISOString() : null,
+          maxSightings
         });
-        this.logger.info(`Imported ${imported} Telegram external sighting(s) into launch-intel`);
+        this.logger.info(`Imported ${imported} Telegram external sighting(s) into launch-intel (${durationMs}ms, scanned=${sightings.length}, bootstrap=${bootstrap})`);
+      } else {
+        this.logger.info(`Telegram external sighting sync had ${sightings.length} sighting(s), 0 new import(s) (${durationMs}ms, bootstrap=${bootstrap})`);
       }
     } catch (error) {
       this.logger.warn('Failed to sync Telegram external sightings', error.message);
@@ -2509,6 +3371,65 @@ class TradingEngine {
         message: error.message
       });
     }
+  }
+
+  shouldRunTelegramBootstrapSightings() {
+    const mode = String(this.config.telegramBootstrapSightingMode || 'live_only').toLowerCase();
+    if (mode === 'never') {
+      return false;
+    }
+
+    if (mode === 'always') {
+      return true;
+    }
+
+    if (mode === 'paper_only') {
+      return this.executionModeManager.isPaper();
+    }
+
+    if (mode === 'live_only') {
+      return this.executionModeManager.isLive();
+    }
+
+    return this.executionModeManager.isLive();
+  }
+
+  getTelegramBootstrapConfig() {
+    if (this.executionModeManager.isPaper()) {
+      return {
+        limit: Number(this.config.telegramPaperBootstrapSightingLimit || 10),
+        maxAgeMinutes: Number(this.config.telegramPaperBootstrapSightingMaxAgeMinutes || 60)
+      };
+    }
+
+    return {
+      limit: Number(this.config.telegramBootstrapSightingLimit || 75),
+      maxAgeMinutes: Number(this.config.telegramBootstrapSightingMaxAgeMinutes || 240)
+    };
+  }
+
+  getTelegramRecurringSyncConfig() {
+    if (this.executionModeManager.isPaper()) {
+      return {
+        limit: Number(this.config.telegramPaperRecurringSightingLimit || 25),
+        maxAgeMinutes: Number(this.config.telegramPaperRecurringSightingMaxAgeMinutes || 20)
+      };
+    }
+
+    return {
+      limit: 250,
+      maxAgeMinutes: null
+    };
+  }
+
+  getDefaultTelegramRecurringSinceMs() {
+    const recurringConfig = this.getTelegramRecurringSyncConfig();
+    const maxAgeMinutes = Number(recurringConfig.maxAgeMinutes || 0);
+    if (!Number.isFinite(maxAgeMinutes) || maxAgeMinutes <= 0) {
+      return null;
+    }
+
+    return Date.now() - (maxAgeMinutes * 60 * 1000);
   }
 
   inferBondingStage(event, fallback = 'new') {
@@ -2525,13 +3446,32 @@ class TradingEngine {
   }
 
   async refreshCapitalState() {
+    const now = Date.now();
+    const paperRefreshIntervalMs = Number(this.config.paperBalanceRefreshIntervalMs || 15000);
+    const shouldReusePaperBalances = this.executionModeManager.isPaper()
+      && this.lastCapitalBalanceLookupAt > 0
+      && Number.isFinite(paperRefreshIntervalMs)
+      && paperRefreshIntervalMs > 0
+      && (now - this.lastCapitalBalanceLookupAt) < paperRefreshIntervalMs;
+
+    if (shouldReusePaperBalances) {
+      this.recomputeCapitalState();
+      return;
+    }
+
+    const balanceTimeoutMs = Number(this.config.capitalBalanceTimeoutMs || 5000);
     const [hotWalletBalanceSol, coldWalletBalanceSol] = await Promise.all([
-      WalletManager.getSolBalance(this.connection, this.hotWallet.getPublicKey()),
-      WalletManager.getSolBalance(this.connection, this.coldWalletAddress)
+      this.getSolBalanceWithTimeout('hot_wallet', this.hotWallet.getPublicKey(), this.hotWalletBalanceSol, balanceTimeoutMs),
+      this.getSolBalanceWithTimeout('cold_wallet', this.coldWalletAddress, this.coldWalletBalanceSol, balanceTimeoutMs)
     ]);
 
     this.hotWalletBalanceSol = hotWalletBalanceSol;
     this.coldWalletBalanceSol = coldWalletBalanceSol;
+    this.lastCapitalBalanceLookupAt = now;
+    this.recomputeCapitalState();
+  }
+
+  recomputeCapitalState() {
     this.openPositionValueSol = this.getOpenPositionValueSol();
     this.unrealizedPnL = this.getUnrealizedPnLSol();
 
@@ -2546,6 +3486,45 @@ class TradingEngine {
     }
 
     this.realizedPnL = this.totalEquitySol - this.initialTotalEquitySol - this.unrealizedPnL;
+  }
+
+  async getSolBalanceWithTimeout(label, address, fallbackBalanceSol = 0, timeoutMs = 5000) {
+    const timeout = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 5000;
+    let timeoutId = null;
+
+    try {
+      const balance = await Promise.race([
+        WalletManager.getSolBalance(this.connection, address),
+        new Promise((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new Error(`SOL balance lookup timed out after ${timeout}ms`));
+          }, timeout);
+        })
+      ]);
+
+      if (Number.isFinite(balance)) {
+        return balance;
+      }
+
+      throw new Error(`SOL balance lookup returned non-finite value for ${label}`);
+    } catch (error) {
+      if (this.executionModeManager?.isLive?.()) {
+        this.logger.error(`LIVE ${label} SOL balance lookup failed closed`, {
+          reason: error.message
+        });
+        throw error;
+      }
+
+      this.logger.warn(`Using fallback ${label} SOL balance`, {
+        fallbackBalanceSol,
+        reason: error.message
+      });
+      return fallbackBalanceSol;
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
   }
 
   getOpenPositionValueSol() {
@@ -2671,6 +3650,7 @@ class TradingEngine {
       preMigrationWatch: this.preMigrationWatchLane.getStats(),
       preMigrationPaper: this.preMigrationPaperLane.getStats(),
       postMigrationContinuation: this.postMigrationContinuationLane.getStats(),
+      walletEventLedger: this.walletEventLedger.getStats(),
       candidateDossiers: this.candidateDossierLedger.getStats(),
       telemetry: this.telemetry.getSummary(),
       eventFlow: this.eventFlow.getSummary(),

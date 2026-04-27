@@ -11,6 +11,7 @@ class Telemetry {
     this.rejectionCounts = new Map();
     this.providerErrors = new Map();
     this.paperExitCounts = new Map();
+    this.liveExitCounts = new Map();
     this.strategyEntries = new Map();
     this.strategyExits = new Map();
     this.strategyPnl = new Map();
@@ -75,6 +76,10 @@ class Telemetry {
       this.paperExitCounts.set(payload.reason, (this.paperExitCounts.get(payload.reason) || 0) + 1);
     }
 
+    if (type === 'live.position.closed' && payload.reason) {
+      this.liveExitCounts.set(payload.reason, (this.liveExitCounts.get(payload.reason) || 0) + 1);
+    }
+
     if (type === 'pre_migration_paper.decision' && payload.decision) {
       this.preMigrationPaperDecisionCounts.set(
         payload.decision,
@@ -96,7 +101,7 @@ class Telemetry {
       );
     }
 
-    if (type === 'paper.position.closed' && payload.aiPrimaryStrategy) {
+    if ((type === 'paper.position.closed' || type === 'live.position.closed') && payload.aiPrimaryStrategy) {
       this.strategyExits.set(
         payload.aiPrimaryStrategy,
         (this.strategyExits.get(payload.aiPrimaryStrategy) || 0) + 1
@@ -127,6 +132,7 @@ class Telemetry {
       rejectionCounts: Object.fromEntries(this.rejectionCounts),
       providerErrors: Object.fromEntries(this.providerErrors),
       paperExitCounts: Object.fromEntries(this.paperExitCounts),
+      liveExitCounts: Object.fromEntries(this.liveExitCounts),
       pumpFailureCounts: Object.fromEntries(this.pumpFailureCounts),
       preMigrationPaperDecisionCounts: Object.fromEntries(this.preMigrationPaperDecisionCounts),
       preMigrationPaperSkipReasonCounts: Object.fromEntries(this.preMigrationPaperSkipReasonCounts),

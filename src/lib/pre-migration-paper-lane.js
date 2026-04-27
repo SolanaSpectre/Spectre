@@ -44,6 +44,17 @@ class PreMigrationPaperLane {
     this.curvePauseMinRecentVolumeSol = Number(config.preMigrationPaperCurvePauseMinRecentVolumeSol ?? 12);
     this.curvePauseMinTradeVelocityPerMin = Number(config.preMigrationPaperCurvePauseMinTradeVelocityPerMin ?? 12);
     this.curvePauseMinBuyRatio = Number(config.preMigrationPaperCurvePauseMinBuyRatio ?? 0.4);
+    this.firstCurveSnapshotScalpEnabled = config.preMigrationPaperFirstCurveSnapshotScalpEnabled !== false;
+    this.firstCurveSnapshotScalpMinScore = Number(config.preMigrationPaperFirstCurveSnapshotScalpMinScore ?? 55);
+    this.firstCurveSnapshotScalpMinCurveProgress = Number(config.preMigrationPaperFirstCurveSnapshotScalpMinCurveProgress ?? 0.7);
+    this.firstCurveSnapshotScalpMaxCurveProgress = Number(config.preMigrationPaperFirstCurveSnapshotScalpMaxCurveProgress ?? 0.9);
+    this.firstCurveSnapshotScalpMinRecentVolumeSol = Number(config.preMigrationPaperFirstCurveSnapshotScalpMinRecentVolumeSol ?? 0.25);
+    this.firstCurveSnapshotScalpMinTradeVelocityPerMin = Number(config.preMigrationPaperFirstCurveSnapshotScalpMinTradeVelocityPerMin ?? 1.5);
+    this.firstCurveSnapshotScalpMinInterestCount = Number(config.preMigrationPaperFirstCurveSnapshotScalpMinInterestCount ?? 3);
+    this.firstCurveSnapshotScalpMinUniqueBuyerCount = Number(config.preMigrationPaperFirstCurveSnapshotScalpMinUniqueBuyerCount ?? 3);
+    this.firstCurveSnapshotScalpMaxRiskWalletCount = Number(config.preMigrationPaperFirstCurveSnapshotScalpMaxRiskWalletCount ?? 1);
+    this.firstCurveSnapshotScalpMinBuyRatio = Number(config.preMigrationPaperFirstCurveSnapshotScalpMinBuyRatio ?? 0.45);
+    this.logDecisionEvents = config.preMigrationPaperLogDecisionEvents !== false;
     this.earlyAccelerationMinScore = Number(config.preMigrationPaperEarlyAccelerationRunnerMinScore ?? 84.5);
     this.earlyAccelerationMinCurveProgress = Number(config.preMigrationPaperEarlyAccelerationRunnerMinCurveProgress ?? 0.88);
     this.earlyAccelerationMinRecentVolumeSol = Number(config.preMigrationPaperEarlyAccelerationRunnerMinRecentVolumeSol ?? 60);
@@ -74,7 +85,9 @@ class PreMigrationPaperLane {
       skipReasonCounts: {},
       eligibleCounts: {},
       exitReasonCounts: {},
-      presets: {}
+      presets: {},
+      lanes: {},
+      profiles: {}
     };
     this.lastObservedStates = new Map();
     this.observationHistory = new Map();
@@ -83,6 +96,8 @@ class PreMigrationPaperLane {
 
     for (const preset of this.presets) {
       this.stats.presets[preset.name] = this.createPresetStats(preset.strategy);
+      this.ensureLaneStats(preset.lane);
+      this.ensureProfileStats(preset.profileName, preset.exitProfile);
     }
   }
 
@@ -96,7 +111,14 @@ class PreMigrationPaperLane {
     const timestamp = options.timestamp || new Date().toISOString();
     const price = this.getPrice(state);
     const history = this.observationHistory.get(mint) || [];
-    const entryGuards = this.evaluateEntryGuards(state, history, timestamp);
+    const observedState = options.walletClassificationContext
+      ? { ...state, walletClassificationContext: options.walletClassificationContext }
+      : state;
+    const entryGuards = this.evaluateEntryGuards(observedState, history, timestamp);
+    const firstCurveNearMiss = this.firstCurveSnapshotNearMissEvent(observedState, history, timestamp);
+    if (firstCurveNearMiss) {
+      events.push(firstCurveNearMiss);
+    }
 
     for (const preset of this.presets) {
       const key = this.positionKey(preset.name, mint);
@@ -104,7 +126,7 @@ class PreMigrationPaperLane {
       let exitedThisObservation = false;
 
       if (position && Number.isFinite(price) && price > 0) {
-        const exit = this.evaluateExit(position, state, timestamp, price);
+        const exit = this.evaluateExit(position, observedState, timestamp, price);
         if (exit) {
           events.push(exit);
           exitedThisObservation = true;
@@ -118,7 +140,7 @@ class PreMigrationPaperLane {
       ) {
         const cooldown = this.getBadExitCooldown(mint, timestamp);
         if (cooldown.active) {
-          events.push(this.decisionEvent('PAPER_SKIPPED', state, timestamp, preset, {
+          events.push(this.decisionEvent('PAPER_SKIPPED', observedState, timestamp, preset, {
             passed: false,
             reason: 'RECENT_BAD_EXIT_COOLDOWN',
             badExitCooldownUntil: cooldown.until,
@@ -129,34 +151,36 @@ class PreMigrationPaperLane {
           continue;
         }
 
-        const decision = this.evaluateEntryDecision(state, preset, entryGuards);
+        const decision = this.evaluateEntryDecision(observedState, preset, entryGuards);
         if (decision.passed) {
           const activePosition = this.getActivePositionForMint(mint);
           if (activePosition) {
             events.push(this.decisionEvent(
               'PAPER_SHADOWED',
-              state,
+              observedState,
               timestamp,
               preset,
               this.buildShadowDecision(decision, activePosition)
             ));
           } else {
-            events.push(this.decisionEvent('PAPER_ELIGIBLE', state, timestamp, preset, decision));
-            events.push(this.enter(state, timestamp, preset, decision));
+            events.push(this.decisionEvent('PAPER_ELIGIBLE', observedState, timestamp, preset, decision));
+            events.push(this.enter(observedState, timestamp, preset, decision));
           }
         } else if (decision.reason !== 'PRESET_NOT_ELIGIBLE_FOR_GUARD_OVERRIDE') {
-          events.push(this.decisionEvent('PAPER_SKIPPED', state, timestamp, preset, decision));
+          events.push(this.decisionEvent('PAPER_SKIPPED', observedState, timestamp, preset, decision));
         }
       }
     }
 
-    this.rememberObservation(state, timestamp, price);
+    this.rememberObservation(observedState, timestamp, price);
     return events;
   }
 
   buildPresets(config) {
     const strictMigration = {
       name: 'strictMigration',
+      lane: 'PRE_MIGRATION_RUNNER_WATCH',
+      profileName: 'pre_migration_runner_watch',
       strategy: {
         minScore: config.preMigrationPaperMinScore,
         minCurveProgress: config.preMigrationPaperMinCurveProgress,
@@ -171,6 +195,8 @@ class PreMigrationPaperLane {
     };
     const highConfidenceRunner = {
       name: 'highConfidenceRunner',
+      lane: 'PRE_MIGRATION_RUNNER_WATCH',
+      profileName: 'pre_migration_runner_watch',
       strategy: {
         minScore: config.preMigrationPaperHighConfidenceRunnerMinScore,
         minCurveProgress: config.preMigrationPaperHighConfidenceRunnerMinCurveProgress,
@@ -184,6 +210,8 @@ class PreMigrationPaperLane {
     };
     const earlyAccelerationRunner = {
       name: 'earlyAccelerationRunner',
+      lane: 'PRE_MIGRATION_SCALP',
+      profileName: 'pre_migration_scalp',
       strategy: {
         minScore: config.preMigrationPaperEarlyAccelerationRunnerMinScore,
         minCurveProgress: config.preMigrationPaperEarlyAccelerationRunnerMinCurveProgress,
@@ -197,6 +225,8 @@ class PreMigrationPaperLane {
     };
     const highConvictionFirstSight = {
       name: 'highConvictionFirstSight',
+      lane: 'PRE_MIGRATION_SNIPE',
+      profileName: 'pre_migration_snipe',
       strategy: {
         minScore: config.preMigrationPaperHighConvictionFirstSightMinScore,
         minCurveProgress: config.preMigrationPaperHighConvictionFirstSightMinCurveProgress,
@@ -215,8 +245,59 @@ class PreMigrationPaperLane {
       .map((name) => name.trim())
       .filter(Boolean);
     const presets = [strictMigration, highConfidenceRunner, earlyAccelerationRunner, highConvictionFirstSight]
-      .filter((preset) => enabled.includes(preset.name));
-    return presets.length > 0 ? presets : [strictMigration];
+      .filter((preset) => enabled.includes(preset.name))
+      .map((preset) => ({
+        ...preset,
+        exitProfile: this.buildExitProfile(preset.profileName, preset.strategy)
+      }));
+    return presets.length > 0
+      ? presets
+      : [{
+        ...strictMigration,
+        exitProfile: this.buildExitProfile(strictMigration.profileName, strictMigration.strategy)
+      }];
+  }
+
+  buildExitProfile(profileName, strategy = {}) {
+    const base = {
+      profileName: profileName || 'pre_migration_runner_watch',
+      takeProfitPct: Number(strategy.takeProfitPct),
+      stopLossPct: Number(strategy.stopLossPct),
+      maxHoldSeconds: Number(strategy.maxHoldSeconds),
+      breakevenStopEnabled: true,
+      breakevenActivationPct: 0.12,
+      breakevenStopPct: 0.005,
+      sellPressureExitEnabled: true,
+      sellPressureBuyRatioThreshold: 0.45,
+      sellPressureMinHoldSeconds: 30,
+      curveStallExitEnabled: true,
+      curveStallSeconds: 120,
+      curveStallMinProgressAdvance: 0.012
+    };
+
+    if (profileName === 'pre_migration_scalp') {
+      return {
+        ...base,
+        breakevenActivationPct: 0.08,
+        sellPressureBuyRatioThreshold: 0.48,
+        sellPressureMinHoldSeconds: 15,
+        curveStallSeconds: 60,
+        curveStallMinProgressAdvance: 0.01
+      };
+    }
+
+    if (profileName === 'pre_migration_snipe') {
+      return {
+        ...base,
+        breakevenActivationPct: 0.05,
+        sellPressureBuyRatioThreshold: 0.5,
+        sellPressureMinHoldSeconds: 8,
+        curveStallSeconds: 35,
+        curveStallMinProgressAdvance: 0.006
+      };
+    }
+
+    return base;
   }
 
   createPresetStats(strategy) {
@@ -426,6 +507,18 @@ class PreMigrationPaperLane {
           thresholdOverrides: earlySurge.thresholdOverrides,
           ...this.formatDelta60s(delta60s),
           ...earlySurge
+        };
+      }
+
+      const firstCurveSnapshotScalp = this.evaluateFirstCurveSnapshotScalp(state);
+      if (firstCurveSnapshotScalp.passed) {
+        return {
+          passed: true,
+          guardOverride: 'FIRST_CURVE_SNAPSHOT_SCALP',
+          allowedPresetNames: ['earlyAccelerationRunner'],
+          thresholdOverrides: firstCurveSnapshotScalp.thresholdOverrides,
+          ...this.formatDelta60s(delta60s),
+          ...firstCurveSnapshotScalp
         };
       }
 
@@ -727,6 +820,119 @@ class PreMigrationPaperLane {
     };
   }
 
+  evaluateFirstCurveSnapshotScalp(state = {}) {
+    if (!this.firstCurveSnapshotScalpEnabled) {
+      return { passed: false };
+    }
+
+    const score = Number(state.score);
+    const curveProgress = Number(state.curveProgress);
+    const recentVolumeSol = Number(state.recentVolumeSol);
+    const tradeVelocityPerMin = Number(state.tradeVelocityPerMin);
+    const interestSignalCount = Number(state.interestSignalCount || 0);
+    const uniqueBuyerCount = Number(state.uniqueBuyerCount || 0);
+    const riskWalletCount = Number(state.riskWalletCount || 0);
+    const buyRatio = this.computeBuyRatio(state);
+    const price = this.getPrice(state);
+
+    const passed = Number.isFinite(price)
+      && price > 0
+      && Number.isFinite(score)
+      && score >= this.firstCurveSnapshotScalpMinScore
+      && Number.isFinite(curveProgress)
+      && curveProgress >= this.firstCurveSnapshotScalpMinCurveProgress
+      && curveProgress <= this.firstCurveSnapshotScalpMaxCurveProgress
+      && Number.isFinite(recentVolumeSol)
+      && recentVolumeSol >= this.firstCurveSnapshotScalpMinRecentVolumeSol
+      && Number.isFinite(tradeVelocityPerMin)
+      && tradeVelocityPerMin >= this.firstCurveSnapshotScalpMinTradeVelocityPerMin
+      && interestSignalCount >= this.firstCurveSnapshotScalpMinInterestCount
+      && uniqueBuyerCount >= this.firstCurveSnapshotScalpMinUniqueBuyerCount
+      && riskWalletCount <= this.firstCurveSnapshotScalpMaxRiskWalletCount
+      && (buyRatio === null || buyRatio >= this.firstCurveSnapshotScalpMinBuyRatio);
+
+    const failedChecks = [];
+    if (!Number.isFinite(price) || price <= 0) failedChecks.push('MISSING_PRICE');
+    if (!Number.isFinite(score) || score < this.firstCurveSnapshotScalpMinScore) failedChecks.push('LOW_SCORE');
+    if (!Number.isFinite(curveProgress)) failedChecks.push('MISSING_CURVE_PROGRESS');
+    if (Number.isFinite(curveProgress) && curveProgress < this.firstCurveSnapshotScalpMinCurveProgress) failedChecks.push('LOW_CURVE_PROGRESS');
+    if (Number.isFinite(curveProgress) && curveProgress > this.firstCurveSnapshotScalpMaxCurveProgress) failedChecks.push('HIGH_CURVE_PROGRESS');
+    if (!Number.isFinite(recentVolumeSol) || recentVolumeSol < this.firstCurveSnapshotScalpMinRecentVolumeSol) failedChecks.push('LOW_VOLUME');
+    if (!Number.isFinite(tradeVelocityPerMin) || tradeVelocityPerMin < this.firstCurveSnapshotScalpMinTradeVelocityPerMin) failedChecks.push('LOW_VELOCITY');
+    if (interestSignalCount < this.firstCurveSnapshotScalpMinInterestCount) failedChecks.push('LOW_INTEREST_COUNT');
+    if (uniqueBuyerCount < this.firstCurveSnapshotScalpMinUniqueBuyerCount) failedChecks.push('LOW_UNIQUE_BUYERS');
+    if (riskWalletCount > this.firstCurveSnapshotScalpMaxRiskWalletCount) failedChecks.push('RISK_WALLET_COUNT');
+    if (buyRatio !== null && buyRatio < this.firstCurveSnapshotScalpMinBuyRatio) failedChecks.push('LOW_BUY_RATIO');
+
+    const thresholdOverrides = {
+      minScore: this.firstCurveSnapshotScalpMinScore,
+      minCurveProgress: this.firstCurveSnapshotScalpMinCurveProgress,
+      maxCurveProgress: this.firstCurveSnapshotScalpMaxCurveProgress,
+      minRecentVolumeSol: this.firstCurveSnapshotScalpMinRecentVolumeSol,
+      minTradeVelocityPerMin: this.firstCurveSnapshotScalpMinTradeVelocityPerMin,
+      minBuyRatio: this.firstCurveSnapshotScalpMinBuyRatio
+    };
+
+    return {
+      passed,
+      failedChecks,
+      thresholdOverrides,
+      firstCurveSnapshotScalpScore: this.compact(score, 2),
+      firstCurveSnapshotScalpCurveProgress: this.compact(curveProgress, 6),
+      firstCurveSnapshotScalpRecentVolumeSol: this.compact(recentVolumeSol, 4),
+      firstCurveSnapshotScalpTradeVelocityPerMin: this.compact(tradeVelocityPerMin, 2),
+      firstCurveSnapshotScalpInterestSignalCount: interestSignalCount,
+      firstCurveSnapshotScalpUniqueBuyerCount: uniqueBuyerCount,
+      firstCurveSnapshotScalpRiskWalletCount: riskWalletCount,
+      firstCurveSnapshotScalpBuyRatio: this.compact(buyRatio, 4),
+      firstCurveSnapshotScalpHasPrice: Number.isFinite(price) && price > 0,
+      firstCurveSnapshotScalpThresholds: {
+        ...thresholdOverrides,
+        minInterestSignalCount: this.firstCurveSnapshotScalpMinInterestCount,
+        minUniqueBuyerCount: this.firstCurveSnapshotScalpMinUniqueBuyerCount,
+        maxRiskWalletCount: this.firstCurveSnapshotScalpMaxRiskWalletCount
+      }
+    };
+  }
+
+  firstCurveSnapshotNearMissEvent(state = {}, history = [], timestamp) {
+    if (!this.firstCurveSnapshotScalpEnabled || this.hasValidCurveHistory(history)) {
+      return null;
+    }
+
+    const curveProgress = this.toCurveProgress(state.curveProgress);
+    if (!Number.isFinite(curveProgress)) {
+      return null;
+    }
+
+    const snapshot = this.evaluateFirstCurveSnapshotScalp(state);
+    if (snapshot.passed) {
+      return null;
+    }
+
+    return {
+      type: 'diagnostic',
+      telemetryType: 'pre_migration_paper.first_curve_snapshot_near_miss',
+      payload: {
+        mint: state.mint,
+        symbol: state.symbol || null,
+        timestamp,
+        score: this.compact(state.score, 2),
+        curveProgress: this.compact(state.curveProgress, 6),
+        recentVolumeSol: this.compact(state.recentVolumeSol, 4),
+        tradeVelocityPerMin: this.compact(state.tradeVelocityPerMin, 2),
+        interestSignalCount: Number.isFinite(Number(state.interestSignalCount)) ? Number(state.interestSignalCount) : 0,
+        uniqueBuyerCount: Number.isFinite(Number(state.uniqueBuyerCount)) ? Number(state.uniqueBuyerCount) : 0,
+        riskWalletCount: Number.isFinite(Number(state.riskWalletCount)) ? Number(state.riskWalletCount) : 0,
+        buyRatio: this.compact(this.computeBuyRatio(state), 4),
+        hasPrice: Boolean(snapshot.firstCurveSnapshotScalpHasPrice),
+        failedChecks: snapshot.failedChecks || [],
+        thresholds: snapshot.firstCurveSnapshotScalpThresholds || null,
+        nearMiss: true
+      }
+    };
+  }
+
   evaluateFirstSightOverride(state = {}) {
     if (!this.firstSightOverrideEnabled) {
       return { passed: false };
@@ -961,7 +1167,7 @@ class PreMigrationPaperLane {
 
     for (let index = history.length - 1; index >= 0; index -= 1) {
       const item = history[index];
-      const itemProgress = Number(item?.curveProgress);
+      const itemProgress = this.toCurveProgress(item?.curveProgress);
       if (!Number.isFinite(itemProgress)) continue;
 
       const itemMs = new Date(item.timestamp).getTime();
@@ -989,7 +1195,7 @@ class PreMigrationPaperLane {
 
     let baseline = null;
     for (const item of history) {
-      const itemProgress = Number(item?.curveProgress);
+      const itemProgress = this.toCurveProgress(item?.curveProgress);
       const itemMs = new Date(item?.timestamp).getTime();
       if (!Number.isFinite(itemProgress) || !Number.isFinite(itemMs)) continue;
       if (itemMs > nowMs || nowMs - itemMs > windowMs) continue;
@@ -998,7 +1204,7 @@ class PreMigrationPaperLane {
       }
     }
 
-    const baselineProgress = Number(baseline?.curveProgress);
+    const baselineProgress = this.toCurveProgress(baseline?.curveProgress);
     if (!Number.isFinite(baselineProgress) || !Number.isFinite(curveProgress)) {
       return null;
     }
@@ -1036,8 +1242,12 @@ class PreMigrationPaperLane {
   enter(state, timestamp, preset, details = {}) {
     const entryPriceSol = this.getPrice(state);
     const strategy = details.effectiveStrategy || preset.strategy;
+    const exitProfile = preset.exitProfile || this.buildExitProfile(preset.profileName, strategy);
     const position = {
       presetName: preset.name,
+      lane: preset.lane || 'PRE_MIGRATION_RUNNER_WATCH',
+      profileName: preset.profileName || exitProfile.profileName,
+      exitProfile,
       positionKey: this.positionKey(preset.name, state.mint),
       mint: state.mint,
       symbol: state.symbol || null,
@@ -1053,10 +1263,12 @@ class PreMigrationPaperLane {
       entrySniperWalletCount: Number.isFinite(Number(state.sniperWalletCount)) ? Number(state.sniperWalletCount) : null,
       entryReasons: Array.isArray(state.reasons) ? state.reasons.slice(0, 10) : [],
       guardOverride: details.guardOverride || null,
+      walletClassificationContext: state.walletClassificationContext || null,
       lastPriceSol: entryPriceSol,
       maxPriceSol: entryPriceSol,
       minPriceSol: entryPriceSol,
       maxCurveProgress: Number(state.curveProgress || 0),
+      peakReturnPct: 0,
       lastObservedAt: timestamp
     };
 
@@ -1066,6 +1278,8 @@ class PreMigrationPaperLane {
     this.stats.entries += 1;
     this.stats.lastEntryAt = timestamp;
     this.updatePresetEntryStats(preset.name);
+    this.updateLaneEntryStats(position.lane);
+    this.updateProfileEntryStats(position.profileName, exitProfile);
 
     return {
       type: 'entry',
@@ -1074,7 +1288,11 @@ class PreMigrationPaperLane {
         ...this.basePayload(position),
         decision: 'PAPER_ENTERED',
         preset: preset.name,
+        lane: position.lane,
+        profileName: position.profileName,
         strategy,
+        exitProfile,
+        walletClassificationContext: position.walletClassificationContext,
         score: position.entryScore,
         curveProgress: position.entryCurveProgress,
         recentVolumeSol: position.entryRecentVolumeSol,
@@ -1123,8 +1341,43 @@ class PreMigrationPaperLane {
 
     const returnPct = (price - position.entryPriceSol) / position.entryPriceSol;
     const holdSeconds = this.secondsBetween(position.entryAt, timestamp);
-
     const strategy = this.getStrategy(position.presetName);
+    const exitProfile = position.exitProfile || this.getExitProfile(position.presetName);
+    position.peakReturnPct = Math.max(Number(position.peakReturnPct || 0), returnPct);
+
+    if (
+      exitProfile.breakevenStopEnabled
+      && Number(position.peakReturnPct || 0) >= Number(exitProfile.breakevenActivationPct)
+      && returnPct <= Number(exitProfile.breakevenStopPct)
+    ) {
+      return this.exitPosition(position, timestamp, price, 'BREAKEVEN_STOP', state);
+    }
+
+    if (
+      exitProfile.sellPressureExitEnabled
+      && Number.isFinite(holdSeconds)
+      && holdSeconds >= Number(exitProfile.sellPressureMinHoldSeconds)
+    ) {
+      const buyRatio = this.computeBuyRatio(state);
+      if (Number.isFinite(buyRatio) && buyRatio <= Number(exitProfile.sellPressureBuyRatioThreshold)) {
+        return this.exitPosition(position, timestamp, price, 'SELL_PRESSURE_FLIP', state);
+      }
+    }
+
+    if (
+      exitProfile.curveStallExitEnabled
+      && Number.isFinite(holdSeconds)
+      && holdSeconds >= Number(exitProfile.curveStallSeconds)
+    ) {
+      const entryProgress = Number(position.entryCurveProgress);
+      const maxProgress = Number(position.maxCurveProgress);
+      const progressAdvance = Number.isFinite(entryProgress) && Number.isFinite(maxProgress)
+        ? maxProgress - entryProgress
+        : null;
+      if (Number.isFinite(progressAdvance) && progressAdvance < Number(exitProfile.curveStallMinProgressAdvance)) {
+        return this.exitPosition(position, timestamp, price, 'CURVE_STALL', state);
+      }
+    }
 
     if (returnPct >= strategy.takeProfitPct) {
       return this.exitPosition(position, timestamp, price, 'TAKE_PROFIT', state);
@@ -1206,6 +1459,8 @@ class PreMigrationPaperLane {
     if (pnlSol > 0) this.stats.wins += 1;
     if (pnlSol < 0) this.stats.losses += 1;
     this.updatePresetExitStats(position.presetName, reason, pnlSol);
+    this.updateLaneExitStats(position.lane, reason, pnlSol);
+    this.updateProfileExitStats(position.profileName, reason, pnlSol);
 
     return {
       type: 'exit',
@@ -1214,13 +1469,18 @@ class PreMigrationPaperLane {
         ...this.basePayload(closed),
         decision: 'PAPER_EXITED',
         preset: position.presetName,
+        lane: position.lane || null,
+        profileName: position.profileName || null,
         reason,
+        exitProfile: position.exitProfile || this.getExitProfile(position.presetName),
+        walletClassificationContext: position.walletClassificationContext || null,
         exitPriceSol: this.compact(price, 15),
         exitCurveProgress: closed.exitCurveProgress,
         returnPct: closed.returnPct,
         pnlSol: closed.pnlSol,
         holdSeconds: closed.holdSeconds,
-        maxCurveProgress: closed.maxCurveProgress
+        maxCurveProgress: closed.maxCurveProgress,
+        peakReturnPct: this.compact(position.peakReturnPct, 6)
       }
     };
   }
@@ -1312,23 +1572,39 @@ class PreMigrationPaperLane {
     return Number.isFinite(price) ? price : null;
   }
 
+  toCurveProgress(value) {
+    if (value === null || value === undefined || value === '') {
+      return null;
+    }
+
+    const progress = Number(value);
+    return Number.isFinite(progress) ? progress : null;
+  }
+
+  hasValidCurveHistory(history = []) {
+    return Array.isArray(history) && history.some((item) => Number.isFinite(this.toCurveProgress(item?.curveProgress)));
+  }
+
   rememberObservation(state, timestamp, price) {
     if (!state?.mint) {
       return;
     }
 
+    const curveProgress = this.toCurveProgress(state.curveProgress);
     this.lastObservedStates.set(state.mint, {
       timestamp,
-      curveProgress: Number(state.curveProgress),
+      curveProgress,
       price
     });
 
     const history = this.observationHistory.get(state.mint) || [];
-    history.push({
-      timestamp,
-      curveProgress: Number(state.curveProgress),
-      price
-    });
+    if (Number.isFinite(curveProgress)) {
+      history.push({
+        timestamp,
+        curveProgress,
+        price
+      });
+    }
 
     const nowMs = new Date(timestamp).getTime();
     const maxAgeMs = Math.max(Number(this.curveProgressLookbackMs || 0), 5 * 60 * 1000);
@@ -1359,6 +1635,8 @@ class PreMigrationPaperLane {
       payload: {
         decision,
         preset: preset.name,
+        lane: preset.lane || null,
+        profileName: preset.profileName || null,
         mint: state.mint,
         symbol: state.symbol || null,
         timestamp,
@@ -1390,6 +1668,16 @@ class PreMigrationPaperLane {
         firstSightBuyRatio: this.compact(details.firstSightBuyRatio, 4),
         firstSightHasConfirmation: details.firstSightHasConfirmation ?? null,
         firstSightThresholds: details.firstSightThresholds || null,
+        firstCurveSnapshotScalpScore: this.compact(details.firstCurveSnapshotScalpScore, 2),
+        firstCurveSnapshotScalpCurveProgress: this.compact(details.firstCurveSnapshotScalpCurveProgress, 6),
+        firstCurveSnapshotScalpRecentVolumeSol: this.compact(details.firstCurveSnapshotScalpRecentVolumeSol, 4),
+        firstCurveSnapshotScalpTradeVelocityPerMin: this.compact(details.firstCurveSnapshotScalpTradeVelocityPerMin, 2),
+        firstCurveSnapshotScalpInterestSignalCount: Number.isFinite(Number(details.firstCurveSnapshotScalpInterestSignalCount)) ? Number(details.firstCurveSnapshotScalpInterestSignalCount) : null,
+        firstCurveSnapshotScalpUniqueBuyerCount: Number.isFinite(Number(details.firstCurveSnapshotScalpUniqueBuyerCount)) ? Number(details.firstCurveSnapshotScalpUniqueBuyerCount) : null,
+        firstCurveSnapshotScalpRiskWalletCount: Number.isFinite(Number(details.firstCurveSnapshotScalpRiskWalletCount)) ? Number(details.firstCurveSnapshotScalpRiskWalletCount) : null,
+        firstCurveSnapshotScalpBuyRatio: this.compact(details.firstCurveSnapshotScalpBuyRatio, 4),
+        firstCurveSnapshotScalpHasPrice: details.firstCurveSnapshotScalpHasPrice ?? null,
+        firstCurveSnapshotScalpThresholds: details.firstCurveSnapshotScalpThresholds || null,
         curvePauseScore: this.compact(details.curvePauseScore, 2),
         curvePauseCurveProgress: this.compact(details.curvePauseCurveProgress, 6),
         curvePauseRecentVolumeSol: this.compact(details.curvePauseRecentVolumeSol, 4),
@@ -1437,6 +1725,7 @@ class PreMigrationPaperLane {
         badExitCooldownRemainingMs: details.badExitCooldownRemainingMs ?? null,
         badExitCooldownReason: details.badExitCooldownReason || null,
         badExitCooldownPreset: details.badExitCooldownPreset || null,
+        walletClassificationContext: state.walletClassificationContext || null,
         reasons: Array.isArray(state.reasons) ? state.reasons.slice(0, 10) : []
       }
     };
@@ -1515,6 +1804,8 @@ class PreMigrationPaperLane {
   basePayload(position) {
     return {
       preset: position.presetName,
+      lane: position.lane || null,
+      profileName: position.profileName || null,
       mint: position.mint,
       symbol: position.symbol || null,
       entryAt: position.entryAt,
@@ -1524,7 +1815,9 @@ class PreMigrationPaperLane {
       entryCurveProgress: position.entryCurveProgress,
       entryUniqueBuyerCount: position.entryUniqueBuyerCount,
       entryUniqueBuyerRatio: position.entryUniqueBuyerRatio,
-      entrySniperWalletCount: position.entrySniperWalletCount
+      entrySniperWalletCount: position.entrySniperWalletCount,
+      exitProfile: position.exitProfile || null,
+      walletClassificationContext: position.walletClassificationContext || null
     };
   }
 
@@ -1534,6 +1827,11 @@ class PreMigrationPaperLane {
 
   getStrategy(presetName) {
     return this.presets.find((preset) => preset.name === presetName)?.strategy || this.strategy;
+  }
+
+  getExitProfile(presetName) {
+    const preset = this.presets.find((candidate) => candidate.name === presetName);
+    return preset?.exitProfile || this.buildExitProfile(preset?.profileName, preset?.strategy || this.strategy);
   }
 
   updatePresetEntryStats(presetName) {
@@ -1555,6 +1853,74 @@ class PreMigrationPaperLane {
     if (pnlSol < 0) presetStats.losses += 1;
     presetStats.winRate = presetStats.closedTrades > 0
       ? this.compact(presetStats.wins / presetStats.closedTrades, 4)
+      : null;
+  }
+
+  ensureLaneStats(lane) {
+    const key = lane || 'UNKNOWN';
+    if (!this.stats.lanes[key]) {
+      this.stats.lanes[key] = this.createGroupedStats();
+    }
+    return this.stats.lanes[key];
+  }
+
+  ensureProfileStats(profileName, exitProfile = null) {
+    const key = profileName || 'unknown';
+    if (!this.stats.profiles[key]) {
+      this.stats.profiles[key] = {
+        ...this.createGroupedStats(),
+        exitProfile
+      };
+    } else if (exitProfile && !this.stats.profiles[key].exitProfile) {
+      this.stats.profiles[key].exitProfile = exitProfile;
+    }
+    return this.stats.profiles[key];
+  }
+
+  createGroupedStats() {
+    return {
+      entries: 0,
+      exits: 0,
+      wins: 0,
+      losses: 0,
+      totalPnlSol: 0,
+      openPositions: 0,
+      closedTrades: 0,
+      winRate: null,
+      exitReasonCounts: {}
+    };
+  }
+
+  updateLaneEntryStats(lane) {
+    const laneStats = this.ensureLaneStats(lane);
+    laneStats.entries += 1;
+    laneStats.openPositions += 1;
+  }
+
+  updateLaneExitStats(lane, reason, pnlSol) {
+    this.applyGroupedExitStats(this.ensureLaneStats(lane), reason, pnlSol);
+  }
+
+  updateProfileEntryStats(profileName, exitProfile) {
+    const profileStats = this.ensureProfileStats(profileName, exitProfile);
+    profileStats.entries += 1;
+    profileStats.openPositions += 1;
+  }
+
+  updateProfileExitStats(profileName, reason, pnlSol) {
+    this.applyGroupedExitStats(this.ensureProfileStats(profileName), reason, pnlSol);
+  }
+
+  applyGroupedExitStats(groupStats, reason, pnlSol) {
+    groupStats.exits += 1;
+    groupStats.openPositions = Math.max(0, groupStats.openPositions - 1);
+    groupStats.closedTrades += 1;
+    groupStats.totalPnlSol = this.compact(Number(groupStats.totalPnlSol || 0) + pnlSol, 9);
+    groupStats.exitReasonCounts[reason] = (groupStats.exitReasonCounts[reason] || 0) + 1;
+    if (pnlSol > 0) groupStats.wins += 1;
+    if (pnlSol < 0) groupStats.losses += 1;
+    groupStats.winRate = groupStats.closedTrades > 0
+      ? this.compact(groupStats.wins / groupStats.closedTrades, 4)
       : null;
   }
 

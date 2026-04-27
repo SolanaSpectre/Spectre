@@ -82,6 +82,14 @@ function compact(value, decimals = 6) {
   return Number.isFinite(numeric) ? Number(numeric.toFixed(decimals)) : null;
 }
 
+function countBy(items, keyFn) {
+  return items.reduce((accumulator, item) => {
+    const key = keyFn(item) || 'unknown';
+    accumulator[key] = (accumulator[key] || 0) + 1;
+    return accumulator;
+  }, {});
+}
+
 function secondsBetween(startIso, endIso) {
   if (!startIso || !endIso) return null;
   const startMs = new Date(startIso).getTime();
@@ -187,6 +195,8 @@ function buildReport(events, telemetryPath, strategy) {
   let lastTimestamp = null;
 
   const sortedEvents = [...events].sort((a, b) => new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime());
+  const actualPaperEntries = sortedEvents.filter((event) => (event.type || event.event || event.name) === 'pre_migration_paper.entry');
+  const actualPaperExits = sortedEvents.filter((event) => (event.type || event.event || event.name) === 'pre_migration_paper.exit');
 
   for (const event of sortedEvents) {
     const type = event.type || event.event || event.name;
@@ -313,6 +323,21 @@ function buildReport(events, telemetryPath, strategy) {
       averagePnlSol: closedTrades.length > 0 ? compact(totalPnlSol / closedTrades.length, 9) : null,
       exitReasonCounts
     },
+    actualPaperTelemetry: {
+      entries: actualPaperEntries.length,
+      exits: actualPaperExits.length,
+      entriesByLane: countBy(actualPaperEntries, (event) => eventPayload(event).lane),
+      entriesByProfile: countBy(actualPaperEntries, (event) => eventPayload(event).profileName),
+      exitsByProfile: countBy(actualPaperExits, (event) => eventPayload(event).profileName),
+      exitReasonsByProfile: actualPaperExits.reduce((accumulator, event) => {
+        const payload = eventPayload(event);
+        const profileName = payload.profileName || 'unknown';
+        const reason = payload.reason || 'unknown';
+        if (!accumulator[profileName]) accumulator[profileName] = {};
+        accumulator[profileName][reason] = (accumulator[profileName][reason] || 0) + 1;
+        return accumulator;
+      }, {})
+    },
     topWinners: simulatedTrades.slice(0, 15),
     topLosers: [...simulatedTrades].sort((a, b) => Number(a.pnlSol || 0) - Number(b.pnlSol || 0)).slice(0, 15),
     simulatedTrades
@@ -334,6 +359,8 @@ function printReport(report) {
   console.log(`Price-eligible flag events: ${report.summary.priceEligibleFlagEvents}`);
   console.log(`Simulated trades: ${report.summary.simulatedTrades}, closed=${report.summary.closedTrades}, wins=${report.summary.wins}, losses=${report.summary.losses}, winRate=${report.summary.winRate ?? 'n/a'}, pnl=${report.summary.totalPnlSol} SOL`);
   console.log(`Exits: ${Object.entries(report.summary.exitReasonCounts).map(([key, value]) => `${key}=${value}`).join(', ') || 'n/a'}`);
+  console.log(`Actual paper telemetry: entries=${report.actualPaperTelemetry.entries}, exits=${report.actualPaperTelemetry.exits}`);
+  console.log(`Actual entries by profile: ${Object.entries(report.actualPaperTelemetry.entriesByProfile).map(([key, value]) => `${key}=${value}`).join(', ') || 'n/a'}`);
 
   if (report.summary.priceEligibleFlagEvents === 0) {
     console.log('');

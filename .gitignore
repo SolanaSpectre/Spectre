@@ -3,6 +3,8 @@ node_modules/
 
 # Local secrets and runtime configuration
 .env
+.env.*
+!.env.example
 agents/*/.env
 
 # Runtime logs and generated telemetry
@@ -27,6 +29,11 @@ data/launch-intel/
 data/pumpportal-debug/
 data/positions/
 data/wallet-watchlists/kolscan-leaderboard.json
+data/wallet-events/
+
+# Generated stream overlay/runtime artifacts
+paper-results.json
+spectre-mascot.jpg
 
 # Python local artifacts for sidecar agents
 __pycache__/

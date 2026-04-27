@@ -33,6 +33,12 @@ Use the simplest fair setup first:
 
 Do not optimize serving before the first comparison. First find the right model, then worry about vLLM or stricter schema decoding later.
 
+## Operator Startup Reminder
+
+Any time the local PC is restarted, reconnect the AWS model host before relying on the AI auditor path.
+
+The AWS host is where `Hermes` runs. Treat Hermes as unavailable after a PC reboot until the AWS connection has been restored and verified.
+
 ## Replay Pack
 
 Build a replay set of saved real review packets from our own history.

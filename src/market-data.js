@@ -73,6 +73,23 @@ class MarketData {
     }
   }
 
+  getCachedSolanaPrice(maxAgeMs = null) {
+    if (!this.solPriceCache) {
+      return null;
+    }
+
+    const ageMs = Date.now() - this.solPriceCache.timestamp;
+    if (Number.isFinite(maxAgeMs) && maxAgeMs >= 0 && ageMs > maxAgeMs) {
+      return null;
+    }
+
+    return {
+      value: this.solPriceCache.value,
+      timestamp: this.solPriceCache.timestamp,
+      ageMs
+    };
+  }
+
   async getRaydiumPools() {
     try {
       const response = await this.http.get(`${this.raydiumApi}/pools/info/list`, {

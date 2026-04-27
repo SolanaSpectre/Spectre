@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SPECTRE Stream HUD</title>
+  <style>
+    :root {
+      --cyan: #75f8ff;
+      --green: #40ff9b;
+      --yellow: #ffdf5a;
+      --red: #ff4f6d;
+      --text: #e7fdff;
+      --muted: #89b9c5;
+      --panel: rgba(1, 13, 18, 0.76);
+      --panel-strong: rgba(2, 22, 30, 0.86);
+      --line: rgba(117, 248, 255, 0.34);
+      --mono: "Consolas", "Cascadia Mono", "SFMono-Regular", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: transparent;
+      color: var(--text);
+      font-family: var(--mono);
+      letter-spacing: 0;
+    }
+
+    body {
+      min-width: 1280px;
+      min-height: 720px;
+      pointer-events: none;
+    }
+
+    .hud {
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+      padding: 30px 34px;
+    }
+
+    .top-bar {
+      position: absolute;
+      left: 34px;
+      top: 28px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 13px 18px;
+      border-left: 3px solid var(--cyan);
+      background: linear-gradient(90deg, rgba(0, 0, 0, 0.82), rgba(2, 20, 27, 0.56), transparent);
+      text-transform: uppercase;
+      text-shadow: 0 0 10px rgba(117, 248, 255, 0.48);
+    }
+
+    .link-box {
+      position: absolute;
+      left: 34px;
+      top: 92px;
+      width: 382px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--green);
+      background: linear-gradient(90deg, rgba(0, 0, 0, 0.82), rgba(2, 20, 27, 0.64), rgba(0, 0, 0, 0.28));
+      box-shadow:
+        inset 0 0 24px rgba(117, 248, 255, 0.06),
+        0 0 20px rgba(0, 0, 0, 0.42);
+      backdrop-filter: blur(3px);
+    }
+
+    .ca-box {
+      position: absolute;
+      left: 34px;
+      top: 214px;
+      width: 382px;
+      padding: 12px 16px;
+      border: 1px solid rgba(64, 255, 155, 0.34);
+      border-left: 3px solid var(--cyan);
+      background: linear-gradient(90deg, rgba(0, 0, 0, 0.82), rgba(2, 20, 27, 0.62), rgba(0, 0, 0, 0.24));
+      box-shadow:
+        inset 0 0 22px rgba(117, 248, 255, 0.05),
+        0 0 18px rgba(0, 0, 0, 0.38);
+      backdrop-filter: blur(3px);
+    }
+
+    .ca-label {
+      color: var(--green);
+      font-size: 13px;
+      line-height: 1;
+      font-weight: 900;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      text-shadow: 0 0 9px rgba(64, 255, 155, 0.32);
+    }
+
+    .ca-value {
+      color: var(--cyan);
+      font-size: 13px;
+      line-height: 1.2;
+      font-weight: 900;
+      overflow-wrap: anywhere;
+      text-shadow: 0 0 9px rgba(117, 248, 255, 0.34);
+    }
+
+    .mascot-box {
+      position: absolute;
+      left: 34px;
+      top: 304px;
+      width: 382px;
+      height: 222px;
+      border: 1px solid rgba(117, 248, 255, 0.38);
+      border-left: 3px solid var(--green);
+      background: rgba(0, 0, 0, 0.62);
+      box-shadow:
+        inset 0 0 20px rgba(117, 248, 255, 0.08),
+        0 0 20px rgba(0, 0, 0, 0.44);
+      overflow: hidden;
+      backdrop-filter: blur(3px);
+    }
+
+    .mascot-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      object-position: center center;
+      display: block;
+      opacity: 0.92;
+      filter: saturate(1.05) contrast(1.08) drop-shadow(0 0 10px rgba(117, 248, 255, 0.22));
+    }
+
+    .mascot-box::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(0deg, rgba(117, 248, 255, 0.08) 0 1px, transparent 1px 5px);
+      mix-blend-mode: screen;
+      pointer-events: none;
+    }
+
+    .link-row {
+      display: grid;
+      grid-template-columns: 102px 1fr;
+      gap: 8px;
+      align-items: baseline;
+      min-width: 0;
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.3;
+      font-weight: 900;
+      text-shadow: 0 0 9px rgba(117, 248, 255, 0.34);
+    }
+
+    .link-label {
+      color: var(--green);
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .link-url {
+      color: var(--cyan);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .brand {
+      color: var(--cyan);
+      font-size: 28px;
+      font-weight: 900;
+    }
+
+    .mode {
+      color: var(--green);
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .side-panel {
+      position: absolute;
+      right: 34px;
+      top: 28px;
+      width: 360px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, var(--panel-strong), var(--panel));
+      box-shadow:
+        inset 0 0 28px rgba(117, 248, 255, 0.07),
+        0 0 22px rgba(0, 0, 0, 0.44);
+      backdrop-filter: blur(3px);
+    }
+
+    .main-metric {
+      padding: 18px 20px 17px;
+    }
+
+    .label {
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .run-line {
+      margin-top: 8px;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .run-number {
+      color: var(--cyan);
+      font-size: 48px;
+      line-height: 1;
+      font-weight: 900;
+      text-shadow: 0 0 18px rgba(117, 248, 255, 0.52);
+    }
+
+    .win-rate {
+      font-size: 58px;
+      line-height: 0.92;
+      font-weight: 900;
+      text-align: right;
+      text-shadow: 0 0 18px currentColor;
+    }
+
+    .green { color: var(--green); }
+    .yellow { color: var(--yellow); }
+    .red { color: var(--red); }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .mini {
+      padding: 14px 15px;
+      min-height: 82px;
+    }
+
+    .value {
+      margin-top: 9px;
+      font-size: 24px;
+      line-height: 1;
+      font-weight: 900;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .bottleneck {
+      grid-column: span 2;
+      padding: 14px 15px;
+    }
+
+    .bottleneck .value {
+      color: var(--yellow);
+      white-space: normal;
+      line-height: 1.12;
+      font-size: 23px;
+    }
+
+    .runs {
+      padding: 14px 15px 15px;
+    }
+
+    .runs-title {
+      color: var(--cyan);
+      font-size: 15px;
+      font-weight: 900;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 14px;
+      font-weight: 900;
+    }
+
+    th,
+    td {
+      padding: 6px 4px;
+      border-bottom: 1px solid rgba(117, 248, 255, 0.14);
+      text-align: left;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .bottom-strip {
+      position: absolute;
+      left: 34px;
+      right: 34px;
+      bottom: 26px;
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 13px 18px;
+      border: 1px solid rgba(64, 255, 155, 0.38);
+      background: linear-gradient(90deg, rgba(0, 0, 0, 0.86), rgba(2, 20, 26, 0.68), rgba(0, 0, 0, 0.72));
+      box-shadow: 0 0 22px rgba(64, 255, 155, 0.12);
+    }
+
+    .warning {
+      color: var(--green);
+      font-size: 27px;
+      font-weight: 900;
+      text-transform: uppercase;
+      text-shadow: 0 0 14px rgba(64, 255, 155, 0.35);
+    }
+
+    .updated {
+      color: var(--cyan);
+      font-size: 17px;
+      font-weight: 900;
+      text-align: right;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+  <main class="hud">
+    <section class="top-bar">
+      <div class="brand">$SPECTRE</div>
+      <div class="mode" id="statusText">PAPER MODE</div>
+    </section>
+
+    <section class="link-box">
+      <div class="link-row">
+        <div class="link-label">X</div>
+        <div class="link-url">@Solana_Spectre</div>
+      </div>
+      <div class="link-row">
+        <div class="link-label">Ticker</div>
+        <div class="link-url">$SPECTRE</div>
+      </div>
+      <div class="link-row">
+        <div class="link-label">Telegram</div>
+        <div class="link-url">t.me/+TsWbyIhOxkY2ZGVh</div>
+      </div>
+      <div class="link-row">
+        <div class="link-label">Kick</div>
+        <div class="link-url">kick.com/SolanaSpectre</div>
+      </div>
+    </section>
+
+    <section class="ca-box">
+      <div class="ca-label">Contract Address</div>
+      <div class="ca-value">addttzUFR7dxGDzWF3pbwHVUWf2YwLWV2RGNeLYpump</div>
+    </section>
+
+    <section class="mascot-box">
+      <img src="spectre-mascot.png" alt="SPECTRE mascot">
+    </section>
+
+    <aside class="side-panel">
+      <section class="panel main-metric">
+        <div class="label">Current Run / Win Rate</div>
+        <div class="run-line">
+          <div class="run-number" id="runNumber">--</div>
+          <div class="win-rate red" id="winRate">--%</div>
+        </div>
+      </section>
+
+      <div class="mini-grid">
+        <section class="panel mini">
+          <div class="label">Avg PNL</div>
+          <div class="value" id="avgPnl">--</div>
+        </section>
+        <section class="panel mini">
+          <div class="label">Improvement</div>
+          <div class="value" id="improvement">--</div>
+        </section>
+        <section class="panel mini">
+          <div class="label">Sims Done</div>
+          <div class="value" id="simulationsDone">--</div>
+        </section>
+        <section class="panel mini">
+          <div class="label">Mode</div>
+          <div class="value green" id="runMode">PAPER</div>
+        </section>
+        <section class="panel bottleneck">
+          <div class="label">Current Bottleneck</div>
+          <div class="value" id="bottleneck">Awaiting data</div>
+        </section>
+      </div>
+
+      <section class="panel runs">
+        <div class="runs-title">&gt; Last 5 Runs</div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 18%;">Run</th>
+              <th style="width: 22%;">Win</th>
+              <th style="width: 27%;">PNL</th>
+              <th style="width: 33%;">Blocker</th>
+            </tr>
+          </thead>
+          <tbody id="runTable">
+            <tr><td>--</td><td>--</td><td>--</td><td>Waiting</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </aside>
+
+    <footer class="bottom-strip">
+      <div class="warning">PAPER RUNS ONLY • NOT LIVE TRADING</div>
+      <div class="updated" id="lastUpdated">LAST UPDATED: --</div>
+    </footer>
+  </main>
+
+  <script>
+    const REFRESH_MS = 3000;
+    const DATA_FILE = "paper-results.json";
+
+    const fallbackData = {
+      status: "PAPER MODE",
+      currentRun: {
+        runNumber: "--",
+        winRatePct: null,
+        avgPnlSol: null,
+        improvementPct: null,
+        simulationsDone: null,
+        bottleneck: "Awaiting data",
+        mode: "PAPER"
+      },
+      lastRuns: [],
+      lastUpdated: null
+    };
+
+    function $(id) {
+      return document.getElementById(id);
+    }
+
+    function numberOrNull(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    }
+
+    function formatPercent(value) {
+      const number = numberOrNull(value);
+      return number === null ? "--%" : `${number.toFixed(number % 1 === 0 ? 0 : 1)}%`;
+    }
+
+    function formatPnl(value, unit = "SOL") {
+      const number = numberOrNull(value);
+      if (number === null) return "--";
+      const sign = number > 0 ? "+" : "";
+      const decimals = unit === "USD" ? 2 : 4;
+      const prefix = unit === "USD" ? "$" : "";
+      return `${prefix}${sign}${number.toFixed(decimals)} ${unit}`;
+    }
+
+    function formatImprovement(value) {
+      const number = numberOrNull(value);
+      if (number === null) return "--";
+      const sign = number > 0 ? "+" : "";
+      return `${sign}${number.toFixed(1)}%`;
+    }
+
+    function formatInteger(value) {
+      const number = numberOrNull(value);
+      return number === null ? "--" : Math.round(number).toLocaleString();
+    }
+
+    function winRateClass(value) {
+      const number = numberOrNull(value);
+      if (number === null) return "red";
+      if (number > 60) return "green";
+      if (number >= 45) return "yellow";
+      return "red";
+    }
+
+    function valueClass(value) {
+      const number = numberOrNull(value);
+      if (number === null) return "";
+      if (number > 0) return "green";
+      if (number < 0) return "red";
+      return "yellow";
+    }
+
+    function cleanText(value, fallback = "--") {
+      if (value === null || value === undefined || value === "") return fallback;
+      return String(value);
+    }
+
+    function formatUpdated(value) {
+      if (!value) return "--";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return cleanText(value);
+      return date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+    }
+
+    function render(data) {
+      const current = data.currentRun || {};
+      const winRate = numberOrNull(current.winRatePct);
+      const avgPnl = numberOrNull(current.avgPnlSol);
+      const improvement = numberOrNull(current.improvementPct);
+
+      $("statusText").textContent = cleanText(data.status, "PAPER MODE");
+      $("runNumber").textContent = cleanText(current.runNumber);
+      $("winRate").textContent = formatPercent(winRate);
+      $("winRate").className = `win-rate ${winRateClass(winRate)}`;
+      $("avgPnl").textContent = formatPnl(avgPnl, current.avgPnlUnit || "SOL");
+      $("avgPnl").className = `value ${valueClass(avgPnl)}`;
+      $("improvement").textContent = formatImprovement(improvement);
+      $("improvement").className = `value ${valueClass(improvement)}`;
+      $("simulationsDone").textContent = formatInteger(current.simulationsDone);
+      $("runMode").textContent = cleanText(current.mode, "PAPER").replace(" RUNS ONLY", "");
+      $("bottleneck").textContent = cleanText(current.bottleneck, "None");
+
+      const runs = Array.isArray(data.lastRuns) ? data.lastRuns.slice(0, 5) : [];
+      $("runTable").innerHTML = runs.length
+        ? runs.map((run) => `
+          <tr>
+            <td>${cleanText(run.runNumber)}</td>
+            <td class="${winRateClass(run.winRatePct)}">${formatPercent(run.winRatePct)}</td>
+            <td class="${valueClass(run.avgPnlSol)}">${formatPnl(run.avgPnlSol, run.avgPnlUnit || "SOL")}</td>
+            <td>${cleanText(run.bottleneck, "None")}</td>
+          </tr>
+        `).join("")
+        : "<tr><td>--</td><td>--</td><td>--</td><td>Waiting</td></tr>";
+
+      $("lastUpdated").textContent = `LAST UPDATED: ${formatUpdated(data.lastUpdated)}`;
+    }
+
+    async function loadData() {
+      try {
+        const response = await fetch(`${DATA_FILE}?t=${Date.now()}`, { cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        render({ ...fallbackData, ...data });
+      } catch (error) {
+        render({
+          ...fallbackData,
+          status: "JSON OFFLINE",
+          currentRun: {
+            ...fallbackData.currentRun,
+            bottleneck: "paper-results.json not loaded"
+          },
+          lastUpdated: new Date().toISOString()
+        });
+      }
+    }
+
+    loadData();
+    setInterval(loadData, REFRESH_MS);
+  </script>
+</body>
+</html>

@@ -4,6 +4,7 @@ const path = require('path');
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_LOG_DIR = path.join(REPO_ROOT, 'run-logs');
 const DEFAULT_OUTPUT_PATH = path.join(REPO_ROOT, 'data', 'reports', 'run-battlefield-latest.json');
+const DEFAULT_CONTINUATION_PAPER_PATH = path.join(REPO_ROOT, 'data', 'reports', 'continuation-paper-latest.json');
 
 function parseArgs(argv) {
   const args = {};
@@ -88,6 +89,15 @@ function readJsonl(filePath) {
       }
     })
     .filter(Boolean);
+}
+
+function readJson(filePath, fallback = null) {
+  if (!filePath || !fs.existsSync(filePath)) return fallback;
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
+  } catch {
+    return fallback;
+  }
 }
 
 function writeJson(filePath, payload) {
@@ -204,6 +214,8 @@ function summarizePaperEntry(event) {
   return {
     timestamp: event.timestamp,
     preset: payload.preset || null,
+    lane: payload.lane || null,
+    profileName: payload.profileName || null,
     mint: payload.mint || null,
     symbol: payload.symbol || null,
     score: compact(payload.score ?? payload.entryScore, 2),
@@ -211,7 +223,27 @@ function summarizePaperEntry(event) {
     recentVolumeSol: compact(payload.recentVolumeSol, 4),
     tradeVelocityPerMin: compact(payload.tradeVelocityPerMin, 2),
     entryPriceSol: compact(payload.entryPriceSol, 15),
-    amountSol: compact(payload.amountSol, 4)
+    amountSol: compact(payload.amountSol, 4),
+    walletClassificationContext: payload.walletClassificationContext || null
+  };
+}
+
+function summarizeFirstCurveNearMiss(event) {
+  const payload = payloadOf(event);
+  return {
+    timestamp: event.timestamp || payload.timestamp || null,
+    mint: payload.mint || null,
+    symbol: payload.symbol || null,
+    score: compact(payload.score, 2),
+    curveProgress: compact(payload.curveProgress, 6),
+    recentVolumeSol: compact(payload.recentVolumeSol, 4),
+    tradeVelocityPerMin: compact(payload.tradeVelocityPerMin, 2),
+    interestSignalCount: payload.interestSignalCount ?? null,
+    uniqueBuyerCount: payload.uniqueBuyerCount ?? null,
+    riskWalletCount: payload.riskWalletCount ?? null,
+    buyRatio: compact(payload.buyRatio, 4),
+    hasPrice: payload.hasPrice ?? null,
+    failedChecks: Array.isArray(payload.failedChecks) ? payload.failedChecks : []
   };
 }
 
@@ -220,6 +252,8 @@ function summarizePaperExit(event) {
   return {
     timestamp: event.timestamp,
     preset: payload.preset || null,
+    lane: payload.lane || null,
+    profileName: payload.profileName || null,
     mint: payload.mint || null,
     symbol: payload.symbol || null,
     reason: payload.reason || null,
@@ -228,8 +262,28 @@ function summarizePaperExit(event) {
     holdSeconds: compact(payload.holdSeconds, 2),
     entryCurveProgress: compact(payload.entryCurveProgress, 6),
     exitCurveProgress: compact(payload.exitCurveProgress, 6),
-    maxCurveProgress: compact(payload.maxCurveProgress, 6)
+    maxCurveProgress: compact(payload.maxCurveProgress, 6),
+    peakReturnPct: compact(payload.peakReturnPct, 6),
+    walletClassificationContext: payload.walletClassificationContext || null
   };
+}
+
+function addPnlGroup(groups, key, pnlSol) {
+  const groupKey = key || 'unknown';
+  if (!groups[groupKey]) {
+    groups[groupKey] = { exits: 0, pnlSol: 0, wins: 0, losses: 0 };
+  }
+  groups[groupKey].exits += 1;
+  groups[groupKey].pnlSol += pnlSol;
+  if (pnlSol > 0) groups[groupKey].wins += 1;
+  if (pnlSol < 0) groups[groupKey].losses += 1;
+}
+
+function compactPnlGroups(groups) {
+  for (const group of Object.values(groups)) {
+    group.pnlSol = compact(group.pnlSol, 9);
+  }
+  return groups;
 }
 
 function summarizeDossier(dossier) {
@@ -320,11 +374,12 @@ function buildScalperDiagnostics({ pumpFailures, tradeRejected, signalGenerated,
   const pumpFailureCounts = countBy(pumpFailures, (event) => payloadOf(event).reason);
   const quoteRejects = tradeRejected.filter((event) => String(payloadOf(event).reason || '').includes('QUOTE'));
   const aiRejects = tradeRejected.filter((event) => String(payloadOf(event).reason || '').includes('AI_'));
-  const notMigratedRejects = pumpFailures.filter((event) => payloadOf(event).reason === 'PUMP_FAIL_NOT_MIGRATED');
+  const notMigratedReasons = new Set(['PUMP_FAIL_NOT_MIGRATED', 'RUNNER_SCALPER_REQUIRES_MIGRATION']);
+  const notMigratedRejects = pumpFailures.filter((event) => notMigratedReasons.has(payloadOf(event).reason));
   const migratedLiquidityRejects = pumpFailures.filter((event) => payloadOf(event).reason === 'PUMP_FAIL_MIGRATED_LIQUIDITY');
   const migratedCandidateRejects = pumpFailures.filter((event) => {
     const reason = payloadOf(event).reason;
-    return reason && reason !== 'PUMP_FAIL_NOT_MIGRATED';
+    return reason && !notMigratedReasons.has(reason);
   });
 
   return {
@@ -357,6 +412,8 @@ function buildReport(events, dossiers, options = {}) {
   const pumpFailures = events.filter((event) => eventType(event) === 'pump.momentum_gate_failed');
   const signalGenerated = events.filter((event) => eventType(event) === 'signal.generated');
   const signalExecuted = events.filter((event) => eventType(event) === 'signal.executed' || eventType(event) === 'trade.executed');
+  const runnerPaperClosed = events.filter((event) => eventType(event) === 'paper.position.closed');
+  const runnerLiveClosed = events.filter((event) => eventType(event) === 'live.position.closed');
   const aiEvents = events.filter((event) => {
     const haystack = JSON.stringify(event);
     return eventType(event).startsWith('ai.')
@@ -368,29 +425,40 @@ function buildReport(events, dossiers, options = {}) {
   const paperDecisions = events.filter((event) => eventType(event) === 'pre_migration_paper.decision');
   const paperEntries = events.filter((event) => eventType(event) === 'pre_migration_paper.entry');
   const paperExits = events.filter((event) => eventType(event) === 'pre_migration_paper.exit');
+  const firstCurveNearMisses = events.filter((event) => eventType(event) === 'pre_migration_paper.first_curve_snapshot_near_miss');
+  const paperRecheckScheduled = events.filter((event) => eventType(event) === 'pre_migration_paper.recheck_scheduled');
+  const paperRecheckExecuted = events.filter((event) => eventType(event) === 'pre_migration_paper.recheck_executed');
+  const paperRecheckSkipped = events.filter((event) => eventType(event) === 'pre_migration_paper.recheck_skipped');
+  const paperRecheckFailed = events.filter((event) => eventType(event) === 'pre_migration_paper.recheck_failed');
+  const paperRecheckCancelled = events.filter((event) => eventType(event) === 'pre_migration_paper.recheck_cancelled');
   const paperPnl = paperExits.reduce((sum, event) => sum + Number(payloadOf(event).pnlSol || 0), 0);
+  const firstCurveNearMissFailedChecks = firstCurveNearMisses.flatMap((event) => {
+    const failedChecks = payloadOf(event).failedChecks;
+    return Array.isArray(failedChecks) ? failedChecks : [];
+  });
 
   const continuationDossiers = dossiers.filter((dossier) => dossier.source === 'post_migration_continuation');
   const watchDossiers = dossiers.filter((dossier) => dossier.source === 'pre_migration_watch');
   const paperDossiers = dossiers.filter((dossier) => dossier.source === 'pre_migration_paper');
+  const continuationPaper = options.continuationPaper || null;
+  const continuationOpenPositions = Array.isArray(continuationPaper?.openPositions) ? continuationPaper.openPositions : [];
+  const continuationRecentClosed = Array.isArray(continuationPaper?.recentClosedPositions) ? continuationPaper.recentClosedPositions : [];
 
   const paperPnlByPreset = {};
+  const paperPnlByLane = {};
+  const paperPnlByProfile = {};
   for (const exit of paperExits) {
     const payload = payloadOf(exit);
     const preset = payload.preset || 'unknown';
-    if (!paperPnlByPreset[preset]) {
-      paperPnlByPreset[preset] = { exits: 0, pnlSol: 0, wins: 0, losses: 0 };
-    }
     const pnlSol = Number(payload.pnlSol || 0);
-    paperPnlByPreset[preset].exits += 1;
-    paperPnlByPreset[preset].pnlSol += pnlSol;
-    if (pnlSol > 0) paperPnlByPreset[preset].wins += 1;
-    if (pnlSol < 0) paperPnlByPreset[preset].losses += 1;
+    addPnlGroup(paperPnlByPreset, preset, pnlSol);
+    addPnlGroup(paperPnlByLane, payload.lane, pnlSol);
+    addPnlGroup(paperPnlByProfile, payload.profileName, pnlSol);
   }
 
-  for (const presetSummary of Object.values(paperPnlByPreset)) {
-    presetSummary.pnlSol = compact(presetSummary.pnlSol, 9);
-  }
+  compactPnlGroups(paperPnlByPreset);
+  compactPnlGroups(paperPnlByLane);
+  compactPnlGroups(paperPnlByProfile);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -416,6 +484,10 @@ function buildReport(events, dossiers, options = {}) {
         signalGenerated,
         signalExecuted
       }),
+      paperExitReasons: countBy(runnerPaperClosed, (event) => payloadOf(event).reason),
+      paperExitProfiles: countBy(runnerPaperClosed, (event) => payloadOf(event).paperExitProfile?.profileName || 'unknown'),
+      liveExitReasons: countBy(runnerLiveClosed, (event) => payloadOf(event).reason),
+      liveExitProfiles: countBy(runnerLiveClosed, (event) => payloadOf(event).liveExitProfile?.profileName || 'unknown'),
       generated: signalGenerated.map(summarizeSignal),
       executed: signalExecuted.map(summarizeSignal),
       aiTimeoutFallback: uniqueBy(aiEvents
@@ -436,8 +508,43 @@ function buildReport(events, dossiers, options = {}) {
       losses: paperExits.filter((event) => Number(payloadOf(event).pnlSol || 0) < 0).length,
       pnlSol: compact(paperPnl, 9),
       pnlByPreset: paperPnlByPreset,
+      pnlByLane: paperPnlByLane,
+      pnlByProfile: paperPnlByProfile,
       decisionCounts: countBy(paperDecisions, (event) => payloadOf(event).decision),
       skipReasons: countBy(paperDecisions, (event) => payloadOf(event).reason),
+      firstCurveSnapshotNearMisses: firstCurveNearMisses.length,
+      firstCurveSnapshotNearMissFailedChecks: countBy(firstCurveNearMissFailedChecks, (check) => check),
+      firstCurveSnapshotNearMissDetail: firstCurveNearMisses.map(summarizeFirstCurveNearMiss),
+      rechecks: {
+        scheduled: paperRecheckScheduled.length,
+        executed: paperRecheckExecuted.length,
+        skipped: paperRecheckSkipped.length,
+        failed: paperRecheckFailed.length,
+        cancelled: paperRecheckCancelled.length,
+        skippedReasons: countBy(paperRecheckSkipped, (event) => payloadOf(event).reason),
+        cancelledReasons: countBy(paperRecheckCancelled, (event) => payloadOf(event).reason),
+        latestExecuted: paperRecheckExecuted.slice(-limit).map((event) => ({
+          timestamp: event.timestamp,
+          mint: payloadOf(event).mint || null,
+          symbol: payloadOf(event).symbol || null,
+          attempt: payloadOf(event).attempt ?? null,
+          refreshed: payloadOf(event).refreshed ?? null,
+          refreshSkipReason: payloadOf(event).refreshSkipReason || null,
+          accountFound: payloadOf(event).accountFound ?? null,
+          curveProgress: compact(payloadOf(event).curveProgress, 6)
+        })),
+        latestCancelled: paperRecheckCancelled.slice(-limit).map((event) => ({
+          timestamp: event.timestamp,
+          mint: payloadOf(event).mint || null,
+          symbol: payloadOf(event).symbol || null,
+          attempt: payloadOf(event).attempt ?? null,
+          reason: payloadOf(event).reason || null,
+          dueAt: payloadOf(event).dueAt || null
+        }))
+      },
+      entriesByLane: countBy(paperEntries, (event) => payloadOf(event).lane || 'unknown'),
+      entriesByProfile: countBy(paperEntries, (event) => payloadOf(event).profileName || 'unknown'),
+      exitsByProfile: countBy(paperExits, (event) => payloadOf(event).profileName || 'unknown'),
       entriesDetail: paperEntries.map(summarizePaperEntry),
       exitsDetail: paperExits.map(summarizePaperExit)
     },
@@ -456,6 +563,54 @@ function buildReport(events, dossiers, options = {}) {
         (dossier) => dossier.continuation?.rejectReason || String(dossier.gmgnStyle?.verdict || '').split(':')[1]
       )
     },
+    continuationPaper: continuationPaper?.summary
+      ? {
+        generatedAt: continuationPaper.generatedAt || null,
+        openedThisRun: Number(continuationPaper.summary.openedThisRun || 0),
+        updatedThisRun: Number(continuationPaper.summary.updatedThisRun || 0),
+        closedThisRun: Number(continuationPaper.summary.closedThisRun || 0),
+        skippedReopenThisRun: Number(continuationPaper.summary.skippedReopenThisRun || 0),
+        skippedIneligibleThisRun: Number(continuationPaper.summary.skippedIneligibleThisRun || 0),
+        skippedLearningThisRun: Number(continuationPaper.summary.skippedLearningThisRun || 0),
+        skippedChopFadeThisRun: Number(continuationPaper.summary.skippedChopFadeThisRun || 0),
+        openPositions: Number(continuationPaper.summary.openPositions || 0),
+        closedPositions: Number(continuationPaper.summary.closedPositions || 0),
+        openPnlUsd: compact(continuationPaper.summary.openPnlUsd, 6),
+        closedPnlUsd: compact(continuationPaper.summary.closedPnlUsd, 6),
+        totalMarkedPnlUsd: compact(continuationPaper.summary.totalMarkedPnlUsd, 6),
+        openPnlSol: compact(continuationPaper.summary.openPnlSol, 9),
+        closedPnlSol: compact(continuationPaper.summary.closedPnlSol, 9),
+        totalMarkedPnlSol: compact(continuationPaper.summary.totalMarkedPnlSol, 9),
+        solUsdPrice: compact(continuationPaper.solUsdPrice, 6),
+        exitsByReason: continuationPaper.summary.exitsByReason || {},
+        positionsByProfile: continuationPaper.summary.positionsByProfile || {},
+        openedByProfile: continuationPaper.summary.openedByProfile || {},
+        closedByProfile: continuationPaper.summary.closedByProfile || {},
+        open: continuationOpenPositions.slice(0, limit).map((position) => ({
+          mint: position.mint,
+          symbol: position.symbol || null,
+          profileName: position.paperProfile || null,
+          openedAt: position.openedAt || null,
+          entryScore: compact(position.entryScore, 2),
+          entryPriceUsd: compact(position.entryPriceUsd, 12),
+          currentPriceUsd: compact(position.currentPriceUsd, 12),
+          returnPct: compact(position.returnPct, 6),
+          pnlUsd: compact(position.pnlUsd, 6),
+          pnlSol: compact(position.pnlSol, 9),
+          sourceLabel: position.sourceLabel || null
+        })),
+        recentClosed: continuationRecentClosed.slice(-limit).reverse().map((position) => ({
+          mint: position.mint,
+          symbol: position.symbol || null,
+          profileName: position.paperProfile || null,
+          closedAt: position.closedAt || null,
+          exitReason: position.exitReason || null,
+          returnPct: compact(position.returnPct, 6),
+          pnlUsd: compact(position.pnlUsd, 6),
+          pnlSol: compact(position.pnlSol, 9)
+        }))
+      }
+      : null,
     dossiers: {
       bySource: countBy(dossiers, (dossier) => dossier.source),
       byVerdict: topEntries(countBy(dossiers, (dossier) => dossier.gmgnStyle?.verdict), 30),
@@ -523,6 +678,10 @@ function printReport(report) {
     console.log('  pump gate failures:');
     printCountObject(report.runnerLane.pumpGateFailures);
   }
+  if (report.runnerLane.liveExitReasons && Object.keys(report.runnerLane.liveExitReasons).length > 0) {
+    console.log('  live exit reasons:');
+    printCountObject(report.runnerLane.liveExitReasons);
+  }
   if (report.runnerLane.scalperDiagnostics) {
     const diag = report.runnerLane.scalperDiagnostics;
     console.log(`  scalper diagnostics: posture=${diag.posture} migratedRejects=${diag.migratedCandidateRejects} liquidityRejects=${diag.migratedLiquidityRejects} quoteRejects=${diag.quoteRejects} aiRejects=${diag.aiRejects}`);
@@ -555,10 +714,29 @@ function printReport(report) {
   printCountObject(report.preMigrationPaper.decisionCounts);
   console.log('  skip reasons:');
   printCountObject(report.preMigrationPaper.skipReasons);
+  console.log(`  first-curve snapshot near misses=${report.preMigrationPaper.firstCurveSnapshotNearMisses || 0}`);
+  if ((report.preMigrationPaper.firstCurveSnapshotNearMisses || 0) > 0) {
+    console.log('  first-curve failed checks:');
+    printCountObject(report.preMigrationPaper.firstCurveSnapshotNearMissFailedChecks);
+  }
+  if (report.preMigrationPaper.rechecks) {
+    const rechecks = report.preMigrationPaper.rechecks;
+    console.log(`  rechecks: scheduled=${rechecks.scheduled || 0} executed=${rechecks.executed || 0} skipped=${rechecks.skipped || 0} failed=${rechecks.failed || 0} cancelled=${rechecks.cancelled || 0}`);
+    if (Object.keys(rechecks.skippedReasons || {}).length > 0) {
+      console.log('  recheck skipped reasons:');
+      printCountObject(rechecks.skippedReasons);
+    }
+    if (Object.keys(rechecks.cancelledReasons || {}).length > 0) {
+      console.log('  recheck cancelled reasons:');
+      printCountObject(rechecks.cancelledReasons);
+    }
+  }
+  console.log('  entries by profile:');
+  printCountObject(report.preMigrationPaper.entriesByProfile);
   if (report.preMigrationPaper.exitsDetail.length > 0) {
     console.log('  exits:');
     for (const exit of report.preMigrationPaper.exitsDetail) {
-      console.log(`  ${exit.symbol || exit.mint} ${exit.preset}: ${exit.reason} return=${pct(exit.returnPct)} pnl=${sol(exit.pnlSol)} hold=${exit.holdSeconds}s`);
+      console.log(`  ${exit.symbol || exit.mint} ${exit.profileName || exit.preset}: ${exit.reason} return=${pct(exit.returnPct)} pnl=${sol(exit.pnlSol)} hold=${exit.holdSeconds}s`);
       console.log(`    ${exit.mint}`);
     }
   }
@@ -581,6 +759,31 @@ function printReport(report) {
   printCandidateList(report.continuationLane.confirmed);
   console.log('  watch:');
   printCandidateList(report.continuationLane.watch);
+
+  printSection('Continuation Paper');
+  if (!report.continuationPaper) {
+    console.log('  none');
+  } else {
+    console.log(`  opened=${report.continuationPaper.openedThisRun} updated=${report.continuationPaper.updatedThisRun} closed=${report.continuationPaper.closedThisRun} open=${report.continuationPaper.openPositions} totalPnl=${sol(report.continuationPaper.totalMarkedPnlSol)} ($${report.continuationPaper.totalMarkedPnlUsd})`);
+    console.log('  profiles:');
+    printCountObject(report.continuationPaper.positionsByProfile);
+    console.log('  exits:');
+    printCountObject(report.continuationPaper.exitsByReason);
+    if (report.continuationPaper.open.length > 0) {
+      console.log('  open positions:');
+      for (const position of report.continuationPaper.open) {
+        console.log(`  ${position.symbol || position.mint}: ${position.profileName || 'unknown'} return=${pct(position.returnPct)} pnl=${sol(position.pnlSol)} ($${position.pnlUsd})`);
+        if (position.mint) console.log(`    ${position.mint}`);
+      }
+    }
+    if (report.continuationPaper.recentClosed.length > 0) {
+      console.log('  recent closed:');
+      for (const position of report.continuationPaper.recentClosed) {
+        console.log(`  ${position.symbol || position.mint}: ${position.exitReason || 'UNKNOWN'} return=${pct(position.returnPct)} pnl=${sol(position.pnlSol)} ($${position.pnlUsd})`);
+        if (position.mint) console.log(`    ${position.mint}`);
+      }
+    }
+  }
 }
 
 function main() {
@@ -596,11 +799,15 @@ function main() {
 
   const events = readJsonl(telemetryPath);
   const dossiers = readJsonl(dossierPath);
+  const continuationPaperPath = resolveRepoPath(args.continuationPaper) || DEFAULT_CONTINUATION_PAPER_PATH;
+  const continuationPaper = readJson(continuationPaperPath, null);
   const report = buildReport(events, dossiers, {
     limit: Number(args.limit || 8),
+    continuationPaper,
     files: {
       telemetryPath,
-      dossierPath
+      dossierPath,
+      continuationPaperPath: continuationPaper ? continuationPaperPath : null
     }
   });
 

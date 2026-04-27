@@ -50,18 +50,20 @@ class PumpBondingCurveLane {
     return address;
   }
 
-  async observeMint(mint, tokenMeta = {}) {
+  async observeMint(mint, tokenMeta = {}, options = {}) {
     if (!this.enabled || !mint || !this.connection) {
       return null;
     }
 
+    const forceRefresh = Boolean(options.forceRefresh);
     const now = Date.now();
     const existing = this.states.get(mint);
-    if (existing && !this.shouldRefresh(existing, now)) {
+    if (existing && !forceRefresh && !this.shouldRefresh(existing, now)) {
       this.stats.skipped += 1;
       return {
         ...this.toSummary(existing),
-        refreshed: false
+        refreshed: false,
+        skipReason: 'REFRESH_INTERVAL'
       };
     }
 
@@ -69,7 +71,8 @@ class PumpBondingCurveLane {
       this.stats.skipped += 1;
       return existing ? {
         ...this.toSummary(existing),
-        refreshed: false
+        refreshed: false,
+        skipReason: this.inFlight.has(mint) ? 'FETCH_IN_FLIGHT' : 'FETCH_LIMIT'
       } : null;
     }
 

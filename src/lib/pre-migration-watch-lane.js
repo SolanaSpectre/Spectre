@@ -5,6 +5,10 @@ class PreMigrationWatchLane {
     this.enabled = config.preMigrationWatchEnabled !== false;
     this.minScoreToFlag = config.preMigrationWatchMinScore;
     this.confirmMinScore = config.preMigrationWatchConfirmMinScore ?? this.minScoreToFlag;
+    this.interestMinTradeVelocityPerMin = config.preMigrationWatchInterestMinTradeVelocityPerMin ?? 1.5;
+    this.interestMinRecentVolumeSol = config.preMigrationWatchInterestMinRecentVolumeSol ?? 0.15;
+    this.interestMinCurveProgress = config.preMigrationWatchInterestMinCurveProgress ?? 0.45;
+    this.interestMinUniqueBuyerCount = config.preMigrationWatchInterestMinUniqueBuyerCount ?? 4;
     this.confirmMinObservations = config.preMigrationWatchConfirmMinObservations ?? 2;
     this.confirmMinGapMs = config.preMigrationWatchConfirmMinGapMs ?? 30000;
     this.fastTrackScore = config.preMigrationWatchFastTrackScore ?? 75;
@@ -26,7 +30,7 @@ class PreMigrationWatchLane {
     };
   }
 
-  observeToken(token = {}, launchIntelSummary = null) {
+  observeToken(token = {}, launchIntelSummary = null, walletClassificationContext = null) {
     if (!this.enabled) {
       return { updated: false, flagged: false, state: null };
     }
@@ -39,7 +43,7 @@ class PreMigrationWatchLane {
     const now = Date.now();
     const nowIso = new Date(now).toISOString();
     const existing = this.states.get(mint) || this.createInitialState(mint, token, nowIso);
-    const next = this.mergeObservation(existing, token, launchIntelSummary, now, nowIso);
+    const next = this.mergeObservation(existing, token, launchIntelSummary, walletClassificationContext, now, nowIso);
     const score = this.computeScore(next);
     const signal = this.updateSignalState(next, score, now, nowIso);
     const reasons = this.buildReasons(next, score);
@@ -48,7 +52,9 @@ class PreMigrationWatchLane {
     next.reasons = reasons;
     next.flagged = Boolean(next.flagged || signal.shouldFlag);
 
-    if (signal.observedSignal) {
+    if (signal.observedInterest) {
+      this.stats.observedSignals += 1;
+    } else if (signal.observedSignal) {
       this.stats.observedSignals += 1;
     }
 
@@ -58,6 +64,7 @@ class PreMigrationWatchLane {
 
     if (signal.shouldFlag) {
       next.lastFlaggedAt = nowIso;
+      next.lastFlagType = signal.flagType || 'confirmed';
       next.flagCount = Number(next.flagCount || 0) + 1;
       this.stats.flags += 1;
       this.stats.lastFlagAt = nowIso;
@@ -71,6 +78,8 @@ class PreMigrationWatchLane {
     return {
       updated: true,
       flagged: signal.shouldFlag,
+      flagType: signal.flagType,
+      observedInterest: signal.observedInterest,
       observedSignal: signal.observedSignal,
       confirmed: Boolean(next.confirmed),
       newlyConfirmed: signal.newlyConfirmed,
@@ -138,12 +147,20 @@ class PreMigrationWatchLane {
       kolFirstWaveCount: 0,
       kolTrustedCount: 0,
       repeatedEarlyBuyerCount: 0,
+      earlySniperCount: 0,
+      alphaScalperCount: 0,
+      convictionWhaleCount: 0,
+      riskWalletCount: 0,
+      lateChaserCount: 0,
       sniperWalletCount: 0,
       bundlerCandidate: false,
       score: 0,
       reasons: [],
       flagged: false,
+      lastFlagType: null,
       flagCount: 0,
+      interestSignalCount: 0,
+      lastInterestAt: null,
       observedSignalCount: 0,
       firstSignalAt: null,
       lastSignalAt: null,
@@ -156,7 +173,7 @@ class PreMigrationWatchLane {
     };
   }
 
-  mergeObservation(existing, token, launchIntelSummary, now, nowIso) {
+  mergeObservation(existing, token, launchIntelSummary, walletClassificationContext, now, nowIso) {
     const curveProgress = this.extractCurveProgress(token);
     const tradeCount = Number(token.tradeCount || existing.tradeCount || 0);
     const buys = Number(token.buys || existing.buys || 0);
@@ -172,6 +189,7 @@ class PreMigrationWatchLane {
     const bondingCurveState = token.bondingCurveState || {};
     const externalVisibility = launchIntelSummary?.heuristics?.externalVisibility || {};
     const kolOverlap = launchIntelSummary?.heuristics?.kolOverlap || {};
+    const walletContext = walletClassificationContext || {};
     const uniqueBuyerCount = Math.max(
       Number(existing.uniqueBuyerCount || 0),
       Number(launchIntelSummary?.uniqueBuyerCount || 0),
@@ -219,6 +237,11 @@ class PreMigrationWatchLane {
       kolFirstWaveCount: Number(kolOverlap.firstWaveCount || existing.kolFirstWaveCount || 0),
       kolTrustedCount: Number(kolOverlap.trustedCount || existing.kolTrustedCount || 0),
       repeatedEarlyBuyerCount: Number(launchIntelSummary?.heuristics?.repeatedEarlyBuyerCount || existing.repeatedEarlyBuyerCount || 0),
+      earlySniperCount: Math.max(Number(existing.earlySniperCount || 0), Number(walletContext.earlySniperCount || 0)),
+      alphaScalperCount: Math.max(Number(existing.alphaScalperCount || 0), Number(walletContext.alphaScalperCount || 0)),
+      convictionWhaleCount: Math.max(Number(existing.convictionWhaleCount || 0), Number(walletContext.convictionWhaleCount || 0)),
+      riskWalletCount: Math.max(Number(existing.riskWalletCount || 0), Number(walletContext.riskWalletCount || 0)),
+      lateChaserCount: Math.max(Number(existing.lateChaserCount || 0), Number(walletContext.lateChaserCount || 0)),
       sniperWalletCount: Number(launchIntelSummary?.heuristics?.sniperWalletCount || existing.sniperWalletCount || 0),
       bundlerCandidate: Boolean(launchIntelSummary?.heuristics?.bundlerCandidate || existing.bundlerCandidate)
     };
@@ -230,6 +253,9 @@ class PreMigrationWatchLane {
       next.uniqueBuyerCount !== existing.uniqueBuyerCount ||
       next.externalMentionCount !== existing.externalMentionCount ||
       next.kolFirstWaveCount !== existing.kolFirstWaveCount ||
+      next.convictionWhaleCount !== existing.convictionWhaleCount ||
+      next.riskWalletCount !== existing.riskWalletCount ||
+      next.earlySniperCount !== existing.earlySniperCount ||
       next.migratedAt !== existing.migratedAt
     );
 
@@ -291,9 +317,14 @@ class PreMigrationWatchLane {
       + Math.min(Number(state.externalChatCount || 0) * 3, 6);
     const walletScore = Math.min(Number(state.kolFirstWaveCount || 0) * 7, 14)
       + Math.min(Number(state.kolTrustedCount || 0) * 8, 12)
-      + Math.min(Number(state.repeatedEarlyBuyerCount || 0) * 2, 6);
+      + Math.min(Number(state.repeatedEarlyBuyerCount || 0) * 2, 6)
+      + Math.min(Number(state.convictionWhaleCount || 0) * 5, 10)
+      + Math.min(Number(state.alphaScalperCount || 0) * 3, 6)
+      + Math.min(Number(state.earlySniperCount || 0) * 2, 4);
     const flowScore = buyRatio >= 0.58 ? 8 : (buyRatio >= 0.5 ? 4 : 0);
     const riskPenalty = Math.min(Number(state.sniperWalletCount || 0), 10)
+      + Math.min(Number(state.riskWalletCount || 0) * 2, 10)
+      + Math.min(Number(state.lateChaserCount || 0), 4)
       + (state.bundlerCandidate ? 8 : 0)
       + (state.migratedAt ? 20 : 0);
 
@@ -326,10 +357,14 @@ class PreMigrationWatchLane {
 
     if (Number(state.tradeVelocityPerMin || 0) >= 4) {
       reasons.push('fast_trade_velocity');
+    } else if (Number(state.tradeVelocityPerMin || 0) >= this.interestMinTradeVelocityPerMin) {
+      reasons.push('moderate_trade_velocity');
     }
 
     if (Number(state.recentVolumeSol || 0) >= 1) {
       reasons.push('recent_volume');
+    } else if (Number(state.recentVolumeSol || 0) >= this.interestMinRecentVolumeSol) {
+      reasons.push('moderate_recent_volume');
     }
 
     if (Number(state.externalMentionCount || 0) > 0) {
@@ -344,6 +379,30 @@ class PreMigrationWatchLane {
       reasons.push('repeat_early_buyers');
     }
 
+    if (Number(state.convictionWhaleCount || 0) > 0) {
+      reasons.push('conviction_wallets');
+    }
+
+    if (Number(state.alphaScalperCount || 0) > 0) {
+      reasons.push('alpha_scalper_touch');
+    }
+
+    if (Number(state.earlySniperCount || 0) > 0) {
+      reasons.push('early_sniper_touch');
+    }
+
+    if (Number(state.riskWalletCount || 0) > 0) {
+      reasons.push('risk_wallet_touch');
+    }
+
+    if (Number(state.lateChaserCount || 0) > 0) {
+      reasons.push('late_chaser_touch');
+    }
+
+    if (Number(state.uniqueBuyerCount || 0) >= this.interestMinUniqueBuyerCount) {
+      reasons.push('buyer_spread_building');
+    }
+
     if (state.bundlerCandidate) {
       reasons.push('bundler_caution');
     }
@@ -354,6 +413,8 @@ class PreMigrationWatchLane {
 
     if (state.confirmed) {
       reasons.push(state.confirmationReason || 'confirmed_watch');
+    } else if (Number(state.interestSignalCount || 0) > 0) {
+      reasons.push(`watch_interest_${state.interestSignalCount}x`);
     } else if (Number(state.observedSignalCount || 0) > 0) {
       reasons.push(`observed_${state.observedSignalCount}x`);
     }
@@ -400,13 +461,71 @@ class PreMigrationWatchLane {
     return true;
   }
 
+  passesInterestGate(state, score) {
+    if (state.migratedAt) {
+      return false;
+    }
+
+    if (score < this.minScoreToFlag) {
+      return false;
+    }
+
+    const hasCurveInterest = state.curveProgress === null
+      ? state.bondingStage === 'almost_bonded'
+      : state.curveProgress >= this.interestMinCurveProgress;
+    const hasActivityInterest = Number(state.tradeVelocityPerMin || 0) >= this.interestMinTradeVelocityPerMin
+      || Number(state.recentVolumeSol || 0) >= this.interestMinRecentVolumeSol;
+    const hasSocialInterest = Number(state.externalMentionCount || 0) > 0
+      || Number(state.externalChatCount || 0) > 0
+      || Number(state.kolFirstWaveCount || 0) > 0
+      || Number(state.kolTrustedCount || 0) > 0;
+    const hasBuyerInterest = Number(state.repeatedEarlyBuyerCount || 0) > 0
+      || Number(state.uniqueBuyerCount || 0) >= this.interestMinUniqueBuyerCount;
+    const hasWalletInterest = Number(state.convictionWhaleCount || 0) > 0
+      || Number(state.alphaScalperCount || 0) > 0
+      || Number(state.earlySniperCount || 0) > 0
+      || Number(state.riskWalletCount || 0) > 0
+      || Number(state.lateChaserCount || 0) > 0;
+
+    return Boolean(
+      hasCurveInterest ||
+      hasActivityInterest ||
+      hasSocialInterest ||
+      hasBuyerInterest ||
+      hasWalletInterest
+    );
+  }
+
   updateSignalState(state, score, now, nowIso) {
+    const observedInterest = this.passesInterestGate(state, score);
     const observedSignal = this.passesSignalGate(state, score);
-    if (!observedSignal) {
+    if (!observedInterest && !observedSignal) {
       return {
+        observedInterest: false,
         observedSignal: false,
         newlyConfirmed: false,
-        shouldFlag: false
+        shouldFlag: false,
+        flagType: null
+      };
+    }
+
+    const lastInterestMs = state.lastInterestAt ? new Date(state.lastInterestAt).getTime() : 0;
+    const interestGapElapsed = !lastInterestMs || now - lastInterestMs >= this.confirmMinGapMs;
+
+    if (observedInterest && interestGapElapsed) {
+      state.lastInterestAt = nowIso;
+      state.interestSignalCount = Number(state.interestSignalCount || 0) + 1;
+    }
+
+    if (!observedSignal) {
+      const shouldFlag = !state.lastFlaggedAt
+        || now - new Date(state.lastFlaggedAt).getTime() >= this.flagCooldownMs;
+      return {
+        observedInterest: true,
+        observedSignal: false,
+        newlyConfirmed: false,
+        shouldFlag,
+        flagType: shouldFlag ? 'interest' : null
       };
     }
 
@@ -443,24 +562,30 @@ class PreMigrationWatchLane {
 
     if (!state.confirmed) {
       return {
+        observedInterest: true,
         observedSignal: true,
         newlyConfirmed: false,
-        shouldFlag: false
+        shouldFlag: false,
+        flagType: null
       };
     }
 
     if (!state.lastFlaggedAt) {
       return {
+        observedInterest: true,
         observedSignal: true,
         newlyConfirmed,
-        shouldFlag: true
+        shouldFlag: true,
+        flagType: 'confirmed'
       };
     }
 
     return {
+      observedInterest: true,
       observedSignal: true,
       newlyConfirmed,
-      shouldFlag: now - new Date(state.lastFlaggedAt).getTime() >= this.flagCooldownMs
+      shouldFlag: now - new Date(state.lastFlaggedAt).getTime() >= this.flagCooldownMs,
+      flagType: 'confirmed'
     };
   }
 
@@ -479,13 +604,16 @@ class PreMigrationWatchLane {
       flagged: state.flagged,
       flagCount: state.flagCount,
       observedSignalCount: Number(state.observedSignalCount || 0),
+      interestSignalCount: Number(state.interestSignalCount || 0),
       firstSignalAt: state.firstSignalAt,
       lastSignalAt: state.lastSignalAt,
+      lastInterestAt: state.lastInterestAt,
       confirmed: Boolean(state.confirmed),
       confirmedAt: state.confirmedAt,
       confirmationReason: state.confirmationReason,
       confirmCount: Number(state.confirmCount || 0),
       lastFlaggedAt: state.lastFlaggedAt,
+      lastFlagType: state.lastFlagType,
       curveProgress: state.curveProgress,
       bondingStage: state.bondingStage,
       tradeCount: state.tradeCount,
@@ -510,6 +638,11 @@ class PreMigrationWatchLane {
       kolFirstWaveCount: Number(state.kolFirstWaveCount || 0),
       kolTrustedCount: Number(state.kolTrustedCount || 0),
       repeatedEarlyBuyerCount: Number(state.repeatedEarlyBuyerCount || 0),
+      earlySniperCount: Number(state.earlySniperCount || 0),
+      alphaScalperCount: Number(state.alphaScalperCount || 0),
+      convictionWhaleCount: Number(state.convictionWhaleCount || 0),
+      riskWalletCount: Number(state.riskWalletCount || 0),
+      lateChaserCount: Number(state.lateChaserCount || 0),
       sniperWalletCount: Number(state.sniperWalletCount || 0),
       bundlerCandidate: Boolean(state.bundlerCandidate)
     };

@@ -54,6 +54,10 @@ function resolveRepoPath(filePath, fallback) {
   return path.isAbsolute(selected) ? selected : path.join(REPO_ROOT, selected);
 }
 
+function fileExists(filePath) {
+  return Boolean(filePath) && fs.existsSync(filePath);
+}
+
 function readJson(filePath, fallback) {
   if (!filePath || !fs.existsSync(filePath)) return fallback;
   try {
@@ -72,6 +76,8 @@ function parseLifecycleArgs(argv) {
   const options = {
     skipContext: toBool(process.env.SKIP_PRE_RUN_CONTEXT, false),
     skipReports: toBool(process.env.SKIP_POST_RUN_REPORTS, false),
+    telegramSyncMode: String(process.env.PRE_RUN_TELEGRAM_SYNC_MODE || 'if_missing').trim().toLowerCase(),
+    telegramContextPath: resolveRepoPath(process.env.TELEGRAM_CONTEXT_FILE_PATH, path.join(REPO_ROOT, 'data', 'telegram-context', 'latest.json')),
     rickCommands: toList(process.env.PRE_RUN_RICK_COMMANDS, DEFAULT_RICK_COMMANDS),
     rickReplyWaitMs: toNumber(process.env.PRE_RUN_RICK_REPLY_WAIT_MS, DEFAULT_RICK_REPLY_WAIT_MS),
     rickCommandDelayMs: toNumber(process.env.PRE_RUN_RICK_COMMAND_DELAY_MS, DEFAULT_RICK_COMMAND_DELAY_MS),
@@ -132,11 +138,35 @@ function printSection(title) {
   console.log(`========== ${title} ==========`);
 }
 
-function runProcess(title, command, args, { allowFailure = false } = {}) {
+function killProcessTree(child) {
+  if (!child || !child.pid) {
+    return;
+  }
+
+  if (process.platform === 'win32') {
+    const killer = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true
+    });
+    killer.on('error', () => {});
+    return;
+  }
+
+  child.kill('SIGTERM');
+  setTimeout(() => {
+    if (!child.killed) {
+      child.kill('SIGKILL');
+    }
+  }, 5000).unref?.();
+}
+
+function runProcess(title, command, args, { allowFailure = false, timeoutMs = 0, timeoutExitCode = 0 } = {}) {
   printSection(title);
   console.log(`> ${[command, ...args].join(' ')}`);
 
   return new Promise((resolve, reject) => {
+    let timedOut = false;
+    let timeoutTimer = null;
     const child = spawn(command, args, {
       cwd: REPO_ROOT,
       env: process.env,
@@ -146,7 +176,18 @@ function runProcess(title, command, args, { allowFailure = false } = {}) {
 
     activeChild = child;
 
+    if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+      timeoutTimer = setTimeout(() => {
+        timedOut = true;
+        console.warn(`[WARN] ${title} exceeded wall-clock timeout (${Math.round(timeoutMs / 1000)}s); terminating child process tree.`);
+        killProcessTree(child);
+      }, timeoutMs);
+    }
+
     child.on('error', (error) => {
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+      }
       activeChild = null;
       if (allowFailure) {
         console.warn(`[WARN] ${title} failed to start: ${error.message}`);
@@ -157,7 +198,17 @@ function runProcess(title, command, args, { allowFailure = false } = {}) {
     });
 
     child.on('close', (code, signal) => {
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+      }
       activeChild = null;
+
+      if (timedOut) {
+        console.warn(`[WARN] ${title} was stopped by lifecycle timeout; continuing with post-run reports.`);
+        resolve(timeoutExitCode);
+        return;
+      }
+
       const exitCode = Number.isFinite(code) ? code : 1;
 
       if (signal) {
@@ -180,6 +231,36 @@ function runProcess(title, command, args, { allowFailure = false } = {}) {
 
 function runNode(title, script, args = [], options = {}) {
   return runProcess(title, NODE, [path.join('scripts', script), ...args], options);
+}
+
+function getBotSessionTimeoutMs(botArgs) {
+  const positional = [];
+  let sessionValue = null;
+
+  for (let index = 0; index < botArgs.length; index += 1) {
+    const arg = botArgs[index];
+    if (arg === '--session') {
+      sessionValue = botArgs[index + 1];
+      index += 1;
+      continue;
+    }
+
+    if (!String(arg).startsWith('--')) {
+      positional.push(arg);
+    }
+  }
+
+  if (!sessionValue && positional[1]) {
+    sessionValue = positional[1];
+  }
+
+  const sessionMinutes = Number(sessionValue || process.env.SESSION_DURATION_MINUTES || 0);
+  if (!Number.isFinite(sessionMinutes) || sessionMinutes <= 0) {
+    return 0;
+  }
+
+  const graceMs = toNumber(process.env.BOT_SESSION_TIMEOUT_GRACE_MS, 10 * 60 * 1000);
+  return Math.ceil(sessionMinutes * 60 * 1000 + Math.max(0, graceMs));
 }
 
 function getRickCooldownKey(targetChatName, commandText) {
@@ -226,6 +307,22 @@ function summarizeCachedRickContext(options) {
   console.log(`Using cached Rick context: ${generatedAt || 'unknown time'} (${ageText}), ${overlapCount} token overlaps.`);
 }
 
+function shouldRunTelegramSync(options, phase = 'pre') {
+  if (options.telegramSyncMode === 'always') {
+    return true;
+  }
+
+  if (options.telegramSyncMode === 'never') {
+    return false;
+  }
+
+  if (phase === 'post_rick') {
+    return false;
+  }
+
+  return !fileExists(options.telegramContextPath);
+}
+
 async function refreshRunContext(options) {
   if (options.skipContext) {
     console.log('Skipping pre-run context refresh (--skipContext).');
@@ -235,8 +332,13 @@ async function refreshRunContext(options) {
   printSection('Pre-Run Context Refresh');
   console.log('Refreshing Telegram, requesting Rick reports, then rebuilding Rick context.');
 
-  await runNode('Sync Telegram Context', 'sync-telegram-context.js', [], { allowFailure: true });
+  if (shouldRunTelegramSync(options, 'pre')) {
+    await runNode('Sync Telegram Context', 'sync-telegram-context.js', [], { allowFailure: true });
+  } else {
+    console.log('Using cached Telegram context; skipping heavy pre-run Telegram sync.');
+  }
   await runNode('Build Rick Context Before Commands', 'build-rick-context.js', [], { allowFailure: true });
+  await runNode('Wallet Behavior Report', 'report-wallet-behavior.js', [], { allowFailure: true });
 
   let sentRickCommands = 0;
   let skippedCooldownCommands = 0;
@@ -266,7 +368,11 @@ async function refreshRunContext(options) {
     summarizeCachedRickContext(options);
   }
 
-  await runNode('Sync Telegram Context After Rick Replies', 'sync-telegram-context.js', [], { allowFailure: true });
+  if (shouldRunTelegramSync(options, 'post_rick')) {
+    await runNode('Sync Telegram Context After Rick Replies', 'sync-telegram-context.js', [], { allowFailure: true });
+  } else {
+    console.log('Skipping post-Rick Telegram sync; rebuilding context from cached Telegram data.');
+  }
   await runNode('Build Fresh Rick Context', 'build-rick-context.js', [], { allowFailure: true });
   await runNode('Wallet Battlefield Report', 'wallet-battlefield-report.js', [], { allowFailure: true });
 }
@@ -280,6 +386,7 @@ async function generatePostRunReports(options) {
   printSection('Post-Run Reports');
   await runNode('Battlefield Report', 'run-battlefield-report.js', [], { allowFailure: true });
   await runNode('Wallet Battlefield Report', 'wallet-battlefield-report.js', [], { allowFailure: true });
+  await runNode('Wallet Behavior Report', 'report-wallet-behavior.js', [], { allowFailure: true });
   await runNode('Wallet Outcome Audit', 'wallet-outcome-audit.js', [], { allowFailure: true });
   await runNode('Wallet Alpha Replay Report', 'wallet-alpha-replay-report.js', [], { allowFailure: true });
   await runNode('Wallet Alpha Shadow Ledger', 'wallet-alpha-shadow-ledger.js', [], { allowFailure: true });
@@ -292,6 +399,8 @@ async function generatePostRunReports(options) {
   await runNode('Continuation Specimen Report', 'continuation-specimen-report.js', [], { allowFailure: true });
   await runNode('Internal Continuation Specimen Report', 'internal-continuation-specimen-report.js', [], { allowFailure: true });
   await runNode('Continuation Paper Ledger', 'continuation-paper-ledger.js', [], { allowFailure: true });
+  await runNode('Battlefield Report With Continuation Paper', 'run-battlefield-report.js', [], { allowFailure: true });
+  await runNode('Stream Overlay Update', 'update-overlay-results.js', [], { allowFailure: true });
   await runNode('Trade Learning Memory', 'trade-learning-memory.js', [], { allowFailure: true });
   await runNode('Learning Orchestrator Report', 'learning-orchestrator-report.js', [], { allowFailure: true });
 }
@@ -299,7 +408,7 @@ async function generatePostRunReports(options) {
 process.on('SIGINT', () => {
   interrupted = true;
   if (activeChild) {
-    activeChild.kill('SIGINT');
+    killProcessTree(activeChild);
     return;
   }
   process.exit(130);
@@ -308,7 +417,7 @@ process.on('SIGINT', () => {
 process.on('SIGTERM', () => {
   interrupted = true;
   if (activeChild) {
-    activeChild.kill('SIGTERM');
+    killProcessTree(activeChild);
     return;
   }
   process.exit(143);
@@ -321,7 +430,10 @@ async function main() {
 
   let botExitCode = 0;
   try {
-    botExitCode = await runProcess('Trading Bot Foreground Run', NODE, [path.join('src', 'index.js'), ...botArgs]);
+    botExitCode = await runProcess('Trading Bot Foreground Run', NODE, [path.join('src', 'index.js'), ...botArgs], {
+      timeoutMs: getBotSessionTimeoutMs(botArgs),
+      timeoutExitCode: 0
+    });
   } catch (error) {
     botExitCode = 1;
     console.error(`[ERROR] Trading bot failed: ${error.message}`);

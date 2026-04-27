@@ -9,8 +9,11 @@ class PumpPortalListener {
     this.handlers = handlers;
     this.ws = null;
     this.running = false;
-    this.reconnectDelayMs = 5000;
+    this.reconnectDelayMs = Number(config.pumpPortalReconnectDelayMs || 5000);
+    this.staleConnectionMs = Number(config.pumpPortalStaleConnectionMs || 90000);
+    this.healthCheckIntervalMs = Number(config.pumpPortalHealthCheckIntervalMs || 15000);
     this.reconnectTimer = null;
+    this.healthCheckTimer = null;
     this.subscribedMints = new Set();
     this.subscribedAccounts = new Set();
     this.debugDir = path.join(process.cwd(), 'data', 'pumpportal-debug');
@@ -31,7 +34,16 @@ class PumpPortalListener {
       trades: 0,
       accountTrades: 0,
       migrations: 0,
-      lastMessageAt: null
+      lastMessageAt: null,
+      lastConnectedAt: null,
+      lastDisconnectedAt: null,
+      reconnectAttempts: 0,
+      closeEvents: 0,
+      lastCloseCode: null,
+      lastCloseReason: null,
+      lastErrorAt: null,
+      lastErrorMessage: null,
+      staleReconnects: 0
     };
   }
 
@@ -57,6 +69,11 @@ class PumpPortalListener {
       this.reconnectTimer = null;
     }
 
+    if (this.healthCheckTimer) {
+      clearInterval(this.healthCheckTimer);
+      this.healthCheckTimer = null;
+    }
+
     if (this.ws) {
       const socket = this.ws;
       this.ws = null;
@@ -74,6 +91,7 @@ class PumpPortalListener {
     }
 
     this.stats.connected = false;
+    this.stats.lastDisconnectedAt = Date.now();
   }
 
   async connect() {
@@ -87,10 +105,15 @@ class PumpPortalListener {
 
     socket.on('open', async () => {
       this.stats.connected = true;
+      this.stats.lastConnectedAt = Date.now();
+      this.stats.lastCloseCode = null;
+      this.stats.lastCloseReason = null;
       this.logger.info('PumpPortal websocket connected');
       this.send({ method: 'subscribeNewToken' });
       this.send({ method: 'subscribeMigration' });
       this.subscribeTrackedAccounts();
+      this.subscribeTrackedMints();
+      this.startHealthCheck();
     });
 
     socket.on('message', async (raw) => {
@@ -112,13 +135,23 @@ class PumpPortalListener {
       }
     });
 
-    socket.on('close', () => {
+    socket.on('close', (code, reasonBuffer) => {
       this.stats.connected = false;
-      this.logger.warn('PumpPortal websocket closed');
+      this.stats.lastDisconnectedAt = Date.now();
+      this.stats.closeEvents += 1;
+      this.stats.lastCloseCode = Number(code || 0) || 0;
+      this.stats.lastCloseReason = reasonBuffer ? reasonBuffer.toString() : '';
+      this.stopHealthCheck();
+      this.logger.warn('PumpPortal websocket closed', {
+        code: this.stats.lastCloseCode,
+        reason: this.stats.lastCloseReason || 'none',
+        reconnectDelayMs: this.reconnectDelayMs
+      });
       if (this.ws === socket) {
         this.ws = null;
       }
       if (this.running) {
+        this.stats.reconnectAttempts += 1;
         this.reconnectTimer = setTimeout(() => {
           this.reconnectTimer = null;
           this.connect();
@@ -127,6 +160,8 @@ class PumpPortalListener {
     });
 
     socket.on('error', (error) => {
+      this.stats.lastErrorAt = Date.now();
+      this.stats.lastErrorMessage = error.message;
       this.logger.warn('PumpPortal websocket error', error.message);
     });
   }
@@ -206,6 +241,89 @@ class PumpPortalListener {
         method: 'subscribeAccountTrade',
         keys: [account]
       });
+    }
+  }
+
+  subscribeTrackedMints() {
+    const mints = Array.from(this.subscribedMints);
+    if (mints.length === 0) {
+      return;
+    }
+
+    for (const mint of mints) {
+      this.send({
+        method: 'subscribeTokenTrade',
+        keys: [mint]
+      });
+    }
+
+    this.logger.info(`Re-subscribed PumpPortal trade streams for ${mints.length} tracked mint(s)`);
+  }
+
+  startHealthCheck() {
+    this.stopHealthCheck();
+
+    if (!Number.isFinite(this.healthCheckIntervalMs) || this.healthCheckIntervalMs <= 0) {
+      return;
+    }
+
+    this.healthCheckTimer = setInterval(() => {
+      this.checkConnectionHealth();
+    }, this.healthCheckIntervalMs);
+
+    if (typeof this.healthCheckTimer.unref === 'function') {
+      this.healthCheckTimer.unref();
+    }
+  }
+
+  stopHealthCheck() {
+    if (this.healthCheckTimer) {
+      clearInterval(this.healthCheckTimer);
+      this.healthCheckTimer = null;
+    }
+  }
+
+  checkConnectionHealth() {
+    if (!this.running || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    if (!Number.isFinite(this.staleConnectionMs) || this.staleConnectionMs <= 0) {
+      return;
+    }
+
+    const baselineAt = this.stats.lastMessageAt || this.stats.lastConnectedAt;
+    if (!baselineAt) {
+      return;
+    }
+
+    const ageMs = Date.now() - baselineAt;
+    if (ageMs < this.staleConnectionMs) {
+      return;
+    }
+
+    this.stats.staleReconnects += 1;
+    this.logger.warn('PumpPortal websocket stale; recycling connection', {
+      ageMs,
+      staleConnectionMs: this.staleConnectionMs,
+      subscribedMints: this.subscribedMints.size
+    });
+
+    const socket = this.ws;
+    this.ws = null;
+    socket.removeAllListeners('close');
+    socket.on('close', () => {});
+    socket.terminate();
+    this.stats.connected = false;
+    this.stats.lastDisconnectedAt = Date.now();
+    this.stopHealthCheck();
+
+    if (this.running && !this.reconnectTimer) {
+      this.stats.reconnectAttempts += 1;
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.connect();
+      }, 250);
     }
   }
 

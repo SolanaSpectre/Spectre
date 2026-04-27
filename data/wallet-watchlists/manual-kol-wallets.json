@@ -1,6 +1,6 @@
 {
   "source": "manual_kol_research",
-  "updatedAt": "2026-04-13T23:25:00-05:00",
+  "updatedAt": "2026-04-23T05:35:27.327Z",
   "wallets": [
     {
       "walletAddress": "4Be9CvxqHW6BYiRAxW9Q3xu1ycTMWaL5z8NX4HR3ha7t",
@@ -107,6 +107,1461 @@
         "MANUAL_RESEARCH",
         "SUSPECTED_CREATOR",
         "HIGH_CREATOR_FEE_EARNER"
+      ]
+    },
+    {
+      "walletAddress": "3LYtEmYerFPeXgu1c9Y4553oMk2qVdcxiwWzDjzMkwPx",
+      "name": "Awkchan",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "EwTNPYTuwxMzrvL19nzBsSLXdAoEmVBKkisN87csKgtt",
+      "name": "Gake 2",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "D2wBctC1K2mEtA17i8ZfdEubkiksiAH2j8F7ri3ec71V",
+      "name": "Dior 2",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "Ez2jp3rwXUbaTx7XwiHGaWVgTPFdzJoSg8TopqbxfaJN",
+      "name": "Keano",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "A1QRKMAVzgnkqJyukUhjTkzhiV1kFC8crKwb95mB5qB",
+      "name": "Frankdegods 2",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "9KEShFaBjyBjLVWSXGE6mvWwQbJkkxw1vF2K2R1abKvy",
+      "name": "IT4I",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "76ZUBj1JLz7arTVHSRJok5oSTEqDuVBgySFMVHtzxzZc",
+      "name": "Larry",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "2fg5QD1eD7rzNNCsvnhmXFm5hqNgwTTG8p7kQ6f3rx6f",
+      "name": "Cupsey 1",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_OFF"
+      ]
+    },
+    {
+      "walletAddress": "DuQabFqdC9eeBULVa7TTdZYxe8vK8ct5DZr4Xcf7docy",
+      "name": "Orangie",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "B32QbbdDAyhvUQzjcaM5j6ZVKwjCxAwGH5Xgvb9SJqnC",
+      "name": "Kadeno",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "85mNYgLJDdUWZsR9qzaYSCD4ukbz6PEUp31DteDcwQrQ",
+      "name": "Gas",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "2X4H5Y9C4Fy6Pf3wpq8Q4gMvLcWvfrrwDv2bdR8AAwQv",
+      "name": "Orangesbs 2",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "BAr5csYtpWoNpwhUjixX7ZPHXkUciFZzjBp9uNxZXJPh",
+      "name": "Jack Duval",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "7VBTpiiEjkwRbRGHJFUz6o5fWuhPFtAmy8JGhNqwHNnn",
+      "name": "Brox",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "4cXnf2z85UiZ5cyKsPMEULq1yufAtpkatmX4j4DBZqj2",
+      "name": "Waiter G",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "DxwDRWxQXDaVZquH3YvCVBQ75nUf16FttQ4q88okn5mc",
+      "name": "Sebi",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "5XVKfruE4Zzeoz3aqBQfFMb5aSscY5nSyc6VwtQwNiid",
+      "name": "Ily",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "4nvNc7dDEqKKLM4Sr9Kgk3t1of6f8G66kT64VoC95LYh",
+      "name": "Mamba",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "EHg5YkU2SZBTvuT87rUsvxArGp3HLeye1fXaSDfuMyaf",
+      "name": "Til",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "G6fUXjMKPJzCY1rveAE6Qm7wy5U3vZgKDJmN1VPAdiZC",
+      "name": "Clukz",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "D1H83ueSw5Nxy5okxH7VBfV4jRnqAK5Mm1tm3JAj3m5t",
+      "name": "Jeets",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "71PCu3E4JP5RDBoY6wJteqzxkKNXLyE1byg5BTAL9UtQ",
+      "name": "Ramset",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "DYAn4XpAkN5mhiXkRB7dGq4Jadnx6XYgu8L5b3WGhbrt",
+      "name": "KayTheDoc",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "As7HjL7dzzvbRbaD3WCun47robib2kmAKRXMvjHkSMB5",
+      "name": "Otta",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "6S8GezkxYUfZy9JPtYnanbcZTMB87Wjt1qx3c6ELajKC",
+      "name": "Nyhrox",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "AE1xAf6bWqkTNdn6n3g1hnyAH9QdYd84FPqdaUzjAmtM",
+      "name": "Marcell 3",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "EP5mvfhGv6x1XR33Fd8eioiYjtRXAawafPmkz9xBpDvG",
+      "name": "Zemrics",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "6DtEedWf9Wk5hA7Xth82Eq441yf5DA4aGLqaQAVfDokm",
+      "name": "Alon",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "J6TDXvarvpBdPXTaTU8eJbtso1PUCYKGkVtMKUUY8iEa",
+      "name": "Pain",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "9yYya3F5EJoLnBNKW6z4bZvyQytMXzDcpU5D6yYr4jqL",
+      "name": "Loopier",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "BHREKFkPQgAtDs8Vb1UfLkUpjG6ScidTjHaCWFuG2AtX",
+      "name": "Risk",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "5B79fMkcFeRTiwm7ehsZsFiKsC7m7n1Bgv9yLxPp9q2X",
+      "name": "Bandit",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "B3wagQZiZU2hKa5pUCj6rrdhWsX3Q6WfTTnki9PjwzMh",
+      "name": "Xander",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "9FNz4MjPUmnJqTf6yEDbL1D4SsHVh7uA8zRHhR5K138r",
+      "name": "Danny",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "8yJFWmVTQq69p6VJxGwpzW7ii7c5J9GRAtHCNMMQPydj",
+      "name": "Lexapro",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "7w7f4P284zJhv3zotjCUmaNsZSsrHQKtpXGBJFq8gdzq",
+      "name": "EQ",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "525LueqAyZJueCoiisfWy6nyh4MTvmF4X9jSqi6efXJT",
+      "name": "Joji",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "3zD1armVsd4UUDW4RvcaE4ve6oEkmGyHPEjtB7q5Q9LU",
+      "name": "Marcell 2",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "8RfH3LUSed9xM5bh7txdWKZFNbYGB8AeLCaeZjC9kN1o",
+      "name": "Marcell",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "BCagckXeMChUKrHEd6fKFA1uiWDtcmCXMsqaheLiUPJd",
+      "name": "DV",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "DZAa55HwXgv5hStwaTEJGXZz1DhHejvpb7Yr762urXam",
+      "name": "Ozark",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "xXpRSpAe1ajq4tJP78tS3X1AqNwJVQ4Vvb1Swg4hHQh",
+      "name": "Aloh 1",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "3BLjRcxWGtR7WRshJ3hL25U3RjWr5Ud98wMcczQqk4Ei",
+      "name": "Sebastian",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "4XMPyWFsYdNcCN4FG8geyytyTeUNacn4QundBzMqbGGT",
+      "name": "Stattics",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "7SDs3PjT2mswKQ7Zo4FTucn9gJdtuW4jaacPA65BseHS",
+      "name": "Insentos",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "5t9xBNuDdGTGpjaPTx6hKd7sdRJbvtKS8Mhq6qVbo8Qz",
+      "name": "Smokez",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "BtMBMPkoNbnLF9Xn552guQq528KKXcsNBNNBre3oaQtr",
+      "name": "Letterbomb",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "m7Kaas3Kd8FHLnCioSjCoSuVDReZ6FDNBVM6HTNYuF7",
+      "name": "Ferb",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "8MaVa9kdt3NW4Q5HyNAm1X5LbR8PQRVDc1W8NMVK88D5",
+      "name": "Daumen",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "4S9U8HckRngscHWrW418cG6Suw62dhEZzmyrT2hxSye5",
+      "name": "Polar",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "4YdHuvKYgS4xbEzpp6C59B8XGpfq3nKddAEp5dDNwGHA",
+      "name": "OGant",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "GJA1HEbxGnqBhBifH9uQauzXSB53to5rhDrzmKxhSU65",
+      "name": "Latuche",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "86AEJExyjeNNgcp7GrAvCXTDicf5aGWgoERbXFiG1EdD",
+      "name": "Publix",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "ApRnQN2HkbCn7W2WWiT2FEKvuKJp9LugRyAE1a9Hdz1",
+      "name": "Solcrow",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_OFF"
+      ]
+    },
+    {
+      "walletAddress": "7iabBMwmSvS4CFPcjW2XYZY53bUCHzXjCFEFhxeYP4CY",
+      "name": "Leens",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "4BdKaxN8G6ka4GYtQQWk4G4dZRUTX2vQH9GcXdBREFUk",
+      "name": "Jijo",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "Av3xWHJ5EsoLZag6pr7LKbrGgLRTaykXomDD5kBhL9YQ",
+      "name": "Yolo",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "DfMxre4cKmvogbLrPigxmibVTTQDuzjdXojWzjCXXhzj",
+      "name": "Euris",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "CyaE1VxvBrahnPWkqm5VsdCvyS2QmNht2UFrKJHga54o",
+      "name": "Cented",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "96sErVjEN7LNJ6Uvj63bdRWZxNuBngj56fnT9biHLKBf",
+      "name": "Orange",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "215nhcAHjQQGgwpQSJQ7zR26etbjjtVdW74NLzwEgQjP",
+      "name": "OGAntD",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "8rvAsDKeAcEjEkiZMug9k8v1y8mW6gQQiMobd89Uy7qR",
+      "name": "Casino",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "JDd3hy3gQn2V982mi1zqhNqUw1GfV2UL6g76STojCJPN",
+      "name": "West",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "BCnqsPEtA1TkgednYEebRpkmwFRJDCjMQcKZMMtEdArc",
+      "name": "Kreo",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "suqh5sHtr8HyJ7q8scBimULPkPpA557prMG47xCHQfK",
+      "name": "Cupsey",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "6LChaYRYtEYjLEHhzo4HdEmgNwu2aia8CM8VhR9wn6n7",
+      "name": "Assasin",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "5pxkp8Rpg7xHekFf7URJ25i4P5ZXVk8hRQUaDKytU5K7",
+      "name": "Leens",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "Bi4rd5FH5bYEN8scZ7wevxNZyNmKHdaBcvewdPFxYdLt",
+      "name": "Theo",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "BQVz7fQ1WsQmSTMY3umdPEPPTm1sdcBcX9sP7o6kPRmB",
+      "name": "Limfork",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "87rRdssFiTJKY4MGARa4G5vQ31hmR7MxSmhzeaJ5AAxJ",
+      "name": "Dior",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "7NAd2EpYGGeFofpyvgehSXhH5vg6Ry6VRMW2Y6jiqCu1",
+      "name": "Cupsey 3",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "FxN3VZ4BosL5urG2yoeQ156JSdmavm9K5fdLxjkPmaMR",
+      "name": "Cupsey 2",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "A3W8psibkTUvjxs4LRscbnjux6TFDXdvD4m4GsGpQ2KJ",
+      "name": "numer0",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "6HJetMbdHBuk3mLUainxAPpBpWzDgYbHGTS2TqDAUSX2",
+      "name": "LJC",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "GijFWw4oNyh9ko3FaZforNsi3jk6wDovARpkKahPD4o5",
+      "name": "LunarFang",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "4sAUSQFdvWRBxR8UoLBYbw8CcXuwXWxnN8pXa4mtm5nU",
+      "name": "Scharo",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_OFF"
+      ]
+    },
+    {
+      "walletAddress": "7S3E2L25kr6oN2cMP2GQ5tMEfg8jwcmoYo35vvv8rxhW",
+      "name": "Case",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "DNfuF1L62WWyW3pNakVkyGGFzVVhj4Yr52jSmdTyeBHm",
+      "name": "Gake",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "8DGbkGgQewL9mx4aXzZCUChr7hBVXvPK9fYqSqc7Ajpn",
+      "name": "Ban",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "PMJA8UQDyWTFw2Smhyp9jGA6aTaP7jKHR7BPudrgyYN",
+      "name": "Chester",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "FAicXNV5FVqtfbpn4Zccs71XcfGeyxBSGbqLDyDJZjke",
+      "name": "Radiance",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "4vw54BmAogeRV3vPKWyFet5yf8DTLcREzdSzx4rw9Ud9",
+      "name": "Decu",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "G7mfcf5GbZezcBKqcDo5u16TSLARTVxTRSjXxDYbVnaq",
+      "name": "Dani",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "AuPp4YTMTyqxYXQnHc5KUc6pUuCSsHQpBJhgnD45yqrf",
+      "name": "Dani 2",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "DUF6CYFg96ryKQkbjGJLdJ5ckYuws8kEVWW42Ti7BRde",
+      "name": "Dani 3",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "VJSDW6S74YXR4rRR9P4xwhMvLZJQMhrUb8XMFirUsy1",
+      "name": "Beanz",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "G4ZWrLSqLp5kk8b2KVDafRH3ymv1FvjkpHKiyDbaRp5M",
+      "name": "Beanz 2",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "CeZbzsqje88U7GCCrAiGUr5BrZrBJ3AkQMyG9aggDiqQ",
+      "name": "Jizzy",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "8ZfZWC9UMQB8Tk2Vn93CVijSQHrPUiPzwiirqr6pxve3",
+      "name": "insidOOOr",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "HPZg9ZJcBv1sDFe2QgLr6dDzEGww42hihXuogCwrnwz4",
+      "name": "Larry 2",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "6XhfFaxsDtSnsLqhP3LpbwLjEjJX2fDKd9cWquZjD8yG",
+      "name": "Larry 3",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "FixmSpsBa7ew26gWdiqpoMAgKRFgbSXFbGAgfMZw67X",
+      "name": "Marcell",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "286CHN57Km41GsAnDv866WKd6YB6HPSjFgF4rGDJTRLf",
+      "name": "Chinaman",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "CNudZYFgpbT26fidsiNrWfHeGTBMMeVWqruZXsEkcUPc",
+      "name": "Gake 3",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "G3gZWqrYkNmYFKYCyfRCNtGuxdyuE2wiYKkZpiZn4WSS",
+      "name": "Goyim",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "7cQjAvzJsmdePPMk8TiW8hYHHhCfdNtEaaNK3o46YP12",
+      "name": "Parsiix",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
+      ]
+    },
+    {
+      "walletAddress": "7S5uYhHHtVnapihNpN8SW8sykkUEXQaNoixPMeZmvsnB",
+      "name": "Jijo 2",
+      "source": "daumen_wallet_tracker",
+      "trustTier": null,
+      "profile": "tracker_wallet",
+      "score": null,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "MANUAL_RESEARCH",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
       ]
     }
   ]

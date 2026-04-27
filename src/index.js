@@ -59,6 +59,9 @@ class SolanaTradingBot {
     this.logger = null;
     this.tradingEngine = null;
     this.running = false;
+    this.shutdownInProgress = false;
+    this.sessionExitTimer = null;
+    this.forceExitTimer = null;
   }
 
   async start() {
@@ -83,6 +86,7 @@ class SolanaTradingBot {
         maxQuoteAgeMs: this.config.maxQuoteAgeMs
       });
 
+      this.armProcessSessionWatchdog();
       this.tradingEngine = new TradingEngine(this.config, this.logger);
       await this.tradingEngine.initialize();
       await this.tradingEngine.start();
@@ -98,17 +102,77 @@ class SolanaTradingBot {
   }
 
   setupGracefulShutdown() {
-    const shutdown = async (signal) => {
-      if (this.tradingEngine) {
-        await this.tradingEngine.stop(signal);
+    process.on('SIGINT', () => this.shutdown('SIGINT'));
+    process.on('SIGTERM', () => this.shutdown('SIGTERM'));
+  }
+
+  armProcessSessionWatchdog() {
+    if (this.sessionExitTimer) {
+      clearTimeout(this.sessionExitTimer);
+      this.sessionExitTimer = null;
+    }
+
+    const durationMinutes = Number(this.config.sessionDurationMinutes || 0);
+    if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+      return;
+    }
+
+    const timeoutMs = Math.max(1, durationMinutes * 60 * 1000);
+    this.sessionExitTimer = setTimeout(() => {
+      const message = 'Process session duration reached; shutting down bot process';
+      if (this.logger) {
+        this.logger.info(message);
+      } else {
+        console.log(message);
       }
+      this.shutdown('SESSION_DURATION_EXCEEDED');
+    }, timeoutMs);
+  }
 
-      this.running = false;
-      process.exit(0);
-    };
+  async shutdown(signal, exitCode = 0) {
+    if (this.shutdownInProgress) {
+      return;
+    }
 
-    process.on('SIGINT', () => shutdown('SIGINT'));
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    this.shutdownInProgress = true;
+    this.running = false;
+
+    if (this.sessionExitTimer) {
+      clearTimeout(this.sessionExitTimer);
+      this.sessionExitTimer = null;
+    }
+
+    // If a provider or report flush hangs, do not leave npm waiting forever.
+    this.forceExitTimer = setTimeout(() => {
+      const message = `Forced bot process exit after shutdown grace period (${signal})`;
+      if (this.logger) {
+        this.logger.warn(message);
+      } else {
+        console.warn(message);
+      }
+      process.exit(exitCode);
+    }, 20000);
+
+    try {
+      if (this.tradingEngine) {
+        await Promise.race([
+          this.tradingEngine.stop(signal),
+          this.sleep(15000)
+        ]);
+      }
+    } catch (error) {
+      if (this.logger) {
+        this.logger.error('Error during shutdown', error.message);
+      } else {
+        console.error('Error during shutdown:', error.message);
+      }
+    } finally {
+      if (this.forceExitTimer) {
+        clearTimeout(this.forceExitTimer);
+        this.forceExitTimer = null;
+      }
+      process.exit(exitCode);
+    }
   }
 
   async monitoringLoop() {
@@ -311,8 +375,7 @@ class SolanaTradingBot {
 
         if (!this.tradingEngine.active || stats.session.state === 'STOPPED') {
           this.logger.info('Trading session finished; exiting bot process');
-          this.running = false;
-          process.exit(0);
+          await this.shutdown('SESSION_CLOSED');
         }
       } catch (error) {
         this.logger.error('Error in monitoring loop', error.message);

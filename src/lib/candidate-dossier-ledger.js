@@ -98,6 +98,8 @@ class CandidateDossierLedger {
       eventType: event.type || null,
       decision: payload.decision || null,
       preset: payload.preset || null,
+      lane: payload.lane || null,
+      profileName: payload.profileName || null,
       reason: payload.reason || null,
       threshold: payload.threshold ?? null,
       value: payload.value ?? null,
@@ -127,6 +129,8 @@ class CandidateDossierLedger {
         })
         : null,
       strategy: payload.strategy || null,
+      exitProfile: payload.exitProfile || null,
+      walletClassificationContext: payload.walletClassificationContext || null,
       amountSol: payload.amountSol ?? null,
       entryPriceSol: payload.entryPriceSol ?? null,
       exitPriceSol: payload.exitPriceSol ?? null,
@@ -274,6 +278,8 @@ class CandidateDossierLedger {
     if (paper?.decision) tags.add(String(paper.decision).toLowerCase());
     if (paper?.reason) tags.add(String(paper.reason).toLowerCase());
     if (paper?.guardOverride) tags.add(String(paper.guardOverride).toLowerCase());
+    if (paper?.lane) tags.add(String(paper.lane).toLowerCase());
+    if (paper?.profileName) tags.add(String(paper.profileName).toLowerCase());
     if (continuation?.eventType) tags.add(String(continuation.eventType).replace(/^continuation\./, 'continuation_'));
     if (continuation?.rejectReason) tags.add(String(continuation.rejectReason).toLowerCase());
 

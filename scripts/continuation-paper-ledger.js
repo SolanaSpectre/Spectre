@@ -9,21 +9,42 @@ const DEFAULT_STATE_PATH = path.join(REPO_ROOT, 'data', 'continuation-paper', 's
 const DEFAULT_REPORT_PATH = path.join(REPO_ROOT, 'data', 'reports', 'continuation-paper-latest.json');
 const DEFAULT_REPORT_DIR = path.join(REPO_ROOT, 'data', 'reports', 'continuation-paper');
 const DEFAULT_LEARNING_PATH = path.join(REPO_ROOT, 'data', 'reports', 'learning-orchestrator-latest.json');
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
 const DEFAULT_CONFIG = {
   nominalUsd: 100,
   entrySlippagePct: 0.05,
   exitSlippagePct: 0.075,
-  takeProfitPct: 0.35,
-  stopLossPct: 0.22,
-  trailingStopPct: 0.18,
-  maxHoldHours: 6,
-  legacyTakeProfitPct: 0.6,
-  legacyStopLossPct: 0.28,
-  legacyTrailingStopPct: 0.24,
+  takeProfitPct: 0.24,
+  stopLossPct: 0.16,
+  trailingStopPct: 0.1,
+  maxHoldHours: 4,
+  breakevenActivationPct: 0.12,
+  breakevenStopPct: 0.015,
+  legacyTakeProfitPct: 0.45,
+  legacyStopLossPct: 0.22,
+  legacyTrailingStopPct: 0.16,
   legacyMaxHoldHours: 24,
+  legacyBreakevenActivationPct: 0.2,
+  legacyBreakevenStopPct: 0.025,
+  chopFadeScalperEnabled: process.env.CONTINUATION_CHOP_FADE_SCALPER_ENABLED !== 'false',
+  chopFadeRequiresLearningRegime: process.env.CONTINUATION_CHOP_FADE_REQUIRES_LEARNING_REGIME !== 'false',
+  chopFadeNominalUsd: Number(process.env.CONTINUATION_CHOP_FADE_NOMINAL_USD || 50),
+  chopFadeMinLiquidityUsd: Number(process.env.CONTINUATION_CHOP_FADE_MIN_LIQUIDITY_USD || 40000),
+  chopFadeMinVolumeToLiquidity1h: Number(process.env.CONTINUATION_CHOP_FADE_MIN_VOLUME_TO_LIQUIDITY_1H || 1.2),
+  chopFadeMinPriceChange1hPct: Number(process.env.CONTINUATION_CHOP_FADE_MIN_PRICE_CHANGE_1H_PCT || -35),
+  chopFadeMaxPriceChange1hPct: Number(process.env.CONTINUATION_CHOP_FADE_MAX_PRICE_CHANGE_1H_PCT || 120),
+  chopFadeTakeProfitPct: Number(process.env.CONTINUATION_CHOP_FADE_TAKE_PROFIT_PCT || 0.1),
+  chopFadeStopLossPct: Number(process.env.CONTINUATION_CHOP_FADE_STOP_LOSS_PCT || 0.07),
+  chopFadeTrailingStopPct: Number(process.env.CONTINUATION_CHOP_FADE_TRAILING_STOP_PCT || 0.045),
+  chopFadeMaxHoldHours: Number(process.env.CONTINUATION_CHOP_FADE_MAX_HOLD_HOURS || 1.5),
+  chopFadeBreakevenActivationPct: Number(process.env.CONTINUATION_CHOP_FADE_BREAKEVEN_ACTIVATION_PCT || 0.055),
+  chopFadeBreakevenStopPct: Number(process.env.CONTINUATION_CHOP_FADE_BREAKEVEN_STOP_PCT || 0.008),
+  chopFadeEntrySlippagePct: Number(process.env.CONTINUATION_CHOP_FADE_ENTRY_SLIPPAGE_PCT || 0.04),
+  chopFadeExitSlippagePct: Number(process.env.CONTINUATION_CHOP_FADE_EXIT_SLIPPAGE_PCT || 0.05),
   allowReopen: false,
-  respectLearningPosture: true
+  respectLearningPosture: true,
+  solUsdFallback: Number(process.env.CONTINUATION_PAPER_SOL_USD_FALLBACK || 0)
 };
 
 function parseArgs(argv) {
@@ -70,6 +91,11 @@ function compact(value, decimals = 6) {
   return Number.isFinite(numeric) ? Number(numeric.toFixed(decimals)) : null;
 }
 
+function finiteNumber(value, fallback = null) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
 function toBool(value, fallback = false) {
   if (value === undefined || value === null || value === '') return fallback;
   if (typeof value === 'boolean') return value;
@@ -102,13 +128,24 @@ function configFromArgs(args) {
     stopLoss: 'stopLossPct',
     trailingStop: 'trailingStopPct',
     maxHoldHours: 'maxHoldHours',
+    chopFadeScalperEnabled: 'chopFadeScalperEnabled',
+    chopFadeRequiresLearningRegime: 'chopFadeRequiresLearningRegime',
+    chopFadeNominalUsd: 'chopFadeNominalUsd',
+    chopFadeMinLiquidityUsd: 'chopFadeMinLiquidityUsd',
+    chopFadeMinVolumeToLiquidity1h: 'chopFadeMinVolumeToLiquidity1h',
+    chopFadeMinPriceChange1hPct: 'chopFadeMinPriceChange1hPct',
+    chopFadeMaxPriceChange1hPct: 'chopFadeMaxPriceChange1hPct',
+    chopFadeTakeProfit: 'chopFadeTakeProfitPct',
+    chopFadeStopLoss: 'chopFadeStopLossPct',
+    chopFadeTrailingStop: 'chopFadeTrailingStopPct',
+    chopFadeMaxHoldHours: 'chopFadeMaxHoldHours',
     allowReopen: 'allowReopen',
     respectLearningPosture: 'respectLearningPosture'
   };
 
   for (const [argKey, configKey] of Object.entries(mapping)) {
     if (args[argKey] === undefined) continue;
-    if (configKey === 'allowReopen' || configKey === 'respectLearningPosture') {
+    if (configKey === 'allowReopen' || configKey === 'respectLearningPosture' || configKey === 'chopFadeScalperEnabled' || configKey === 'chopFadeRequiresLearningRegime') {
       config[configKey] = toBool(args[argKey], true);
       continue;
     }
@@ -134,27 +171,128 @@ function isEligibleSpecimen(specimen) {
   );
 }
 
-function positionConfig(specimen, config) {
-  const legacy = specimen.label === 'legacy_revived_watch' || (specimen.reasons || []).includes('legacy_revived');
+function volumeToLiquidity1h(specimen) {
+  const explicit = Number(specimen?.volumeToLiquidity1h);
+  if (Number.isFinite(explicit) && explicit >= 0) return explicit;
+  const volume = Number(specimen?.volume1hUsd || 0);
+  const liquidity = Number(specimen?.liquidityUsd || 0);
+  return liquidity > 0 ? volume / liquidity : 0;
+}
+
+function priceChange1h(specimen) {
+  const value = Number(specimen?.priceChange1hPct);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function isChopFadeLearningRegime(learningPause) {
+  return learningPause?.marketRegime === 'chop_fade' || learningPause?.recommendedPosture === 'observe_only';
+}
+
+function chopFadeScalperEligibility(specimen, config, learningPause) {
+  const riskFlags = Array.isArray(specimen?.riskFlags) ? specimen.riskFlags : [];
+  const liquidityUsd = Number(specimen?.liquidityUsd || 0);
+  const vtl1h = volumeToLiquidity1h(specimen);
+  const change1h = priceChange1h(specimen);
+
+  if (!config.chopFadeScalperEnabled) return { eligible: false, reason: 'CHOP_FADE_DISABLED' };
+  if (config.chopFadeRequiresLearningRegime && !isChopFadeLearningRegime(learningPause)) {
+    return { eligible: false, reason: 'NOT_CHOP_FADE_REGIME' };
+  }
+  if (!specimen.mint) return { eligible: false, reason: 'MISSING_MINT' };
+  if (!(Number(specimen.priceUsd) > 0)) return { eligible: false, reason: 'MISSING_PRICE' };
+  if (!String(specimen.label || '').startsWith('continuation_')) {
+    return { eligible: false, reason: `LABEL_${String(specimen.label || 'UNKNOWN').toUpperCase()}` };
+  }
+  if (!riskFlags.includes('high_churn')) {
+    return { eligible: false, reason: 'NOT_HIGH_CHURN' };
+  }
+  if (vtl1h < Number(config.chopFadeMinVolumeToLiquidity1h || 0)) {
+    return { eligible: false, reason: 'LOW_CHOP_CHURN' };
+  }
+  if (liquidityUsd < Number(config.chopFadeMinLiquidityUsd || 0)) {
+    return { eligible: false, reason: 'LOW_CHOP_LIQUIDITY' };
+  }
+  if (change1h < Number(config.chopFadeMinPriceChange1hPct)) {
+    return { eligible: false, reason: 'CHOP_FALLING_KNIFE' };
+  }
+  if (change1h > Number(config.chopFadeMaxPriceChange1hPct)) {
+    return { eligible: false, reason: 'CHOP_BREAKOUT_TOO_HOT' };
+  }
+
   return {
-    takeProfitPct: Number(specimen.shadowPaper?.plannedTakeProfitPct ?? (legacy ? config.legacyTakeProfitPct : config.takeProfitPct)),
-    stopLossPct: Number(specimen.shadowPaper?.plannedStopLossPct ?? (legacy ? config.legacyStopLossPct : config.stopLossPct)),
-    trailingStopPct: Number(specimen.shadowPaper?.plannedTrailingStopPct ?? (legacy ? config.legacyTrailingStopPct : config.trailingStopPct)),
-    maxHoldHours: Number(specimen.shadowPaper?.maxHoldHours ?? (legacy ? config.legacyMaxHoldHours : config.maxHoldHours)),
-    entrySlippagePct: Number(specimen.shadowPaper?.entrySlippagePct ?? config.entrySlippagePct),
-    exitSlippagePct: Number(specimen.shadowPaper?.exitSlippagePct ?? config.exitSlippagePct)
+    eligible: true,
+    reason: null,
+    diagnostics: {
+      liquidityUsd: compact(liquidityUsd, 2),
+      volumeToLiquidity1h: compact(vtl1h, 4),
+      priceChange1hPct: compact(change1h, 2),
+      riskFlags
+    }
   };
 }
 
-function openPosition(specimen, config, nowIso) {
-  const cfg = positionConfig(specimen, config);
+function positionConfig(specimen, config, profileName = null) {
+  const legacy = specimen.label === 'legacy_revived_watch' || (specimen.reasons || []).includes('legacy_revived');
+  if (profileName === 'chop_fade_scalper') {
+    return {
+      profileName: 'chop_fade_scalper',
+      takeProfitPct: Number(config.chopFadeTakeProfitPct),
+      stopLossPct: Number(config.chopFadeStopLossPct),
+      trailingStopPct: Number(config.chopFadeTrailingStopPct),
+      maxHoldHours: Number(config.chopFadeMaxHoldHours),
+      breakevenActivationPct: Number(config.chopFadeBreakevenActivationPct),
+      breakevenStopPct: Number(config.chopFadeBreakevenStopPct),
+      entrySlippagePct: Number(config.chopFadeEntrySlippagePct),
+      exitSlippagePct: Number(config.chopFadeExitSlippagePct),
+      nominalUsd: Number(config.chopFadeNominalUsd)
+    };
+  }
+
+  const selectedProfileName = legacy ? 'legacy_revival_smart_trade' : 'continuation_smart_runner';
+  return {
+    profileName: selectedProfileName,
+    takeProfitPct: Number(legacy ? config.legacyTakeProfitPct : config.takeProfitPct),
+    stopLossPct: Number(legacy ? config.legacyStopLossPct : config.stopLossPct),
+    trailingStopPct: Number(legacy ? config.legacyTrailingStopPct : config.trailingStopPct),
+    maxHoldHours: Number(legacy ? config.legacyMaxHoldHours : config.maxHoldHours),
+    breakevenActivationPct: Number(legacy ? config.legacyBreakevenActivationPct : config.breakevenActivationPct),
+    breakevenStopPct: Number(legacy ? config.legacyBreakevenStopPct : config.breakevenStopPct),
+    entrySlippagePct: Number(specimen.shadowPaper?.entrySlippagePct ?? config.entrySlippagePct),
+    exitSlippagePct: Number(specimen.shadowPaper?.exitSlippagePct ?? config.exitSlippagePct),
+    nominalUsd: Number(config.nominalUsd)
+  };
+}
+
+function applySolPnl(position, solUsdPrice = null) {
+  const resolvedSolUsd = finiteNumber(solUsdPrice)
+    ?? finiteNumber(position.entrySolUsd)
+    ?? finiteNumber(position.currentSolUsd);
+  if (!Number.isFinite(resolvedSolUsd) || resolvedSolUsd <= 0) {
+    return position;
+  }
+
+  const nominalUsd = finiteNumber(position.nominalUsd, 0);
+  const returnPct = finiteNumber(position.returnPct, 0);
+  const entrySolUsd = finiteNumber(position.entrySolUsd, resolvedSolUsd);
+  const nominalSol = entrySolUsd > 0 ? nominalUsd / entrySolUsd : null;
+
+  position.entrySolUsd = compact(entrySolUsd, 6);
+  position.currentSolUsd = compact(resolvedSolUsd, 6);
+  position.nominalSol = compact(nominalSol, 9);
+  position.pnlSol = compact(Number(nominalSol || 0) * returnPct, 9);
+  return position;
+}
+
+function openPosition(specimen, config, nowIso, profileName = null, entryMeta = {}, solUsdPrice = null) {
+  const cfg = positionConfig(specimen, config, profileName);
   const rawEntryPriceUsd = Number(specimen.priceUsd);
   const entryPriceUsd = rawEntryPriceUsd * (1 + cfg.entrySlippagePct);
   const effectiveExitPriceUsd = rawEntryPriceUsd * (1 - cfg.exitSlippagePct);
   const openingReturnPct = entryPriceUsd > 0 ? (effectiveExitPriceUsd - entryPriceUsd) / entryPriceUsd : 0;
-  const openingPnlUsd = Number(config.nominalUsd || 0) * openingReturnPct;
-  return {
-    id: `${specimen.mint}:${nowIso}`,
+  const nominalUsd = Number(cfg.nominalUsd || config.nominalUsd || 0);
+  const openingPnlUsd = nominalUsd * openingReturnPct;
+  const position = {
+    id: `${specimen.mint}:${cfg.profileName}:${nowIso}`,
     mint: specimen.mint,
     symbol: specimen.symbol || null,
     name: specimen.name || null,
@@ -162,12 +300,18 @@ function openPosition(specimen, config, nowIso) {
     openedAt: nowIso,
     closedAt: null,
     sourceLabel: specimen.label,
+    paperProfile: cfg.profileName,
+    entryMode: profileName === 'chop_fade_scalper' ? 'CHOP_FADE_SCALPER' : 'CONTINUATION_PAPER',
+    entryMeta,
     entryScore: compact(specimen.continuationScore, 2),
     entryReasons: specimen.reasons || [],
     entryRiskFlags: specimen.riskFlags || [],
     dexscreenerUrl: specimen.dexscreenerUrl || null,
     primaryDexId: specimen.primaryDexId || null,
-    nominalUsd: config.nominalUsd,
+    nominalUsd,
+    entrySolUsd: compact(solUsdPrice, 6),
+    currentSolUsd: compact(solUsdPrice, 6),
+    nominalSol: null,
     rawEntryPriceUsd: compact(rawEntryPriceUsd, 12),
     entryPriceUsd: compact(entryPriceUsd, 12),
     currentPriceUsd: compact(rawEntryPriceUsd, 12),
@@ -178,6 +322,7 @@ function openPosition(specimen, config, nowIso) {
     maxDrawdownPct: 0,
     returnPct: compact(openingReturnPct, 6),
     pnlUsd: compact(openingPnlUsd, 6),
+    pnlSol: null,
     exitReason: null,
     updates: 0,
     lastUpdatedAt: nowIso,
@@ -197,12 +342,19 @@ function openPosition(specimen, config, nowIso) {
       effectiveExitPriceUsd: compact(effectiveExitPriceUsd, 12),
       returnPct: compact(openingReturnPct, 6),
       pnlUsd: compact(openingPnlUsd, 6),
-      label: specimen.label
+      pnlSol: null,
+      solUsd: compact(solUsdPrice, 6),
+      label: specimen.label,
+      paperProfile: cfg.profileName,
+      entryMode: profileName === 'chop_fade_scalper' ? 'CHOP_FADE_SCALPER' : 'CONTINUATION_PAPER'
     }]
   };
+  applySolPnl(position, solUsdPrice);
+  position.timeline[0].pnlSol = position.pnlSol;
+  return position;
 }
 
-function updatePosition(position, market, nowIso) {
+function updatePosition(position, market, nowIso, solUsdPrice = null) {
   if (position.status !== 'OPEN') return;
   const priceUsd = Number(market?.priceUsd);
   if (!Number.isFinite(priceUsd) || priceUsd <= 0) {
@@ -225,6 +377,9 @@ function updatePosition(position, market, nowIso) {
   const minPriceUsd = Math.min(previousMin, priceUsd);
   const trailingStopPriceUsd = maxPriceUsd * (1 - Number(cfg.trailingStopPct || 0));
   const holdHours = hoursBetween(position.openedAt, nowIso);
+  const nextMaxUnrealizedReturnPct = Math.max(Number(position.maxUnrealizedReturnPct || -Infinity), returnPct);
+  const breakevenActive = Number(cfg.breakevenActivationPct || 0) > 0
+    && nextMaxUnrealizedReturnPct >= Number(cfg.breakevenActivationPct || 0);
 
   position.currentPriceUsd = compact(priceUsd, 12);
   position.effectiveExitPriceUsd = compact(effectiveExitPriceUsd, 12);
@@ -232,8 +387,10 @@ function updatePosition(position, market, nowIso) {
   position.minPriceUsd = compact(minPriceUsd, 12);
   position.returnPct = compact(returnPct, 6);
   position.pnlUsd = compact(Number(position.nominalUsd || 0) * returnPct, 6);
-  position.maxUnrealizedReturnPct = compact(Math.max(Number(position.maxUnrealizedReturnPct || -Infinity), returnPct), 6);
+  applySolPnl(position, solUsdPrice);
+  position.maxUnrealizedReturnPct = compact(nextMaxUnrealizedReturnPct, 6);
   position.maxDrawdownPct = compact(entryPriceUsd > 0 ? (minPriceUsd - entryPriceUsd) / entryPriceUsd : 0, 6);
+  position.breakevenActivated = Boolean(position.breakevenActivated || breakevenActive);
   position.lastUpdatedAt = nowIso;
   position.updates = Number(position.updates || 0) + 1;
 
@@ -244,6 +401,8 @@ function updatePosition(position, market, nowIso) {
     effectiveExitPriceUsd: compact(effectiveExitPriceUsd, 12),
     returnPct: compact(returnPct, 6),
     pnlUsd: compact(Number(position.nominalUsd || 0) * returnPct, 6),
+    pnlSol: position.pnlSol,
+    solUsd: compact(solUsdPrice, 6),
     liquidityUsd: market.liquidityUsd ?? null,
     volume1hUsd: market.volume1hUsd ?? null,
     priceChange1hPct: market.priceChange1hPct ?? null
@@ -256,6 +415,8 @@ function updatePosition(position, market, nowIso) {
     exitReason = 'TAKE_PROFIT';
   } else if (returnPct <= -Number(cfg.stopLossPct || 0)) {
     exitReason = 'STOP_LOSS';
+  } else if (position.breakevenActivated && returnPct <= Number(cfg.breakevenStopPct || 0)) {
+    exitReason = 'BREAKEVEN_STOP';
   } else if (priceUsd <= trailingStopPriceUsd && Number(position.maxUnrealizedReturnPct || 0) > 0) {
     exitReason = 'TRAILING_STOP';
   } else if (Number.isFinite(holdHours) && holdHours >= Number(cfg.maxHoldHours || 0)) {
@@ -278,7 +439,9 @@ function closePosition(position, nowIso, reason) {
     reason,
     priceUsd: position.currentPriceUsd,
     returnPct: position.returnPct,
-    pnlUsd: position.pnlUsd
+    pnlUsd: position.pnlUsd,
+    pnlSol: position.pnlSol,
+    solUsd: position.currentSolUsd || position.entrySolUsd || null
   });
 }
 
@@ -301,6 +464,38 @@ async function fetchMarketForMint(mint) {
     priceChange1hPct: compact(primary?.priceChange?.h1, 2),
     dexscreenerUrl: primary.url || null
   };
+}
+
+async function fetchSolUsdPrice() {
+  const response = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${SOL_MINT}`, {
+    timeout: 12000,
+    headers: { 'User-Agent': 'SpectreContinuationPaper/1.0' }
+  });
+  const pairs = Array.isArray(response.data?.pairs)
+    ? response.data.pairs.filter((pair) => pair?.chainId === 'solana')
+    : [];
+  const primary = [...pairs].sort((a, b) => Number(b?.liquidity?.usd || 0) - Number(a?.liquidity?.usd || 0))[0] || null;
+  const price = Number(primary?.priceUsd);
+  return Number.isFinite(price) && price > 0 ? price : null;
+}
+
+async function resolveSolUsdPrice(args, config) {
+  const explicit = finiteNumber(args.solUsd ?? process.env.CONTINUATION_PAPER_SOL_USD);
+  if (Number.isFinite(explicit) && explicit > 0) {
+    return explicit;
+  }
+
+  try {
+    const fetched = await fetchSolUsdPrice();
+    if (Number.isFinite(fetched) && fetched > 0) {
+      return fetched;
+    }
+  } catch {
+    // Keep report generation non-fatal; USD accounting remains canonical.
+  }
+
+  const fallback = finiteNumber(config.solUsdFallback);
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
 }
 
 async function resolveMarkets(specimens, openPositions) {
@@ -342,16 +537,20 @@ function summarize(
   skippedReopen,
   skippedIneligible,
   skippedLearning,
+  skippedChopFade,
   specimenReport,
   internalSpecimenReport,
   combinedSpecimens,
-  learningPause
+  learningPause,
+  solUsdPrice
 ) {
   const positions = state.positions || [];
   const open = positions.filter((position) => position.status === 'OPEN');
   const closedPositions = positions.filter((position) => position.status === 'CLOSED');
   const closedPnl = closedPositions.reduce((sum, position) => sum + Number(position.pnlUsd || 0), 0);
   const openPnl = open.reduce((sum, position) => sum + Number(position.pnlUsd || 0), 0);
+  const closedPnlSol = closedPositions.reduce((sum, position) => sum + Number(position.pnlSol || 0), 0);
+  const openPnlSol = open.reduce((sum, position) => sum + Number(position.pnlSol || 0), 0);
   return {
     generatedAt: new Date().toISOString(),
     source: {
@@ -361,6 +560,7 @@ function summarize(
       internalSpecimenSummary: internalSpecimenReport.summary || null,
       combinedSpecimens: combinedSpecimens.length
     },
+    solUsdPrice: compact(solUsdPrice, 6),
     summary: {
       openedThisRun: opened.length,
       updatedThisRun: updated.length,
@@ -368,6 +568,7 @@ function summarize(
       skippedReopenThisRun: skippedReopen.length,
       skippedIneligibleThisRun: skippedIneligible.length,
       skippedLearningThisRun: skippedLearning.length,
+      skippedChopFadeThisRun: skippedChopFade.length,
       learningPauseActive: learningPause.active,
       learningRegime: learningPause.marketRegime,
       learningContinuationPosture: learningPause.continuationPosture,
@@ -377,9 +578,27 @@ function summarize(
       openPnlUsd: compact(openPnl, 6),
       closedPnlUsd: compact(closedPnl, 6),
       totalMarkedPnlUsd: compact(openPnl + closedPnl, 6),
+      openPnlSol: compact(openPnlSol, 9),
+      closedPnlSol: compact(closedPnlSol, 9),
+      totalMarkedPnlSol: compact(openPnlSol + closedPnlSol, 9),
       exitsByReason: closedPositions.reduce((counts, position) => {
         const reason = position.exitReason || 'UNKNOWN';
         counts[reason] = (counts[reason] || 0) + 1;
+        return counts;
+      }, {}),
+      positionsByProfile: positions.reduce((counts, position) => {
+        const profile = position.paperProfile || 'unknown';
+        counts[profile] = (counts[profile] || 0) + 1;
+        return counts;
+      }, {}),
+      openedByProfile: opened.reduce((counts, position) => {
+        const profile = position.paperProfile || 'unknown';
+        counts[profile] = (counts[profile] || 0) + 1;
+        return counts;
+      }, {}),
+      closedByProfile: closed.reduce((counts, position) => {
+        const profile = position.paperProfile || 'unknown';
+        counts[profile] = (counts[profile] || 0) + 1;
         return counts;
       }, {})
     },
@@ -389,6 +608,7 @@ function summarize(
     skippedReopen,
     skippedIneligible,
     skippedLearning,
+    skippedChopFade,
     learningPause,
     openPositions: open,
     recentClosedPositions: closedPositions.slice(-20)
@@ -468,6 +688,7 @@ async function buildLedger(args) {
   const config = configFromArgs(args);
   const learningPause = resolveLearningPause(args, config);
   const nowIso = new Date().toISOString();
+  const solUsdPrice = await resolveSolUsdPrice(args, config);
   const specimenReport = readJson(specimenPath, { specimens: [] });
   const internalSpecimenReport = readJson(internalSpecimenPath, { specimens: [] });
   const combinedSpecimens = mergeSpecimenReports(specimenReport, internalSpecimenReport);
@@ -481,16 +702,19 @@ async function buildLedger(args) {
   const skippedReopen = [];
   const skippedIneligible = [];
   const skippedLearning = [];
+  const skippedChopFade = [];
 
   for (const position of openBefore) {
     const market = markets.get(position.mint);
-    updatePosition(position, market, nowIso);
+    updatePosition(position, market, nowIso, solUsdPrice);
     updated.push({
       mint: position.mint,
       symbol: position.symbol,
+      paperProfile: position.paperProfile || null,
       status: position.status,
       returnPct: position.returnPct,
       pnlUsd: position.pnlUsd,
+      pnlSol: position.pnlSol,
       exitReason: position.exitReason || null
     });
     if (position.status === 'CLOSED') {
@@ -501,7 +725,11 @@ async function buildLedger(args) {
   const openMints = new Set(positions.filter((position) => position.status === 'OPEN').map((position) => position.mint));
   const everOpened = new Set(positions.map((position) => position.mint));
   for (const specimen of combinedSpecimens) {
-    if (!isEligibleSpecimen(specimen)) {
+    const chopFade = chopFadeScalperEligibility(specimen, config, learningPause);
+    const regularEligible = isEligibleSpecimen(specimen);
+
+    if (openMints.has(specimen.mint)) continue;
+    if (!regularEligible && !chopFade.eligible) {
       const reason = paperIneligibleReason(specimen);
       if (reason) {
         skippedIneligible.push({
@@ -513,10 +741,52 @@ async function buildLedger(args) {
           riskFlags: Array.isArray(specimen.riskFlags) ? specimen.riskFlags : []
         });
       }
+      if (chopFade.reason && specimen?.mint) {
+        skippedChopFade.push({
+          mint: specimen.mint || null,
+          symbol: specimen.symbol || null,
+          label: specimen.label || null,
+          score: compact(specimen.continuationScore, 2),
+          reason: chopFade.reason,
+          diagnostics: chopFade.diagnostics || null
+        });
+      }
       continue;
     }
-    if (openMints.has(specimen.mint)) continue;
+
     if (learningPause.active) {
+      if (chopFade.eligible) {
+        if (!config.allowReopen && everOpened.has(specimen.mint)) {
+          skippedReopen.push({
+            mint: specimen.mint,
+            symbol: specimen.symbol || null,
+            label: specimen.label || null,
+            score: compact(specimen.continuationScore, 2),
+            reason: 'MINT_ALREADY_TRADED',
+            paperProfile: 'chop_fade_scalper',
+            previousPositions: positions
+              .filter((position) => position.mint === specimen.mint)
+              .map((position) => ({
+                id: position.id,
+                status: position.status,
+                openedAt: position.openedAt,
+                closedAt: position.closedAt || null,
+                exitReason: position.exitReason || null,
+                returnPct: position.returnPct ?? null,
+                pnlUsd: position.pnlUsd ?? null,
+                paperProfile: position.paperProfile || null
+              }))
+          });
+          continue;
+        }
+        const position = openPosition(specimen, config, nowIso, 'chop_fade_scalper', chopFade.diagnostics || {}, solUsdPrice);
+        positions.push(position);
+        openMints.add(specimen.mint);
+        everOpened.add(specimen.mint);
+        opened.push(position);
+        continue;
+      }
+
       skippedLearning.push({
         mint: specimen.mint,
         symbol: specimen.symbol || null,
@@ -545,16 +815,22 @@ async function buildLedger(args) {
             closedAt: position.closedAt || null,
             exitReason: position.exitReason || null,
             returnPct: position.returnPct ?? null,
-            pnlUsd: position.pnlUsd ?? null
+            pnlUsd: position.pnlUsd ?? null,
+            paperProfile: position.paperProfile || null
           }))
       });
       continue;
     }
-    const position = openPosition(specimen, config, nowIso);
+    const profileName = regularEligible ? null : 'chop_fade_scalper';
+    const position = openPosition(specimen, config, nowIso, profileName, profileName ? (chopFade.diagnostics || {}) : {}, solUsdPrice);
     positions.push(position);
     openMints.add(specimen.mint);
     everOpened.add(specimen.mint);
     opened.push(position);
+  }
+
+  for (const position of positions) {
+    applySolPnl(position, solUsdPrice);
   }
 
   state.updatedAt = nowIso;
@@ -569,10 +845,12 @@ async function buildLedger(args) {
     skippedReopen,
     skippedIneligible,
     skippedLearning,
+    skippedChopFade,
     specimenReport,
     internalSpecimenReport,
     combinedSpecimens,
-    learningPause
+    learningPause,
+    solUsdPrice
   );
   const timestampedPath = path.join(reportDir, `continuation-paper-${nowIso.replace(/[:.]/g, '-')}.json`);
   report.files = {
@@ -597,10 +875,14 @@ function printReport(report) {
   console.log(`Skipped reopens: ${report.summary.skippedReopenThisRun}`);
   console.log(`Skipped ineligible: ${report.summary.skippedIneligibleThisRun}`);
   console.log(`Skipped learning: ${report.summary.skippedLearningThisRun}`);
+  console.log(`Skipped chop-fade: ${report.summary.skippedChopFadeThisRun}`);
   console.log(`Combined specimens: ${report.source.combinedSpecimens}`);
   console.log(`Open positions:   ${report.summary.openPositions}`);
   console.log(`Open PnL:         $${report.summary.openPnlUsd}`);
+  console.log(`Open PnL SOL:     ${report.summary.openPnlSol} SOL`);
   console.log(`Closed PnL:       $${report.summary.closedPnlUsd}`);
+  console.log(`Closed PnL SOL:   ${report.summary.closedPnlSol} SOL`);
+  console.log(`Profiles:         ${Object.entries(report.summary.positionsByProfile || {}).map(([profile, count]) => `${profile}=${count}`).join(', ') || 'none'}`);
 
   if (report.learningPause?.active) {
     console.log(
@@ -611,7 +893,7 @@ function printReport(report) {
   if (report.opened.length > 0) {
     console.log('\nOpened');
     for (const position of report.opened) {
-      console.log(`  ${position.symbol || position.mint}: ${position.sourceLabel} entry=$${position.entryPriceUsd} score=${position.entryScore}`);
+      console.log(`  ${position.symbol || position.mint}: ${position.paperProfile || 'unknown'} ${position.sourceLabel} entry=$${position.entryPriceUsd} score=${position.entryScore}`);
     }
   }
 
@@ -619,7 +901,7 @@ function printReport(report) {
     console.log('\nUpdated');
     for (const item of report.updated) {
       const exit = item.exitReason ? ` exit=${item.exitReason}` : '';
-      console.log(`  ${item.symbol || item.mint}: ${item.status} return=${item.returnPct} pnl=$${item.pnlUsd}${exit}`);
+      console.log(`  ${item.symbol || item.mint}: ${item.paperProfile || 'unknown'} ${item.status} return=${item.returnPct} pnl=${item.pnlSol} SOL ($${item.pnlUsd})${exit}`);
     }
   }
 

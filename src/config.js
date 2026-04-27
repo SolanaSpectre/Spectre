@@ -14,6 +14,22 @@ class Config {
     return process.env.SOLANA_RPC_FALLBACK || 'https://api.mainnet-beta.solana.com';
   }
 
+  static get solanaRpcWebsocketUrl() {
+    return process.env.SOLANA_RPC_WEBSOCKET_URL || process.env.HELIUS_ENHANCED_WEBSOCKET_URL || process.env.HELIUS_STANDARD_WEBSOCKET_URL || null;
+  }
+
+  static get solanaRpcFallbackWebsocketUrl() {
+    return process.env.SOLANA_RPC_FALLBACK_WEBSOCKET_URL || null;
+  }
+
+  static get heliusEnhancedWebsocketUrl() {
+    return process.env.HELIUS_ENHANCED_WEBSOCKET_URL || null;
+  }
+
+  static get heliusStandardWebsocketUrl() {
+    return process.env.HELIUS_STANDARD_WEBSOCKET_URL || null;
+  }
+
   static get heliusParseApiKey() {
     return process.env.HELIUS_PARSE_API_KEY;
   }
@@ -124,11 +140,27 @@ class Config {
   }
 
   static get preMigrationWatchMinScore() {
-    return parseFloat(process.env.PRE_MIGRATION_WATCH_MIN_SCORE || '60');
+    return parseFloat(process.env.PRE_MIGRATION_WATCH_MIN_SCORE || '25');
   }
 
   static get preMigrationWatchConfirmMinScore() {
-    return parseFloat(process.env.PRE_MIGRATION_WATCH_CONFIRM_MIN_SCORE || String(this.preMigrationWatchMinScore));
+    return parseFloat(process.env.PRE_MIGRATION_WATCH_CONFIRM_MIN_SCORE || '60');
+  }
+
+  static get preMigrationWatchInterestMinTradeVelocityPerMin() {
+    return parseFloat(process.env.PRE_MIGRATION_WATCH_INTEREST_MIN_TRADE_VELOCITY_PER_MIN || '1.5');
+  }
+
+  static get preMigrationWatchInterestMinRecentVolumeSol() {
+    return parseFloat(process.env.PRE_MIGRATION_WATCH_INTEREST_MIN_RECENT_VOLUME_SOL || '0.15');
+  }
+
+  static get preMigrationWatchInterestMinCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_WATCH_INTEREST_MIN_CURVE_PROGRESS || '0.45');
+  }
+
+  static get preMigrationWatchInterestMinUniqueBuyerCount() {
+    return parseInt(process.env.PRE_MIGRATION_WATCH_INTEREST_MIN_UNIQUE_BUYER_COUNT || '4', 10);
   }
 
   static get preMigrationWatchConfirmMinObservations() {
@@ -299,6 +331,26 @@ class Config {
     return parseInt(process.env.PRE_MIGRATION_PAPER_MAX_OBSERVED_STATES || '5000', 10);
   }
 
+  static get preMigrationPaperRecheckEnabled() {
+    return process.env.PRE_MIGRATION_PAPER_RECHECK_ENABLED !== 'false';
+  }
+
+  static get preMigrationPaperRecheckDelayMs() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_RECHECK_DELAY_MS || '10000', 10);
+  }
+
+  static get preMigrationPaperRecheckMaxAttempts() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_RECHECK_MAX_ATTEMPTS || '2', 10);
+  }
+
+  static get preMigrationPaperRecheckMaxAgeMs() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_RECHECK_MAX_AGE_MS || '1800000', 10);
+  }
+
+  static get preMigrationPaperRecheckMaxTrackedMints() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_RECHECK_MAX_TRACKED_MINTS || '500', 10);
+  }
+
   static get preMigrationPaperLateFastTrackEnabled() {
     return process.env.PRE_MIGRATION_PAPER_LATE_FAST_TRACK_ENABLED !== 'false';
   }
@@ -345,6 +397,50 @@ class Config {
 
   static get preMigrationPaperFirstSightMinBuyRatio() {
     return parseFloat(process.env.PRE_MIGRATION_PAPER_FIRST_SIGHT_MIN_BUY_RATIO || '0.75');
+  }
+
+  static get preMigrationPaperFirstCurveSnapshotScalpEnabled() {
+    return process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_ENABLED !== 'false';
+  }
+
+  static get preMigrationPaperFirstCurveSnapshotScalpMinScore() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MIN_SCORE || '55');
+  }
+
+  static get preMigrationPaperFirstCurveSnapshotScalpMinCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MIN_CURVE_PROGRESS || '0.7');
+  }
+
+  static get preMigrationPaperFirstCurveSnapshotScalpMaxCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MAX_CURVE_PROGRESS || '0.9');
+  }
+
+  static get preMigrationPaperFirstCurveSnapshotScalpMinRecentVolumeSol() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MIN_RECENT_VOLUME_SOL || '0.25');
+  }
+
+  static get preMigrationPaperFirstCurveSnapshotScalpMinTradeVelocityPerMin() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MIN_TRADE_VELOCITY_PER_MIN || '1.5');
+  }
+
+  static get preMigrationPaperFirstCurveSnapshotScalpMinInterestCount() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MIN_INTEREST_COUNT || '3', 10);
+  }
+
+  static get preMigrationPaperFirstCurveSnapshotScalpMinUniqueBuyerCount() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MIN_UNIQUE_BUYER_COUNT || '3', 10);
+  }
+
+  static get preMigrationPaperFirstCurveSnapshotScalpMaxRiskWalletCount() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MAX_RISK_WALLET_COUNT || '1', 10);
+  }
+
+  static get preMigrationPaperFirstCurveSnapshotScalpMinBuyRatio() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MIN_BUY_RATIO || '0.45');
+  }
+
+  static get preMigrationPaperLogDecisionEvents() {
+    return process.env.PRE_MIGRATION_PAPER_LOG_DECISION_EVENTS !== 'false';
   }
 
   static get preMigrationPaperEarlySurgeOverrideEnabled() {
@@ -605,6 +701,18 @@ class Config {
     return accounts.split(',').map((account) => account.trim()).filter(Boolean);
   }
 
+  static get pumpPortalReconnectDelayMs() {
+    return parseInt(process.env.PUMPPORTAL_RECONNECT_DELAY_MS || '5000', 10);
+  }
+
+  static get pumpPortalStaleConnectionMs() {
+    return parseInt(process.env.PUMPPORTAL_STALE_CONNECTION_MS || '90000', 10);
+  }
+
+  static get pumpPortalHealthCheckIntervalMs() {
+    return parseInt(process.env.PUMPPORTAL_HEALTH_CHECK_INTERVAL_MS || '15000', 10);
+  }
+
   static get gmgnApiBaseUrl() {
     return process.env.GMGN_API_BASE_URL || 'https://gmgn.ai';
   }
@@ -635,6 +743,22 @@ class Config {
 
   static get walletIntelRefreshIntervalMs() {
     return parseInt(process.env.WALLET_INTEL_REFRESH_INTERVAL_MS || '60000', 10);
+  }
+
+  static get walletEventLedgerEnabled() {
+    return process.env.WALLET_EVENT_LEDGER_ENABLED !== 'false';
+  }
+
+  static get walletEventLedgerFilePath() {
+    return process.env.WALLET_EVENT_LEDGER_FILE_PATH || path.join(process.cwd(), 'data', 'wallet-events', 'events.jsonl');
+  }
+
+  static get walletEventLedgerLatestFilePath() {
+    return process.env.WALLET_EVENT_LEDGER_LATEST_FILE_PATH || path.join(process.cwd(), 'data', 'wallet-events', 'latest.json');
+  }
+
+  static get walletEventLedgerMaxRecentEvents() {
+    return parseInt(process.env.WALLET_EVENT_LEDGER_MAX_RECENT_EVENTS || '250', 10);
   }
 
   static get kolscanLeaderboardFilePath() {
@@ -692,7 +816,7 @@ class Config {
   }
 
   static get telegramContextWindowHours() {
-    return parseInt(process.env.TELEGRAM_CONTEXT_WINDOW_HOURS || '24', 10);
+    return parseInt(process.env.TELEGRAM_CONTEXT_WINDOW_HOURS || '12', 10);
   }
 
   static get telegramMaxUpdatesPerFetch() {
@@ -700,15 +824,51 @@ class Config {
   }
 
   static get telegramMaxStoredMessages() {
-    return parseInt(process.env.TELEGRAM_MAX_STORED_MESSAGES || '2000', 10);
+    return parseInt(process.env.TELEGRAM_MAX_STORED_MESSAGES || '300', 10);
   }
 
   static get telegramMaxMessagesPerChat() {
-    return parseInt(process.env.TELEGRAM_MAX_MESSAGES_PER_CHAT || '200', 10);
+    return parseInt(process.env.TELEGRAM_MAX_MESSAGES_PER_CHAT || '40', 10);
   }
 
   static get telegramSummaryMaxSnippets() {
     return parseInt(process.env.TELEGRAM_SUMMARY_MAX_SNIPPETS || '3', 10);
+  }
+
+  static get telegramBootstrapSightingLimit() {
+    return parseInt(process.env.TELEGRAM_BOOTSTRAP_SIGHTING_LIMIT || '75', 10);
+  }
+
+  static get telegramBootstrapSightingMaxAgeMinutes() {
+    return parseFloat(process.env.TELEGRAM_BOOTSTRAP_SIGHTING_MAX_AGE_MINUTES || '240');
+  }
+
+  static get telegramBootstrapSightingMode() {
+    return String(process.env.TELEGRAM_BOOTSTRAP_SIGHTING_MODE || 'live_only').trim().toLowerCase();
+  }
+
+  static get telegramPaperBootstrapSightingLimit() {
+    return parseInt(process.env.TELEGRAM_PAPER_BOOTSTRAP_SIGHTING_LIMIT || '10', 10);
+  }
+
+  static get telegramPaperBootstrapSightingMaxAgeMinutes() {
+    return parseFloat(process.env.TELEGRAM_PAPER_BOOTSTRAP_SIGHTING_MAX_AGE_MINUTES || '60');
+  }
+
+  static get telegramPaperRecurringSightingLimit() {
+    return parseInt(process.env.TELEGRAM_PAPER_RECURRING_SIGHTING_LIMIT || '25', 10);
+  }
+
+  static get telegramPaperRecurringSightingMaxAgeMinutes() {
+    return parseFloat(process.env.TELEGRAM_PAPER_RECURRING_SIGHTING_MAX_AGE_MINUTES || '20');
+  }
+
+  static get capitalBalanceTimeoutMs() {
+    return parseInt(process.env.CAPITAL_BALANCE_TIMEOUT_MS || '5000', 10);
+  }
+
+  static get paperBalanceRefreshIntervalMs() {
+    return parseInt(process.env.PAPER_BALANCE_REFRESH_INTERVAL_MS || '15000', 10);
   }
 
   static get rickContextEnabled() {
@@ -942,6 +1102,11 @@ class Config {
     return process.env.PAPER_RUNNER_REQUIRE_PUMP_MIGRATION !== 'false';
   }
 
+  static get runnerScalperRequirePumpMigration() {
+    return process.env.RUNNER_SCALPER_REQUIRE_PUMP_MIGRATION !== 'false'
+      && this.paperRunnerRequirePumpMigration;
+  }
+
   static get paperRunnerMinMigratedLiquidityUsd() {
     return parseFloat(process.env.PAPER_RUNNER_MIN_MIGRATED_LIQUIDITY_USD || '30000');
   }
@@ -952,6 +1117,10 @@ class Config {
 
   static get paperCloseOnSessionEnd() {
     return process.env.PAPER_CLOSE_ON_SESSION_END !== 'false';
+  }
+
+  static get liveExitEngineEnabled() {
+    return process.env.LIVE_EXIT_ENGINE_ENABLED !== 'false';
   }
 
   static get maxOpenPaperPositions() {
@@ -1259,6 +1428,10 @@ class Config {
       { key: 'birdeyeMaxRetries', value: this.birdeyeMaxRetries, min: 0, max: 10 },
       { key: 'preMigrationWatchMinScore', value: this.preMigrationWatchMinScore, min: 0, max: 100 },
       { key: 'preMigrationWatchConfirmMinScore', value: this.preMigrationWatchConfirmMinScore, min: 0, max: 100 },
+      { key: 'preMigrationWatchInterestMinTradeVelocityPerMin', value: this.preMigrationWatchInterestMinTradeVelocityPerMin, min: 0 },
+      { key: 'preMigrationWatchInterestMinRecentVolumeSol', value: this.preMigrationWatchInterestMinRecentVolumeSol, min: 0 },
+      { key: 'preMigrationWatchInterestMinCurveProgress', value: this.preMigrationWatchInterestMinCurveProgress, min: 0, max: 1 },
+      { key: 'preMigrationWatchInterestMinUniqueBuyerCount', value: this.preMigrationWatchInterestMinUniqueBuyerCount, min: 0 },
       { key: 'preMigrationWatchConfirmMinObservations', value: this.preMigrationWatchConfirmMinObservations, min: 1 },
       { key: 'preMigrationWatchConfirmMinGapMs', value: this.preMigrationWatchConfirmMinGapMs, min: 0 },
       { key: 'preMigrationWatchFastTrackScore', value: this.preMigrationWatchFastTrackScore, min: 0, max: 100 },
@@ -1294,6 +1467,10 @@ class Config {
       { key: 'preMigrationPaperCloneGuardMaxEntriesPerSymbol', value: this.preMigrationPaperCloneGuardMaxEntriesPerSymbol, min: 0 },
       { key: 'preMigrationPaperBadExitCooldownMs', value: this.preMigrationPaperBadExitCooldownMs, min: 0 },
       { key: 'preMigrationPaperMaxObservedStates', value: this.preMigrationPaperMaxObservedStates, min: 1 },
+      { key: 'preMigrationPaperRecheckDelayMs', value: this.preMigrationPaperRecheckDelayMs, min: 1000 },
+      { key: 'preMigrationPaperRecheckMaxAttempts', value: this.preMigrationPaperRecheckMaxAttempts, min: 0 },
+      { key: 'preMigrationPaperRecheckMaxAgeMs', value: this.preMigrationPaperRecheckMaxAgeMs, min: 1000 },
+      { key: 'preMigrationPaperRecheckMaxTrackedMints', value: this.preMigrationPaperRecheckMaxTrackedMints, min: 1 },
       { key: 'preMigrationPaperLateFastTrackMinScore', value: this.preMigrationPaperLateFastTrackMinScore, min: 0, max: 100 },
       { key: 'preMigrationPaperLateFastTrackMinCurveProgress', value: this.preMigrationPaperLateFastTrackMinCurveProgress, min: 0, max: 1 },
       { key: 'preMigrationPaperLateFastTrackMinRecentVolumeSol', value: this.preMigrationPaperLateFastTrackMinRecentVolumeSol, min: 0 },
@@ -1304,6 +1481,15 @@ class Config {
       { key: 'preMigrationPaperFirstSightMinRecentVolumeSol', value: this.preMigrationPaperFirstSightMinRecentVolumeSol, min: 0 },
       { key: 'preMigrationPaperFirstSightMinTradeVelocityPerMin', value: this.preMigrationPaperFirstSightMinTradeVelocityPerMin, min: 0 },
       { key: 'preMigrationPaperFirstSightMinBuyRatio', value: this.preMigrationPaperFirstSightMinBuyRatio, min: 0, max: 1 },
+      { key: 'preMigrationPaperFirstCurveSnapshotScalpMinScore', value: this.preMigrationPaperFirstCurveSnapshotScalpMinScore, min: 0, max: 100 },
+      { key: 'preMigrationPaperFirstCurveSnapshotScalpMinCurveProgress', value: this.preMigrationPaperFirstCurveSnapshotScalpMinCurveProgress, min: 0, max: 1 },
+      { key: 'preMigrationPaperFirstCurveSnapshotScalpMaxCurveProgress', value: this.preMigrationPaperFirstCurveSnapshotScalpMaxCurveProgress, min: 0, max: 1 },
+      { key: 'preMigrationPaperFirstCurveSnapshotScalpMinRecentVolumeSol', value: this.preMigrationPaperFirstCurveSnapshotScalpMinRecentVolumeSol, min: 0 },
+      { key: 'preMigrationPaperFirstCurveSnapshotScalpMinTradeVelocityPerMin', value: this.preMigrationPaperFirstCurveSnapshotScalpMinTradeVelocityPerMin, min: 0 },
+      { key: 'preMigrationPaperFirstCurveSnapshotScalpMinInterestCount', value: this.preMigrationPaperFirstCurveSnapshotScalpMinInterestCount, min: 1 },
+      { key: 'preMigrationPaperFirstCurveSnapshotScalpMinUniqueBuyerCount', value: this.preMigrationPaperFirstCurveSnapshotScalpMinUniqueBuyerCount, min: 1 },
+      { key: 'preMigrationPaperFirstCurveSnapshotScalpMaxRiskWalletCount', value: this.preMigrationPaperFirstCurveSnapshotScalpMaxRiskWalletCount, min: 0 },
+      { key: 'preMigrationPaperFirstCurveSnapshotScalpMinBuyRatio', value: this.preMigrationPaperFirstCurveSnapshotScalpMinBuyRatio, min: 0, max: 1 },
       { key: 'preMigrationPaperEarlySurgeMinScore', value: this.preMigrationPaperEarlySurgeMinScore, min: 0, max: 100 },
       { key: 'preMigrationPaperEarlySurgeMinCurveProgress', value: this.preMigrationPaperEarlySurgeMinCurveProgress, min: 0, max: 1 },
       { key: 'preMigrationPaperEarlySurgeMaxCurveProgress', value: this.preMigrationPaperEarlySurgeMaxCurveProgress, min: 0, max: 1 },
@@ -1343,12 +1529,16 @@ class Config {
       { key: 'pumpBondingCurveMaxTrackedMints', value: this.pumpBondingCurveMaxTrackedMints, min: 1 },
       { key: 'pumpBondingCurveMaxFetchesPerCycle', value: this.pumpBondingCurveMaxFetchesPerCycle, min: 1 },
       { key: 'walletIntelRefreshIntervalMs', value: this.walletIntelRefreshIntervalMs, min: 1000 },
+      { key: 'walletEventLedgerMaxRecentEvents', value: this.walletEventLedgerMaxRecentEvents, min: 1 },
       { key: 'telegramContextRefreshIntervalMs', value: this.telegramContextRefreshIntervalMs, min: 1000 },
       { key: 'telegramContextWindowHours', value: this.telegramContextWindowHours, min: 1 },
       { key: 'rickContextRefreshIntervalMs', value: this.rickContextRefreshIntervalMs, min: 1000 },
       { key: 'telegramMaxStoredMessages', value: this.telegramMaxStoredMessages, min: 1 },
       { key: 'telegramMaxMessagesPerChat', value: this.telegramMaxMessagesPerChat, min: 1 },
       { key: 'telegramSummaryMaxSnippets', value: this.telegramSummaryMaxSnippets, min: 1 },
+      { key: 'telegramBootstrapSightingLimit', value: this.telegramBootstrapSightingLimit, min: 0 },
+      { key: 'telegramBootstrapSightingMaxAgeMinutes', value: this.telegramBootstrapSightingMaxAgeMinutes, min: 0 },
+      { key: 'capitalBalanceTimeoutMs', value: this.capitalBalanceTimeoutMs, min: 100 },
       { key: 'slippageTolerance', value: this.slippageTolerance, min: 0.1 },
       { key: 'maxPriceImpact', value: this.maxPriceImpact, min: 0.01 },
       { key: 'minColdSweepSol', value: this.minColdSweepSol, min: 0 },
