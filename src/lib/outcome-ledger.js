@@ -22,35 +22,60 @@ class OutcomeLedger {
     }
   }
 
+  /**
+   * Record a candidate observation, flag, or early rejection.
+   *
+   * This intentionally keeps the existing event shape while adding richer
+   * rejection context for NO_PRIOR_CURVE_PROGRESS and nearby early guard
+   * failures. The report layer already expects reason/market/raw fields, so
+   * avoid moving those values to new top-level-only names.
+   */
   recordCandidate(state = {}, meta = {}) {
-    if (!state?.mint) {
+    const mint = state.mint || meta.mint || meta.mintAddress;
+    if (!mint) {
       return null;
     }
 
+    const reason = meta.reason || meta.rejectionReason || meta.flagType || state.confirmationReason || null;
+    const normalizedReason = String(reason || '').toUpperCase();
+    const isNoPriorCurveRejection = normalizedReason.includes('NO_PRIOR_CURVE');
+    const isRejected = meta.rejected === true || meta.kind === 'candidate.rejected' || isNoPriorCurveRejection;
+    const kind = meta.kind || (isRejected ? 'candidate.rejected' : meta.flagged ? 'candidate.flagged' : 'candidate.observed');
+
     return this.record({
-      kind: meta.kind || (meta.flagged ? 'candidate.flagged' : 'candidate.observed'),
+      kind,
       source: meta.source || 'pre_migration_watch',
       stage: meta.stage || 'pre_migration',
       sessionId: meta.sessionId || null,
-      mint: state.mint,
-      symbol: state.symbol || null,
-      name: state.name || null,
-      decision: meta.flagged ? 'WATCH_FLAGGED' : 'WATCH_OBSERVED',
-      reason: meta.flagType || state.confirmationReason || null,
-      reasons: Array.isArray(state.reasons) ? state.reasons.slice(0, 12) : [],
-      score: state.score,
-      curveProgress: state.curveProgress,
-      priceSol: state.bondingCurvePriceSol ?? state.priceSol ?? null,
+      mint,
+      symbol: state.symbol || meta.symbol || null,
+      name: state.name || meta.name || null,
+      decision: isRejected ? 'CANDIDATE_REJECTED' : meta.flagged ? 'WATCH_FLAGGED' : 'WATCH_OBSERVED',
+      reason,
+      reasons: Array.isArray(state.reasons) ? state.reasons.slice(0, 12) : Array.isArray(meta.reasons) ? meta.reasons.slice(0, 12) : [],
+      score: state.score ?? meta.score,
+      curveProgress: state.curveProgress ?? meta.curveProgress ?? null,
+      priceSol: state.bondingCurvePriceSol ?? state.priceSol ?? meta.priceSol ?? null,
       market: {
-        recentVolumeSol: state.recentVolumeSol,
-        tradeVelocityPerMin: state.tradeVelocityPerMin,
-        recentTradeCount: state.recentTradeCount,
-        uniqueBuyerCount: state.uniqueBuyerCount,
-        buyRatio: this.buyRatio(state),
+        recentVolumeSol: state.recentVolumeSol ?? meta.recentVolumeSol,
+        tradeVelocityPerMin: state.tradeVelocityPerMin ?? state.tradeVelocity ?? meta.tradeVelocityPerMin ?? meta.tradeVelocity,
+        recentTradeCount: state.recentTradeCount ?? meta.recentTradeCount,
+        uniqueBuyerCount: state.uniqueBuyerCount ?? state.buyerCount ?? meta.uniqueBuyerCount ?? meta.buyerCount,
+        buyRatio: state.buyRatio ?? meta.buyRatio ?? this.buyRatio(state),
         bondingCurveComplete: state.bondingCurveComplete,
         bondingStage: state.bondingStage,
         migratedAt: state.migratedAt || null
       },
+      rejection: isRejected ? {
+        reason,
+        detail: meta.detail || null,
+        isNoPriorCurveRejection,
+        firstSighting: Boolean(meta.firstSighting),
+        recheck: Boolean(meta.recheck),
+        confirmedWatch: Boolean(state.confirmed || meta.confirmedWatch),
+        currentCurveSnapshotAvailable: Boolean(meta.currentCurveSnapshotAvailable),
+        lastCurveSnapshotAt: meta.lastCurveSnapshotAt || null
+      } : null,
       social: {
         externalMentionCount: state.externalMentionCount,
         externalChatCount: state.externalChatCount,
@@ -64,13 +89,18 @@ class OutcomeLedger {
         lateChaserCount: state.lateChaserCount
       },
       links: {
-        pumpFunUrl: `https://pump.fun/coin/${state.mint}`
+        pumpFunUrl: `https://pump.fun/coin/${mint}`
       },
+      followup: isRejected ? {
+        done: false
+      } : null,
       raw: {
         observedSignal: Boolean(meta.observedSignal),
         observedInterest: Boolean(meta.observedInterest),
         confirmed: Boolean(state.confirmed),
-        newlyConfirmed: Boolean(meta.newlyConfirmed)
+        newlyConfirmed: Boolean(meta.newlyConfirmed),
+        rejected: isRejected,
+        rejectionDetail: meta.detail || null
       }
     });
   }
