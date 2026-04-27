@@ -11,6 +11,7 @@ from .kolscan import fetch_kolscan_leaderboard_entries, fetch_kolscan_usernames,
 from .memory import MemoryStore
 from .ollama_client import OllamaClient
 from .narrative_brief import build_narrative_brief, write_brief
+from .narrative_radar import build_narrative_radar_report, read_previous_report, write_radar_report
 from .paths import config_file, runtime_file
 from .persona import PersonaEngine
 from .pipeline import build_candidates
@@ -38,6 +39,7 @@ DEFAULT_BRIEF = runtime_file("spectre_narrative_brief_latest.json")
 DEFAULT_RICK_BRIEF = runtime_file("spectre_narrative_brief_rick_latest.json")
 DEFAULT_SOCIAL_WALLET_WATCHLIST = runtime_file("social_wallet_watchlist.json")
 DEFAULT_SOCIAL_WALLET_TRACKER_EXPORT = runtime_file("social_wallet_tracker_export.json")
+DEFAULT_NARRATIVE_RADAR = runtime_file("narrative_radar_latest.json")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -75,6 +77,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     wallet_query_names = subparsers.add_parser("wallet-query-names", help="List configured social-wallet query buckets without spending X API reads.")
     wallet_query_names.add_argument("--engagement-targets", default=str(DEFAULT_ENGAGEMENT_TARGETS), help="Path to engagement targets JSON.")
+
+    narrative_query_names = subparsers.add_parser("narrative-query-names", help="List configured narrative radar query buckets without spending X API reads.")
+    narrative_query_names.add_argument("--engagement-targets", default=str(DEFAULT_ENGAGEMENT_TARGETS), help="Path to engagement targets JSON.")
 
     mentions = subparsers.add_parser("mentions", help="Fetch mentions from X.")
     mentions.add_argument("--env-file", default="", help="Optional path to .env file.")
@@ -189,6 +194,18 @@ def build_parser() -> argparse.ArgumentParser:
     social_wallet.add_argument("--write", default=str(DEFAULT_SOCIAL_WALLET_WATCHLIST), help="Watchlist JSON output path. Use '-' to skip writing.")
     social_wallet.add_argument("--tracker-export", default=str(DEFAULT_SOCIAL_WALLET_TRACKER_EXPORT), help="Tracker export JSON output path. Use '-' to skip writing.")
     social_wallet.add_argument("--show-seeds", action="store_true", help="Include seed posts in command output.")
+
+    narrative_radar = subparsers.add_parser("narrative-radar", help="Detect early X narrative clusters and velocity shifts without posting.")
+    narrative_radar.add_argument("--env-file", default="", help="Optional path to .env file.")
+    narrative_radar.add_argument("--engagement-targets", default=str(DEFAULT_ENGAGEMENT_TARGETS), help="Path to engagement targets JSON.")
+    narrative_radar.add_argument("--query-name", action="append", default=[], help="Only run a named narrative bucket. Repeat for multiple buckets.")
+    narrative_radar.add_argument("--limit", type=int, default=15, help="Posts per query.")
+    narrative_radar.add_argument("--max-queries", type=int, default=2, help="Maximum narrative queries to spend X API reads on.")
+    narrative_radar.add_argument("--top", type=int, default=12, help="Number of emerging narratives to return.")
+    narrative_radar.add_argument("--write", default=str(DEFAULT_NARRATIVE_RADAR), help="Radar JSON output path. Use '-' to skip writing.")
+    narrative_radar.add_argument("--previous", default=str(DEFAULT_NARRATIVE_RADAR), help="Previous radar JSON for velocity comparison. Use '-' to disable.")
+    narrative_radar.add_argument("--social-wallet-watchlist", default=str(DEFAULT_SOCIAL_WALLET_WATCHLIST), help="Optional Venum social wallet watchlist for handle overlap.")
+    narrative_radar.add_argument("--show-topics", action="store_true", help="Include fetched topic snippets in output.")
     return parser
 
 
@@ -241,6 +258,10 @@ def _select_social_wallet_queries(queries: list, names: list[str], source_type: 
     return _select_search_queries(queries, names)
 
 
+def _select_narrative_queries(queries: list, names: list[str]) -> tuple[list, list[str]]:
+    return _select_search_queries(queries, names)
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -277,6 +298,12 @@ def main() -> int:
     if args.command == "wallet-query-names":
         targets = load_json(Path(args.engagement_targets))
         queries = targets.get("social_wallet_queries") or []
+        print(json.dumps({"query_names": _render_search_query_names(queries)}, indent=2))
+        return 0
+
+    if args.command == "narrative-query-names":
+        targets = load_json(Path(args.engagement_targets))
+        queries = targets.get("narrative_queries") or []
         print(json.dumps({"query_names": _render_search_query_names(queries)}, indent=2))
         return 0
 
@@ -1015,6 +1042,65 @@ def main() -> int:
         if args.show_seeds:
             output["seed_posts"] = seed_tweets
         print(json.dumps(output, indent=2))
+        return 0
+
+    if args.command == "narrative-radar":
+        settings = load_settings(Path(args.env_file) if getattr(args, "env_file", "") else None)
+        x_client = XClient(settings)
+        targets = load_json(Path(args.engagement_targets))
+        queries, missing_query_names = _select_narrative_queries(
+            targets.get("narrative_queries") or [],
+            getattr(args, "query_name", []),
+        )
+
+        payloads = []
+        query_names = []
+        budget_skips = []
+        for row in queries[: max(0, args.max_queries)]:
+            query = str(row.get("query") or "").strip()
+            if not query:
+                continue
+            query_name = str(row.get("name") or "")
+            try:
+                payloads.append(x_client.recent_search(query=query, limit=args.limit))
+                query_names.append(query_name)
+            except XBudgetExceeded as exc:
+                budget_skips.append({"query": query_name or query, "reason": str(exc)})
+                break
+            except Exception as exc:
+                budget_skips.append({"query": query_name or query, "reason": f"search_failed: {type(exc).__name__}"})
+
+        topics = topics_from_search(payloads)
+        previous_report = {} if str(args.previous).strip() == "-" else read_previous_report(Path(args.previous))
+        social_wallet_watchlist = {}
+        watchlist_path = Path(args.social_wallet_watchlist)
+        if watchlist_path.exists():
+            social_wallet_watchlist = load_json(watchlist_path)
+        report = build_narrative_radar_report(
+            topics,
+            query_names=query_names,
+            previous_report=previous_report,
+            social_wallet_watchlist=social_wallet_watchlist,
+            top_n=max(1, args.top),
+        )
+        report["missing_query_names"] = missing_query_names
+        report["budget_skips"] = budget_skips
+        report["x_budget"] = x_client.budget_status()
+        if args.show_topics:
+            report["topics"] = [
+                {
+                    "topic_id": topic.topic_id,
+                    "author_handle": topic.author_handle,
+                    "text": topic.text,
+                    "metrics": topic.metrics,
+                    "age_hours": round(topic.age_hours, 2),
+                }
+                for topic in topics[:50]
+            ]
+        if str(args.write).strip() != "-":
+            write_radar_report(Path(args.write), report)
+            report["output_path"] = str(Path(args.write))
+        print(json.dumps(report, indent=2))
         return 0
 
     topics_path = Path(getattr(args, "topics", DEFAULT_TOPICS))

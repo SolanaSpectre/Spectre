@@ -136,6 +136,7 @@ python -m venum_standalone.cli whoami
 python -m venum_standalone.cli x-budget-status
 python -m venum_standalone.cli query-names
 python -m venum_standalone.cli wallet-query-names
+python -m venum_standalone.cli narrative-query-names
 python -m venum_standalone.cli mentions --limit 5
 python -m venum_standalone.cli x-draft-replies --limit 5 --max-drafts 3
 python -m venum_standalone.cli x-draft-replies --limit 5 --show-all-candidates
@@ -150,6 +151,7 @@ python -m venum_standalone.cli search-openings --limit 10
 python -m venum_standalone.cli search-draft-replies --query-name viral_crypto_ct --limit 10 --max-queries 1 --max-drafts 3 --show-all-candidates
 python -m venum_standalone.cli trend-hunt --query-name memes_trenches --query-name solana_devs --limit 10 --max-queries 2 --max-drafts 5 --min-opportunity-score 35
 python -m venum_standalone.cli social-wallet-hunt --query-name giveaway_wallet_threads --query-name prelaunch_wallet_hints --limit 10 --max-queries 2 --max-reply-threads 2
+python -m venum_standalone.cli narrative-radar --query-name prelaunch_language --query-name new_meta_language --limit 15 --max-queries 2 --top 10
 python -m venum_standalone.cli x-post --text "headline loud\n\nliquidity move first"
 ```
 
@@ -211,6 +213,26 @@ in watch-only mode and should not be used for harassment, accusations, or
 personal callouts. EVM addresses are useful for cross-chain identity clues even
 before Spectre has a full EVM tracker. If Venum ever jokes about wallet
 behavior, keep it about the trade, not the person.
+
+## Narrative Radar
+
+Venum can run a low-cost X sweep for early narrative language, cluster phrases
+and tickers, compare against the previous snapshot, and write an internal report:
+
+```bash
+python -m venum_standalone.cli narrative-query-names
+python -m venum_standalone.cli narrative-radar --query-name prelaunch_language --query-name new_meta_language --limit 15 --max-queries 2 --top 10
+```
+
+Output:
+
+```bash
+runtime/narrative_radar_latest.json
+```
+
+The radar is intentionally not a posting command. Treat it as early warning:
+low absolute volume plus rising velocity, repeated language, unique authors, and
+wallet-linked authors are the interesting parts.
 
 ## Spectre Bridge
 

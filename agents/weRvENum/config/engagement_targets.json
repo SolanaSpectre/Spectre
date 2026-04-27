@@ -78,5 +78,27 @@
       "query": "(\"drop wallets\" OR \"drop your wallet\" OR \"reply wallet\" OR \"wallets ready\" OR \"snapshot soon\" OR \"whitelist\" OR \"launching soon\" OR \"ca soon\" OR \"ticker soon\" OR \"cooking a coin\" OR \"something coming\") (sol OR solana OR pump OR memecoin OR coin OR token) -is:retweet lang:en",
       "weight": 1.2
     }
+  ],
+  "narrative_queries": [
+    {
+      "name": "prelaunch_language",
+      "query": "(\"snapshot soon\" OR \"reply wallet\" OR \"drop wallets\" OR \"wallets ready\" OR \"something coming\" OR \"cooking something\" OR \"ca soon\" OR \"ticker soon\" OR \"launching soon\") (sol OR solana OR pump OR memecoin OR token OR coin) -is:retweet lang:en",
+      "weight": 1.25
+    },
+    {
+      "name": "new_meta_language",
+      "query": "(\"new meta\" OR \"next meta\" OR \"meta is\" OR \"rotating to\" OR \"everyone is sleeping\" OR \"nobody is talking\" OR \"first mover\" OR \"early to\") (crypto OR solana OR memecoin OR pump OR ai OR agent) -is:retweet lang:en",
+      "weight": 1.15
+    },
+    {
+      "name": "trenches_language",
+      "query": "(trenches OR degen OR \"send it\" OR \"aping\" OR \"bonding curve\" OR \"cto\" OR \"cto soon\" OR runner OR \"volume coming\") (sol OR pump OR memecoin OR token) -is:retweet lang:en",
+      "weight": 1.0
+    },
+    {
+      "name": "ai_agent_crypto",
+      "query": "(\"ai agent\" OR agents OR autonomous OR \"agent token\" OR \"terminal\" OR \"onchain ai\") (crypto OR solana OR pump OR token OR defi) -is:retweet lang:en",
+      "weight": 1.05
+    }
   ]
 }
