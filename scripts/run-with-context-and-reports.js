@@ -387,6 +387,7 @@ async function generatePostRunReports(options) {
   printSection('Post-Run Reports');
   await runNode('Macro Posture Report', 'macro-posture-report.js', [], { allowFailure: true });
   await runNode('Battlefield Report', 'run-battlefield-report.js', [], { allowFailure: true });
+  await runNode('Early Organic Interest Report', 'early-organic-interest-report.js', [], { allowFailure: true });
   await runNode('Wallet Battlefield Report', 'wallet-battlefield-report.js', [], { allowFailure: true });
   await runNode('Wallet Behavior Report', 'report-wallet-behavior.js', [], { allowFailure: true });
   await runNode('Wallet First-Touch Report', 'wallet-first-touch-report.js', [], { allowFailure: true });
