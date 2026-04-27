@@ -112,19 +112,69 @@ class OutcomeLedger {
       return null;
     }
 
+    const kind = this.paperKind(event);
+    const reason = payload.reason || null;
+    const curveProgress = payload.curveProgress ?? state.curveProgress;
+    const score = payload.score ?? state.score;
+    const symbol = payload.symbol || state.symbol || null;
+
+    if (kind === 'paper.skipped' && this.isEarlyCandidateRejectionReason(reason)) {
+      this.recordCandidate({
+        ...state,
+        mint,
+        symbol,
+        score,
+        curveProgress,
+        recentVolumeSol: payload.recentVolumeSol ?? state.recentVolumeSol,
+        tradeVelocityPerMin: payload.tradeVelocityPerMin ?? state.tradeVelocityPerMin,
+        uniqueBuyerCount: payload.uniqueBuyerCount ?? state.uniqueBuyerCount,
+        buyRatio: payload.buyRatio ?? state.buyRatio,
+        bondingCurvePriceSol: payload.priceSol ?? state.bondingCurvePriceSol,
+        priceSol: payload.priceSol ?? state.priceSol
+      }, {
+        ...meta,
+        kind: 'candidate.rejected',
+        source: 'pre_migration_paper',
+        stage: 'pre_migration',
+        rejected: true,
+        reason,
+        detail: {
+          decision: payload.decision || event.type || null,
+          preset: payload.preset || null,
+          lane: payload.lane || null,
+          profileName: payload.profileName || null,
+          guardOverride: payload.guardOverride || null,
+          failedChecks: Array.isArray(payload.failedChecks) ? payload.failedChecks : [],
+          value: payload.value ?? null,
+          threshold: payload.threshold ?? null,
+          curveProgressDelta: payload.curveProgressDelta ?? null,
+          curveProgressDelta60s: payload.curveProgressDelta60s ?? null,
+          baselineCurveProgress: payload.baselineCurveProgress ?? null,
+          baselineAt: payload.baselineAt ?? null,
+          baselineCurveProgress60s: payload.baselineCurveProgress60s ?? null,
+          baselineAt60s: payload.baselineAt60s ?? null
+        },
+        firstSighting: reason === 'NO_PRIOR_CURVE_PROGRESS',
+        recheck: Boolean(payload.recheck || meta.recheck),
+        confirmedWatch: Boolean(state.confirmed || meta.confirmedWatch),
+        currentCurveSnapshotAvailable: Number.isFinite(Number(curveProgress)),
+        lastCurveSnapshotAt: payload.baselineAt || payload.baselineAt60s || meta.lastCurveSnapshotAt || null
+      });
+    }
+
     return this.record({
-      kind: this.paperKind(event),
+      kind,
       source: 'pre_migration_paper',
       stage: 'pre_migration',
       sessionId: meta.sessionId || null,
       mint,
-      symbol: payload.symbol || state.symbol || null,
+      symbol,
       name: state.name || null,
       decision: payload.decision || event.type || null,
-      reason: payload.reason || null,
+      reason,
       reasons: Array.isArray(payload.reasons) ? payload.reasons : Array.isArray(state.reasons) ? state.reasons.slice(0, 12) : [],
-      score: payload.score ?? state.score,
-      curveProgress: payload.curveProgress ?? state.curveProgress,
+      score,
+      curveProgress,
       priceSol: payload.priceSol ?? payload.entryPriceSol ?? payload.exitPriceSol ?? state.bondingCurvePriceSol ?? null,
       market: {
         recentVolumeSol: payload.recentVolumeSol ?? state.recentVolumeSol,
@@ -252,6 +302,13 @@ class OutcomeLedger {
         pumpFunUrl: `https://pump.fun/coin/${mint}`
       }
     });
+  }
+
+  isEarlyCandidateRejectionReason(reason) {
+    const normalized = String(reason || '').toUpperCase();
+    return normalized.includes('NO_PRIOR_CURVE')
+      || normalized === 'MISSING_CURVE_PROGRESS'
+      || normalized === 'CURVE_NOT_ADVANCING';
   }
 
   paperKind(event = {}) {
