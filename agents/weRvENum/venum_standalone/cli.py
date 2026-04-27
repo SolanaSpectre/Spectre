@@ -16,7 +16,6 @@ from .persona import PersonaEngine
 from .pipeline import build_candidates
 from .rick_context_bridge import DEFAULT_RICK_CONTEXT, source_window_from_rick_context, topics_from_rick_context
 from .settings import load_settings
-from .spectre_updates import build_spectre_update_drafts, load_report_json
 from .venum_prompting import reply_prompt_for_mode, spoodee_post_prompt, venum_system_prompt
 from .x_client import XClient
 from .engagement_logic import classify_room_context, choose_engagement_type, detect_narrative_relevance, select_tone, should_suppress
@@ -35,8 +34,6 @@ DEFAULT_ENGAGEMENT_TARGETS = config_file("engagement_targets.json")
 DEFAULT_MEMORY = runtime_file("memory.json")
 DEFAULT_BRIEF = runtime_file("spectre_narrative_brief_latest.json")
 DEFAULT_RICK_BRIEF = runtime_file("spectre_narrative_brief_rick_latest.json")
-DEFAULT_SPECTRE_REPORT = Path(__file__).resolve().parents[3] / "data" / "reports" / "run-battlefield-latest.json"
-DEFAULT_SPECTRE_OVERLAY = Path(__file__).resolve().parents[3] / "paper-results.json"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -58,12 +55,6 @@ def build_parser() -> argparse.ArgumentParser:
     brief_rick = subparsers.add_parser("spectre-brief-rick", help="Build a structured narrative brief for Spectre from a Rick context snapshot.")
     brief_rick.add_argument("--rick-context", default=str(DEFAULT_RICK_CONTEXT), help="Path to Rick context JSON file.")
     brief_rick.add_argument("--write", default=str(DEFAULT_RICK_BRIEF), help="Optional output path for the generated brief JSON. Use '-' to skip writing.")
-
-    update_draft = subparsers.add_parser("spectre-update-draft", help="Draft persona-safe X/community updates from the latest Spectre paper report.")
-    update_draft.add_argument("--report", default=str(DEFAULT_SPECTRE_REPORT), help="Path to run-battlefield-latest.json.")
-    update_draft.add_argument("--overlay", default=str(DEFAULT_SPECTRE_OVERLAY), help="Path to paper-results.json.")
-    update_draft.add_argument("--persona", default=str(DEFAULT_PERSONA), help="Path to persona rules JSON.")
-    update_draft.add_argument("--limit", type=int, default=5, help="Maximum drafts to render.")
 
     lint = subparsers.add_parser("lint", help="Check one draft against the persona canon.")
     lint.add_argument("--text", required=True, help="Draft text to validate.")
@@ -192,17 +183,6 @@ def main() -> int:
         if str(args.write).strip() != "-":
             write_brief(brief, Path(args.write))
         print(json.dumps(brief, indent=2))
-        return 0
-
-    if args.command == "spectre-update-draft":
-        persona = PersonaEngine(load_json(Path(args.persona)))
-        payload = build_spectre_update_drafts(
-            report=load_report_json(Path(args.report)),
-            overlay=load_report_json(Path(args.overlay)),
-            persona=persona,
-            limit=args.limit,
-        )
-        print(json.dumps(payload, indent=2))
         return 0
 
     if args.command == "kolscan-bootstrap":

@@ -5,17 +5,22 @@ Standalone Venum codebase focused on one job:
 - grow the X account
 - protect the persona
 - learn which topics, timings, and reply angles earn real attention
+- gather social intelligence without becoming a Spectre announcement bot
 
-This build does **not** carry the older Goblin-sidecar assumptions.
+This build does **not** carry the older sidecar assumptions.
 It treats Venum as a public character system with:
 
 - topic intake
 - growth scoring
 - persona-safe draft generation
 - memory to reduce repetitive posting
+- room/context awareness for replies and market narratives
+
+Venum has its own X account, lore, and personality. The Spectre account is
+controlled separately by the operator.
 
 It does, however, intentionally preserve the strongest parts of the original
-Goblin-era Venum voice:
+Venum voice:
 
 - `we` identity instead of `i`
 - big brain dumb words
@@ -46,6 +51,7 @@ The growth loop here is:
 - `config/spectre_narrative_brief.schema.json`: structured handoff contract for Spectre
 - `config/example_spectre_narrative_brief.json`: example regime/narrative brief
 - `config/example_topics.json`: sample input for local testing
+- `docs/social_intelligence_plan.md`: Venum's social-intel mission and build order
 - `venum_standalone/`: package source
 
 ## Quick Start
@@ -57,7 +63,6 @@ python -m venum_standalone.cli draft --topics config/example_topics.json --kind 
 python -m venum_standalone.cli lint --text "headline loud at top\n\nwe rember who chase green"
 python -m venum_standalone.cli spectre-brief --topics config/example_topics.json
 python -m venum_standalone.cli spectre-brief-rick
-python -m venum_standalone.cli spectre-update-draft
 ```
 
 ## Input Shape
@@ -139,7 +144,6 @@ python -m venum_standalone.cli follow-candidates --top 20
 python -m venum_standalone.cli follow-account --username Solanadegen
 python -m venum_standalone.cli search-openings --limit 10
 python -m venum_standalone.cli search-draft-replies --limit 10 --show-all-candidates
-python -m venum_standalone.cli spectre-update-draft --limit 5
 python -m venum_standalone.cli x-post --text "headline loud\n\nliquidity move first"
 ```
 
@@ -181,20 +185,3 @@ Not:
 - a direct trade trigger
 - a threshold setter
 - a replacement for Spectre's deterministic filters
-
-Venum can also draft short manual-review community updates from Spectre's latest
-paper run report:
-
-```bash
-cd F:\Cline Test\Spectre\solana-trading-bot\agents\weRvENum
-python -m venum_standalone.cli spectre-update-draft --limit 5
-```
-
-This reads:
-
-```bash
-F:\Cline Test\Spectre\solana-trading-bot\data\reports\run-battlefield-latest.json
-F:\Cline Test\Spectre\solana-trading-bot\paper-results.json
-```
-
-It only prints draft text and persona validation notes. It does not post to X.
