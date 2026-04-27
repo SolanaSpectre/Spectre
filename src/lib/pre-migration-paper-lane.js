@@ -114,6 +114,7 @@ class PreMigrationPaperLane {
     const observedState = options.walletClassificationContext
       ? { ...state, walletClassificationContext: options.walletClassificationContext }
       : state;
+    this.rememberObservation(observedState, timestamp, price);
     const entryGuards = this.evaluateEntryGuards(observedState, history, timestamp);
     const firstCurveNearMiss = this.firstCurveSnapshotNearMissEvent(observedState, history, timestamp);
     if (firstCurveNearMiss) {
@@ -172,7 +173,6 @@ class PreMigrationPaperLane {
       }
     }
 
-    this.rememberObservation(observedState, timestamp, price);
     return events;
   }
 
