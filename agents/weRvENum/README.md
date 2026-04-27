@@ -134,6 +134,7 @@ Required values:
 cd F:\Cline Test\Spectre\solana-trading-bot\agents\weRvENum
 python -m venum_standalone.cli whoami
 python -m venum_standalone.cli x-budget-status
+python -m venum_standalone.cli query-names
 python -m venum_standalone.cli mentions --limit 5
 python -m venum_standalone.cli x-draft-replies --limit 5 --max-drafts 3
 python -m venum_standalone.cli x-draft-replies --limit 5 --show-all-candidates
@@ -145,8 +146,8 @@ python -m venum_standalone.cli wallet-reaction --rank 1
 python -m venum_standalone.cli follow-candidates --top 20
 python -m venum_standalone.cli follow-account --username Solanadegen
 python -m venum_standalone.cli search-openings --limit 10
-python -m venum_standalone.cli search-draft-replies --limit 10 --max-queries 3 --max-drafts 3 --show-all-candidates
-python -m venum_standalone.cli trend-hunt --limit 10 --max-queries 4 --max-drafts 5 --min-opportunity-score 35
+python -m venum_standalone.cli search-draft-replies --query-name viral_crypto_ct --limit 10 --max-queries 1 --max-drafts 3 --show-all-candidates
+python -m venum_standalone.cli trend-hunt --query-name memes_trenches --query-name solana_devs --limit 10 --max-queries 2 --max-drafts 5 --min-opportunity-score 35
 python -m venum_standalone.cli x-post --text "headline loud\n\nliquidity move first"
 ```
 
@@ -170,6 +171,9 @@ VENUM_X_DAILY_FOLLOW_BUDGET=5
 ```
 
 Search commands cap the number of paid search queries with `--max-queries`.
+Use `query-names` to list available search buckets without spending X API reads.
+Use `--query-name <name>` on search and trend commands to spend reads only on
+specific buckets.
 Drafting commands cap the number of generated replies with `--max-drafts`.
 Weak or generic model replies are now suppressed even when they technically pass
 persona validation.

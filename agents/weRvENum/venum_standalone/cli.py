@@ -67,6 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
     budget_status = subparsers.add_parser("x-budget-status", help="Show Venum's local daily X API budget ledger.")
     budget_status.add_argument("--env-file", default="", help="Optional path to .env file.")
 
+    query_names = subparsers.add_parser("query-names", help="List configured search query buckets without spending X API reads.")
+    query_names.add_argument("--engagement-targets", default=str(DEFAULT_ENGAGEMENT_TARGETS), help="Path to engagement targets JSON.")
+
     mentions = subparsers.add_parser("mentions", help="Fetch mentions from X.")
     mentions.add_argument("--env-file", default="", help="Optional path to .env file.")
     mentions.add_argument("--limit", type=int, default=5)
@@ -138,6 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
     search_openings.add_argument("--engagement-targets", default=str(DEFAULT_ENGAGEMENT_TARGETS), help="Path to engagement targets JSON.")
     search_openings.add_argument("--limit", type=int, default=10, help="Posts per query.")
     search_openings.add_argument("--max-queries", type=int, default=3, help="Maximum search queries to spend X API reads on.")
+    search_openings.add_argument("--query-name", action="append", default=[], help="Only run a named search bucket. Repeat for multiple buckets.")
 
     search_draft = subparsers.add_parser("search-draft-replies", help="Generate Venum replies for search-based openings.")
     search_draft.add_argument("--env-file", default="", help="Optional path to .env file.")
@@ -148,6 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
     search_draft.add_argument("--limit", type=int, default=10, help="Posts per query.")
     search_draft.add_argument("--max-queries", type=int, default=3, help="Maximum search queries to spend X API reads on.")
     search_draft.add_argument("--max-drafts", type=int, default=3, help="Maximum reply drafts to generate after triage.")
+    search_draft.add_argument("--query-name", action="append", default=[], help="Only run a named search bucket. Repeat for multiple buckets.")
     search_draft.add_argument("--show-all-candidates", action="store_true", help="Include all generated candidates and ranking details.")
     search_draft.add_argument("--remember", action="store_true", help="Persist seen authors and accepted drafts into memory.")
 
@@ -161,6 +166,7 @@ def build_parser() -> argparse.ArgumentParser:
     trend_hunt.add_argument("--max-queries", type=int, default=4, help="Maximum search queries to spend X API reads on.")
     trend_hunt.add_argument("--max-drafts", type=int, default=5, help="Maximum reply drafts to generate after triage.")
     trend_hunt.add_argument("--min-opportunity-score", type=float, default=30.0, help="Minimum trend opportunity score to draft.")
+    trend_hunt.add_argument("--query-name", action="append", default=[], help="Only run a named search bucket. Repeat for multiple buckets.")
     trend_hunt.add_argument("--show-all-candidates", action="store_true", help="Include all generated candidates and ranking details.")
     trend_hunt.add_argument("--remember", action="store_true", help="Persist accepted engagements into memory after drafting.")
     return parser
@@ -173,6 +179,40 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--kind", choices=["reply", "original", "both"], default="both")
     parser.add_argument("--limit", type=int, default=6)
     parser.add_argument("--remember", action="store_true", help="Persist accepted candidates into memory.")
+
+
+def _select_search_queries(queries: list, names: list[str]) -> tuple[list, list[str]]:
+    wanted = {str(name).strip().lower() for name in names if str(name).strip()}
+    if not wanted:
+        return queries, []
+
+    selected = []
+    available = []
+    for row in queries:
+        name = str(row.get("name") or "").strip()
+        if name:
+            available.append(name)
+        if name.lower() in wanted:
+            selected.append(row)
+
+    missing = sorted(wanted - {name.lower() for name in available})
+    return selected, missing
+
+
+def _render_search_query_names(queries: list) -> list[dict]:
+    rendered = []
+    for row in queries:
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+        rendered.append(
+            {
+                "name": name,
+                "weight": float(row.get("weight") or 1.0),
+                "query": str(row.get("query") or "").strip(),
+            }
+        )
+    return rendered
 
 
 def main() -> int:
@@ -200,6 +240,12 @@ def main() -> int:
         if str(args.write).strip() != "-":
             write_brief(brief, Path(args.write))
         print(json.dumps(brief, indent=2))
+        return 0
+
+    if args.command == "query-names":
+        targets = load_json(Path(args.engagement_targets))
+        queries = targets.get("search_queries") or []
+        print(json.dumps({"query_names": _render_search_query_names(queries)}, indent=2))
         return 0
 
     if args.command == "kolscan-bootstrap":
@@ -276,7 +322,7 @@ def main() -> int:
         settings = load_settings(Path(args.env_file) if getattr(args, "env_file", "") else None)
         x_client = XClient(settings)
         targets = load_json(Path(args.engagement_targets))
-        queries = targets.get("search_queries") or []
+        queries, missing_query_names = _select_search_queries(targets.get("search_queries") or [], getattr(args, "query_name", []))
         payloads = []
         budget_skips = []
         for row in queries[: max(0, args.max_queries)]:
@@ -304,7 +350,7 @@ def main() -> int:
                 }
                 for topic in topics
             ]
-            print(json.dumps({"openings": rendered, "budget_skips": budget_skips, "x_budget": x_client.budget_status()}, indent=2))
+            print(json.dumps({"openings": rendered, "missing_query_names": missing_query_names, "budget_skips": budget_skips, "x_budget": x_client.budget_status()}, indent=2))
             return 0
 
         persona = PersonaEngine(load_json(Path(args.persona)))
@@ -474,7 +520,7 @@ def main() -> int:
                     memory.remember(topic.topic_id, best["text"].strip().lower())
             if args.remember:
                 memory.save()
-            print(json.dumps({"drafts": rendered, "skipped": skipped, "x_budget": x_client.budget_status()}, indent=2))
+            print(json.dumps({"drafts": rendered, "skipped": skipped, "missing_query_names": missing_query_names, "x_budget": x_client.budget_status()}, indent=2))
             return 0
 
         if args.command == "x-post":
@@ -656,7 +702,7 @@ def main() -> int:
         min_score = float(args.min_opportunity_score)
 
         # Fetch all search queries, applying per-query weight multipliers
-        queries = targets.get("search_queries") or []
+        queries, missing_query_names = _select_search_queries(targets.get("search_queries") or [], getattr(args, "query_name", []))
         all_topics: list = []
         budget_skips = []
         for row in queries[: max(0, args.max_queries)]:
@@ -826,6 +872,7 @@ def main() -> int:
                 "suppressed": len(suppressed),
             },
             "budget_skips": budget_skips,
+            "missing_query_names": missing_query_names,
             "x_budget": x_client.budget_status(),
         }, indent=2))
         return 0
