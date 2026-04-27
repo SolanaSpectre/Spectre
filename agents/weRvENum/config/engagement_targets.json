@@ -64,5 +64,19 @@
       "query": "(\"hot take\" OR \"unpopular opinion\" OR \"nobody is talking\" OR \"am i the only\" OR \"why does nobody\" OR \"change my mind\") (crypto OR bitcoin OR solana OR defi OR nft OR memecoin) -is:retweet lang:en",
       "weight": 1.1
     }
+  ],
+  "social_wallet_queries": [
+    {
+      "name": "giveaway_wallet_threads",
+      "source_type": "giveaway_wallet_thread",
+      "query": "(\"drop your sol\" OR \"drop sol\" OR \"drop wallet\" OR \"drop ur wallet\" OR \"drop addy\" OR \"wallet below\" OR \"sol giveaway\" OR \"dripping sol\" OR \"send sol\") -is:retweet lang:en",
+      "weight": 1.0
+    },
+    {
+      "name": "prelaunch_wallet_hints",
+      "source_type": "prelaunch_wallet_hint",
+      "query": "(\"drop wallets\" OR \"drop your wallet\" OR \"reply wallet\" OR \"wallets ready\" OR \"snapshot soon\" OR \"whitelist\" OR \"launching soon\" OR \"ca soon\" OR \"ticker soon\" OR \"cooking a coin\" OR \"something coming\") (sol OR solana OR pump OR memecoin OR coin OR token) -is:retweet lang:en",
+      "weight": 1.2
+    }
   ]
 }

@@ -135,6 +135,7 @@ cd F:\Cline Test\Spectre\solana-trading-bot\agents\weRvENum
 python -m venum_standalone.cli whoami
 python -m venum_standalone.cli x-budget-status
 python -m venum_standalone.cli query-names
+python -m venum_standalone.cli wallet-query-names
 python -m venum_standalone.cli mentions --limit 5
 python -m venum_standalone.cli x-draft-replies --limit 5 --max-drafts 3
 python -m venum_standalone.cli x-draft-replies --limit 5 --show-all-candidates
@@ -148,6 +149,7 @@ python -m venum_standalone.cli follow-account --username Solanadegen
 python -m venum_standalone.cli search-openings --limit 10
 python -m venum_standalone.cli search-draft-replies --query-name viral_crypto_ct --limit 10 --max-queries 1 --max-drafts 3 --show-all-candidates
 python -m venum_standalone.cli trend-hunt --query-name memes_trenches --query-name solana_devs --limit 10 --max-queries 2 --max-drafts 5 --min-opportunity-score 35
+python -m venum_standalone.cli social-wallet-hunt --query-name giveaway_wallet_threads --query-name prelaunch_wallet_hints --limit 10 --max-queries 2 --max-reply-threads 2
 python -m venum_standalone.cli x-post --text "headline loud\n\nliquidity move first"
 ```
 
@@ -186,6 +188,28 @@ python -m venum_standalone.cli x-budget-status
 ```
 
 to check the local meter before running a hunt.
+
+## Social Wallet Intel
+
+Venum can watch public X wallet-drop and prelaunch-hint threads, extract valid
+Solana public keys, and write them to an internal watch-only file:
+
+```bash
+python -m venum_standalone.cli wallet-query-names
+python -m venum_standalone.cli social-wallet-hunt --query-name giveaway_wallet_threads --query-name prelaunch_wallet_hints --limit 10 --max-queries 2 --max-reply-threads 2
+```
+
+Outputs:
+
+```bash
+runtime/social_wallet_watchlist.json
+runtime/social_wallet_tracker_export.json
+```
+
+This is for internal public-signal research only. It should feed wallet tracking
+in watch-only mode and should not be used for harassment, accusations, or
+personal callouts. If Venum ever jokes about wallet behavior, keep it about the
+trade, not the person.
 
 ## Spectre Bridge
 

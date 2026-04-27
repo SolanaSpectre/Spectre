@@ -16,6 +16,7 @@ from .persona import PersonaEngine
 from .pipeline import build_candidates
 from .rick_context_bridge import DEFAULT_RICK_CONTEXT, source_window_from_rick_context, topics_from_rick_context
 from .settings import load_settings
+from .social_wallet_intel import merge_wallet_watchlist, observations_from_tweets, tweets_from_search_payload, write_tracker_export
 from .venum_prompting import reply_prompt_for_mode, spoodee_post_prompt, venum_system_prompt
 from .x_client import XClient
 from .engagement_logic import classify_room_context, choose_engagement_type, detect_narrative_relevance, select_tone, should_suppress
@@ -35,6 +36,8 @@ DEFAULT_ENGAGEMENT_TARGETS = config_file("engagement_targets.json")
 DEFAULT_MEMORY = runtime_file("memory.json")
 DEFAULT_BRIEF = runtime_file("spectre_narrative_brief_latest.json")
 DEFAULT_RICK_BRIEF = runtime_file("spectre_narrative_brief_rick_latest.json")
+DEFAULT_SOCIAL_WALLET_WATCHLIST = runtime_file("social_wallet_watchlist.json")
+DEFAULT_SOCIAL_WALLET_TRACKER_EXPORT = runtime_file("social_wallet_tracker_export.json")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -69,6 +72,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     query_names = subparsers.add_parser("query-names", help="List configured search query buckets without spending X API reads.")
     query_names.add_argument("--engagement-targets", default=str(DEFAULT_ENGAGEMENT_TARGETS), help="Path to engagement targets JSON.")
+
+    wallet_query_names = subparsers.add_parser("wallet-query-names", help="List configured social-wallet query buckets without spending X API reads.")
+    wallet_query_names.add_argument("--engagement-targets", default=str(DEFAULT_ENGAGEMENT_TARGETS), help="Path to engagement targets JSON.")
 
     mentions = subparsers.add_parser("mentions", help="Fetch mentions from X.")
     mentions.add_argument("--env-file", default="", help="Optional path to .env file.")
@@ -169,6 +175,20 @@ def build_parser() -> argparse.ArgumentParser:
     trend_hunt.add_argument("--query-name", action="append", default=[], help="Only run a named search bucket. Repeat for multiple buckets.")
     trend_hunt.add_argument("--show-all-candidates", action="store_true", help="Include all generated candidates and ranking details.")
     trend_hunt.add_argument("--remember", action="store_true", help="Persist accepted engagements into memory after drafting.")
+
+    social_wallet = subparsers.add_parser("social-wallet-hunt", help="Find public X wallet-drop/prelaunch posts and export watch-only wallet observations.")
+    social_wallet.add_argument("--env-file", default="", help="Optional path to .env file.")
+    social_wallet.add_argument("--engagement-targets", default=str(DEFAULT_ENGAGEMENT_TARGETS), help="Path to engagement targets JSON.")
+    social_wallet.add_argument("--query-name", action="append", default=[], help="Only run a named social-wallet bucket. Repeat for multiple buckets.")
+    social_wallet.add_argument("--source-type", choices=["all", "giveaway_wallet_thread", "prelaunch_wallet_hint"], default="all", help="Limit hunt to one source type.")
+    social_wallet.add_argument("--limit", type=int, default=10, help="Seed posts per query.")
+    social_wallet.add_argument("--max-queries", type=int, default=2, help="Maximum seed queries to spend X API reads on.")
+    social_wallet.add_argument("--scan-replies", action=argparse.BooleanOptionalAction, default=True, help="Scan a capped number of seed reply threads for wallet replies.")
+    social_wallet.add_argument("--max-reply-threads", type=int, default=2, help="Maximum seed conversations to scan for replies.")
+    social_wallet.add_argument("--reply-limit", type=int, default=25, help="Replies to fetch per scanned conversation.")
+    social_wallet.add_argument("--write", default=str(DEFAULT_SOCIAL_WALLET_WATCHLIST), help="Watchlist JSON output path. Use '-' to skip writing.")
+    social_wallet.add_argument("--tracker-export", default=str(DEFAULT_SOCIAL_WALLET_TRACKER_EXPORT), help="Tracker export JSON output path. Use '-' to skip writing.")
+    social_wallet.add_argument("--show-seeds", action="store_true", help="Include seed posts in command output.")
     return parser
 
 
@@ -215,6 +235,12 @@ def _render_search_query_names(queries: list) -> list[dict]:
     return rendered
 
 
+def _select_social_wallet_queries(queries: list, names: list[str], source_type: str = "all") -> tuple[list, list[str]]:
+    if source_type and source_type != "all":
+        queries = [row for row in queries if str(row.get("source_type") or "") == source_type]
+    return _select_search_queries(queries, names)
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -245,6 +271,12 @@ def main() -> int:
     if args.command == "query-names":
         targets = load_json(Path(args.engagement_targets))
         queries = targets.get("search_queries") or []
+        print(json.dumps({"query_names": _render_search_query_names(queries)}, indent=2))
+        return 0
+
+    if args.command == "wallet-query-names":
+        targets = load_json(Path(args.engagement_targets))
+        queries = targets.get("social_wallet_queries") or []
         print(json.dumps({"query_names": _render_search_query_names(queries)}, indent=2))
         return 0
 
@@ -875,6 +907,110 @@ def main() -> int:
             "missing_query_names": missing_query_names,
             "x_budget": x_client.budget_status(),
         }, indent=2))
+        return 0
+
+    if args.command == "social-wallet-hunt":
+        settings = load_settings(Path(args.env_file) if getattr(args, "env_file", "") else None)
+        x_client = XClient(settings)
+        targets = load_json(Path(args.engagement_targets))
+        queries, missing_query_names = _select_social_wallet_queries(
+            targets.get("social_wallet_queries") or [],
+            getattr(args, "query_name", []),
+            getattr(args, "source_type", "all"),
+        )
+
+        seed_tweets = []
+        observations = []
+        budget_skips = []
+        for row in queries[: max(0, args.max_queries)]:
+            query = str(row.get("query") or "").strip()
+            if not query:
+                continue
+            query_name = str(row.get("name") or "")
+            source_type = str(row.get("source_type") or "social_wallet_observation")
+            try:
+                payload = x_client.recent_search(query=query, limit=args.limit)
+            except XBudgetExceeded as exc:
+                budget_skips.append({"query": query_name or query, "reason": str(exc)})
+                break
+            except Exception as exc:
+                budget_skips.append({"query": query_name or query, "reason": f"search_failed: {type(exc).__name__}"})
+                continue
+            tweets = tweets_from_search_payload(payload, query_name=query_name, source_type=source_type)
+            seed_tweets.extend(tweets)
+            observations.extend(observations_from_tweets(tweets))
+
+        reply_threads_scanned = 0
+        if args.scan_replies:
+            reply_seeds = sorted(
+                seed_tweets,
+                key=lambda tweet: (
+                    int((tweet.get("metrics") or {}).get("replies", 0) or 0),
+                    int((tweet.get("metrics") or {}).get("likes", 0) or 0),
+                ),
+                reverse=True,
+            )
+            seen_conversations = set()
+            for seed in reply_seeds:
+                if reply_threads_scanned >= max(0, args.max_reply_threads):
+                    break
+                conversation_id = str(seed.get("conversation_id") or seed.get("tweet_id") or "")
+                if not conversation_id or conversation_id in seen_conversations:
+                    continue
+                seen_conversations.add(conversation_id)
+                try:
+                    payload = x_client.recent_search(query=f"conversation_id:{conversation_id} -is:retweet", limit=args.reply_limit)
+                except XBudgetExceeded as exc:
+                    budget_skips.append({"query": f"conversation_id:{conversation_id}", "reason": str(exc)})
+                    break
+                except Exception as exc:
+                    budget_skips.append({"query": f"conversation_id:{conversation_id}", "reason": f"reply_scan_failed: {type(exc).__name__}"})
+                    continue
+                reply_tweets = tweets_from_search_payload(
+                    payload,
+                    query_name=str(seed.get("query_name") or ""),
+                    source_type=str(seed.get("source_type") or "social_wallet_observation"),
+                )
+                observations.extend(observations_from_tweets(reply_tweets, seed_tweet=seed))
+                reply_threads_scanned += 1
+
+        watchlist_payload = {
+            "observations": observations,
+            "stats": {
+                "total_observations": len(observations),
+                "unique_wallets": len({str(item.get("wallet") or "") for item in observations if item.get("wallet")}),
+                "unique_handles": len({str(item.get("author_handle") or "").lower() for item in observations if item.get("author_handle")}),
+            },
+        }
+        watchlist_path = None
+        tracker_export_path = None
+        tracker_payload = None
+        if str(args.write).strip() != "-":
+            watchlist_path = Path(args.write)
+            watchlist_payload = merge_wallet_watchlist(watchlist_path, observations)
+        if str(args.tracker_export).strip() != "-":
+            tracker_export_path = Path(args.tracker_export)
+            tracker_payload = write_tracker_export(tracker_export_path, watchlist_payload)
+
+        output = {
+            "observations": observations,
+            "stats": {
+                "seed_posts": len(seed_tweets),
+                "reply_threads_scanned": reply_threads_scanned,
+                "new_observations": len(observations),
+                "watchlist_total_observations": (watchlist_payload.get("stats") or {}).get("total_observations", len(observations)),
+                "unique_wallets": (watchlist_payload.get("stats") or {}).get("unique_wallets", 0),
+            },
+            "watchlist_path": str(watchlist_path) if watchlist_path else "",
+            "tracker_export_path": str(tracker_export_path) if tracker_export_path else "",
+            "tracker_wallet_count": (tracker_payload or {}).get("wallet_count", 0),
+            "missing_query_names": missing_query_names,
+            "budget_skips": budget_skips,
+            "x_budget": x_client.budget_status(),
+        }
+        if args.show_seeds:
+            output["seed_posts"] = seed_tweets
+        print(json.dumps(output, indent=2))
         return 0
 
     topics_path = Path(getattr(args, "topics", DEFAULT_TOPICS))
