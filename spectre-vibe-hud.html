@@ -110,37 +110,40 @@
       text-shadow: 0 0 9px rgba(117, 248, 255, 0.34);
     }
 
-    .mascot-box {
+    .banner-box {
       position: absolute;
-      left: 34px;
-      top: 304px;
-      width: 382px;
-      height: 222px;
-      border: 1px solid rgba(117, 248, 255, 0.38);
-      border-left: 3px solid var(--green);
-      background: rgba(0, 0, 0, 0.62);
+      left: 436px;
+      top: 4px;
+      width: 1018px;
+      height: 312px;
+      border: 1px solid rgba(117, 248, 255, 0.24);
+      background:
+        linear-gradient(rgba(0, 0, 0, 0.28), rgba(0, 0, 0, 0.28)),
+        url("spectre-banner.jpg") center center / cover no-repeat;
       box-shadow:
-        inset 0 0 20px rgba(117, 248, 255, 0.08),
-        0 0 20px rgba(0, 0, 0, 0.44);
+        inset 0 0 24px rgba(117, 248, 255, 0.08),
+        0 0 22px rgba(0, 0, 0, 0.38);
       overflow: hidden;
-      backdrop-filter: blur(3px);
+      opacity: 0.86;
     }
 
-    .mascot-box img {
+    .banner-box img {
       width: 100%;
       height: 100%;
-      object-fit: contain;
+      object-fit: cover;
       object-position: center center;
       display: block;
-      opacity: 0.92;
-      filter: saturate(1.05) contrast(1.08) drop-shadow(0 0 10px rgba(117, 248, 255, 0.22));
+      opacity: 0.94;
+      filter: saturate(1.06) contrast(1.08);
     }
 
-    .mascot-box::after {
+    .banner-box::after {
       content: "";
       position: absolute;
       inset: 0;
-      background: repeating-linear-gradient(0deg, rgba(117, 248, 255, 0.08) 0 1px, transparent 1px 5px);
+      background:
+        repeating-linear-gradient(0deg, rgba(117, 248, 255, 0.08) 0 1px, transparent 1px 5px),
+        linear-gradient(90deg, rgba(0, 0, 0, 0.2), transparent 30%, transparent 70%, rgba(0, 0, 0, 0.28));
       mix-blend-mode: screen;
       pointer-events: none;
     }
@@ -185,11 +188,11 @@
 
     .side-panel {
       position: absolute;
-      right: 34px;
-      top: 28px;
-      width: 360px;
+      left: 34px;
+      top: 304px;
+      width: 382px;
       display: grid;
-      gap: 12px;
+      gap: 8px;
     }
 
     .panel {
@@ -202,34 +205,34 @@
     }
 
     .main-metric {
-      padding: 18px 20px 17px;
+      padding: 10px 13px 11px;
     }
 
     .label {
       color: var(--muted);
-      font-size: 14px;
+      font-size: 11px;
       font-weight: 900;
       text-transform: uppercase;
     }
 
     .run-line {
-      margin-top: 8px;
+      margin-top: 5px;
       display: flex;
       align-items: baseline;
       justify-content: space-between;
-      gap: 16px;
+      gap: 12px;
     }
 
     .run-number {
       color: var(--cyan);
-      font-size: 48px;
+      font-size: 34px;
       line-height: 1;
       font-weight: 900;
       text-shadow: 0 0 18px rgba(117, 248, 255, 0.52);
     }
 
     .win-rate {
-      font-size: 58px;
+      font-size: 40px;
       line-height: 0.92;
       font-weight: 900;
       text-align: right;
@@ -243,17 +246,17 @@
     .mini-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 12px;
+      gap: 8px;
     }
 
     .mini {
-      padding: 14px 15px;
-      min-height: 82px;
+      padding: 9px 11px;
+      min-height: 56px;
     }
 
     .value {
-      margin-top: 9px;
-      font-size: 24px;
+      margin-top: 6px;
+      font-size: 17px;
       line-height: 1;
       font-weight: 900;
       white-space: nowrap;
@@ -263,39 +266,40 @@
 
     .bottleneck {
       grid-column: span 2;
-      padding: 14px 15px;
+      padding: 9px 11px;
     }
 
     .bottleneck .value {
       color: var(--yellow);
       white-space: normal;
       line-height: 1.12;
-      font-size: 23px;
+      font-size: 17px;
+      max-height: 38px;
     }
 
     .runs {
-      padding: 14px 15px 15px;
+      padding: 9px 11px 10px;
     }
 
     .runs-title {
       color: var(--cyan);
-      font-size: 15px;
+      font-size: 12px;
       font-weight: 900;
       text-transform: uppercase;
-      margin-bottom: 8px;
+      margin-bottom: 5px;
     }
 
     table {
       width: 100%;
       border-collapse: collapse;
       table-layout: fixed;
-      font-size: 14px;
+      font-size: 11px;
       font-weight: 900;
     }
 
     th,
     td {
-      padding: 6px 4px;
+      padding: 4px 3px;
       border-bottom: 1px solid rgba(117, 248, 255, 0.14);
       text-align: left;
       overflow: hidden;
@@ -305,21 +309,20 @@
 
     th {
       color: var(--muted);
-      font-size: 11px;
+      font-size: 9px;
       text-transform: uppercase;
     }
 
     .bottom-strip {
       position: absolute;
       left: 34px;
-      right: 34px;
       bottom: 26px;
-      min-height: 58px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 24px;
-      padding: 13px 18px;
+      width: 382px;
+      min-height: 64px;
+      display: grid;
+      align-content: center;
+      gap: 8px;
+      padding: 11px 16px;
       border: 1px solid rgba(64, 255, 155, 0.38);
       background: linear-gradient(90deg, rgba(0, 0, 0, 0.86), rgba(2, 20, 26, 0.68), rgba(0, 0, 0, 0.72));
       box-shadow: 0 0 22px rgba(64, 255, 155, 0.12);
@@ -327,7 +330,8 @@
 
     .warning {
       color: var(--green);
-      font-size: 27px;
+      font-size: 16px;
+      line-height: 1.1;
       font-weight: 900;
       text-transform: uppercase;
       text-shadow: 0 0 14px rgba(64, 255, 155, 0.35);
@@ -335,9 +339,9 @@
 
     .updated {
       color: var(--cyan);
-      font-size: 17px;
+      font-size: 12px;
       font-weight: 900;
-      text-align: right;
+      text-align: left;
       text-transform: uppercase;
     }
   </style>
@@ -373,8 +377,8 @@
       <div class="ca-value">addttzUFR7dxGDzWF3pbwHVUWf2YwLWV2RGNeLYpump</div>
     </section>
 
-    <section class="mascot-box">
-      <img src="spectre-mascot.png" alt="SPECTRE mascot">
+    <section class="banner-box">
+      <img src="spectre-banner.jpg" alt="">
     </section>
 
     <aside class="side-panel">
