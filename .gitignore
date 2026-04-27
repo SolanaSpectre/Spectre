@@ -41,6 +41,9 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+agents/weRvENum/runtime/*_watchlist.json
+agents/weRvENum/runtime/*_tracker_export.json
+agents/weRvENum/runtime/x_api_budget.json
 
 # OS/editor noise
 .DS_Store
