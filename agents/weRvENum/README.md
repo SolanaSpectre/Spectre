@@ -57,6 +57,7 @@ python -m venum_standalone.cli draft --topics config/example_topics.json --kind 
 python -m venum_standalone.cli lint --text "headline loud at top\n\nwe rember who chase green"
 python -m venum_standalone.cli spectre-brief --topics config/example_topics.json
 python -m venum_standalone.cli spectre-brief-rick
+python -m venum_standalone.cli spectre-update-draft
 ```
 
 ## Input Shape
@@ -138,6 +139,7 @@ python -m venum_standalone.cli follow-candidates --top 20
 python -m venum_standalone.cli follow-account --username Solanadegen
 python -m venum_standalone.cli search-openings --limit 10
 python -m venum_standalone.cli search-draft-replies --limit 10 --show-all-candidates
+python -m venum_standalone.cli spectre-update-draft --limit 5
 python -m venum_standalone.cli x-post --text "headline loud\n\nliquidity move first"
 ```
 
@@ -179,3 +181,20 @@ Not:
 - a direct trade trigger
 - a threshold setter
 - a replacement for Spectre's deterministic filters
+
+Venum can also draft short manual-review community updates from Spectre's latest
+paper run report:
+
+```bash
+cd F:\Cline Test\Spectre\solana-trading-bot\agents\weRvENum
+python -m venum_standalone.cli spectre-update-draft --limit 5
+```
+
+This reads:
+
+```bash
+F:\Cline Test\Spectre\solana-trading-bot\data\reports\run-battlefield-latest.json
+F:\Cline Test\Spectre\solana-trading-bot\paper-results.json
+```
+
+It only prints draft text and persona validation notes. It does not post to X.
