@@ -153,6 +153,8 @@ python -m venum_standalone.cli trend-hunt --query-name memes_trenches --query-na
 python -m venum_standalone.cli social-wallet-hunt --query-name giveaway_wallet_threads --query-name prelaunch_wallet_hints --limit 10 --max-queries 2 --max-reply-threads 2
 python -m venum_standalone.cli narrative-radar --query-name prelaunch_language --query-name new_meta_language --limit 15 --max-queries 2 --top 10
 python -m venum_standalone.cli token-social-research --mint <CA> --ticker <TICKER> --name "<NAME>" --limit 20 --max-queries 3
+python -m venum_standalone.cli token-social-enqueue --mint <CA> --ticker <TICKER> --name "<NAME>" --source runner_hunter --reason "interesting paper candidate"
+python -m venum_standalone.cli token-social-queue --limit-items 3 --max-queries-total 5 --max-queries-per-token 2
 python -m venum_standalone.cli x-post --text "headline loud\n\nliquidity move first"
 ```
 
@@ -253,6 +255,20 @@ runtime/token_social_research_latest.json
 This is token-specific social oxygen research. It scores exact CA/ticker/name
 pickup, unique authors, human trading language, promo spam risk, wallet mentions,
 and overlap with Venum's social wallet watchlist.
+
+Runner Hunter can hand candidates to Venum through a queue:
+
+```bash
+python -m venum_standalone.cli token-social-enqueue --mint <CA> --ticker <TICKER> --name "<NAME>" --source runner_hunter --reason "interesting paper candidate"
+python -m venum_standalone.cli token-social-queue --limit-items 3 --max-queries-total 5 --max-queries-per-token 2
+```
+
+Queue/runtime outputs:
+
+```bash
+runtime/token_social_research_queue.json
+runtime/token_social_research_reports/
+```
 
 ## Spectre Bridge
 

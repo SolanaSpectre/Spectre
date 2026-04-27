@@ -18,7 +18,7 @@ from .pipeline import build_candidates
 from .rick_context_bridge import DEFAULT_RICK_CONTEXT, source_window_from_rick_context, topics_from_rick_context
 from .settings import load_settings
 from .social_wallet_intel import merge_wallet_watchlist, observations_from_tweets, tweets_from_search_payload, write_tracker_export
-from .token_social_research import build_token_queries, build_token_social_report, write_token_social_report
+from .token_social_research import build_token_queries, build_token_social_report, enqueue_token_social_item, load_token_social_queue, mark_queue_item_result, pending_queue_items, save_token_social_queue, write_token_social_report
 from .venum_prompting import reply_prompt_for_mode, spoodee_post_prompt, venum_system_prompt
 from .x_client import XClient
 from .engagement_logic import classify_room_context, choose_engagement_type, detect_narrative_relevance, select_tone, should_suppress
@@ -42,6 +42,8 @@ DEFAULT_SOCIAL_WALLET_WATCHLIST = runtime_file("social_wallet_watchlist.json")
 DEFAULT_SOCIAL_WALLET_TRACKER_EXPORT = runtime_file("social_wallet_tracker_export.json")
 DEFAULT_NARRATIVE_RADAR = runtime_file("narrative_radar_latest.json")
 DEFAULT_TOKEN_SOCIAL_RESEARCH = runtime_file("token_social_research_latest.json")
+DEFAULT_TOKEN_SOCIAL_QUEUE = runtime_file("token_social_research_queue.json")
+DEFAULT_TOKEN_SOCIAL_REPORT_DIR = runtime_file("token_social_research_reports")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -220,6 +222,28 @@ def build_parser() -> argparse.ArgumentParser:
     token_social.add_argument("--write", default=str(DEFAULT_TOKEN_SOCIAL_RESEARCH), help="Research JSON output path. Use '-' to skip writing.")
     token_social.add_argument("--social-wallet-watchlist", default=str(DEFAULT_SOCIAL_WALLET_WATCHLIST), help="Optional Venum social wallet watchlist for handle overlap.")
     token_social.add_argument("--show-queries", action="store_true", help="Include exact X search queries in output.")
+
+    token_enqueue = subparsers.add_parser("token-social-enqueue", help="Add a runner/token candidate to Venum's token social research queue.")
+    token_enqueue.add_argument("--queue", default=str(DEFAULT_TOKEN_SOCIAL_QUEUE), help="Queue JSON path.")
+    token_enqueue.add_argument("--mint", default="", help="Token contract address / mint.")
+    token_enqueue.add_argument("--ticker", default="", help="Ticker symbol, with or without $.")
+    token_enqueue.add_argument("--name", default="", help="Token/project name.")
+    token_enqueue.add_argument("--source", default="manual", help="Where this queue item came from.")
+    token_enqueue.add_argument("--reason", default="", help="Why this token should be researched.")
+    token_enqueue.add_argument("--priority", type=int, default=50, help="Higher priority queue items run first.")
+
+    token_queue = subparsers.add_parser("token-social-queue", help="Process queued token social research jobs with a global X read cap.")
+    token_queue.add_argument("--env-file", default="", help="Optional path to .env file.")
+    token_queue.add_argument("--queue", default=str(DEFAULT_TOKEN_SOCIAL_QUEUE), help="Queue JSON path.")
+    token_queue.add_argument("--limit-items", type=int, default=3, help="Maximum queued tokens to process.")
+    token_queue.add_argument("--limit", type=int, default=20, help="Posts per query.")
+    token_queue.add_argument("--max-queries-total", type=int, default=5, help="Maximum X reads to spend across the whole queue run.")
+    token_queue.add_argument("--max-queries-per-token", type=int, default=3, help="Maximum X reads to spend per token.")
+    token_queue.add_argument("--top-samples", type=int, default=10, help="Number of sample posts per token report.")
+    token_queue.add_argument("--write-dir", default=str(DEFAULT_TOKEN_SOCIAL_REPORT_DIR), help="Directory for per-token reports.")
+    token_queue.add_argument("--latest", default=str(DEFAULT_TOKEN_SOCIAL_RESEARCH), help="Latest report output path. Use '-' to skip.")
+    token_queue.add_argument("--social-wallet-watchlist", default=str(DEFAULT_SOCIAL_WALLET_WATCHLIST), help="Optional Venum social wallet watchlist for handle overlap.")
+    token_queue.add_argument("--show-queries", action="store_true", help="Include exact X search queries in output.")
     return parser
 
 
@@ -1162,6 +1186,105 @@ def main() -> int:
         print(json.dumps(report, indent=2))
         return 0
 
+    if args.command == "token-social-enqueue":
+        if not any([str(args.mint).strip(), str(args.ticker).strip(), str(args.name).strip()]):
+            print(json.dumps({"error": "provide at least one of --mint, --ticker, or --name"}, indent=2))
+            return 1
+        result = enqueue_token_social_item(
+            Path(args.queue),
+            mint=args.mint,
+            ticker=args.ticker,
+            name=args.name,
+            source=args.source,
+            reason=args.reason,
+            priority=args.priority,
+        )
+        print(json.dumps({
+            "created": result["created"],
+            "item": result["item"],
+            "queue_path": str(Path(args.queue)),
+            "queue_counts": _queue_counts(result["queue"]),
+        }, indent=2))
+        return 0
+
+    if args.command == "token-social-queue":
+        queue_path = Path(args.queue)
+        queue = load_token_social_queue(queue_path)
+        items = pending_queue_items(queue, args.limit_items)
+        settings = load_settings(Path(args.env_file) if getattr(args, "env_file", "") else None)
+        x_client = XClient(settings)
+        social_wallet_watchlist = {}
+        watchlist_path = Path(args.social_wallet_watchlist)
+        if watchlist_path.exists():
+            social_wallet_watchlist = load_json(watchlist_path)
+
+        reports = []
+        errors = []
+        queries_spent = 0
+        for item in items:
+            remaining_queries = max(0, int(args.max_queries_total) - queries_spent)
+            if remaining_queries <= 0:
+                break
+            per_token_queries = min(max(0, int(args.max_queries_per_token)), remaining_queries)
+            queries = build_token_queries(mint=item.get("mint", ""), ticker=item.get("ticker", ""), name=item.get("name", ""))
+            payloads = []
+            query_names = []
+            budget_skips = []
+            for row in queries[:per_token_queries]:
+                try:
+                    payloads.append(x_client.recent_search(query=row["query"], limit=args.limit))
+                    query_names.append(row["name"])
+                    queries_spent += 1
+                except XBudgetExceeded as exc:
+                    budget_skips.append({"query": row["name"], "reason": str(exc)})
+                    break
+                except Exception as exc:
+                    budget_skips.append({"query": row["name"], "reason": f"search_failed: {type(exc).__name__}"})
+
+            try:
+                topics = topics_from_search(payloads)
+                report = build_token_social_report(
+                    topics,
+                    mint=item.get("mint", ""),
+                    ticker=item.get("ticker", ""),
+                    name=item.get("name", ""),
+                    query_names=query_names,
+                    social_wallet_watchlist=social_wallet_watchlist,
+                    max_samples=max(1, args.top_samples),
+                )
+                report["queue_item"] = item
+                report["budget_skips"] = budget_skips
+                if args.show_queries:
+                    report["queries"] = queries[:per_token_queries]
+                report_path = Path(args.write_dir) / f"{item['id']}.json"
+                write_token_social_report(report_path, report)
+                if str(args.latest).strip() != "-":
+                    write_token_social_report(Path(args.latest), report)
+                mark_queue_item_result(
+                    queue,
+                    item["id"],
+                    status="done",
+                    report_path=str(report_path),
+                    social_score=report["social_score"],
+                    report_status=report["status"],
+                )
+                reports.append(report)
+            except Exception as exc:
+                mark_queue_item_result(queue, item["id"], status="error", error=str(exc))
+                errors.append({"item_id": item.get("id"), "error": str(exc)})
+
+        save_token_social_queue(queue_path, queue)
+        print(json.dumps({
+            "processed": len(reports),
+            "errors": errors,
+            "queries_spent": queries_spent,
+            "queue_path": str(queue_path),
+            "queue_counts": _queue_counts(queue),
+            "reports": reports,
+            "x_budget": x_client.budget_status(),
+        }, indent=2))
+        return 0
+
     topics_path = Path(getattr(args, "topics", DEFAULT_TOPICS))
     topics = load_topics(topics_path)
     persona = PersonaEngine(load_json(Path(args.persona)))
@@ -1199,6 +1322,14 @@ def main() -> int:
         memory.save()
 
     return 0
+
+
+def _queue_counts(queue: dict) -> dict:
+    counts = {}
+    for item in queue.get("items", []):
+        status = str(item.get("status") or "unknown")
+        counts[status] = counts.get(status, 0) + 1
+    return counts
 
 
 if __name__ == "__main__":

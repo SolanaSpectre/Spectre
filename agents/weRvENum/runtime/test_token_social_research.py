@@ -1,11 +1,12 @@
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
+import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from venum_standalone.models import Topic
-from venum_standalone.token_social_research import build_token_queries, build_token_social_report
+from venum_standalone.token_social_research import build_token_queries, build_token_social_report, enqueue_token_social_item, load_token_social_queue, mark_queue_item_result, pending_queue_items
 
 
 def check(name, condition, detail=""):
@@ -70,6 +71,19 @@ def main():
     )
     total += 1
     passed += check("penalize no crypto context ticker collision", "no_crypto_context_detected" in no_context["risks"], no_context)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        queue_path = Path(tmp) / "queue.json"
+        first = enqueue_token_social_item(queue_path, mint="CA123", ticker="FROG", name="Frog Run", source="test", priority=90)
+        second = enqueue_token_social_item(queue_path, mint="CA123", ticker="$FROG", name="Frog Run", source="test", priority=90)
+        queue = load_token_social_queue(queue_path)
+        pending = pending_queue_items(queue, 2)
+        total += 1
+        passed += check("dedupe pending queue item", first["created"] is True and second["created"] is False and len(pending) == 1, queue)
+
+        mark_queue_item_result(queue, pending[0]["id"], status="done", report_path="report.json", social_score=55.0, report_status="early_social_pickup")
+        total += 1
+        passed += check("mark queue result", queue["items"][0]["status"] == "done" and queue["items"][0]["last_social_score"] == 55.0, queue)
 
     print(f"\n{passed}/{total} passed, {total - passed} failed")
     return 0 if passed == total else 1

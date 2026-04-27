@@ -188,8 +188,130 @@ def write_token_social_report(path: Path, report: dict[str, Any]) -> None:
     path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 
+def load_token_social_queue(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return _empty_queue()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return _empty_queue()
+    if not isinstance(payload.get("items"), list):
+        payload["items"] = []
+    return payload
+
+
+def save_token_social_queue(path: Path, queue: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    queue["updated_at"] = datetime.now(timezone.utc).isoformat()
+    path.write_text(json.dumps(queue, indent=2), encoding="utf-8")
+
+
+def enqueue_token_social_item(
+    path: Path,
+    *,
+    mint: str = "",
+    ticker: str = "",
+    name: str = "",
+    source: str = "manual",
+    reason: str = "",
+    priority: int = 50,
+) -> dict[str, Any]:
+    queue = load_token_social_queue(path)
+    item = make_queue_item(mint=mint, ticker=ticker, name=name, source=source, reason=reason, priority=priority)
+    key = item["dedupe_key"]
+    for existing in queue["items"]:
+        if existing.get("dedupe_key") == key and existing.get("status") in {"pending", "processing"}:
+            return {"created": False, "item": existing, "queue": queue}
+    queue["items"].append(item)
+    queue["items"].sort(key=lambda row: (-int(row.get("priority", 0) or 0), str(row.get("created_at") or "")))
+    save_token_social_queue(path, queue)
+    return {"created": True, "item": item, "queue": queue}
+
+
+def make_queue_item(
+    *,
+    mint: str = "",
+    ticker: str = "",
+    name: str = "",
+    source: str = "manual",
+    reason: str = "",
+    priority: int = 50,
+) -> dict[str, Any]:
+    mint = str(mint or "").strip()
+    ticker = _clean_ticker(ticker)
+    name = str(name or "").strip()
+    dedupe_key = "|".join([mint.lower(), ticker.lower(), name.lower()])
+    created_at = datetime.now(timezone.utc).isoformat()
+    return {
+        "id": _queue_id(mint=mint, ticker=ticker, name=name, created_at=created_at),
+        "dedupe_key": dedupe_key,
+        "status": "pending",
+        "priority": int(priority),
+        "source": source,
+        "reason": reason,
+        "created_at": created_at,
+        "updated_at": created_at,
+        "mint": mint,
+        "ticker": ticker,
+        "name": name,
+        "attempts": 0,
+        "last_error": None,
+        "last_report_path": None,
+        "last_social_score": None,
+        "last_status": None,
+    }
+
+
+def pending_queue_items(queue: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    items = [item for item in queue.get("items", []) if item.get("status") == "pending"]
+    items.sort(key=lambda row: (-int(row.get("priority", 0) or 0), str(row.get("created_at") or "")))
+    return items[: max(0, limit)]
+
+
+def mark_queue_item_result(
+    queue: dict[str, Any],
+    item_id: str,
+    *,
+    status: str,
+    report_path: str | None = None,
+    social_score: float | None = None,
+    report_status: str | None = None,
+    error: str | None = None,
+) -> None:
+    for item in queue.get("items", []):
+        if item.get("id") != item_id:
+            continue
+        item["status"] = status
+        item["attempts"] = int(item.get("attempts", 0) or 0) + 1
+        item["updated_at"] = datetime.now(timezone.utc).isoformat()
+        item["last_error"] = error
+        if report_path is not None:
+            item["last_report_path"] = report_path
+        if social_score is not None:
+            item["last_social_score"] = social_score
+        if report_status is not None:
+            item["last_status"] = report_status
+        return
+
+
 def _clean_ticker(value: str) -> str:
     return str(value or "").strip().replace("$", "").upper()
+
+
+def _empty_queue() -> dict[str, Any]:
+    return {
+        "source": "venum_token_social_research_queue",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "items": [],
+    }
+
+
+def _queue_id(*, mint: str, ticker: str, name: str, created_at: str) -> str:
+    base = "-".join(part for part in [ticker, name, mint[:8]] if part) or "token"
+    safe = re.sub(r"[^A-Za-z0-9_-]+", "-", base).strip("-")[:48] or "token"
+    stamp = re.sub(r"[^0-9]", "", created_at)[0:14]
+    return f"{safe}-{stamp}"
 
 
 def _mentions_ticker(text: str, ticker: str) -> bool:
