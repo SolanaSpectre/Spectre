@@ -26,6 +26,7 @@ const CandidateDossierLedger = require('./lib/candidate-dossier-ledger');
 const PostMigrationContinuationLane = require('./lib/post-migration-continuation-lane');
 const WalletEventLedger = require('./lib/wallet-event-ledger');
 const SolanaRpcRouter = require('./lib/solana-rpc-router');
+const OutcomeLedger = require('./lib/outcome-ledger');
 
 class TradingEngine {
   constructor(config, logger) {
@@ -64,6 +65,7 @@ class TradingEngine {
     this.candidateDossierLedger = new CandidateDossierLedger(config, logger);
     this.postMigrationContinuationLane = new PostMigrationContinuationLane(config, logger);
     this.walletEventLedger = new WalletEventLedger(config, logger);
+    this.outcomeLedger = new OutcomeLedger(config, logger);
 
     this.currentPositions = new Map();
     this.paperPositions = new Map();
@@ -1290,6 +1292,10 @@ class TradingEngine {
           });
           this.candidateDossierLedger.recordContinuationState(result.state, {
             eventType: result.eventType
+          });
+          this.outcomeLedger.recordContinuationState(result.state, {
+            eventType: result.eventType,
+            sessionId: this.sessionId
           });
           this.eventFlow.record(result.eventType, {
             token: mint,
@@ -2665,6 +2671,15 @@ class TradingEngine {
       newlyConfirmed: Boolean(result.newlyConfirmed),
       confirmationReason: result.state.confirmationReason
     });
+    this.outcomeLedger.recordCandidate(result.state, {
+      kind: result.flagged ? 'candidate.flagged' : 'candidate.observed',
+      flagged: Boolean(result.flagged),
+      flagType: result.flagType || null,
+      observedInterest: Boolean(result.observedInterest),
+      observedSignal: Boolean(result.observedSignal),
+      newlyConfirmed: Boolean(result.newlyConfirmed),
+      sessionId: this.sessionId
+    });
 
     this.recordPreMigrationPaperEvents(this.preMigrationPaperLane.observe(result.state, {
       flagged: Boolean(result.flagged),
@@ -2756,6 +2771,11 @@ class TradingEngine {
       this.candidateDossierLedger.recordPaperEvent(
         event,
         this.preMigrationWatchLane.getMintSummary(event.payload?.mint) || {}
+      );
+      this.outcomeLedger.recordPaperEvent(
+        event,
+        this.preMigrationWatchLane.getMintSummary(event.payload?.mint) || {},
+        { sessionId: this.sessionId }
       );
       this.eventFlow.record(event.telemetryType, {
         token: event.payload?.mint,
@@ -3320,6 +3340,9 @@ class TradingEngine {
     if (preMigrationSummary) {
       this.launchIntelStore.registerPreMigrationState(preMigrationSummary);
     }
+    this.outcomeLedger.recordMigration(mint, preMigrationSummary || current, event, {
+      sessionId: this.sessionId
+    });
     this.telemetry.record('provider.pumpportal.migration', { mint });
   }
 
@@ -3608,6 +3631,9 @@ class TradingEngine {
       qualityScore: signal.qualityScore,
       qualityFactors: signal.qualityFactors
     });
+    this.outcomeLedger.recordTradeRejection(signal, reason, {
+      sessionId: this.sessionId
+    });
     this.eventFlow.record('signal.rejected', {
       signalId: signal.id,
       token: signal.token,
@@ -3663,6 +3689,7 @@ class TradingEngine {
       postMigrationContinuation: this.postMigrationContinuationLane.getStats(),
       walletEventLedger: this.walletEventLedger.getStats(),
       candidateDossiers: this.candidateDossierLedger.getStats(),
+      outcomeLedger: this.outcomeLedger.getStats(),
       telemetry: this.telemetry.getSummary(),
       eventFlow: this.eventFlow.getSummary(),
       strategyLedger: this.strategyLedger.getSummary(),

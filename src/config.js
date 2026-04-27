@@ -207,6 +207,18 @@ class Config {
     return parseInt(process.env.CANDIDATE_DOSSIER_MAX_RECENT || '25', 10);
   }
 
+  static get outcomeLedgerEnabled() {
+    return process.env.OUTCOME_LEDGER_ENABLED !== 'false';
+  }
+
+  static get outcomeLedgerFilePath() {
+    return process.env.OUTCOME_LEDGER_FILE_PATH || path.join(process.cwd(), 'data', 'outcomes', 'outcome-ledger.jsonl');
+  }
+
+  static get outcomeLedgerMaxRecent() {
+    return parseInt(process.env.OUTCOME_LEDGER_MAX_RECENT || '25', 10);
+  }
+
   static get postMigrationContinuationEnabled() {
     return process.env.POST_MIGRATION_CONTINUATION_ENABLED !== 'false';
   }
