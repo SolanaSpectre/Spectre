@@ -3,7 +3,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 const fs = require('fs');
 const path = require('path');
 
-const WATCHLIST_PATH = path.join(__dirname, '..', 'data', 'wallet-watchlists', 'kolscan-leaderboard.json');
+const DEFAULT_WATCHLIST_PATH = path.join(__dirname, '..', 'data', 'wallet-watchlists', 'kolscan-leaderboard.json');
 const OUTPUT_DIR = path.join(__dirname, '..', 'data', 'wallet-analysis');
 
 function parseArgs(argv) {
@@ -31,6 +31,19 @@ function parseArgs(argv) {
 
 function getHeliusApiKey() {
   return process.env.HELIUS_PARSE_API_KEY || '';
+}
+
+function resolveRepoPath(filePath, fallback) {
+  const target = filePath || fallback;
+  return path.isAbsolute(target) ? target : path.join(__dirname, '..', target);
+}
+
+function normalizeSourceLabel(value) {
+  return String(value || 'kolscan')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'wallet-source';
 }
 
 function getHistoryEndpoint(walletAddress, txLimit) {
@@ -154,17 +167,19 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const walletLimit = Math.max(parseInt(args.limit || args._[0] || '25', 10), 1);
   const txLimit = Math.max(parseInt(args.txLimit || args._[1] || '100', 10), 1);
+  const watchlistPath = resolveRepoPath(args.watchlist, DEFAULT_WATCHLIST_PATH);
+  const sourceLabel = normalizeSourceLabel(args.sourceLabel || args['source-label'] || 'kolscan');
   const heliusApiKey = getHeliusApiKey();
 
   if (!heliusApiKey) {
     throw new Error('HELIUS_PARSE_API_KEY is required to analyze Kolscan wallets');
   }
 
-  if (!fs.existsSync(WATCHLIST_PATH)) {
-    throw new Error(`Kolscan watchlist not found at ${WATCHLIST_PATH}`);
+  if (!fs.existsSync(watchlistPath)) {
+    throw new Error(`Wallet watchlist not found at ${watchlistPath}`);
   }
 
-  const watchlist = JSON.parse(fs.readFileSync(WATCHLIST_PATH, 'utf8'));
+  const watchlist = JSON.parse(fs.readFileSync(watchlistPath, 'utf8'));
   const wallets = (watchlist.wallets || []).slice(0, walletLimit);
 
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -190,10 +205,12 @@ async function main() {
   }
 
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const outputPath = path.join(OUTPUT_DIR, `kolscan-wallet-analysis-${stamp}.json`);
+  const outputPath = path.join(OUTPUT_DIR, `${sourceLabel}-wallet-analysis-${stamp}.json`);
   fs.writeFileSync(outputPath, `${JSON.stringify({
-    source: 'kolscan_leaderboard+helius_history',
+    source: `${watchlist.source || sourceLabel}+helius_history`,
+    sourceLabel,
     generatedAt: new Date().toISOString(),
+    watchlistFile: watchlistPath,
     walletLimit,
     txLimit,
     count: summaries.length,

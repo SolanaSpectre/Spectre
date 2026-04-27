@@ -29,6 +29,7 @@ data/launch-intel/
 data/pumpportal-debug/
 data/positions/
 data/wallet-watchlists/kolscan-leaderboard.json
+data/wallet-watchlists/venum-social-wallets.json
 data/wallet-events/
 
 # Generated stream overlay/runtime artifacts

@@ -193,6 +193,8 @@ When resuming runner-hunter research after overnight context collection, use thi
 ```bash
 npm run fetch:kolscan
 npm run analyze:kolscan -- --limit 25 --txLimit 100
+npm run import:venum-wallets
+npm run analyze:venum-wallets -- --limit 25 --txLimit 100
 npm run compare:kolscan
 npm run build:wallet-intel
 npm run sync:telegram
@@ -206,6 +208,8 @@ What this does:
 
 - refreshes leaderboard wallet discovery
 - refreshes Helius wallet summaries
+- imports Venum's public social-wallet SOL breadcrumbs as a watch-only list
+- refreshes Helius wallet summaries for that Venum watch-only list
 - refreshes wallet-vs-paper overlap analysis
 - rebuilds wallet intel for the AI layer
 - syncs approved Telegram chats/channels only

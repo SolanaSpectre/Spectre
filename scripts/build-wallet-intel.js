@@ -20,6 +20,31 @@ function getLatestFile(dirPath, pattern) {
   return matches[0]?.filePath || null;
 }
 
+function getLatestFilesBySource(dirPath, pattern) {
+  if (!fs.existsSync(dirPath)) {
+    return [];
+  }
+
+  const latestBySource = new Map();
+  for (const fileName of fs.readdirSync(dirPath)) {
+    const match = fileName.match(pattern);
+    if (!match) {
+      continue;
+    }
+    const source = match[1] || 'unknown';
+    const filePath = path.join(dirPath, fileName);
+    const stat = fs.statSync(filePath);
+    const current = latestBySource.get(source);
+    if (!current || stat.mtimeMs > current.stat.mtimeMs) {
+      latestBySource.set(source, { filePath, stat });
+    }
+  }
+
+  return Array.from(latestBySource.values())
+    .sort((a, b) => a.filePath.localeCompare(b.filePath))
+    .map((item) => item.filePath);
+}
+
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
@@ -306,21 +331,59 @@ function buildMintIntel(walletAnalysis, comparisonData) {
   };
 }
 
+function mergeWalletAnalysisFiles(filePaths) {
+  const merged = {
+    source: 'merged_wallet_analysis',
+    generatedAt: new Date().toISOString(),
+    files: [],
+    summaries: []
+  };
+  const seenWallets = new Set();
+
+  for (const filePath of filePaths) {
+    const payload = readJson(filePath);
+    merged.files.push({
+      filePath,
+      source: payload.source || null,
+      sourceLabel: payload.sourceLabel || null,
+      generatedAt: payload.generatedAt || null,
+      count: Number(payload.count || (payload.summaries || []).length || 0)
+    });
+
+    for (const summary of payload.summaries || []) {
+      const walletAddress = summary.walletAddress;
+      if (!walletAddress || seenWallets.has(walletAddress)) {
+        continue;
+      }
+      seenWallets.add(walletAddress);
+      merged.summaries.push({
+        ...summary,
+        analysisSource: payload.sourceLabel || payload.source || null,
+        watchlistFile: payload.watchlistFile || null
+      });
+    }
+  }
+
+  return merged;
+}
+
 function main() {
-  const walletAnalysisPath = getLatestFile(WALLET_ANALYSIS_DIR, /^kolscan-wallet-analysis-.*\.json$/i);
-  if (!walletAnalysisPath) {
+  const walletAnalysisFiles = getLatestFilesBySource(WALLET_ANALYSIS_DIR, /^(.+)-wallet-analysis-.*\.json$/i);
+  if (!walletAnalysisFiles.length) {
     throw new Error('No wallet analysis file found. Run analyze:kolscan first.');
   }
 
   const comparisonPath = getLatestFile(WALLET_COMPARISON_DIR, /^kolscan-paper-overlap-.*\.json$/i);
-  const walletAnalysis = readJson(walletAnalysisPath);
+  const walletAnalysis = mergeWalletAnalysisFiles(walletAnalysisFiles);
   const comparisonData = comparisonPath ? readJson(comparisonPath) : null;
   const intel = buildMintIntel(walletAnalysis, comparisonData);
 
   const payload = {
     source: 'kolscan_wallet_intel',
     generatedAt: new Date().toISOString(),
-    walletAnalysisFile: walletAnalysisPath,
+    walletAnalysisFile: walletAnalysisFiles[0] || null,
+    walletAnalysisFiles,
+    walletAnalysisSources: walletAnalysis.files,
     comparisonFile: comparisonPath,
     walletCount: intel.walletScores.length,
     mintCount: intel.mintIntel.length,
