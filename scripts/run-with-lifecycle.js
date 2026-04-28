@@ -40,6 +40,21 @@ function getLedgerPath() {
   return resolveRepoPath(process.env.OUTCOME_LEDGER_FILE_PATH, DEFAULT_LEDGER_PATH);
 }
 
+function buildChildEnv() {
+  const env = { ...process.env };
+  if (env.SIMPLE_RUNTIME_AI_ENABLED !== 'false') {
+    const preload = '--require ./src/simple-runtime-ai-patch.js';
+    env.SIMPLE_RUNTIME_AI_ENABLED = env.SIMPLE_RUNTIME_AI_ENABLED || 'true';
+    env.SIMPLE_RUNTIME_AI_MODEL = env.SIMPLE_RUNTIME_AI_MODEL || env.RUNTIME_AI_MODEL || 'llama3.2:3b';
+    env.SIMPLE_RUNTIME_AI_TIMEOUT_MS = env.SIMPLE_RUNTIME_AI_TIMEOUT_MS || env.AI_TIMEOUT_MS || '4000';
+    env.SIMPLE_RUNTIME_AI_NUM_PREDICT = env.SIMPLE_RUNTIME_AI_NUM_PREDICT || '80';
+    env.NODE_OPTIONS = String(env.NODE_OPTIONS || '').includes('simple-runtime-ai-patch.js')
+      ? env.NODE_OPTIONS
+      : `${env.NODE_OPTIONS || ''} ${preload}`.trim();
+  }
+  return env;
+}
+
 function readLedgerEvents() {
   const ledgerPath = getLedgerPath();
   if (!ledgerPath || !fs.existsSync(ledgerPath)) return [];
@@ -218,7 +233,7 @@ startPaperSnapshotTimer();
 
 child = spawn(NODE, [path.join('scripts', 'run-with-context-and-reports.js'), ...process.argv.slice(2)], {
   cwd: REPO_ROOT,
-  env: process.env,
+  env: buildChildEnv(),
   stdio: 'inherit',
   windowsHide: false
 });
