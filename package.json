@@ -4,7 +4,8 @@
   "description": "An AI-powered Solana memecoin trading bot with advanced risk management",
   "main": "src/index.js",
   "scripts": {
-    "start": "node scripts/run-with-context-and-reports.js",
+    "start": "node scripts/run-with-lifecycle.js",
+    "start:legacy": "node scripts/run-with-context-and-reports.js",
     "start:core": "node src/index.js",
     "dev": "node --inspect src/index.js",
     "report:strategy": "node scripts/strategy-report.js",
