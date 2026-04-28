@@ -21,9 +21,14 @@ const REQUIRED_EXIT_STYLE = ['fixed', 'tight_invalidation', 'trailing_runner', '
 
 function parseArgs(argv) {
   const args = {};
+  const positionals = [];
+
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (!arg.startsWith('--')) continue;
+    if (!arg.startsWith('--')) {
+      positionals.push(arg);
+      continue;
+    }
 
     const key = arg.slice(2);
     const next = argv[index + 1];
@@ -35,6 +40,13 @@ function parseArgs(argv) {
     args[key] = next;
     index += 1;
   }
+
+  // Windows/npm sometimes strips option names in odd shells. Keep a forgiving
+  // positional fallback so copied commands still work.
+  if (!args.models && positionals[0]) args.models = positionals[0];
+  if (!args.runs && positionals[1]) args.runs = positionals[1];
+  if (!args.timeoutMs && positionals[2]) args.timeoutMs = positionals[2];
+
   return args;
 }
 
@@ -47,6 +59,11 @@ function toList(value, fallback) {
 function toNumber(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toBool(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
 }
 
 function resolveRepoPath(filePath, fallback) {
@@ -142,12 +159,23 @@ function buildSystemPrompt() {
 Return exactly one compact JSON object. Do not use markdown. Do not include text before or after JSON.
 Use only the candidate JSON. Do not invent external facts.
 
-Required schema:
-{"approved":true,"confidence":0,"reason":"short","primaryStrategy":"RUNNER_HUNTER","convergenceScore":0,"action":"ENTER","strategyScores":{"RUNNER_HUNTER":0,"SNIPER":0,"SCALPER":0,"MIGRATION_HUNTER":0,"WALLET_FLOW":0},"contradictions":[],"executionProfile":{"entryUrgency":"high","expectedHold":"short_to_medium","exitStyle":"trailing_runner"}}
+Required JSON keys:
+approved boolean
+confidence number 0-100
+reason short string
+primaryStrategy one of RUNNER_HUNTER, SNIPER, SCALPER, MIGRATION_HUNTER, WALLET_FLOW
+convergenceScore number 0-1
+action one of ENTER, WATCH, REJECT
+strategyScores object with RUNNER_HUNTER, SNIPER, SCALPER, MIGRATION_HUNTER, WALLET_FLOW numbers 0-1
+contradictions array of short strings
+executionProfile object with exact enum values
 
-Allowed actions: ENTER, WATCH, REJECT.
-Allowed strategies: RUNNER_HUNTER, SNIPER, SCALPER, MIGRATION_HUNTER, WALLET_FLOW.
-Scores must be numbers from 0 to 1. Confidence must be 0 to 100.`;
+executionProfile.entryUrgency must be one of: low, medium, high
+executionProfile.expectedHold must be one of: scalp, short, short_to_medium, medium
+executionProfile.exitStyle must be one of: fixed, tight_invalidation, trailing_runner, migration_hold, flow_follow
+
+Return this exact shape with valid values:
+{"approved":true,"confidence":80,"reason":"short","primaryStrategy":"RUNNER_HUNTER","convergenceScore":0.8,"action":"ENTER","strategyScores":{"RUNNER_HUNTER":0.8,"SNIPER":0.2,"SCALPER":0.3,"MIGRATION_HUNTER":0.1,"WALLET_FLOW":0.5},"contradictions":[],"executionProfile":{"entryUrgency":"high","expectedHold":"short_to_medium","exitStyle":"trailing_runner"}}`;
 }
 
 function buildCandidate(index) {
@@ -182,9 +210,9 @@ function buildPrompt(iteration) {
   return `Review this Spectre runtime candidate. Return JSON only.\n\nCandidate JSON:\n${JSON.stringify(buildCandidate(iteration))}`;
 }
 
-async function callOllama({ host, model, timeoutMs, iteration, numPredict }) {
+async function callOllama({ host, model, timeoutMs, iteration, numPredict, useJsonMode }) {
   const startedAt = Date.now();
-  const response = await axios.post(`${host.replace(/\/$/, '')}/api/chat`, {
+  const body = {
     model,
     stream: false,
     messages: [
@@ -195,7 +223,13 @@ async function callOllama({ host, model, timeoutMs, iteration, numPredict }) {
       temperature: 0,
       num_predict: numPredict
     }
-  }, {
+  };
+
+  if (useJsonMode) {
+    body.format = 'json';
+  }
+
+  const response = await axios.post(`${host.replace(/\/$/, '')}/api/chat`, body, {
     timeout: timeoutMs
   });
 
@@ -205,6 +239,7 @@ async function callOllama({ host, model, timeoutMs, iteration, numPredict }) {
   const evalDurationNs = Number(response.data?.eval_duration || 0);
   const promptEvalDurationNs = Number(response.data?.prompt_eval_duration || 0);
   const totalDurationNs = Number(response.data?.total_duration || 0);
+  const loadDurationNs = Number(response.data?.load_duration || 0);
   const tokPerSec = evalCount > 0 && evalDurationNs > 0
     ? (evalCount / (evalDurationNs / 1e9))
     : null;
@@ -215,11 +250,42 @@ async function callOllama({ host, model, timeoutMs, iteration, numPredict }) {
     evalCount: Number.isFinite(evalCount) ? evalCount : null,
     tokPerSec: numberOrNull(tokPerSec, 2),
     promptEvalMs: promptEvalDurationNs > 0 ? numberOrNull(promptEvalDurationNs / 1e6, 2) : null,
-    totalDurationMs: totalDurationNs > 0 ? numberOrNull(totalDurationNs / 1e6, 2) : null
+    totalDurationMs: totalDurationNs > 0 ? numberOrNull(totalDurationNs / 1e6, 2) : null,
+    loadDurationMs: loadDurationNs > 0 ? numberOrNull(loadDurationNs / 1e6, 2) : null
   };
 }
 
+async function warmupModel(model, options) {
+  const attempts = Math.max(0, Number(options.warmupRuns || 0));
+  if (attempts <= 0) return [];
+
+  const warmups = [];
+  console.log(`${model} warmup: ${attempts} run(s)`);
+  for (let index = 0; index < attempts; index += 1) {
+    const startedAt = Date.now();
+    try {
+      await callOllama({
+        host: options.host,
+        model,
+        timeoutMs: options.warmupTimeoutMs,
+        iteration: index,
+        numPredict: 96,
+        useJsonMode: options.useJsonMode
+      });
+      const latencyMs = Date.now() - startedAt;
+      warmups.push({ ok: true, latencyMs });
+      console.log(`${model} warmup ${index + 1}/${attempts}: ok ${latencyMs}ms`);
+    } catch (error) {
+      const latencyMs = Date.now() - startedAt;
+      warmups.push({ ok: false, latencyMs, error: error.code === 'ECONNABORTED' ? `TIMEOUT_${options.warmupTimeoutMs}MS` : error.message });
+      console.log(`${model} warmup ${index + 1}/${attempts}: fail ${latencyMs}ms ${warmups[warmups.length - 1].error}`);
+    }
+  }
+  return warmups;
+}
+
 async function benchmarkModel(model, options) {
+  const warmups = await warmupModel(model, options);
   const runs = [];
   for (let iteration = 0; iteration < options.runs; iteration += 1) {
     const result = {
@@ -242,13 +308,15 @@ async function benchmarkModel(model, options) {
         model,
         timeoutMs: options.timeoutMs,
         iteration,
-        numPredict: options.numPredict
+        numPredict: options.numPredict,
+        useJsonMode: options.useJsonMode
       });
       result.latencyMs = response.latencyMs;
       result.tokPerSec = response.tokPerSec;
       result.evalCount = response.evalCount;
       result.promptEvalMs = response.promptEvalMs;
       result.totalDurationMs = response.totalDurationMs;
+      result.loadDurationMs = response.loadDurationMs;
 
       const trimmed = String(response.text || '').trim();
       result.extraCommentary = !(trimmed.startsWith('{') && trimmed.endsWith('}'));
@@ -271,10 +339,10 @@ async function benchmarkModel(model, options) {
     console.log(`${model} run ${iteration + 1}/${options.runs}: ${status} ${result.latencyMs ?? '-'}ms ${result.error || result.schemaErrors.slice(0, 2).join('; ')}`);
   }
 
-  return summarizeModel(model, runs);
+  return summarizeModel(model, runs, warmups);
 }
 
-function summarizeModel(model, runs) {
+function summarizeModel(model, runs, warmups = []) {
   const latencies = runs.map((run) => run.latencyMs).filter((value) => Number.isFinite(value));
   const tokPerSecValues = runs.map((run) => run.tokPerSec).filter((value) => Number.isFinite(value));
   const okCount = runs.filter((run) => run.ok).length;
@@ -287,6 +355,8 @@ function summarizeModel(model, runs) {
     model,
     summary: {
       runs: runs.length,
+      warmupRuns: warmups.length,
+      warmupOkCount: warmups.filter((run) => run.ok).length,
       okCount,
       okRate: numberOrNull(okCount / Math.max(runs.length, 1), 4),
       validJsonCount,
@@ -303,6 +373,7 @@ function summarizeModel(model, runs) {
       avgTokPerSec: avg(tokPerSecValues),
       p50TokPerSec: percentile(tokPerSecValues, 50)
     },
+    warmups,
     failures: runs
       .filter((run) => !run.ok)
       .slice(0, 10)
@@ -340,15 +411,21 @@ async function main() {
   const models = toList(args.models || process.env.MODEL_BENCHMARK_MODELS, DEFAULT_MODELS);
   const runs = toNumber(args.runs || process.env.MODEL_BENCHMARK_RUNS, 10);
   const timeoutMs = toNumber(args.timeoutMs || process.env.MODEL_BENCHMARK_TIMEOUT_MS || process.env.AI_TIMEOUT_MS, 5000);
+  const warmupRuns = toNumber(args.warmupRuns || process.env.MODEL_BENCHMARK_WARMUP_RUNS, 1);
+  const warmupTimeoutMs = toNumber(args.warmupTimeoutMs || process.env.MODEL_BENCHMARK_WARMUP_TIMEOUT_MS, Math.max(timeoutMs * 4, 20000));
   const numPredict = toNumber(args.numPredict || process.env.MODEL_BENCHMARK_NUM_PREDICT, 160);
   const outputPath = resolveRepoPath(args.output, DEFAULT_OUTPUT_PATH);
   const keepResponses = args.keepResponses === true || args.keepResponses === 'true';
+  const useJsonMode = !toBool(args.noJsonMode || process.env.MODEL_BENCHMARK_DISABLE_JSON_MODE, false);
 
   console.log('Runtime Model Benchmark');
   console.log(`Host: ${host}`);
   console.log(`Models: ${models.join(', ')}`);
   console.log(`Runs/model: ${runs}`);
+  console.log(`Warmup runs/model: ${warmupRuns}`);
   console.log(`Timeout: ${timeoutMs}ms`);
+  console.log(`Warmup timeout: ${warmupTimeoutMs}ms`);
+  console.log(`Ollama JSON mode: ${useJsonMode ? 'on' : 'off'}`);
   console.log('');
 
   const results = [];
@@ -358,8 +435,11 @@ async function main() {
       host,
       runs,
       timeoutMs,
+      warmupRuns,
+      warmupTimeoutMs,
       numPredict,
-      keepResponses
+      keepResponses,
+      useJsonMode
     }));
     console.log('');
   }
@@ -369,8 +449,11 @@ async function main() {
     generatedAt: new Date().toISOString(),
     host,
     runsPerModel: runs,
+    warmupRunsPerModel: warmupRuns,
     timeoutMs,
+    warmupTimeoutMs,
     numPredict,
+    useJsonMode,
     ranking: ranked.map((item, index) => ({ rank: index + 1, model: item.model, ...item.summary })),
     results
   };
