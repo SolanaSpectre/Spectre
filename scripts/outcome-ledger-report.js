@@ -179,12 +179,12 @@ function applyEvent(record, event) {
 
   updateMax(record, 'maxScore', event.score, 2);
   updateMax(record, 'maxCurveProgress', event.curveProgress ?? event.market?.maxCurveProgress, 6);
-  updateMax(record, 'maxRecentVolumeSol', event.market?.recentVolumeSol, 4);
-  updateMax(record, 'maxTradeVelocityPerMin', event.market?.tradeVelocityPerMin, 2);
-  updateMax(record, 'maxLiquidityUsd', event.market?.liquidityUsd, 2);
-  updateMax(record, 'maxPriceChange1hPct', event.market?.priceChange1hPct, 2);
-  updateMax(record, 'maxPriceChange6hPct', event.market?.priceChange6hPct, 2);
-  updateMax(record, 'maxPriceChange24hPct', event.market?.priceChange24hPct, 2);
+  updateMax(record, 'maxRecentVolumeSol', event.recentVolumeSol ?? event.market?.recentVolumeSol, 4);
+  updateMax(record, 'maxTradeVelocityPerMin', event.tradeVelocityPerMin ?? event.tradeVelocity ?? event.market?.tradeVelocityPerMin, 2);
+  updateMax(record, 'maxLiquidityUsd', event.liquidityUsd ?? event.market?.liquidityUsd, 2);
+  updateMax(record, 'maxPriceChange1hPct', event.priceChange1hPct ?? event.market?.priceChange1hPct, 2);
+  updateMax(record, 'maxPriceChange6hPct', event.priceChange6hPct ?? event.market?.priceChange6hPct, 2);
+  updateMax(record, 'maxPriceChange24hPct', event.priceChange24hPct ?? event.market?.priceChange24hPct, 2);
   updateCurveThresholds(record, event);
 
   if (
@@ -198,7 +198,9 @@ function applyEvent(record, event) {
       decision: event.decision || null,
       reason: event.reason || null,
       score: numberOrNull(event.score, 2),
-      curveProgress: numberOrNull(event.curveProgress ?? event.market?.maxCurveProgress, 6)
+      curveProgress: numberOrNull(event.curveProgress ?? event.market?.maxCurveProgress, 6),
+      recentVolumeSol: numberOrNull(event.recentVolumeSol ?? event.market?.recentVolumeSol, 4),
+      tradeVelocityPerMin: numberOrNull(event.tradeVelocityPerMin ?? event.tradeVelocity ?? event.market?.tradeVelocityPerMin, 2)
     });
     record.samples = record.samples.slice(-30);
   }
@@ -338,18 +340,49 @@ function buildWatchlist(report) {
     watchlist: report.topFalseNegativeCandidates.map((row) => ({
       mint: row.mint,
       symbol: row.symbol,
+      name: row.name,
       falseNegativePriority: row.falseNegativePriority,
       outcome: row.outcome,
+      firstSeenAt: row.firstSeenAt,
+      lastSeenAt: row.lastSeenAt,
+      firstFlagAt: row.firstFlagAt,
+      firstRejectAt: row.firstRejectAt,
+      migratedAt: row.migratedAt,
+      secondsFlagTo85: row.secondsFlagTo85,
+      secondsFlagTo95: row.secondsFlagTo95,
+      secondsFlagToMigration: row.secondsFlagToMigration,
+      eventCount: row.eventCount,
+      flags: row.flags,
+      observations: row.observations,
+      nearMisses: row.nearMisses,
+      paperEntries: row.paperEntries,
+      paperExits: row.paperExits,
+      paperPnlSol: row.paperPnlSol,
+      maxScore: row.maxScore,
+      maxCurveProgress: row.maxCurveProgress,
+      maxRecentVolumeSol: row.maxRecentVolumeSol,
+      maxTradeVelocityPerMin: row.maxTradeVelocityPerMin,
+      maxLiquidityUsd: row.maxLiquidityUsd,
+      maxPriceChange1hPct: row.maxPriceChange1hPct,
+      maxPriceChange6hPct: row.maxPriceChange6hPct,
+      maxPriceChange24hPct: row.maxPriceChange24hPct,
+      curve75At: row.curve75At,
+      curve85At: row.curve85At,
+      curve95At: row.curve95At,
+      curve100At: row.curve100At,
       whyInteresting: [
         `max curve ${numberOrNull(Number(row.maxCurveProgress || 0) * 100, 2)}%`,
         `max score ${row.maxScore ?? 'n/a'}`,
+        `max volume ${row.maxRecentVolumeSol ?? 'n/a'} SOL`,
+        `max velocity ${row.maxTradeVelocityPerMin ?? 'n/a'}/min`,
         `${row.nearMisses} near-miss event(s), ${Object.values(row.paperSkips || {}).reduce((sum, count) => sum + count, 0)} paper skip(s), ${Object.values(row.tradeRejections || {}).reduce((sum, count) => sum + count, 0)} trade rejection(s)`
       ],
-      firstFlagAt: row.firstFlagAt,
-      migratedAt: row.migratedAt,
       reasons: row.reasons,
       paperSkips: row.paperSkips,
-      tradeRejections: row.tradeRejections
+      tradeRejections: row.tradeRejections,
+      decisions: row.decisions,
+      sources: row.sources,
+      samples: row.samples
     }))
   };
 }
