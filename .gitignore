@@ -14,6 +14,7 @@ run-logs/
 
 # Generated local data snapshots and reports
 data/telegram-context/
+data/accidental-runs/
 data/rick-context/
 data/reports/
 data/model-benchmark/
