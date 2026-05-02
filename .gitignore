@@ -35,6 +35,9 @@ data/wallet-events/
 
 # Generated stream overlay/runtime artifacts
 paper-results.json
+spectre-vibe-hud.html
+spectre-banner.jpg
+ghost.gif
 spectre-mascot.jpg
 
 # Python local artifacts for sidecar agents
