@@ -195,7 +195,11 @@ function summarizeRaydiumShadow(item = {}) {
   const continuation = item.continuation
     ? ` | continuation=${item.continuation.verdict || item.continuation.rejectReason || 'observed'}`
     : '';
-  return `${label} | BLOCKED report-only | rank=${fmt(item.rankScore)} | quality=${fmt(item.qualityScore)} | liq=${money(item.liquidityUsd, 0)} | vol24h=${money(item.volume24h, 0)} | risk=${fmt(item.riskScore, 3)}${continuation}`;
+  const age = item.poolAgeKnown
+    ? `age=${fmt(item.poolAgeHours, 2)}h`
+    : 'age=unknown';
+  const bucket = item.ageBucket ? ` | bucket=${item.ageBucket}` : '';
+  return `${label} | BLOCKED report-only | rank=${fmt(item.rankScore)} | quality=${fmt(item.qualityScore)} | liq=${money(item.liquidityUsd, 0)} | vol24h=${money(item.volume24h, 0)} | risk=${fmt(item.riskScore, 3)} | ${age}${bucket}${continuation}`;
 }
 
 function summarizeLesson(lesson = {}) {
@@ -373,6 +377,9 @@ function buildSummary(docs) {
   lines.push(`- Observations / unique mints: ${shadowSummary.observations ?? 'n/a'} / ${shadowSummary.uniqueMints ?? 'n/a'}`);
   lines.push(`- Would pass quality/risk counter: ${shadowSummary.wouldPassQualityRiskCount ?? 'n/a'}`);
   lines.push(`- Continuation overlap: ${shadowSummary.continuationOverlapCount ?? 'n/a'}`);
+  lines.push(`- Fresh / mature-or-established / age-unknown: ${shadowSummary.freshPoolCount ?? 'n/a'} / ${shadowSummary.matureOrEstablishedCount ?? 'n/a'} / ${shadowSummary.ageUnknownCount ?? 'n/a'}`);
+  lines.push('- Age buckets:');
+  objectLines(shadowSummary.ageBuckets, 6).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Source counts:');
   objectLines(shadowSummary.sourceCounts, 6).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Top blocked Raydium shadow rows:');

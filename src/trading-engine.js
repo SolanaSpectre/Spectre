@@ -800,6 +800,8 @@ class TradingEngine {
       ? this.postMigrationContinuationLane.toSummary(continuationState)
       : null;
 
+    const poolAge = this.derivePoolAgeHours(token?.openTime || bestPool?.openTime);
+
     this.telemetry.record('runner.raydium_shadow.observed', {
       mode: 'report_only',
       blocked: true,
@@ -823,7 +825,8 @@ class TradingEngine {
       price: token?.price ?? bestPool?.price ?? null,
       feeRate: token?.feeRate ?? bestPool?.feeRate ?? null,
       openTime: token?.openTime || bestPool?.openTime || null,
-      poolAgeHours: this.derivePoolAgeHours(token?.openTime || bestPool?.openTime),
+      poolAgeHours: poolAge,
+      poolAgeKnown: poolAge !== null,
       poolCount: poolState?.poolCount ?? null,
       poolState,
       continuation: continuationSummary

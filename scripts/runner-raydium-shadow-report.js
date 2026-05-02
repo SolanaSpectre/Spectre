@@ -93,9 +93,28 @@ function percentile(values, p) {
   return compact(sorted[index], 4);
 }
 
+function hasContinuationReason(row, reason) {
+  const reasons = row.continuation?.reasons;
+  return Array.isArray(reasons) && reasons.includes(reason);
+}
+
+function classifyAgeBucket(row) {
+  if (
+    hasContinuationReason(row, 'old_coin_caution') ||
+    hasContinuationReason(row, 'mature_liquidity_base') ||
+    Number(row.poolAgeHours) >= 24
+  ) {
+    return 'mature_or_established';
+  }
+  if (row.poolAgeKnown && Number(row.poolAgeHours) < 24) {
+    return 'fresh_pool';
+  }
+  return 'age_unknown';
+}
+
 function summarizePayload(event) {
   const payload = payloadOf(event);
-  return {
+  const row = {
     timestamp: event.timestamp || null,
     mint: payload.token || payload.mint || null,
     symbol: payload.symbol || null,
@@ -114,10 +133,13 @@ function summarizePayload(event) {
     price: compact(payload.price, 12),
     feeRate: compact(payload.feeRate, 6),
     poolAgeHours: compact(payload.poolAgeHours, 2),
+    poolAgeKnown: payload.poolAgeKnown === true,
     poolCount: payload.poolCount ?? null,
     wouldPassQualityRisk: Boolean(payload.wouldPassQualityRisk),
     continuation: payload.continuation || null
   };
+  row.ageBucket = classifyAgeBucket(row);
+  return row;
 }
 
 function latestByMint(rows) {
@@ -146,6 +168,9 @@ function buildReport(events, telemetryPath) {
     .sort((a, b) => Number(b.liquidityUsd || 0) - Number(a.liquidityUsd || 0))
     .slice(0, 10);
   const continuationRows = uniqueRows.filter((row) => row.continuation);
+  const freshRows = uniqueRows.filter((row) => row.ageBucket === 'fresh_pool');
+  const matureRows = uniqueRows.filter((row) => row.ageBucket === 'mature_or_established');
+  const unknownAgeRows = uniqueRows.filter((row) => row.ageBucket === 'age_unknown');
 
   const rankScores = uniqueRows.map((row) => row.rankScore);
   const qualityScores = uniqueRows.map((row) => row.qualityScore);
@@ -160,8 +185,12 @@ function buildReport(events, telemetryPath) {
       blockedCount: rows.filter((row) => row.blocked).length,
       wouldPassQualityRiskCount: uniqueRows.filter((row) => row.wouldPassQualityRisk).length,
       continuationOverlapCount: continuationRows.length,
+      freshPoolCount: freshRows.length,
+      matureOrEstablishedCount: matureRows.length,
+      ageUnknownCount: unknownAgeRows.length,
       sourceCounts: countBy(rows, (row) => row.source),
       reasonCounts: countBy(rows, (row) => row.reason),
+      ageBuckets: countBy(uniqueRows, (row) => row.ageBucket),
       continuationVerdicts: countBy(continuationRows, (row) => row.continuation?.verdict || 'unknown'),
       qualityScoreQuantiles: {
         p50: percentile(qualityScores, 50),
@@ -176,6 +205,18 @@ function buildReport(events, telemetryPath) {
     },
     topByRank,
     topByLiquidity,
+    freshPools: freshRows
+      .slice()
+      .sort((a, b) => Number(b.rankScore || 0) - Number(a.rankScore || 0))
+      .slice(0, 10),
+    matureOrEstablished: matureRows
+      .slice()
+      .sort((a, b) => Number(b.rankScore || 0) - Number(a.rankScore || 0))
+      .slice(0, 10),
+    ageUnknown: unknownAgeRows
+      .slice()
+      .sort((a, b) => Number(b.rankScore || 0) - Number(a.rankScore || 0))
+      .slice(0, 10),
     continuationOverlap: continuationRows.slice(0, 10),
     note: 'Report-only shadow diagnostic. These rows were blocked by paper runner mode and did not generate signals, quotes, AI reviews, or entries.'
   };
@@ -204,6 +245,9 @@ function main() {
   console.log(`Unique mints: ${report.summary.uniqueMints}`);
   console.log(`Would pass quality/risk counter: ${report.summary.wouldPassQualityRiskCount}`);
   console.log(`Continuation overlap: ${report.summary.continuationOverlapCount}`);
+  console.log(`Fresh pools: ${report.summary.freshPoolCount}`);
+  console.log(`Mature/established: ${report.summary.matureOrEstablishedCount}`);
+  console.log(`Age unknown: ${report.summary.ageUnknownCount}`);
   console.log(`Wrote JSON report: ${outputPath}`);
 }
 
