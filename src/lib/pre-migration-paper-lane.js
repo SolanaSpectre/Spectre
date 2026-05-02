@@ -909,6 +909,7 @@ class PreMigrationPaperLane {
     if (snapshot.passed) {
       return null;
     }
+    const priceSol = this.compact(this.getPrice(state), 15);
 
     return {
       type: 'diagnostic',
@@ -921,6 +922,9 @@ class PreMigrationPaperLane {
         curveProgress: this.compact(state.curveProgress, 6),
         recentVolumeSol: this.compact(state.recentVolumeSol, 4),
         tradeVelocityPerMin: this.compact(state.tradeVelocityPerMin, 2),
+        priceSol,
+        bondingCurvePriceSol: priceSol,
+        curvePriceSol: priceSol,
         interestSignalCount: Number.isFinite(Number(state.interestSignalCount)) ? Number(state.interestSignalCount) : 0,
         uniqueBuyerCount: Number.isFinite(Number(state.uniqueBuyerCount)) ? Number(state.uniqueBuyerCount) : 0,
         riskWalletCount: Number.isFinite(Number(state.riskWalletCount)) ? Number(state.riskWalletCount) : 0,
@@ -1628,6 +1632,7 @@ class PreMigrationPaperLane {
 
   decisionEvent(decision, state, timestamp, preset, details = {}) {
     this.recordDecision(decision, preset.name, details.reason);
+    const priceSol = this.compact(this.getPrice(state), 15);
 
     return {
       type: 'decision',
@@ -1648,7 +1653,9 @@ class PreMigrationPaperLane {
         uniqueBuyerCount: Number.isFinite(Number(state.uniqueBuyerCount)) ? Number(state.uniqueBuyerCount) : null,
         uniqueBuyerRatio: this.compact(this.computeUniqueBuyerRatio(state), 4),
         sniperWalletCount: Number.isFinite(Number(state.sniperWalletCount)) ? Number(state.sniperWalletCount) : null,
-        priceSol: this.compact(this.getPrice(state), 15),
+        priceSol,
+        bondingCurvePriceSol: priceSol,
+        curvePriceSol: priceSol,
         curveProgressDelta: this.compact(details.curveProgressDelta, 6),
         curveProgressDelta60s: this.compact(details.curveProgressDelta60s, 6),
         baselineCurveProgress: this.compact(details.baselineCurveProgress, 6),
