@@ -265,6 +265,24 @@ function summarizeSignal(event) {
   };
 }
 
+function summarizeTradeReject(event) {
+  const payload = payloadOf(event);
+  return {
+    timestamp: event.timestamp || null,
+    mint: payload.token || payload.mint || null,
+    symbol: payload.symbol || null,
+    source: payload.source || null,
+    reason: payload.reason || null,
+    qualityScore: compact(payload.qualityScore, 4),
+    momentumScore: compact(payload.momentumScore, 4),
+    rankScore: compact(payload.rankScore, 4),
+    pumpFailureReason: payload.pumpFailureReason || null,
+    pumpFailureValues: payload.pumpFailureValues || null,
+    pumpFailureThreshold: payload.pumpFailureThreshold || null,
+    priceImpactPct: compact(payload.priceImpactPct, 4)
+  };
+}
+
 function summarizePaperEntry(event) {
   const payload = payloadOf(event);
   return {
@@ -459,6 +477,33 @@ function buildScalperDiagnostics({ pumpFailures, tradeRejected, signalGenerated,
   };
 }
 
+function buildRunnerNearMissDiagnostic({ tradeRejected, signalGenerated, signalExecuted, aiEvents, limit }) {
+  const summarizedRejects = tradeRejected.map(summarizeTradeReject);
+  const closestRejected = summarizedRejects
+    .slice()
+    .sort((a, b) => (
+      Number(b.rankScore || 0) - Number(a.rankScore || 0)
+      || Number(b.qualityScore || 0) - Number(a.qualityScore || 0)
+      || Number(b.momentumScore || 0) - Number(a.momentumScore || 0)
+    ))
+    .slice(0, limit);
+
+  return {
+    posture: signalExecuted.length > 0
+      ? 'executed'
+      : (signalGenerated.length > 0 ? 'blocked_after_signal' : 'blocked_before_signal'),
+    generatedSignals: signalGenerated.length,
+    executedSignals: signalExecuted.length,
+    aiEventCount: aiEvents.length,
+    rejectionReasons: countBy(tradeRejected, (event) => payloadOf(event).reason),
+    rejectionSources: countBy(tradeRejected, (event) => payloadOf(event).source || 'unknown'),
+    closestRejected,
+    interpretation: signalGenerated.length === 0
+      ? 'No runner/scalper signal reached quote or AI review; inspect rejection reasons and sources before tuning gates.'
+      : 'At least one runner/scalper signal was generated; inspect quote and AI events before tuning gates.'
+  };
+}
+
 function buildReport(events, dossiers, options = {}) {
   const limit = Number(options.limit || 8);
   const eventCounts = countBy(events, eventType);
@@ -531,12 +576,20 @@ function buildReport(events, dossiers, options = {}) {
       executedSignals: signalExecuted.length,
       rejectedTrades: tradeRejected.length,
       rejectionReasons: countBy(tradeRejected, (event) => payloadOf(event).reason),
+      rejectionSources: countBy(tradeRejected, (event) => payloadOf(event).source || 'unknown'),
       pumpGateFailures: countBy(pumpFailures, (event) => payloadOf(event).reason),
       scalperDiagnostics: buildScalperDiagnostics({
         pumpFailures,
         tradeRejected,
         signalGenerated,
         signalExecuted
+      }),
+      nearMissDiagnostic: buildRunnerNearMissDiagnostic({
+        tradeRejected,
+        signalGenerated,
+        signalExecuted,
+        aiEvents,
+        limit
       }),
       paperExitReasons: countBy(runnerPaperClosed, (event) => payloadOf(event).reason),
       paperExitProfiles: countBy(runnerPaperClosed, (event) => payloadOf(event).paperExitProfile?.profileName || 'unknown'),
@@ -751,6 +804,22 @@ function printReport(report) {
       console.log('  recent migrated liquidity rejects:');
       for (const item of diag.recentMigratedLiquidityRejects) {
         console.log(`  ${item.reason}: liq=${usd(item.liquidityUsd)} threshold=${usd(item.threshold)} m=${item.momentumScore}`);
+        if (item.mint) console.log(`    ${item.mint}`);
+      }
+    }
+  }
+  if (report.runnerLane.nearMissDiagnostic) {
+    const diag = report.runnerLane.nearMissDiagnostic;
+    console.log(`  near-miss posture=${diag.posture} aiEvents=${diag.aiEventCount}`);
+    console.log(`  near-miss interpretation: ${diag.interpretation}`);
+    if (diag.rejectionSources && Object.keys(diag.rejectionSources).length > 0) {
+      console.log('  rejection sources:');
+      printCountObject(diag.rejectionSources);
+    }
+    if (diag.closestRejected && diag.closestRejected.length > 0) {
+      console.log('  closest rejected:');
+      for (const item of diag.closestRejected.slice(0, 5)) {
+        console.log(`  ${item.symbol || item.mint || 'unknown'} reason=${item.reason || 'n/a'} source=${item.source || 'n/a'} momentum=${item.momentumScore ?? 'n/a'} quality=${item.qualityScore ?? 'n/a'}`);
         if (item.mint) console.log(`    ${item.mint}`);
       }
     }
