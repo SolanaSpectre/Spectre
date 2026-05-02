@@ -1,6 +1,7 @@
 const POST_RUN_REPORTS = [
   { title: 'Macro Posture Report', script: 'macro-posture-report.js' },
   { title: 'Battlefield Report', script: 'run-battlefield-report.js' },
+  { title: 'Runner Raydium Shadow Report', script: 'runner-raydium-shadow-report.js' },
   { title: 'Outcome Ledger Report', script: 'outcome-ledger-report.js' },
   { title: 'Early Organic Interest Report', script: 'early-organic-interest-report.js' },
   { title: 'Wallet Battlefield Report', script: 'wallet-battlefield-report.js' },

@@ -13,7 +13,8 @@ const FILES = {
   signalQuality: 'data/reports/pre-migration-signal-quality-latest.json',
   learning: 'data/reports/learning-orchestrator-latest.json',
   continuationPaper: 'data/reports/continuation-paper-latest.json',
-  noPriorRecovery: 'data/reports/no-prior-curve-recovery-latest.json'
+  noPriorRecovery: 'data/reports/no-prior-curve-recovery-latest.json',
+  runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json'
 };
 
 function parseArgs(argv) {
@@ -189,6 +190,14 @@ function summarizeRunnerReject(item = {}) {
   return `${label}${details.length ? ` | ${details.join(' | ')}` : ''}`;
 }
 
+function summarizeRaydiumShadow(item = {}) {
+  const label = item.symbol || item.mint || 'UNKNOWN';
+  const continuation = item.continuation
+    ? ` | continuation=${item.continuation.verdict || item.continuation.rejectReason || 'observed'}`
+    : '';
+  return `${label} | BLOCKED report-only | rank=${fmt(item.rankScore)} | quality=${fmt(item.qualityScore)} | liq=${money(item.liquidityUsd, 0)} | vol24h=${money(item.volume24h, 0)} | risk=${fmt(item.riskScore, 3)}${continuation}`;
+}
+
 function summarizeLesson(lesson = {}) {
   if (!lesson || typeof lesson !== 'object') return String(lesson || '');
   const parts = [];
@@ -272,6 +281,7 @@ function buildSummary(docs) {
   const learning = docs.learning.data || {};
   const continuation = docs.continuationPaper.data || {};
   const noPriorRecovery = docs.noPriorRecovery.data || {};
+  const runnerRaydiumShadow = docs.runnerRaydiumShadow.data || {};
   const lines = [];
 
   const generatedAt = new Date().toISOString();
@@ -355,6 +365,24 @@ function buildSummary(docs) {
   }
   lines.push('');
 
+  const shadowSummary = runnerRaydiumShadow.summary || {};
+  const shadowTop = topArray(runnerRaydiumShadow.topByRank, 5);
+  lines.push('3. Runner Raydium Shadow');
+  lines.push('------------------------');
+  lines.push('- Mode: report-only; blocked candidates did not generate signals, quotes, AI reviews, or entries.');
+  lines.push(`- Observations / unique mints: ${shadowSummary.observations ?? 'n/a'} / ${shadowSummary.uniqueMints ?? 'n/a'}`);
+  lines.push(`- Would pass quality/risk counter: ${shadowSummary.wouldPassQualityRiskCount ?? 'n/a'}`);
+  lines.push(`- Continuation overlap: ${shadowSummary.continuationOverlapCount ?? 'n/a'}`);
+  lines.push('- Source counts:');
+  objectLines(shadowSummary.sourceCounts, 6).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Top blocked Raydium shadow rows:');
+  if (shadowTop.length) {
+    shadowTop.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRaydiumShadow(item)}`));
+  } else {
+    lines.push('  - none observed; enable RUNNER_RAYDIUM_SHADOW_ENABLED=true for the next PAPER run to collect this diagnostic.');
+  }
+  lines.push('');
+
   const watchFlags = get(battlefield, [
     'watchLane.uniqueCandidates',
     'watch.uniqueCandidates',
@@ -379,7 +407,7 @@ function buildSummary(docs) {
   const ledgerFalseNegArray = topArray(get(ledger, ['falseNegativeCandidates', 'falseNegatives', 'topFalseNegatives'], []), 10);
   const falseNegatives = falseNegArray.length ? falseNegArray : ledgerFalseNegArray;
 
-  lines.push('3. Pre-Migration Findings');
+  lines.push('4. Pre-Migration Findings');
   lines.push('-------------------------');
   lines.push(`- Watch flags / unique candidates: ${watchFlags ?? 'n/a'}`);
   lines.push(`- Confirmed watch count: ${confirmedWatch ?? 'n/a'}`);
@@ -400,7 +428,7 @@ function buildSummary(docs) {
   const recoveryCandidates = topArray(noPriorRecovery.recovery, 5);
   const watchOnlyCandidates = topArray(noPriorRecovery.watchOnly, 3);
 
-  lines.push('4. NO_PRIOR Recovery Diagnostic');
+  lines.push('5. NO_PRIOR Recovery Diagnostic');
   lines.push('-------------------------------');
   lines.push(`- Source candidates: ${recoverySummary.sourceCount ?? 'n/a'}`);
   lines.push(`- Recovery candidates: ${recoverySummary.recoveryCount ?? 'n/a'}`);
@@ -439,7 +467,7 @@ function buildSummary(docs) {
   const topWinners = topArray(get(signal, ['topWinners', 'winners'], []), 3);
   const topLosers = topArray(get(signal, ['topLosers', 'losers'], []), 3);
 
-  lines.push('5. Paper Sim Findings');
+  lines.push('6. Paper Sim Findings');
   lines.push('---------------------');
   lines.push(`- Simulated trades: ${simTrades ?? 'n/a'}`);
   lines.push(`- Wins/losses: ${simWins ?? 'n/a'} / ${simLosses ?? 'n/a'}`);
@@ -467,7 +495,7 @@ function buildSummary(docs) {
   const continuationOpened = topArray(get(continuation, ['opened', 'openedPositions', 'positionsOpened'], []), 8);
   const continuationSkipped = topArray(get(continuation, ['skippedIneligible', 'skipped', 'ineligible'], []), 8);
 
-  lines.push('6. Continuation Findings');
+  lines.push('7. Continuation Findings');
   lines.push('------------------------');
   lines.push(`- Opened this run: ${opened ?? 'n/a'}`);
   lines.push(`- Closed this run: ${closed ?? 'n/a'}`);
@@ -490,7 +518,7 @@ function buildSummary(docs) {
   const lessons = topArray(get(learning, ['lessons'], []), 8);
   const proposals = topArray(get(learning, ['proposals', 'recommendations.proposals'], []), 8);
 
-  lines.push('7. Learning Orchestrator');
+  lines.push('8. Learning Orchestrator');
   lines.push('------------------------');
   lines.push(`- Regime: ${compactValue(regime)}`);
   lines.push(`- Recommended posture: ${compactValue(posture)}`);
@@ -527,7 +555,7 @@ function buildSummary(docs) {
   const simNegative = simPnl !== null && number(simPnl) < 0;
   const simpleRuntimeFired = aiEvidence.length > 0 || aiReachability.aiDecisionEvents > 0;
 
-  lines.push('8. Evidence-backed Recommendations');
+  lines.push('9. Evidence-backed Recommendations');
   lines.push('-----------------------------------');
   lines.push('1. Keep pre-migration thresholds unchanged for the next validation run.');
   lines.push(`   Evidence: false negatives=${falseNegatives.length}; NO_PRIOR_CURVE_PROGRESS=${noPriorCount ?? 'n/a'}; CURVE_NOT_ADVANCING=${curveNotAdvancingCount ?? 'n/a'}; sim PnL=${simPnl === null ? 'n/a' : sol(simPnl, 6)}.`);

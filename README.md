@@ -146,6 +146,7 @@ Edit the `.env` file with your settings:
 - `PRE_MIGRATION_PAPER_EARLY_ACCELERATION_RUNNER_STOP_LOSS_PCT`: Stop-loss for early-acceleration paper entries (default: `0.15`)
 - `PRE_MIGRATION_PAPER_EARLY_ACCELERATION_RUNNER_MAX_HOLD_SECONDS`: Max hold time for early-acceleration paper entries (default: `240`)
 - `PRE_MIGRATION_PAPER_BAD_EXIT_COOLDOWN_MS`: Mint-level cooldown after a pre-migration paper stop-loss or losing close, shared across presets (default: `900000`)
+- `RUNNER_RAYDIUM_SHADOW_ENABLED`: Enables report-only shadow diagnostics for Raydium runner candidates blocked by paper runner Pump-momentum mode; it never emits signals, quotes, AI reviews, or entries (default: `false`)
 - `POST_MIGRATION_CONTINUATION_ENABLED`: Enables passive continuation scoring for already-graduated coins (default: `true`)
 - `POST_MIGRATION_CONTINUATION_MIN_SCORE`: Minimum score for a `continuation_watch` dossier (default: `65`)
 - `POST_MIGRATION_CONTINUATION_CONFIRM_MIN_SCORE`: Minimum score for a `continuation_confirmed` dossier (default: `75`)

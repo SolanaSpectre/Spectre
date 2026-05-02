@@ -782,6 +782,73 @@ class TradingEngine {
     this.telemetry.record('candidate.snapshot', payload);
   }
 
+  emitRaydiumRunnerShadowObservation({ token, quality, momentum, rankScore }) {
+    if (
+      !this.config.runnerRaydiumShadowEnabled ||
+      !this.executionModeManager.isPaper() ||
+      !this.config.paperRunnerModeEnabled ||
+      this.isPumpPortalToken(token)
+    ) {
+      return;
+    }
+
+    const mint = token?.mintAddress;
+    const poolState = this.poolStateLane?.getMintSummary(mint) || null;
+    const bestPool = poolState?.bestPool || null;
+    const continuationState = this.postMigrationContinuationLane?.states?.get(mint) || null;
+    const continuationSummary = continuationState
+      ? this.postMigrationContinuationLane.toSummary(continuationState)
+      : null;
+
+    this.telemetry.record('runner.raydium_shadow.observed', {
+      mode: 'report_only',
+      blocked: true,
+      reason: 'RUNNER_MODE_REQUIRES_PUMP_MOMENTUM',
+      token: mint,
+      symbol: token?.symbol || poolState?.symbol || continuationSummary?.symbol || null,
+      name: token?.name || poolState?.name || continuationSummary?.name || null,
+      source: token?.source || 'unknown',
+      poolAddress: token?.poolAddress || token?.address || bestPool?.poolAddress || null,
+      poolType: token?.type || bestPool?.poolType || null,
+      executionMode: this.executionModeManager.mode,
+      paperRunnerModeEnabled: this.config.paperRunnerModeEnabled,
+      qualityScore: quality?.score ?? null,
+      qualityFactors: quality?.factors || null,
+      momentumScore: momentum?.score ?? null,
+      momentumFactors: momentum?.factors || null,
+      rankScore: Number(Number(rankScore || 0).toFixed(4)),
+      riskScore: token?.riskScore ?? null,
+      liquidityUsd: token?.liquidityUsd ?? poolState?.bestLiquidityUsd ?? null,
+      volume24h: token?.volume24h ?? poolState?.bestVolume24h ?? null,
+      price: token?.price ?? bestPool?.price ?? null,
+      feeRate: token?.feeRate ?? bestPool?.feeRate ?? null,
+      openTime: token?.openTime || bestPool?.openTime || null,
+      poolAgeHours: this.derivePoolAgeHours(token?.openTime || bestPool?.openTime),
+      poolCount: poolState?.poolCount ?? null,
+      poolState,
+      continuation: continuationSummary
+        ? {
+            score: continuationSummary.score ?? null,
+            verdict: continuationSummary.lastEventType || continuationSummary.verdict || null,
+            rejectReason: continuationSummary.rejectReason || null,
+            reasons: continuationSummary.reasons || null
+          }
+        : null,
+      wouldPassQualityRisk: Number(quality?.score || 0) >= Number(this.config.minQualityScore || 0)
+        && Number(token?.riskScore || 0) < 0.7
+    });
+  }
+
+  derivePoolAgeHours(openTime) {
+    const numeric = Number(openTime || 0);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return null;
+    }
+    const openMs = numeric > 1e12 ? numeric : numeric * 1000;
+    const ageHours = (Date.now() - openMs) / (60 * 60 * 1000);
+    return Number.isFinite(ageHours) ? Number(ageHours.toFixed(2)) : null;
+  }
+
   validateQuoteQuality(quote) {
     const outputAmount = Number(
       quote?.outAmount ||
@@ -1527,6 +1594,12 @@ class TradingEngine {
         this.config.paperRunnerModeEnabled &&
         !this.isPumpPortalToken(token)
       ) {
+        this.emitRaydiumRunnerShadowObservation({
+          token,
+          quality,
+          momentum,
+          rankScore
+        });
         this.applySignalCooldown(
           token.mintAddress,
           Math.max(this.config.tokenSignalCooldownMs, this.config.rejectionQuarantineMs)

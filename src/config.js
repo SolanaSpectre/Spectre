@@ -1110,6 +1110,10 @@ class Config {
     return process.env.PAPER_RUNNER_MODE_ENABLED !== 'false';
   }
 
+  static get runnerRaydiumShadowEnabled() {
+    return process.env.RUNNER_RAYDIUM_SHADOW_ENABLED === 'true';
+  }
+
   static get paperRunnerRequirePumpMigration() {
     return process.env.PAPER_RUNNER_REQUIRE_PUMP_MIGRATION !== 'false';
   }
