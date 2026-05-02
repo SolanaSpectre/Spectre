@@ -925,6 +925,7 @@ class PreMigrationPaperLane {
         priceSol,
         bondingCurvePriceSol: priceSol,
         curvePriceSol: priceSol,
+        ...this.reservesPayload(state),
         interestSignalCount: Number.isFinite(Number(state.interestSignalCount)) ? Number(state.interestSignalCount) : 0,
         uniqueBuyerCount: Number.isFinite(Number(state.uniqueBuyerCount)) ? Number(state.uniqueBuyerCount) : 0,
         riskWalletCount: Number.isFinite(Number(state.riskWalletCount)) ? Number(state.riskWalletCount) : 0,
@@ -1302,7 +1303,8 @@ class PreMigrationPaperLane {
         recentVolumeSol: position.entryRecentVolumeSol,
         tradeVelocityPerMin: position.entryTradeVelocityPerMin,
         guardOverride: position.guardOverride,
-        reasons: position.entryReasons
+        reasons: position.entryReasons,
+        ...this.reservesPayload(state)
       }
     };
   }
@@ -1484,7 +1486,8 @@ class PreMigrationPaperLane {
         pnlSol: closed.pnlSol,
         holdSeconds: closed.holdSeconds,
         maxCurveProgress: closed.maxCurveProgress,
-        peakReturnPct: this.compact(position.peakReturnPct, 6)
+        peakReturnPct: this.compact(position.peakReturnPct, 6),
+        ...this.reservesPayload(state)
       }
     };
   }
@@ -1573,7 +1576,49 @@ class PreMigrationPaperLane {
       ?? state.curvePriceSol
       ?? state.bondingCurveState?.priceSol
     );
+    if (Number.isFinite(price) && price > 0) {
+      return price;
+    }
+    const derived = this.derivePriceFromReserves(state);
+    if (Number.isFinite(derived) && derived > 0) {
+      return derived;
+    }
     return Number.isFinite(price) ? price : null;
+  }
+
+  derivePriceFromReserves(state = {}) {
+    const sol = Number(
+      state.virtualSolReservesSol
+      ?? state.bondingCurveState?.virtualSolReservesSol
+    );
+    const tokens = Number(
+      state.virtualTokenReservesTokens
+      ?? state.bondingCurveState?.virtualTokenReservesTokens
+    );
+    if (!Number.isFinite(sol) || sol <= 0 || !Number.isFinite(tokens) || tokens <= 0) {
+      return null;
+    }
+    return sol / tokens;
+  }
+
+  reservesPayload(state = {}) {
+    const virtualSolReservesSol = Number(
+      state.virtualSolReservesSol
+      ?? state.bondingCurveState?.virtualSolReservesSol
+    );
+    const virtualTokenReservesTokens = Number(
+      state.virtualTokenReservesTokens
+      ?? state.bondingCurveState?.virtualTokenReservesTokens
+    );
+    const realSolReservesSol = Number(
+      state.realSolReservesSol
+      ?? state.bondingCurveState?.realSolReservesSol
+    );
+    return {
+      virtualSolReservesSol: Number.isFinite(virtualSolReservesSol) ? this.compact(virtualSolReservesSol, 6) : null,
+      virtualTokenReservesTokens: Number.isFinite(virtualTokenReservesTokens) ? this.compact(virtualTokenReservesTokens, 6) : null,
+      realSolReservesSol: Number.isFinite(realSolReservesSol) ? this.compact(realSolReservesSol, 6) : null
+    };
   }
 
   toCurveProgress(value) {
@@ -1656,6 +1701,7 @@ class PreMigrationPaperLane {
         priceSol,
         bondingCurvePriceSol: priceSol,
         curvePriceSol: priceSol,
+        ...this.reservesPayload(state),
         curveProgressDelta: this.compact(details.curveProgressDelta, 6),
         curveProgressDelta60s: this.compact(details.curveProgressDelta60s, 6),
         baselineCurveProgress: this.compact(details.baselineCurveProgress, 6),

@@ -153,7 +153,16 @@ function mintOf(payload) {
 }
 
 function priceOf(payload) {
-  return numberOrNull(payload.bondingCurvePriceSol ?? payload.priceSol ?? payload.curvePriceSol);
+  const direct = numberOrNull(payload.bondingCurvePriceSol ?? payload.priceSol ?? payload.curvePriceSol);
+  if (Number.isFinite(direct) && direct > 0) {
+    return direct;
+  }
+  const sol = numberOrNull(payload.virtualSolReservesSol);
+  const tokens = numberOrNull(payload.virtualTokenReservesTokens);
+  if (Number.isFinite(sol) && sol > 0 && Number.isFinite(tokens) && tokens > 0) {
+    return sol / tokens;
+  }
+  return direct;
 }
 
 function strategyFromArgs(args) {
