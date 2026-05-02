@@ -651,6 +651,7 @@ function buildSummary(docs) {
   const scenarioSummaries = exitReplaySummary.scenarioSummaries || {};
   const currentScenario = scenarioSummaries.current_config_replay || {};
   const noSlipScenario = scenarioSummaries.no_slippage_reference || {};
+  const reducedSlippageScenario = scenarioSummaries.reduced_paper_slippage_1_1p5pct || {};
   const oneHourScenario = scenarioSummaries.max_hold_1h || {};
   const twoHourScenario = scenarioSummaries.max_hold_2h || {};
 
@@ -665,6 +666,7 @@ function buildSummary(docs) {
   lines.push('- Scenario checks:');
   [
     ['current_config_replay', currentScenario],
+    ['reduced_paper_slippage_1_1p5pct', reducedSlippageScenario],
     ['max_hold_1h', oneHourScenario],
     ['max_hold_2h', twoHourScenario],
     ['no_slippage_reference', noSlipScenario]

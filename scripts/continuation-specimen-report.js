@@ -492,8 +492,8 @@ function buildShadowPaper(specimen, verdict) {
   }
 
   const legacy = verdict === 'legacy_revived_watch';
-  const entrySlippagePct = 0.05;
-  const exitSlippagePct = 0.075;
+  const entrySlippagePct = Number(process.env.CONTINUATION_PAPER_ENTRY_SLIPPAGE_PCT || 0.01);
+  const exitSlippagePct = Number(process.env.CONTINUATION_PAPER_EXIT_SLIPPAGE_PCT || 0.015);
   return {
     enabled: true,
     status: 'OPEN_SNAPSHOT_ONLY',

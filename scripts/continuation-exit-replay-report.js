@@ -32,6 +32,12 @@ const SCENARIOS = [
     overrides: { exitSlippagePct: 0.02 }
   },
   {
+    name: 'reduced_paper_slippage_1_1p5pct',
+    description: 'Same config, but continuation paper slippage set to the new default 1% entry / 1.5% exit.',
+    overrides: { entrySlippagePct: 0.01, exitSlippagePct: 0.015 },
+    useRawEntryPrice: true
+  },
+  {
     name: 'no_slippage_reference',
     description: 'Reference-only replay with entry and exit slippage removed.',
     overrides: { entrySlippagePct: 0, exitSlippagePct: 0 },

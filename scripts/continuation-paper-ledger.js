@@ -13,8 +13,8 @@ const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
 const DEFAULT_CONFIG = {
   nominalUsd: 100,
-  entrySlippagePct: 0.05,
-  exitSlippagePct: 0.075,
+  entrySlippagePct: Number(process.env.CONTINUATION_PAPER_ENTRY_SLIPPAGE_PCT || 0.01),
+  exitSlippagePct: Number(process.env.CONTINUATION_PAPER_EXIT_SLIPPAGE_PCT || 0.015),
   takeProfitPct: 0.24,
   stopLossPct: 0.16,
   trailingStopPct: 0.1,
@@ -124,6 +124,8 @@ function configFromArgs(args) {
   const config = { ...DEFAULT_CONFIG };
   const mapping = {
     nominalUsd: 'nominalUsd',
+    entrySlippage: 'entrySlippagePct',
+    exitSlippage: 'exitSlippagePct',
     takeProfit: 'takeProfitPct',
     stopLoss: 'stopLossPct',
     trailingStop: 'trailingStopPct',
