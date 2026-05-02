@@ -21,6 +21,7 @@ This directory holds compact local context files meant to improve AI judgment fo
 - `rick-signals.md`
 - `bags-integration-roadmap.md`
 - `future-sniper-lane-notes.md`
+- `pump-live-readiness.md`
 
 ## Purpose
 
@@ -36,6 +37,7 @@ These files are designed to teach the local model:
 - how other local agent systems can improve this bot structurally without polluting the current lane
 - how Rick, Venum, and Spectre should hand off narrative and regime intelligence cleanly
 - how future venue and sniper lanes may fit without contaminating the runner baseline
+- what the April 2026 Pump fee-recipient upgrade means for future live-executor compatibility
 - which operational sharpness issues still need hardening later
 - how wallet flow should be interpreted
 - how narrative should be used without becoming hype-blind

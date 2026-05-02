@@ -160,6 +160,16 @@ Edit the `.env` file with your settings:
 - `GMGN_PUBLIC_KEY`: Optional GMGN public key generated through their auth flow
 - `GMGN_WALLET_TRACKING_ENABLED`: Enables future GMGN-style wallet-tracking enrichment (default: `false`)
 
+### Pump Live-Readiness Notes
+
+Spectre's current Pump work is paper-only telemetry and diagnostics. The April 28, 2026 Pump fee-recipient upgrade is captured in `knowledge/pump-live-readiness.md` and `src/lib/pump-live-readiness.js` so future direct Pump/PumpSwap executor work has an explicit compatibility checklist.
+
+Run this non-trading check before any future direct Pump/PumpSwap executor work:
+
+```bash
+npm run check:pump-live-readiness
+```
+
 ### Risk Management
 - `MAX_POSITION_SIZE_SOL`: Maximum position size in SOL (default: 1.0)
 - `STOP_LOSS_PERCENT`: Stop loss percentage (default: 0.10 = 10%)

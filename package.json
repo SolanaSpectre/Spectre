@@ -11,6 +11,7 @@
     "summary:latest": "node scripts/latest-run-summary.js",
     "report:no-prior-recovery": "node scripts/no-prior-curve-recovery-report.js",
     "benchmark:runtime-models": "node scripts/benchmark-runtime-models.js",
+    "check:pump-live-readiness": "node scripts/check-pump-live-readiness.js",
     "report:strategy": "node scripts/strategy-report.js",
     "report:watch-validation": "node scripts/watch-lane-validation-report.js",
     "report:pre-migration-outcomes": "node scripts/pre-migration-outcome-report.js",
