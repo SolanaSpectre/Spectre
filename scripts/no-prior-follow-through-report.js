@@ -88,6 +88,31 @@ function timestampMs(value) {
   return Number.isFinite(ms) ? ms : null;
 }
 
+function telemetryWindow(events = []) {
+  const timestamps = events
+    .map((event) => timestampMs(payloadOf(event).timestamp || event.timestamp))
+    .filter(Number.isFinite);
+  if (!timestamps.length) {
+    return { startMs: null, endMs: null, startAt: null, endAt: null };
+  }
+  const startMs = Math.min(...timestamps);
+  const endMs = Math.max(...timestamps);
+  return {
+    startMs,
+    endMs,
+    startAt: new Date(startMs).toISOString(),
+    endAt: new Date(endMs).toISOString()
+  };
+}
+
+function inWindow(item, window) {
+  const ms = timestampMs(item?.timestamp);
+  if (!Number.isFinite(ms)) return false;
+  if (Number.isFinite(window.startMs) && ms < window.startMs) return false;
+  if (Number.isFinite(window.endMs) && ms > window.endMs) return false;
+  return true;
+}
+
 function numberOrNull(value, digits = null) {
   const number = Number(value);
   if (!Number.isFinite(number)) return null;
@@ -344,15 +369,18 @@ function collectFromFalseNegatives(falseNegativeRows) {
 }
 
 function buildReport(events, falseNegativeRows, telemetryPath) {
+  const window = telemetryWindow(events);
   const telemetrySnapshots = events.map(snapshotFromEvent).filter(Boolean);
   const telemetryDecisions = events.map(noPriorDecisionFromEvent).filter(Boolean);
   const sampleData = collectFromFalseNegatives(falseNegativeRows);
+  const sampleSnapshotsInWindow = sampleData.snapshots.filter((item) => inWindow(item, window));
+  const sampleDecisionsInWindow = sampleData.decisions.filter((item) => inWindow(item, window));
   const allSnapshots = mergeUniqueBy(
-    [...telemetrySnapshots, ...sampleData.snapshots],
+    [...telemetrySnapshots, ...sampleSnapshotsInWindow],
     (item) => `${item.mint}|${item.timestamp}|${item.type}|${item.curveProgress}|${item.score}`
   ).sort((a, b) => timestampMs(a.timestamp) - timestampMs(b.timestamp));
   const allDecisions = mergeUniqueBy(
-    [...telemetryDecisions, ...sampleData.decisions],
+    [...telemetryDecisions, ...sampleDecisionsInWindow],
     (item) => `${item.mint}|${item.timestamp}|${item.preset || ''}|${item.curveProgress}|${item.score}`
   ).sort((a, b) => timestampMs(a.timestamp) - timestampMs(b.timestamp));
 
@@ -382,6 +410,10 @@ function buildReport(events, falseNegativeRows, telemetryPath) {
     mode: 'report_only',
     telemetryPath,
     falseNegativePath: FALSE_NEGATIVE_PATH,
+    telemetryWindow: {
+      startAt: window.startAt,
+      endAt: window.endAt
+    },
     windowsSeconds: WINDOWS_SECONDS,
     summary: {
       noPriorDecisionCount: decisionRows.length,
@@ -389,8 +421,10 @@ function buildReport(events, falseNegativeRows, telemetryPath) {
       sourceCoverage: {
         telemetrySnapshots: telemetrySnapshots.length,
         telemetryNoPriorDecisions: telemetryDecisions.length,
-        sampleSnapshots: sampleData.snapshots.length,
-        sampleNoPriorDecisions: sampleData.decisions.length
+        sampleSnapshots: sampleSnapshotsInWindow.length,
+        sampleNoPriorDecisions: sampleDecisionsInWindow.length,
+        sampleSnapshotsExcludedOutsideTelemetryWindow: sampleData.snapshots.length - sampleSnapshotsInWindow.length,
+        sampleNoPriorDecisionsExcludedOutsideTelemetryWindow: sampleData.decisions.length - sampleDecisionsInWindow.length
       },
       followThroughClassCounts: countBy(decisionRows, (decision) => decision.followThroughClass),
       mintsReached85Within120s: candidates.filter((candidate) => candidate.anyReached85Within120s).length,

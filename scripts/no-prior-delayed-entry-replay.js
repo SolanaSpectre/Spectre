@@ -108,6 +108,31 @@ function timestampMs(value) {
   return Number.isFinite(ms) ? ms : null;
 }
 
+function telemetryWindow(events = []) {
+  const timestamps = events
+    .map((event) => timestampMs(payloadOf(event).timestamp || event.timestamp))
+    .filter(Number.isFinite);
+  if (!timestamps.length) {
+    return { startMs: null, endMs: null, startAt: null, endAt: null };
+  }
+  const startMs = Math.min(...timestamps);
+  const endMs = Math.max(...timestamps);
+  return {
+    startMs,
+    endMs,
+    startAt: new Date(startMs).toISOString(),
+    endAt: new Date(endMs).toISOString()
+  };
+}
+
+function isWithinTelemetryWindow(timestamp, window) {
+  const ms = timestampMs(timestamp);
+  if (!Number.isFinite(ms)) return false;
+  if (Number.isFinite(window.startMs) && ms < window.startMs) return false;
+  if (Number.isFinite(window.endMs) && ms > window.endMs) return false;
+  return true;
+}
+
 function secondsBetween(startIso, endIso) {
   const startMs = timestampMs(startIso);
   const endMs = timestampMs(endIso);
@@ -322,12 +347,17 @@ function replayDelay(decision, delaySeconds, priceSamples, strategy) {
   };
 }
 
-function flattenDecisions(followThroughReport, outcomeByMint, priceSamplesByMint, strategy) {
+function flattenDecisions(followThroughReport, outcomeByMint, priceSamplesByMint, strategy, window) {
   const rows = [];
+  let excludedOutsideTelemetryWindow = 0;
   for (const candidate of Array.isArray(followThroughReport?.candidates) ? followThroughReport.candidates : []) {
     const context = outcomeByMint.get(candidate.mint) || {};
     const decisions = Array.isArray(candidate.decisions) ? candidate.decisions : [];
     for (const decision of decisions) {
+      if (!isWithinTelemetryWindow(decision.timestamp, window)) {
+        excludedOutsideTelemetryWindow += 1;
+        continue;
+      }
       const priceSamples = priceSamplesByMint.get(decision.mint || candidate.mint) || [];
       const perDelay = {};
       for (const delaySeconds of strategy.delaysSeconds) {
@@ -348,7 +378,7 @@ function flattenDecisions(followThroughReport, outcomeByMint, priceSamplesByMint
       });
     }
   }
-  return rows;
+  return { rows, excludedOutsideTelemetryWindow };
 }
 
 function countBy(items, keyFn) {
@@ -459,7 +489,19 @@ function topRows(rows, limit, direction = 'desc') {
 function buildReport({ followThroughReport, followThroughPath, falseNegativeRows, falseNegativePath, telemetryPath, events, strategy }) {
   const outcomeByMint = buildOutcomeByMint(falseNegativeRows);
   const priceSamplesByMint = buildPriceSamplesByMint(events);
-  const decisions = flattenDecisions(followThroughReport, outcomeByMint, priceSamplesByMint, strategy);
+  const window = telemetryWindow(events);
+  const { rows: decisions, excludedOutsideTelemetryWindow } = flattenDecisions(
+    followThroughReport,
+    outcomeByMint,
+    priceSamplesByMint,
+    strategy,
+    window
+  );
+  const summary = summarizeRows(decisions, strategy);
+  summary.sourceCoverage = {
+    ...(summary.sourceCoverage || {}),
+    decisionsExcludedOutsideTelemetryWindow: excludedOutsideTelemetryWindow
+  };
 
   return {
     generatedAt: new Date().toISOString(),
@@ -469,8 +511,12 @@ function buildReport({ followThroughReport, followThroughPath, falseNegativeRows
       falseNegativePath: displayPath(falseNegativePath),
       telemetryPath: displayPath(telemetryPath)
     },
+    telemetryWindow: {
+      startAt: window.startAt,
+      endAt: window.endAt
+    },
     strategy,
-    summary: summarizeRows(decisions, strategy),
+    summary,
     decisions,
     topWouldWinners: topRows(decisions, 15, 'desc'),
     topWouldLosers: topRows(decisions, 15, 'asc'),
