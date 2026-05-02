@@ -24,6 +24,7 @@ const POST_RUN_REPORTS = [
   { title: 'Live Exit Simulation Report', script: 'live-exit-sim-report.js' },
   { title: 'Learning Orchestrator Report', script: 'learning-orchestrator-report.js' },
   { title: 'NO_PRIOR Recovery Diagnostic', script: 'no-prior-curve-recovery-report.js' },
+  { title: 'NO_PRIOR Replay Diagnostic', script: 'no-prior-replay-diagnostic.js' },
   { title: 'Latest Run Summary', script: 'latest-run-summary.js' }
 ];
 

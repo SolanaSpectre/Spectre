@@ -10,6 +10,7 @@
     "dev": "node --inspect src/index.js",
     "summary:latest": "node scripts/latest-run-summary.js",
     "report:no-prior-recovery": "node scripts/no-prior-curve-recovery-report.js",
+    "report:no-prior-replay": "node scripts/no-prior-replay-diagnostic.js",
     "benchmark:runtime-models": "node scripts/benchmark-runtime-models.js",
     "check:pump-live-readiness": "node scripts/check-pump-live-readiness.js",
     "report:strategy": "node scripts/strategy-report.js",

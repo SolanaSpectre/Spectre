@@ -14,6 +14,7 @@ const FILES = {
   learning: 'data/reports/learning-orchestrator-latest.json',
   continuationPaper: 'data/reports/continuation-paper-latest.json',
   noPriorRecovery: 'data/reports/no-prior-curve-recovery-latest.json',
+  noPriorReplay: 'data/reports/no-prior-replay-latest.json',
   runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json'
 };
 
@@ -177,6 +178,12 @@ function summarizeRecoveryCandidate(item = {}) {
   return `${label}${outcome ? ` | ${outcome}` : ''}${priority !== undefined ? ` | priority=${fmt(priority)}` : ''}${score !== undefined ? ` | score=${fmt(score)}` : ''}${curve !== undefined ? ` | curve=${fmt(curve, 4)}` : ''}${vol !== undefined ? ` | vol=${fmt(vol, 2)}` : ''}${vel !== undefined ? ` | vel=${fmt(vel, 2)}` : ''}${noPrior !== undefined ? ` | noPrior=${noPrior}` : ''}${failures}`;
 }
 
+function summarizeNoPriorReplay(item = {}) {
+  const label = candidateLabel(item);
+  const needed = item.neededEarlierSnapshot || {};
+  return `${label} | diagnosis=${item.diagnosis || 'n/a'} | decisions=${item.noPriorDecisionCount ?? 'n/a'} | firstCurve=${fmt(item.firstNoPriorCurveProgress, 4)} | neededBaseline<=${fmt(needed.maxBaselineCurveProgressForMinDelta, 4)}`;
+}
+
 function summarizeRunnerReject(item = {}) {
   const label = item.symbol || item.mint || 'UNKNOWN';
   const details = [
@@ -285,6 +292,7 @@ function buildSummary(docs) {
   const learning = docs.learning.data || {};
   const continuation = docs.continuationPaper.data || {};
   const noPriorRecovery = docs.noPriorRecovery.data || {};
+  const noPriorReplay = docs.noPriorReplay.data || {};
   const runnerRaydiumShadow = docs.runnerRaydiumShadow.data || {};
   const lines = [];
 
@@ -454,6 +462,25 @@ function buildSummary(docs) {
   }
   lines.push('');
 
+  const replaySummary = noPriorReplay.summary || {};
+  const replayCandidates = topArray(noPriorReplay.candidates, 5);
+
+  lines.push('6. NO_PRIOR Replay Diagnostic');
+  lines.push('-----------------------------');
+  lines.push('- Mode: report-only; reconstructs prior curve evidence and does not affect entries.');
+  lines.push(`- Recovery candidates / reconstructed NO_PRIOR decisions: ${replaySummary.recoveryCandidates ?? 'n/a'} / ${replaySummary.noPriorDecisionCount ?? 'n/a'}`);
+  lines.push('- Replay classes:');
+  objectLines(replaySummary.replayClassCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Candidate diagnoses:');
+  objectLines(replaySummary.diagnosisCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Top replay candidates:');
+  if (replayCandidates.length) {
+    replayCandidates.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeNoPriorReplay(item)}`));
+  } else {
+    lines.push('  - none');
+  }
+  lines.push('');
+
   const paperSummary = paper.summary || {};
   const simTrades = Object.prototype.hasOwnProperty.call(paperSummary, 'simulatedTrades')
     ? paperSummary.simulatedTrades
@@ -474,7 +501,7 @@ function buildSummary(docs) {
   const topWinners = topArray(get(signal, ['topWinners', 'winners'], []), 3);
   const topLosers = topArray(get(signal, ['topLosers', 'losers'], []), 3);
 
-  lines.push('6. Paper Sim Findings');
+  lines.push('7. Paper Sim Findings');
   lines.push('---------------------');
   lines.push(`- Simulated trades: ${simTrades ?? 'n/a'}`);
   lines.push(`- Wins/losses: ${simWins ?? 'n/a'} / ${simLosses ?? 'n/a'}`);
@@ -502,7 +529,7 @@ function buildSummary(docs) {
   const continuationOpened = topArray(get(continuation, ['opened', 'openedPositions', 'positionsOpened'], []), 8);
   const continuationSkipped = topArray(get(continuation, ['skippedIneligible', 'skipped', 'ineligible'], []), 8);
 
-  lines.push('7. Continuation Findings');
+  lines.push('8. Continuation Findings');
   lines.push('------------------------');
   lines.push(`- Opened this run: ${opened ?? 'n/a'}`);
   lines.push(`- Closed this run: ${closed ?? 'n/a'}`);
@@ -525,7 +552,7 @@ function buildSummary(docs) {
   const lessons = topArray(get(learning, ['lessons'], []), 8);
   const proposals = topArray(get(learning, ['proposals', 'recommendations.proposals'], []), 8);
 
-  lines.push('8. Learning Orchestrator');
+  lines.push('9. Learning Orchestrator');
   lines.push('------------------------');
   lines.push(`- Regime: ${compactValue(regime)}`);
   lines.push(`- Recommended posture: ${compactValue(posture)}`);
@@ -562,8 +589,8 @@ function buildSummary(docs) {
   const simNegative = simPnl !== null && number(simPnl) < 0;
   const simpleRuntimeFired = aiEvidence.length > 0 || aiReachability.aiDecisionEvents > 0;
 
-  lines.push('9. Evidence-backed Recommendations');
-  lines.push('-----------------------------------');
+  lines.push('10. Evidence-backed Recommendations');
+  lines.push('------------------------------------');
   lines.push('1. Keep pre-migration thresholds unchanged for the next validation run.');
   lines.push(`   Evidence: false negatives=${falseNegatives.length}; NO_PRIOR_CURVE_PROGRESS=${noPriorCount ?? 'n/a'}; CURVE_NOT_ADVANCING=${curveNotAdvancingCount ?? 'n/a'}; sim PnL=${simPnl === null ? 'n/a' : sol(simPnl, 6)}.`);
   lines.push('   Risk of changing now: overfitting to one short window and admitting weak first-curve setups.');
