@@ -12,7 +12,8 @@ const FILES = {
   preMigrationPaper: 'data/reports/pre-migration-paper-sim-latest.json',
   signalQuality: 'data/reports/pre-migration-signal-quality-latest.json',
   learning: 'data/reports/learning-orchestrator-latest.json',
-  continuationPaper: 'data/reports/continuation-paper-latest.json'
+  continuationPaper: 'data/reports/continuation-paper-latest.json',
+  noPriorRecovery: 'data/reports/no-prior-curve-recovery-latest.json'
 };
 
 function parseArgs(argv) {
@@ -151,6 +152,19 @@ function summarizeFalseNegative(item = {}) {
   return `${label}${outcome ? ` | ${outcome}` : ''}${score !== undefined ? ` | score=${fmt(score)}` : ''}${curve !== undefined ? ` | curve=${fmt(curve, 4)}` : ''}${reasonText ? ` | ${reasonText.slice(0, 160)}` : ''}`;
 }
 
+function summarizeRecoveryCandidate(item = {}) {
+  const label = candidateLabel(item);
+  const outcome = item.outcome || item.classification || item.status || '';
+  const priority = item.priority ?? item.falseNegativePriority;
+  const score = item.maxScore ?? item.score;
+  const curve = item.maxCurveProgress ?? item.curveProgress;
+  const vol = item.maxRecentVolumeSol ?? item.recentVolumeSol;
+  const vel = item.maxTradeVelocityPerMin ?? item.tradeVelocityPerMin;
+  const noPrior = item.noPriorSkips ?? item.paperSkips?.NO_PRIOR_CURVE_PROGRESS;
+  const failures = Array.isArray(item.failures) && item.failures.length ? ` | failures=${item.failures.join(',')}` : '';
+  return `${label}${outcome ? ` | ${outcome}` : ''}${priority !== undefined ? ` | priority=${fmt(priority)}` : ''}${score !== undefined ? ` | score=${fmt(score)}` : ''}${curve !== undefined ? ` | curve=${fmt(curve, 4)}` : ''}${vol !== undefined ? ` | vol=${fmt(vol, 2)}` : ''}${vel !== undefined ? ` | vel=${fmt(vel, 2)}` : ''}${noPrior !== undefined ? ` | noPrior=${noPrior}` : ''}${failures}`;
+}
+
 function collectSimpleRuntimeEvidence() {
   const evidence = [];
   const paths = [path.join(REPO_ROOT, 'run-logs'), path.join(REPO_ROOT, 'data', 'outcomes')];
@@ -184,6 +198,7 @@ function buildSummary(docs) {
   const signal = docs.signalQuality.data || {};
   const learning = docs.learning.data || {};
   const continuation = docs.continuationPaper.data || {};
+  const noPriorRecovery = docs.noPriorRecovery.data || {};
   const lines = [];
 
   const generatedAt = new Date().toISOString();
@@ -280,6 +295,29 @@ function buildSummary(docs) {
   }
   lines.push('');
 
+  const recoverySummary = noPriorRecovery.summary || {};
+  const recoveryCandidates = topArray(noPriorRecovery.recovery, 5);
+  const watchOnlyCandidates = topArray(noPriorRecovery.watchOnly, 3);
+
+  lines.push('3. NO_PRIOR Recovery Diagnostic');
+  lines.push('-------------------------------');
+  lines.push(`- Source candidates: ${recoverySummary.sourceCount ?? 'n/a'}`);
+  lines.push(`- Recovery candidates: ${recoverySummary.recoveryCount ?? 'n/a'}`);
+  lines.push(`- Watch-only: ${recoverySummary.watchOnlyCount ?? 'n/a'}`);
+  lines.push('- Top recovery candidates:');
+  if (recoveryCandidates.length) {
+    recoveryCandidates.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRecoveryCandidate(item)}`));
+  } else {
+    lines.push('  - none');
+  }
+  lines.push('- Top failure counts:');
+  objectLines(recoverySummary.failureCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  if (watchOnlyCandidates.length) {
+    lines.push('- Watch-only examples:');
+    watchOnlyCandidates.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRecoveryCandidate(item)}`));
+  }
+  lines.push('');
+
   const simTrades = get(paper, ['trades', 'simulatedTrades', 'summary.trades'], get(signal, ['trades'], null));
   const simWins = get(paper, ['wins', 'summary.wins'], get(signal, ['wins'], null));
   const simLosses = get(paper, ['losses', 'summary.losses'], get(signal, ['losses'], null));
@@ -289,7 +327,7 @@ function buildSummary(docs) {
   const topWinners = topArray(get(signal, ['topWinners', 'winners'], []), 3);
   const topLosers = topArray(get(signal, ['topLosers', 'losers'], []), 3);
 
-  lines.push('3. Paper Sim Findings');
+  lines.push('4. Paper Sim Findings');
   lines.push('---------------------');
   lines.push(`- Simulated trades: ${simTrades ?? 'n/a'}`);
   lines.push(`- Wins/losses: ${simWins ?? 'n/a'} / ${simLosses ?? 'n/a'}`);
@@ -317,7 +355,7 @@ function buildSummary(docs) {
   const continuationOpened = topArray(get(continuation, ['opened', 'openedPositions', 'positionsOpened'], []), 8);
   const continuationSkipped = topArray(get(continuation, ['skippedIneligible', 'skipped', 'ineligible'], []), 8);
 
-  lines.push('4. Continuation Findings');
+  lines.push('5. Continuation Findings');
   lines.push('------------------------');
   lines.push(`- Opened this run: ${opened ?? 'n/a'}`);
   lines.push(`- Closed this run: ${closed ?? 'n/a'}`);
@@ -340,7 +378,7 @@ function buildSummary(docs) {
   const lessons = topArray(get(learning, ['lessons'], []), 8);
   const proposals = topArray(get(learning, ['proposals', 'recommendations.proposals'], []), 8);
 
-  lines.push('5. Learning Orchestrator');
+  lines.push('6. Learning Orchestrator');
   lines.push('------------------------');
   lines.push(`- Regime: ${regime ?? 'n/a'}`);
   lines.push(`- Recommended posture: ${posture ?? 'n/a'}`);
@@ -369,7 +407,7 @@ function buildSummary(docs) {
   const simNegative = simPnl !== null && number(simPnl) < 0;
   const simpleRuntimeFired = aiEvidence.length > 0;
 
-  lines.push('6. Evidence-backed Recommendations');
+  lines.push('7. Evidence-backed Recommendations');
   lines.push('-----------------------------------');
   lines.push('1. Keep pre-migration thresholds unchanged for the next validation run.');
   lines.push(`   Evidence: false negatives=${falseNegatives.length}; NO_PRIOR_CURVE_PROGRESS=${noPriorCount ?? 'n/a'}; CURVE_NOT_ADVANCING=${curveNotAdvancingCount ?? 'n/a'}; sim PnL=${simPnl === null ? 'n/a' : sol(simPnl, 6)}.`);

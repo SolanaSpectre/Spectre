@@ -49,7 +49,7 @@
 
     .top-bar {
       position: absolute;
-      left: 34px;
+      left: 22px;
       top: 28px;
       display: flex;
       align-items: center;
@@ -63,7 +63,7 @@
 
     .link-box {
       position: absolute;
-      left: 34px;
+      left: 22px;
       top: 92px;
       width: 382px;
       padding: 14px 16px;
@@ -78,7 +78,7 @@
 
     .ca-box {
       position: absolute;
-      left: 34px;
+      left: 22px;
       top: 214px;
       width: 382px;
       padding: 12px 16px;
@@ -112,10 +112,10 @@
 
     .banner-box {
       position: absolute;
-      left: 436px;
-      top: 4px;
-      width: 1018px;
-      height: 312px;
+      left: 426px;
+      top: 2px;
+      width: 1000px;
+      height: 286px;
       border: 1px solid rgba(117, 248, 255, 0.24);
       background:
         linear-gradient(rgba(0, 0, 0, 0.28), rgba(0, 0, 0, 0.28)),
@@ -188,7 +188,7 @@
 
     .side-panel {
       position: absolute;
-      left: 34px;
+      left: 22px;
       top: 304px;
       width: 382px;
       display: grid;
@@ -313,9 +313,83 @@
       text-transform: uppercase;
     }
 
+    .ticker-box {
+      position: absolute;
+      left: 22px;
+      bottom: 248px;
+      width: 382px;
+      height: 34px;
+      display: flex;
+      align-items: center;
+      border: 1px solid rgba(64, 255, 155, 0.34);
+      border-left: 3px solid var(--cyan);
+      background: linear-gradient(90deg, rgba(0, 0, 0, 0.82), rgba(2, 20, 27, 0.66), rgba(0, 0, 0, 0.42));
+      box-shadow:
+        inset 0 0 18px rgba(117, 248, 255, 0.06),
+        0 0 18px rgba(0, 0, 0, 0.34);
+      overflow: hidden;
+    }
+
+    .ticker-track {
+      display: flex;
+      gap: 28px;
+      min-width: max-content;
+      color: var(--green);
+      font-size: 13px;
+      line-height: 1;
+      font-weight: 900;
+      text-transform: uppercase;
+      text-shadow: 0 0 10px rgba(64, 255, 155, 0.36);
+      animation: ticker-scroll 23s linear infinite;
+      white-space: nowrap;
+    }
+
+    .ticker-track span {
+      display: inline-block;
+    }
+
+    @keyframes ticker-scroll {
+      from { transform: translateX(0); }
+      to { transform: translateX(calc(-50% - 14px)); }
+    }
+
+    .ghost-box {
+      position: absolute;
+      left: 22px;
+      bottom: 108px;
+      width: 382px;
+      height: 132px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(117, 248, 255, 0.26);
+      border-left: 3px solid var(--green);
+      background: linear-gradient(180deg, rgba(0, 0, 0, 0.36), rgba(2, 20, 27, 0.58));
+      box-shadow:
+        inset 0 0 24px rgba(117, 248, 255, 0.07),
+        0 0 20px rgba(0, 0, 0, 0.36);
+      overflow: hidden;
+    }
+
+    .ghost-box img {
+      height: 122px;
+      width: auto;
+      display: block;
+      image-rendering: pixelated;
+      filter: drop-shadow(0 0 13px rgba(117, 248, 255, 0.34));
+    }
+
+    .ghost-box::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(0deg, rgba(117, 248, 255, 0.07) 0 1px, transparent 1px 5px);
+      pointer-events: none;
+      mix-blend-mode: screen;
+    }
+
     .bottom-strip {
       position: absolute;
-      left: 34px;
+      left: 22px;
       bottom: 26px;
       width: 382px;
       min-height: 64px;
@@ -430,6 +504,17 @@
         </table>
       </section>
     </aside>
+
+    <section class="ticker-box">
+      <div class="ticker-track">
+        <span>$SPECTRE • GHOST IN THE MACHINE • PAPER RUNS ONLY • HUNTING FIRST CURVE SIGNALS • NO LIVE TRADES • WATCHING FOR FALSE NEGATIVES • STAY SHARP •</span>
+        <span>$SPECTRE • GHOST IN THE MACHINE • PAPER RUNS ONLY • HUNTING FIRST CURVE SIGNALS • NO LIVE TRADES • WATCHING FOR FALSE NEGATIVES • STAY SHARP •</span>
+      </div>
+    </section>
+
+    <section class="ghost-box">
+      <img src="ghost.gif" alt="">
+    </section>
 
     <footer class="bottom-strip">
       <div class="warning">PAPER RUNS ONLY • NOT LIVE TRADING</div>
