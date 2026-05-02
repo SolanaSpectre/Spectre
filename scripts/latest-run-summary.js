@@ -16,6 +16,7 @@ const FILES = {
   noPriorRecovery: 'data/reports/no-prior-curve-recovery-latest.json',
   noPriorReplay: 'data/reports/no-prior-replay-latest.json',
   noPriorFollowThrough: 'data/reports/no-prior-follow-through-latest.json',
+  noPriorDelayedEntry: 'data/reports/no-prior-delayed-entry-replay-latest.json',
   runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json'
 };
 
@@ -190,6 +191,11 @@ function summarizeNoPriorFollowThrough(item = {}) {
   return `${label} | decisions=${item.noPriorDecisionCount ?? 'n/a'} | firstCurve=${fmt(item.firstNoPriorCurveProgress, 4)} | bestDelta120s=${fmt(item.bestCurveDelta120s, 4)} | max120s=${fmt(item.maxCurveProgressWithin120s, 4)} | classes=${compactValue(item.followThroughClasses)}`;
 }
 
+function summarizeDelayedEntryReplay(item = {}) {
+  const label = item.symbol || item.mint || 'UNKNOWN';
+  return `${label} | delay=${item.delay || 'n/a'} | ${item.class || 'n/a'} | pnl=${item.pnlSol === null || item.pnlSol === undefined ? 'n/a' : sol(item.pnlSol, 6)} | hold=${item.holdSeconds ?? 'n/a'}s | curve@entry=${fmt(item.entryCurveProgress, 4)} | maxCurve=${fmt(item.maxCurveProgressInWindow, 4)}`;
+}
+
 function summarizeRunnerReject(item = {}) {
   const label = item.symbol || item.mint || 'UNKNOWN';
   const details = [
@@ -300,6 +306,7 @@ function buildSummary(docs) {
   const noPriorRecovery = docs.noPriorRecovery.data || {};
   const noPriorReplay = docs.noPriorReplay.data || {};
   const noPriorFollowThrough = docs.noPriorFollowThrough.data || {};
+  const noPriorDelayedEntry = docs.noPriorDelayedEntry.data || {};
   const runnerRaydiumShadow = docs.runnerRaydiumShadow.data || {};
   const lines = [];
 
@@ -506,6 +513,35 @@ function buildSummary(docs) {
   }
   lines.push('');
 
+  const delayedSummary = noPriorDelayedEntry.summary || {};
+  const delayedByDelay = delayedSummary.byDelay || {};
+  const delayed120 = delayedByDelay['120s'] || {};
+  const delayedPriceUnavailable = Object.values(delayedByDelay)
+    .reduce((sum, row) => sum + number(row?.priceUnavailableCount, 0), 0);
+  const delayedWinners = topArray(noPriorDelayedEntry.topWouldWinners, 5);
+  const delayedLosers = topArray(noPriorDelayedEntry.topWouldLosers, 5);
+
+  lines.push('8. NO_PRIOR Delayed-Entry Replay');
+  lines.push('---------------------------------');
+  lines.push('- Mode: report-only; reconstructs delayed-entry decisions and does not affect entries.');
+  lines.push(`- Decisions / unique mints considered: ${delayedSummary.decisionsConsidered ?? 'n/a'} / ${delayedSummary.uniqueMintsConsidered ?? 'n/a'}`);
+  lines.push(`- Would-enter by delay: 30s=${delayedByDelay['30s']?.wouldEnterCount ?? 'n/a'}, 60s=${delayedByDelay['60s']?.wouldEnterCount ?? 'n/a'}, 120s=${delayedByDelay['120s']?.wouldEnterCount ?? 'n/a'}`);
+  lines.push(`- Simulated outcomes (delay=120s): TP=${delayed120.wouldExitTpCount ?? 'n/a'}, SL=${delayed120.wouldExitSlCount ?? 'n/a'}, MAX_HOLD=${delayed120.wouldExitMaxHoldCount ?? 'n/a'}, END_OF_RUN=${delayed120.wouldExitEndOfRunCount ?? 'n/a'}, totalPnl=${delayed120.totalPnlSol === null || delayed120.totalPnlSol === undefined ? 'n/a' : sol(delayed120.totalPnlSol, 6)}, winRate=${delayed120.winRate === null || delayed120.winRate === undefined ? 'n/a' : pct(delayed120.winRate)}`);
+  lines.push(`- Coverage: priceFound=${delayedSummary.priceCoverage?.decisionsWithPostConfirmPriceSnapshot ?? 'n/a'}, PRICE_UNAVAILABLE=${delayedPriceUnavailable}`);
+  if (delayedWinners.length) {
+    lines.push('- Top would-winners:');
+    delayedWinners.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeDelayedEntryReplay(item)}`));
+  } else {
+    lines.push('- Top would-winners: none');
+  }
+  if (delayedLosers.length) {
+    lines.push('- Top would-losers:');
+    delayedLosers.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeDelayedEntryReplay(item)}`));
+  } else {
+    lines.push('- Top would-losers: none');
+  }
+  lines.push('');
+
   const paperSummary = paper.summary || {};
   const simTrades = Object.prototype.hasOwnProperty.call(paperSummary, 'simulatedTrades')
     ? paperSummary.simulatedTrades
@@ -526,7 +562,7 @@ function buildSummary(docs) {
   const topWinners = topArray(get(signal, ['topWinners', 'winners'], []), 3);
   const topLosers = topArray(get(signal, ['topLosers', 'losers'], []), 3);
 
-  lines.push('8. Paper Sim Findings');
+  lines.push('9. Paper Sim Findings');
   lines.push('---------------------');
   lines.push(`- Simulated trades: ${simTrades ?? 'n/a'}`);
   lines.push(`- Wins/losses: ${simWins ?? 'n/a'} / ${simLosses ?? 'n/a'}`);
@@ -554,7 +590,7 @@ function buildSummary(docs) {
   const continuationOpened = topArray(get(continuation, ['opened', 'openedPositions', 'positionsOpened'], []), 8);
   const continuationSkipped = topArray(get(continuation, ['skippedIneligible', 'skipped', 'ineligible'], []), 8);
 
-  lines.push('9. Continuation Findings');
+  lines.push('10. Continuation Findings');
   lines.push('------------------------');
   lines.push(`- Opened this run: ${opened ?? 'n/a'}`);
   lines.push(`- Closed this run: ${closed ?? 'n/a'}`);
@@ -577,7 +613,7 @@ function buildSummary(docs) {
   const lessons = topArray(get(learning, ['lessons'], []), 8);
   const proposals = topArray(get(learning, ['proposals', 'recommendations.proposals'], []), 8);
 
-  lines.push('10. Learning Orchestrator');
+  lines.push('11. Learning Orchestrator');
   lines.push('------------------------');
   lines.push(`- Regime: ${compactValue(regime)}`);
   lines.push(`- Recommended posture: ${compactValue(posture)}`);
@@ -614,7 +650,7 @@ function buildSummary(docs) {
   const simNegative = simPnl !== null && number(simPnl) < 0;
   const simpleRuntimeFired = aiEvidence.length > 0 || aiReachability.aiDecisionEvents > 0;
 
-  lines.push('11. Evidence-backed Recommendations');
+  lines.push('12. Evidence-backed Recommendations');
   lines.push('------------------------------------');
   lines.push('1. Keep pre-migration thresholds unchanged for the next validation run.');
   lines.push(`   Evidence: false negatives=${falseNegatives.length}; NO_PRIOR_CURVE_PROGRESS=${noPriorCount ?? 'n/a'}; CURVE_NOT_ADVANCING=${curveNotAdvancingCount ?? 'n/a'}; sim PnL=${simPnl === null ? 'n/a' : sol(simPnl, 6)}.`);

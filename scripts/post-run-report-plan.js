@@ -26,6 +26,7 @@ const POST_RUN_REPORTS = [
   { title: 'NO_PRIOR Recovery Diagnostic', script: 'no-prior-curve-recovery-report.js' },
   { title: 'NO_PRIOR Replay Diagnostic', script: 'no-prior-replay-diagnostic.js' },
   { title: 'NO_PRIOR Follow-through Diagnostic', script: 'no-prior-follow-through-report.js' },
+  { title: 'NO_PRIOR Delayed-Entry Replay', script: 'no-prior-delayed-entry-replay.js' },
   { title: 'Latest Run Summary', script: 'latest-run-summary.js' }
 ];
 

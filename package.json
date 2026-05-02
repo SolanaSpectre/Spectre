@@ -12,6 +12,7 @@
     "report:no-prior-recovery": "node scripts/no-prior-curve-recovery-report.js",
     "report:no-prior-replay": "node scripts/no-prior-replay-diagnostic.js",
     "report:no-prior-follow-through": "node scripts/no-prior-follow-through-report.js",
+    "report:no-prior-delayed-entry": "node scripts/no-prior-delayed-entry-replay.js",
     "benchmark:runtime-models": "node scripts/benchmark-runtime-models.js",
     "check:pump-live-readiness": "node scripts/check-pump-live-readiness.js",
     "report:strategy": "node scripts/strategy-report.js",
