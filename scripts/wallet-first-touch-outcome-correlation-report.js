@@ -92,12 +92,14 @@ function outcomeRank(outcome) {
   return ranks[outcome] ?? -1;
 }
 
-function compactOutcome(item = {}) {
+function compactOutcome(item = {}, detailSource = 'unknown') {
   return {
     mint: item.mint || null,
     symbol: item.symbol || null,
     name: item.name || null,
     outcome: item.outcome || null,
+    detailSource,
+    hasFalseNegativeDetail: detailSource === 'false_negative_detail',
     falseNegativePriority: nullableNum(item.falseNegativePriority),
     firstSeenAt: item.firstSeenAt || null,
     firstFlagAt: item.firstFlagAt || null,
@@ -120,11 +122,25 @@ function compactOutcome(item = {}) {
 function buildOutcomeMap(outcomeLedger, falseNegativePayload) {
   const byMint = new Map();
   const falseNegativeItems = list(falseNegativePayload, ['watchlist', 'candidates', 'items']);
-  const ledgerItems = list(outcomeLedger, ['topFalseNegativeCandidates', 'falseNegativeCandidates', 'topFalseNegatives']);
+  const broadLedgerItems = list(outcomeLedger, ['outcomes']);
+  const detailedLedgerItems = [
+    ...list(outcomeLedger, ['topMigratedOrNearRunner']),
+    ...list(outcomeLedger, ['topFalseNegativeCandidates', 'falseNegativeCandidates', 'topFalseNegatives'])
+  ];
 
-  for (const item of [...ledgerItems, ...falseNegativeItems]) {
+  for (const item of broadLedgerItems) {
     if (!item || !item.mint) continue;
-    byMint.set(item.mint, compactOutcome(item));
+    byMint.set(item.mint, compactOutcome(item, 'outcome_ledger'));
+  }
+
+  for (const item of detailedLedgerItems) {
+    if (!item || !item.mint) continue;
+    byMint.set(item.mint, compactOutcome(item, 'outcome_ledger_detail'));
+  }
+
+  for (const item of falseNegativeItems) {
+    if (!item || !item.mint) continue;
+    byMint.set(item.mint, compactOutcome(item, 'false_negative_detail'));
   }
 
   return byMint;
@@ -157,6 +173,8 @@ function compactCluster(cluster, outcomeByMint) {
     solBucket: solBucket(cluster.totalFirstTouchSol),
     riskBucket: riskBucket(riskFlags),
     matchedOutcomeDetail,
+    matchedFalseNegativeDetail: Boolean(outcome?.hasFalseNegativeDetail),
+    outcomeDetailSource: outcome?.detailSource || 'missing',
     outcomeLabel: outcome?.outcome || 'UNKNOWN_IN_OUTCOME_DETAIL',
     outcome: outcome || null
   };
@@ -170,6 +188,7 @@ function summarizeGroups(rows, key) {
       groups[groupKey] = {
         clusters: 0,
         matchedOutcomeDetails: 0,
+        matchedFalseNegativeDetails: 0,
         outcomeCounts: {},
         migratedOrNearMigrationCount: 0,
         averageFirstTouchScore: null,
@@ -180,6 +199,7 @@ function summarizeGroups(rows, key) {
     const group = groups[groupKey];
     group.clusters += 1;
     if (row.matchedOutcomeDetail) group.matchedOutcomeDetails += 1;
+    if (row.matchedFalseNegativeDetail) group.matchedFalseNegativeDetails += 1;
     group.outcomeCounts[row.outcomeLabel] = (group.outcomeCounts[row.outcomeLabel] || 0) + 1;
     if (['MIGRATED_OR_COMPLETED', 'NEAR_MIGRATION_85'].includes(row.outcomeLabel)) {
       group.migratedOrNearMigrationCount += 1;
@@ -218,6 +238,8 @@ function buildReport() {
   const clusters = list(firstTouch, ['clusters']).map((cluster) => compactCluster(cluster, outcomeByMint));
   const matched = clusters.filter((row) => row.matchedOutcomeDetail);
   const unmatched = clusters.filter((row) => !row.matchedOutcomeDetail);
+  const falseNegativeDetailMatched = clusters.filter((row) => row.matchedFalseNegativeDetail);
+  const broadOutcomeMatched = clusters.filter((row) => row.matchedOutcomeDetail && !row.matchedFalseNegativeDetail);
   const base = baseRates(outcomeLedger.summary?.outcomeCounts || {});
   const priorityClusters = clusters.filter((row) => row.recommendation === 'paper_watch_priority');
   const highScoreClusters = clusters.filter((row) => row.firstTouchScore >= 75);
@@ -262,18 +284,22 @@ function buildReport() {
       multiWalletClusters: multiWalletClusters.length,
       sniperCrowdingClusters: sniperCrowdingClusters.length,
       matchedOutcomeDetails: matched.length,
+      matchedFalseNegativeDetails: falseNegativeDetailMatched.length,
+      broadOutcomeMatches: broadOutcomeMatched.length,
       unknownOutcomeDetails: unmatched.length,
       matchedOutcomeDetailRate: pct(matched.length, clusters.length),
+      falseNegativeDetailRate: pct(falseNegativeDetailMatched.length, clusters.length),
       outcomeCounts: countBy(clusters, (row) => row.outcomeLabel),
       knownOutcomeCounts: countBy(matched, (row) => row.outcomeLabel),
+      outcomeDetailSourceCounts: countBy(clusters, (row) => row.outcomeDetailSource),
       baseOutcomeCounts: outcomeLedger.summary?.outcomeCounts || {},
       baseOutcomeRates: base.rates,
       baseOutcomeTotalMints: base.total,
       migratedOrNearMigrationMatchedCount: matched.filter((row) => ['MIGRATED_OR_COMPLETED', 'NEAR_MIGRATION_85'].includes(row.outcomeLabel)).length,
       tinyDenominatorWarning: clusters.length < 30 || matched.length < 5,
-      interpretation: matched.length < 5
-        ? 'insufficient matched outcome detail; wallet first-touch clusters exist, but this run cannot prove edge'
-        : 'matched outcome detail is available; inspect known outcome distribution before changing any wallet weighting'
+      interpretation: matched.length < clusters.length
+        ? 'some wallet clusters still lack broad outcome detail; do not change wallet weighting'
+        : 'broad outcome labels are available; inspect distribution and tiny-denominator warning before changing any wallet weighting'
     },
     byRecommendation: summarizeGroups(clusters, 'recommendation'),
     byScoreBucket: summarizeGroups(clusters, 'scoreBucket'),
@@ -283,7 +309,7 @@ function buildReport() {
     clusters,
     topMatchedOutcomes,
     topUnmatchedClusters,
-    note: 'Report-only wallet first-touch to outcome correlation. Unknown outcome detail means the mint was not present in the false-negative detail set, not proof of success or failure. Does not change trust tiers, wallet scoring, entries, signals, AI review, or live behavior.'
+    note: 'Report-only wallet first-touch to outcome correlation. Broad outcome labels come from the full outcome ledger; false-negative detail remains separately marked. Unknown outcome detail means the mint was not present in the available outcome ledger, not proof of success or failure. Does not change trust tiers, wallet scoring, entries, signals, AI review, or live behavior.'
   };
 }
 

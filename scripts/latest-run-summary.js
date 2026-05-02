@@ -228,7 +228,8 @@ function summarizeWalletFirstTouchOutcome(item = {}) {
   const outcome = item.outcomeLabel || item.outcome?.outcome || 'UNKNOWN';
   const curve = item.outcome?.maxCurveProgress;
   const priority = item.outcome?.falseNegativePriority;
-  return `${label} | outcome=${outcome} | score=${fmt(item.firstTouchScore)} | wallets=${item.uniqueWalletCount ?? 'n/a'} | sol=${fmt(item.totalFirstTouchSol, 4)} | curve=${curve === null || curve === undefined ? 'n/a' : fmt(curve, 4)}${priority === null || priority === undefined ? '' : ` | fnPriority=${fmt(priority)}`}`;
+  const source = item.outcomeDetailSource ? ` | source=${item.outcomeDetailSource}` : '';
+  return `${label} | outcome=${outcome} | score=${fmt(item.firstTouchScore)} | wallets=${item.uniqueWalletCount ?? 'n/a'} | sol=${fmt(item.totalFirstTouchSol, 4)} | curve=${curve === null || curve === undefined ? 'n/a' : fmt(curve, 4)}${priority === null || priority === undefined ? '' : ` | fnPriority=${fmt(priority)}`}${source}`;
 }
 
 function summarizeContinuationExitScenario(name, summary = {}) {
@@ -434,11 +435,13 @@ function buildSummary(docs) {
 
   lines.push('4. Wallet First-Touch Outcome Correlation');
   lines.push('-----------------------------------------');
-  lines.push('- Mode: report-only; joins wallet first-touch clusters to available outcome detail and does not affect wallet scoring or entries.');
-  lines.push(`- Clusters / priority / matched outcome detail: ${walletCorrSummary.clusters ?? 'n/a'} / ${walletCorrSummary.priorityClusters ?? 'n/a'} / ${walletCorrSummary.matchedOutcomeDetails ?? 'n/a'}`);
-  lines.push(`- Unknown outcome detail: ${walletCorrSummary.unknownOutcomeDetails ?? 'n/a'} (not proof of success or failure; only absent from false-negative detail set).`);
+  lines.push('- Mode: report-only; joins wallet first-touch clusters to broad outcome labels and does not affect wallet scoring or entries.');
+  lines.push(`- Clusters / priority / matched outcomes: ${walletCorrSummary.clusters ?? 'n/a'} / ${walletCorrSummary.priorityClusters ?? 'n/a'} / ${walletCorrSummary.matchedOutcomeDetails ?? 'n/a'}`);
+  lines.push(`- Broad-only / false-negative-detail / unknown: ${walletCorrSummary.broadOutcomeMatches ?? 'n/a'} / ${walletCorrSummary.matchedFalseNegativeDetails ?? 'n/a'} / ${walletCorrSummary.unknownOutcomeDetails ?? 'n/a'}`);
   lines.push(`- High-score / multi-wallet / sniper-crowding clusters: ${walletCorrSummary.highScoreClusters ?? 'n/a'} / ${walletCorrSummary.multiWalletClusters ?? 'n/a'} / ${walletCorrSummary.sniperCrowdingClusters ?? 'n/a'}`);
   lines.push(`- Interpretation: ${walletCorrSummary.interpretation || 'n/a'}`);
+  lines.push('- Outcome detail sources:');
+  objectLines(walletCorrSummary.outcomeDetailSourceCounts, 8).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Matched outcome counts:');
   objectLines(walletCorrSummary.knownOutcomeCounts, 8).forEach((line) => lines.push(`  - ${line}`));
   if (walletMatched.length) {
