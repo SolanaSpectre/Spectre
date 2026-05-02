@@ -7,6 +7,7 @@ const POST_RUN_REPORTS = [
   { title: 'Wallet Battlefield Report', script: 'wallet-battlefield-report.js' },
   { title: 'Wallet Behavior Report', script: 'report-wallet-behavior.js' },
   { title: 'Wallet First-Touch Report', script: 'wallet-first-touch-report.js' },
+  { title: 'Wallet First-Touch Outcome Correlation', script: 'wallet-first-touch-outcome-correlation-report.js' },
   { title: 'Wallet Outcome Audit', script: 'wallet-outcome-audit.js' },
   { title: 'Wallet Alpha Replay Report', script: 'wallet-alpha-replay-report.js' },
   { title: 'Wallet Alpha Shadow Ledger', script: 'wallet-alpha-shadow-ledger.js' },

@@ -17,7 +17,8 @@ const FILES = {
   noPriorReplay: 'data/reports/no-prior-replay-latest.json',
   noPriorFollowThrough: 'data/reports/no-prior-follow-through-latest.json',
   noPriorDelayedEntry: 'data/reports/no-prior-delayed-entry-replay-latest.json',
-  runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json'
+  runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json',
+  walletFirstTouchOutcomeCorr: 'data/reports/wallet-first-touch-outcome-corr-latest.json'
 };
 
 function parseArgs(argv) {
@@ -221,6 +222,14 @@ function summarizeRaydiumShadow(item = {}) {
   return `${label} | BLOCKED report-only | rank=${fmt(item.rankScore)} | quality=${fmt(item.qualityScore)} | liq=${money(item.liquidityUsd, 0)} | vol24h=${money(item.volume24h, 0)} | risk=${fmt(item.riskScore, 3)} | ${age}${bucket}${continuation}`;
 }
 
+function summarizeWalletFirstTouchOutcome(item = {}) {
+  const label = `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim();
+  const outcome = item.outcomeLabel || item.outcome?.outcome || 'UNKNOWN';
+  const curve = item.outcome?.maxCurveProgress;
+  const priority = item.outcome?.falseNegativePriority;
+  return `${label} | outcome=${outcome} | score=${fmt(item.firstTouchScore)} | wallets=${item.uniqueWalletCount ?? 'n/a'} | sol=${fmt(item.totalFirstTouchSol, 4)} | curve=${curve === null || curve === undefined ? 'n/a' : fmt(curve, 4)}${priority === null || priority === undefined ? '' : ` | fnPriority=${fmt(priority)}`}`;
+}
+
 function summarizeLesson(lesson = {}) {
   if (!lesson || typeof lesson !== 'object') return String(lesson || '');
   const parts = [];
@@ -308,6 +317,7 @@ function buildSummary(docs) {
   const noPriorFollowThrough = docs.noPriorFollowThrough.data || {};
   const noPriorDelayedEntry = docs.noPriorDelayedEntry.data || {};
   const runnerRaydiumShadow = docs.runnerRaydiumShadow.data || {};
+  const walletFirstTouchOutcomeCorr = docs.walletFirstTouchOutcomeCorr.data || {};
   const lines = [];
 
   const generatedAt = new Date().toISOString();
@@ -412,6 +422,31 @@ function buildSummary(docs) {
   }
   lines.push('');
 
+  const walletCorrSummary = walletFirstTouchOutcomeCorr.summary || {};
+  const walletMatched = topArray(walletFirstTouchOutcomeCorr.topMatchedOutcomes, 5);
+  const walletUnmatched = topArray(walletFirstTouchOutcomeCorr.topUnmatchedClusters, 5);
+
+  lines.push('4. Wallet First-Touch Outcome Correlation');
+  lines.push('-----------------------------------------');
+  lines.push('- Mode: report-only; joins wallet first-touch clusters to available outcome detail and does not affect wallet scoring or entries.');
+  lines.push(`- Clusters / priority / matched outcome detail: ${walletCorrSummary.clusters ?? 'n/a'} / ${walletCorrSummary.priorityClusters ?? 'n/a'} / ${walletCorrSummary.matchedOutcomeDetails ?? 'n/a'}`);
+  lines.push(`- Unknown outcome detail: ${walletCorrSummary.unknownOutcomeDetails ?? 'n/a'} (not proof of success or failure; only absent from false-negative detail set).`);
+  lines.push(`- High-score / multi-wallet / sniper-crowding clusters: ${walletCorrSummary.highScoreClusters ?? 'n/a'} / ${walletCorrSummary.multiWalletClusters ?? 'n/a'} / ${walletCorrSummary.sniperCrowdingClusters ?? 'n/a'}`);
+  lines.push(`- Interpretation: ${walletCorrSummary.interpretation || 'n/a'}`);
+  lines.push('- Matched outcome counts:');
+  objectLines(walletCorrSummary.knownOutcomeCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  if (walletMatched.length) {
+    lines.push('- Top matched clusters:');
+    walletMatched.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeWalletFirstTouchOutcome(item)}`));
+  } else {
+    lines.push('- Top matched clusters: none');
+  }
+  if (walletUnmatched.length) {
+    lines.push('- Top unmatched clusters:');
+    walletUnmatched.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeWalletFirstTouchOutcome(item)}`));
+  }
+  lines.push('');
+
   const watchFlags = get(battlefield, [
     'watchLane.uniqueCandidates',
     'watch.uniqueCandidates',
@@ -436,7 +471,7 @@ function buildSummary(docs) {
   const ledgerFalseNegArray = topArray(get(ledger, ['falseNegativeCandidates', 'falseNegatives', 'topFalseNegatives'], []), 10);
   const falseNegatives = falseNegArray.length ? falseNegArray : ledgerFalseNegArray;
 
-  lines.push('4. Pre-Migration Findings');
+  lines.push('5. Pre-Migration Findings');
   lines.push('-------------------------');
   lines.push(`- Watch flags / unique candidates: ${watchFlags ?? 'n/a'}`);
   lines.push(`- Confirmed watch count: ${confirmedWatch ?? 'n/a'}`);
@@ -457,7 +492,7 @@ function buildSummary(docs) {
   const recoveryCandidates = topArray(noPriorRecovery.recovery, 5);
   const watchOnlyCandidates = topArray(noPriorRecovery.watchOnly, 3);
 
-  lines.push('5. NO_PRIOR Recovery Diagnostic');
+  lines.push('6. NO_PRIOR Recovery Diagnostic');
   lines.push('-------------------------------');
   lines.push(`- Source candidates: ${recoverySummary.sourceCount ?? 'n/a'}`);
   lines.push(`- Recovery candidates: ${recoverySummary.recoveryCount ?? 'n/a'}`);
@@ -479,7 +514,7 @@ function buildSummary(docs) {
   const replaySummary = noPriorReplay.summary || {};
   const replayCandidates = topArray(noPriorReplay.candidates, 5);
 
-  lines.push('6. NO_PRIOR Replay Diagnostic');
+  lines.push('7. NO_PRIOR Replay Diagnostic');
   lines.push('-----------------------------');
   lines.push('- Mode: report-only; reconstructs prior curve evidence and does not affect entries.');
   lines.push(`- Recovery candidates / reconstructed NO_PRIOR decisions: ${replaySummary.recoveryCandidates ?? 'n/a'} / ${replaySummary.noPriorDecisionCount ?? 'n/a'}`);
@@ -498,7 +533,7 @@ function buildSummary(docs) {
   const followThroughSummary = noPriorFollowThrough.summary || {};
   const followThroughCandidates = topArray(noPriorFollowThrough.candidates, 5);
 
-  lines.push('7. NO_PRIOR Follow-through Diagnostic');
+  lines.push('8. NO_PRIOR Follow-through Diagnostic');
   lines.push('-------------------------------------');
   lines.push('- Mode: report-only; measures 30/60/120s behavior after NO_PRIOR skips and does not affect entries.');
   lines.push(`- NO_PRIOR decisions / unique mints: ${followThroughSummary.noPriorDecisionCount ?? 'n/a'} / ${followThroughSummary.uniqueMints ?? 'n/a'}`);
@@ -521,7 +556,7 @@ function buildSummary(docs) {
   const delayedWinners = topArray(noPriorDelayedEntry.topWouldWinners, 5);
   const delayedLosers = topArray(noPriorDelayedEntry.topWouldLosers, 5);
 
-  lines.push('8. NO_PRIOR Delayed-Entry Replay');
+  lines.push('9. NO_PRIOR Delayed-Entry Replay');
   lines.push('---------------------------------');
   lines.push('- Mode: report-only; reconstructs delayed-entry decisions and does not affect entries.');
   lines.push(`- Decisions / unique mints considered: ${delayedSummary.decisionsConsidered ?? 'n/a'} / ${delayedSummary.uniqueMintsConsidered ?? 'n/a'}`);
@@ -562,7 +597,7 @@ function buildSummary(docs) {
   const topWinners = topArray(get(signal, ['topWinners', 'winners'], []), 3);
   const topLosers = topArray(get(signal, ['topLosers', 'losers'], []), 3);
 
-  lines.push('9. Paper Sim Findings');
+  lines.push('10. Paper Sim Findings');
   lines.push('---------------------');
   lines.push(`- Simulated trades: ${simTrades ?? 'n/a'}`);
   lines.push(`- Wins/losses: ${simWins ?? 'n/a'} / ${simLosses ?? 'n/a'}`);
@@ -590,7 +625,7 @@ function buildSummary(docs) {
   const continuationOpened = topArray(get(continuation, ['opened', 'openedPositions', 'positionsOpened'], []), 8);
   const continuationSkipped = topArray(get(continuation, ['skippedIneligible', 'skipped', 'ineligible'], []), 8);
 
-  lines.push('10. Continuation Findings');
+  lines.push('11. Continuation Findings');
   lines.push('------------------------');
   lines.push(`- Opened this run: ${opened ?? 'n/a'}`);
   lines.push(`- Closed this run: ${closed ?? 'n/a'}`);
@@ -613,7 +648,7 @@ function buildSummary(docs) {
   const lessons = topArray(get(learning, ['lessons'], []), 8);
   const proposals = topArray(get(learning, ['proposals', 'recommendations.proposals'], []), 8);
 
-  lines.push('11. Learning Orchestrator');
+  lines.push('12. Learning Orchestrator');
   lines.push('------------------------');
   lines.push(`- Regime: ${compactValue(regime)}`);
   lines.push(`- Recommended posture: ${compactValue(posture)}`);
@@ -650,7 +685,7 @@ function buildSummary(docs) {
   const simNegative = simPnl !== null && number(simPnl) < 0;
   const simpleRuntimeFired = aiEvidence.length > 0 || aiReachability.aiDecisionEvents > 0;
 
-  lines.push('12. Evidence-backed Recommendations');
+  lines.push('13. Evidence-backed Recommendations');
   lines.push('------------------------------------');
   lines.push('1. Keep pre-migration thresholds unchanged for the next validation run.');
   lines.push(`   Evidence: false negatives=${falseNegatives.length}; NO_PRIOR_CURVE_PROGRESS=${noPriorCount ?? 'n/a'}; CURVE_NOT_ADVANCING=${curveNotAdvancingCount ?? 'n/a'}; sim PnL=${simPnl === null ? 'n/a' : sol(simPnl, 6)}.`);
