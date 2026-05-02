@@ -106,6 +106,17 @@ function money(value, digits = 2) {
   return `${sign}$${n.toFixed(digits)}`;
 }
 
+function compactValue(value) {
+  if (value === null || value === undefined || value === '') return 'n/a';
+  if (Array.isArray(value)) return `${value.length} item(s)`;
+  if (typeof value !== 'object') return String(value);
+  const parts = Object.entries(value)
+    .filter(([, child]) => child === null || typeof child !== 'object')
+    .slice(0, 5)
+    .map(([key, child]) => `${key}=${child}`);
+  return parts.length ? parts.join(', ') : `${Object.keys(value).length} field(s)`;
+}
+
 function topArray(value, limit = 5) {
   return Array.isArray(value) ? value.slice(0, limit) : [];
 }
@@ -113,9 +124,9 @@ function topArray(value, limit = 5) {
 function objectLines(obj, limit = 12) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return ['none'];
   const entries = Object.entries(obj)
-    .sort((a, b) => number(b[1]) - number(a[1]))
+    .sort((a, b) => number(b[1], 0) - number(a[1], 0))
     .slice(0, limit);
-  return entries.length ? entries.map(([k, v]) => `${k}: ${v}`) : ['none'];
+  return entries.length ? entries.map(([k, v]) => `${k}: ${compactValue(v)}`) : ['none'];
 }
 
 function findArrayDeep(obj, keyHints = []) {
@@ -165,6 +176,20 @@ function summarizeRecoveryCandidate(item = {}) {
   return `${label}${outcome ? ` | ${outcome}` : ''}${priority !== undefined ? ` | priority=${fmt(priority)}` : ''}${score !== undefined ? ` | score=${fmt(score)}` : ''}${curve !== undefined ? ` | curve=${fmt(curve, 4)}` : ''}${vol !== undefined ? ` | vol=${fmt(vol, 2)}` : ''}${vel !== undefined ? ` | vel=${fmt(vel, 2)}` : ''}${noPrior !== undefined ? ` | noPrior=${noPrior}` : ''}${failures}`;
 }
 
+function summarizeLesson(lesson = {}) {
+  if (!lesson || typeof lesson !== 'object') return String(lesson || '');
+  const parts = [];
+  if (lesson.type) parts.push(lesson.type);
+  if (lesson.severity) parts.push(`severity=${lesson.severity}`);
+  if (lesson.text) parts.push(lesson.text);
+  if (lesson.evidence && typeof lesson.evidence === 'object' && !Array.isArray(lesson.evidence)) {
+    parts.push(`evidence=${compactValue(lesson.evidence)}`);
+  } else if (Array.isArray(lesson.evidence)) {
+    parts.push(`evidence=${lesson.evidence.length} item(s)`);
+  }
+  return parts.join(' | ');
+}
+
 function collectSimpleRuntimeEvidence() {
   const evidence = [];
   const paths = [path.join(REPO_ROOT, 'run-logs'), path.join(REPO_ROOT, 'data', 'outcomes')];
@@ -187,6 +212,41 @@ function collectSimpleRuntimeEvidence() {
   }
 
   return Array.from(new Set(evidence));
+}
+
+function buildAiReachability(battlefield = {}) {
+  const runner = battlefield.runnerLane || {};
+  const eventCounts = battlefield.eventCounts || {};
+  const diag = runner.scalperDiagnostics || {};
+  const generatedSignals = number(runner.generatedSignals ?? diag.generatedSignals, 0);
+  const executedSignals = number(runner.executedSignals ?? diag.executedSignals, 0);
+  const rejectedTrades = number(runner.rejectedTrades, 0);
+  const quoteRejects = number(diag.quoteRejects, 0);
+  const aiRejects = number(diag.aiRejects, 0);
+  const aiDecisionEvents = number(eventCounts['signal.ai_decision'], 0)
+    + number(eventCounts['ai.veto'], 0)
+    + number(eventCounts['ai.caution'], 0);
+  const aiTimeoutFallbacks = Array.isArray(runner.aiTimeoutFallback) ? runner.aiTimeoutFallback.length : 0;
+
+  let interpretation = 'AI path status is inconclusive from the available report fields.';
+  if (generatedSignals === 0) {
+    interpretation = 'No runner/scalper signals were generated, so no real candidate reached runtime AI review.';
+  } else if (aiDecisionEvents === 0 && quoteRejects > 0) {
+    interpretation = 'Signals were generated but stopped at quote/quality handling before AI review.';
+  } else if (aiDecisionEvents > 0) {
+    interpretation = 'At least one real candidate reached AI decision handling.';
+  }
+
+  return {
+    generatedSignals,
+    executedSignals,
+    rejectedTrades,
+    quoteRejects,
+    aiRejects,
+    aiDecisionEvents,
+    aiTimeoutFallbacks,
+    interpretation
+  };
 }
 
 function buildSummary(docs) {
@@ -216,14 +276,16 @@ function buildSummary(docs) {
   }
 
   const duration = get(battlefield, [
+    'session.activeDurationMinutes',
+    'session.durationMinutes',
     'window.activeTelemetryMinutes',
     'durationMinutes',
     'runDurationMinutes',
     'summary.durationMinutes',
     'session.activeTelemetryMinutes'
   ], get(preOutcomes, ['runDurationMinutes', 'durationMinutes'], null));
-  const events = get(battlefield, ['events', 'eventCount', 'summary.events'], null);
-  const dossiers = get(battlefield, ['dossiers', 'dossierCount', 'summary.dossiers'], null);
+  const events = get(battlefield, ['session.eventCount', 'events', 'eventCount', 'summary.events'], null);
+  const dossiers = get(battlefield, ['session.dossierCount', 'dossierCount', 'summary.dossiers'], null);
   const paperEntries = get(battlefield, [
     'preMigrationPaper.entries',
     'pre_migration_paper.entries',
@@ -243,6 +305,7 @@ function buildSummary(docs) {
     'summary.paperPnlSol'
   ], null);
   const aiEvidence = collectSimpleRuntimeEvidence();
+  const aiReachability = buildAiReachability(battlefield);
 
   lines.push('1. Run Summary');
   lines.push('--------------');
@@ -252,6 +315,11 @@ function buildSummary(docs) {
   lines.push(`- Pre-migration paper entries/exits: ${paperEntries ?? 'n/a'} / ${paperExits ?? 'n/a'}`);
   lines.push(`- Pre-migration paper PnL: ${paperPnl === null ? 'n/a' : sol(paperPnl)}`);
   lines.push(`- Simple Runtime AI evidence in logs: ${aiEvidence.length ? `found in ${aiEvidence.join(', ')}` : 'not found in run logs/outcome ledger'}`);
+  lines.push('- AI path reachability:');
+  lines.push(`  - runner/scalper signals generated/executed: ${aiReachability.generatedSignals} / ${aiReachability.executedSignals}`);
+  lines.push(`  - trade rejects before signal execution: ${aiReachability.rejectedTrades}`);
+  lines.push(`  - AI decision events / AI rejects / timeout fallbacks: ${aiReachability.aiDecisionEvents} / ${aiReachability.aiRejects} / ${aiReachability.aiTimeoutFallbacks}`);
+  lines.push(`  - interpretation: ${aiReachability.interpretation}`);
   lines.push('');
 
   const watchFlags = get(battlefield, [
@@ -265,7 +333,7 @@ function buildSummary(docs) {
     'watch.confirmed',
     'watchLane.confirmed'
   ], get(preOutcomes, ['confirmed', 'watchConfirmed'], null));
-  const outcomes = get(ledger, ['outcomes'], get(preOutcomes, ['outcomes'], {}));
+  const outcomeCounts = get(ledger, ['summary.outcomeCounts', 'outcomeCounts'], get(preOutcomes, ['summary.outcomeCounts', 'outcomeCounts', 'outcomes'], {}));
   const skipReasons = get(battlefield, [
     'preMigrationPaper.skipReasons',
     'pre_migration_paper.skipReasons',
@@ -283,7 +351,7 @@ function buildSummary(docs) {
   lines.push(`- Watch flags / unique candidates: ${watchFlags ?? 'n/a'}`);
   lines.push(`- Confirmed watch count: ${confirmedWatch ?? 'n/a'}`);
   lines.push('- Outcomes:');
-  objectLines(outcomes).forEach((line) => lines.push(`  - ${line}`));
+  objectLines(outcomeCounts).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Top skip reasons:');
   objectLines(skipReasons).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Top false negatives / missed runners:');
@@ -318,11 +386,22 @@ function buildSummary(docs) {
   }
   lines.push('');
 
-  const simTrades = get(paper, ['trades', 'simulatedTrades', 'summary.trades'], get(signal, ['trades'], null));
-  const simWins = get(paper, ['wins', 'summary.wins'], get(signal, ['wins'], null));
-  const simLosses = get(paper, ['losses', 'summary.losses'], get(signal, ['losses'], null));
-  const simWinRate = get(paper, ['winRate', 'summary.winRate'], get(signal, ['winRate'], null));
-  const simPnl = get(paper, ['pnlSol', 'pnl', 'summary.pnlSol'], get(signal, ['pnlSol', 'pnl'], null));
+  const paperSummary = paper.summary || {};
+  const simTrades = Object.prototype.hasOwnProperty.call(paperSummary, 'simulatedTrades')
+    ? paperSummary.simulatedTrades
+    : get(paper, ['trades', 'simulatedTrades', 'summary.trades'], get(signal, ['summary.trades', 'trades'], null));
+  const simWins = Object.prototype.hasOwnProperty.call(paperSummary, 'wins')
+    ? paperSummary.wins
+    : get(paper, ['wins'], get(signal, ['summary.wins', 'wins'], null));
+  const simLosses = Object.prototype.hasOwnProperty.call(paperSummary, 'losses')
+    ? paperSummary.losses
+    : get(paper, ['losses'], get(signal, ['summary.losses', 'losses'], null));
+  const simWinRate = Object.prototype.hasOwnProperty.call(paperSummary, 'winRate')
+    ? paperSummary.winRate
+    : get(paper, ['winRate'], get(signal, ['summary.winRate', 'winRate'], null));
+  const simPnl = Object.prototype.hasOwnProperty.call(paperSummary, 'totalPnlSol')
+    ? paperSummary.totalPnlSol
+    : get(paper, ['summary.pnlSol', 'pnlSol', 'pnl'], get(signal, ['summary.pnlSol', 'pnlSol', 'pnl'], null));
   const topTrades = topArray(get(paper, ['topTrades', 'tradesDetail', 'tradesList'], []), 5);
   const topWinners = topArray(get(signal, ['topWinners', 'winners'], []), 3);
   const topLosers = topArray(get(signal, ['topLosers', 'losers'], []), 3);
@@ -347,11 +426,11 @@ function buildSummary(docs) {
   }
   lines.push('');
 
-  const opened = get(continuation, ['openedThisRun', 'opened', 'summary.opened'], null);
-  const closed = get(continuation, ['closedThisRun', 'closed', 'summary.closed'], null);
-  const openPositions = get(continuation, ['openPositions', 'open', 'summary.openPositions'], null);
-  const openPnlSol = get(continuation, ['openPnlSol', 'openPnlSOL', 'openPnl.sol', 'summary.openPnlSol'], null);
-  const openPnlUsd = get(continuation, ['openPnlUsd', 'openPnlUSD', 'openPnl.usd', 'summary.openPnlUsd'], null);
+  const opened = get(continuation, ['summary.openedThisRun', 'openedThisRun', 'summary.opened'], null);
+  const closed = get(continuation, ['summary.closedThisRun', 'closedThisRun', 'summary.closed'], null);
+  const openPositions = get(continuation, ['summary.openPositions', 'openPositions', 'open'], null);
+  const openPnlSol = get(continuation, ['summary.openPnlSol', 'openPnlSol', 'openPnlSOL', 'openPnl.sol'], null);
+  const openPnlUsd = get(continuation, ['summary.openPnlUsd', 'openPnlUsd', 'openPnlUSD', 'openPnl.usd'], null);
   const continuationOpened = topArray(get(continuation, ['opened', 'openedPositions', 'positionsOpened'], []), 8);
   const continuationSkipped = topArray(get(continuation, ['skippedIneligible', 'skipped', 'ineligible'], []), 8);
 
@@ -372,27 +451,35 @@ function buildSummary(docs) {
   lines.push('');
 
   const regime = get(learning, ['regime', 'summary.regime'], null);
-  const posture = get(learning, ['recommendedPosture', 'posture', 'summary.recommendedPosture'], null);
+  const posture = get(learning, ['recommendations.recommendedPosture', 'recommendedPosture', 'posture', 'summary.recommendedPosture'], null);
   const laneScores = get(learning, ['laneScores'], null);
-  const laneRecs = get(learning, ['laneRecommendations', 'recommendations.lanes'], {});
+  const laneRecs = get(learning, ['recommendations.laneRecommendations', 'laneRecommendations', 'recommendations.lanes'], {});
   const lessons = topArray(get(learning, ['lessons'], []), 8);
   const proposals = topArray(get(learning, ['proposals', 'recommendations.proposals'], []), 8);
 
   lines.push('6. Learning Orchestrator');
   lines.push('------------------------');
-  lines.push(`- Regime: ${regime ?? 'n/a'}`);
-  lines.push(`- Recommended posture: ${posture ?? 'n/a'}`);
+  lines.push(`- Regime: ${compactValue(regime)}`);
+  lines.push(`- Recommended posture: ${compactValue(posture)}`);
   if (laneScores && typeof laneScores === 'object') {
     lines.push('- Lane scores:');
     objectLines(laneScores).forEach((line) => lines.push(`  - ${line}`));
   }
-  if (laneRecs && typeof laneRecs === 'object' && !Array.isArray(laneRecs)) {
+  if (Array.isArray(laneRecs) && laneRecs.length) {
     lines.push('- Lane recommendations:');
-    Object.entries(laneRecs).forEach(([lane, rec]) => lines.push(`  - ${lane}: ${typeof rec === 'object' ? JSON.stringify(rec) : rec}`));
+    laneRecs.forEach((rec) => {
+      const lane = rec.lane || 'unknown';
+      const recPosture = rec.posture || compactValue(rec);
+      const rationale = rec.rationale ? ` | ${rec.rationale}` : '';
+      lines.push(`  - ${lane}: ${recPosture}${rationale}`);
+    });
+  } else if (laneRecs && typeof laneRecs === 'object') {
+    lines.push('- Lane recommendations:');
+    Object.entries(laneRecs).forEach(([lane, rec]) => lines.push(`  - ${lane}: ${compactValue(rec)}`));
   }
   if (lessons.length) {
     lines.push('- Lessons:');
-    lessons.forEach((lesson) => lines.push(`  - ${typeof lesson === 'object' ? JSON.stringify(lesson) : lesson}`));
+    lessons.forEach((lesson) => lines.push(`  - ${summarizeLesson(lesson)}`));
   }
   if (proposals.length) {
     lines.push('- Proposals from learning report:');
@@ -405,7 +492,7 @@ function buildSummary(docs) {
   const hasFalseNegatives = falseNegatives.length > 0;
   const continuationOpenNegative = openPnlSol !== null && number(openPnlSol) < 0;
   const simNegative = simPnl !== null && number(simPnl) < 0;
-  const simpleRuntimeFired = aiEvidence.length > 0;
+  const simpleRuntimeFired = aiEvidence.length > 0 || aiReachability.aiDecisionEvents > 0;
 
   lines.push('7. Evidence-backed Recommendations');
   lines.push('-----------------------------------');
@@ -416,7 +503,7 @@ function buildSummary(docs) {
   lines.push('');
 
   lines.push('2. Track false negatives explicitly, especially high-score watch candidates that approach 85% migration.');
-  lines.push(`   Evidence: false-negative watchlist count=${falseNegatives.length}; outcome distribution includes ${JSON.stringify(outcomes || {})}.`);
+  lines.push(`   Evidence: false-negative watchlist count=${falseNegatives.length}; outcome distribution=${compactValue(outcomeCounts)}.`);
   lines.push('   Risk of changing now: low if report-only; high if converted directly into entries.');
   lines.push('   Status: implement as analysis/reporting discipline, not entry logic loosening.');
   lines.push('');
@@ -428,7 +515,7 @@ function buildSummary(docs) {
   lines.push('');
 
   lines.push('4. Validate Simple Runtime AI in real candidate flow, not only synthetic smoke.');
-  lines.push(`   Evidence: Simple Runtime AI evidence in latest run logs=${simpleRuntimeFired ? 'present' : 'absent'}; synthetic smoke may pass while real flow never reaches AI review.`);
+  lines.push(`   Evidence: Simple Runtime AI evidence in latest run logs=${simpleRuntimeFired ? 'present' : 'absent'}; ${aiReachability.interpretation}`);
   lines.push('   Risk of changing now: treating AI as validated for live decisions before enough real review samples.');
   lines.push('   Status: keep paper-only and monitor for real Simple runtime AI review lines.');
   lines.push('');
