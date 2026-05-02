@@ -3,6 +3,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { POST_RUN_REPORTS } = require('./post-run-report-plan');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const NODE = process.execPath;
@@ -385,29 +386,9 @@ async function generatePostRunReports(options) {
   }
 
   printSection('Post-Run Reports');
-  await runNode('Macro Posture Report', 'macro-posture-report.js', [], { allowFailure: true });
-  await runNode('Battlefield Report', 'run-battlefield-report.js', [], { allowFailure: true });
-  await runNode('Outcome Ledger Report', 'outcome-ledger-report.js', [], { allowFailure: true });
-  await runNode('Early Organic Interest Report', 'early-organic-interest-report.js', [], { allowFailure: true });
-  await runNode('Wallet Battlefield Report', 'wallet-battlefield-report.js', [], { allowFailure: true });
-  await runNode('Wallet Behavior Report', 'report-wallet-behavior.js', [], { allowFailure: true });
-  await runNode('Wallet First-Touch Report', 'wallet-first-touch-report.js', [], { allowFailure: true });
-  await runNode('Wallet Outcome Audit', 'wallet-outcome-audit.js', [], { allowFailure: true });
-  await runNode('Wallet Alpha Replay Report', 'wallet-alpha-replay-report.js', [], { allowFailure: true });
-  await runNode('Wallet Alpha Shadow Ledger', 'wallet-alpha-shadow-ledger.js', [], { allowFailure: true });
-  await runNode('Watch Lane Validation Report', 'watch-lane-validation-report.js', [], { allowFailure: true });
-  await runNode('Pre-Migration Outcome Report', 'pre-migration-outcome-report.js', [], { allowFailure: true });
-  await runNode('Pre-Migration Paper Simulation Report', 'pre-migration-paper-sim-report.js', [], { allowFailure: true });
-  await runNode('Pre-Migration Preset Replay Report', 'pre-migration-preset-replay-report.js', [], { allowFailure: true });
-  await runNode('Pre-Migration Signal Quality Report', 'pre-migration-signal-quality-report.js', [], { allowFailure: true });
-  await runNode('Broad Organic Surge Replay Report', 'broad-organic-surge-replay-report.js', [], { allowFailure: true });
-  await runNode('Continuation Specimen Report', 'continuation-specimen-report.js', [], { allowFailure: true });
-  await runNode('Internal Continuation Specimen Report', 'internal-continuation-specimen-report.js', [], { allowFailure: true });
-  await runNode('Continuation Paper Ledger', 'continuation-paper-ledger.js', [], { allowFailure: true });
-  await runNode('Battlefield Report With Continuation Paper', 'run-battlefield-report.js', [], { allowFailure: true });
-  await runNode('Stream Overlay Update', 'update-overlay-results.js', [], { allowFailure: true });
-  await runNode('Trade Learning Memory', 'trade-learning-memory.js', [], { allowFailure: true });
-  await runNode('Learning Orchestrator Report', 'learning-orchestrator-report.js', [], { allowFailure: true });
+  for (const report of POST_RUN_REPORTS) {
+    await runNode(report.title, report.script, [], { allowFailure: true });
+  }
 }
 
 process.on('SIGINT', () => {

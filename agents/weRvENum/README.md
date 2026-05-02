@@ -58,7 +58,7 @@ The growth loop here is:
 ## Quick Start
 
 ```bash
-cd F:\Cline Test\Spectre\solana-trading-bot\agents\weRvENum
+cd agents\weRvENum
 python -m venum_standalone.cli sample
 python -m venum_standalone.cli draft --topics config/example_topics.json --kind both --limit 6
 python -m venum_standalone.cli lint --text "headline loud at top\n\nwe rember who chase green"
@@ -131,7 +131,7 @@ Required values:
 ## New Commands
 
 ```bash
-cd F:\Cline Test\Spectre\solana-trading-bot\agents\weRvENum
+cd agents\weRvENum
 python -m venum_standalone.cli whoami
 python -m venum_standalone.cli x-budget-status
 python -m venum_standalone.cli query-names
@@ -275,7 +275,7 @@ runtime/token_social_research_reports/
 Venum can now produce a first-pass structured narrative brief for Spectre:
 
 ```bash
-cd F:\Cline Test\Spectre\solana-trading-bot\agents\weRvENum
+cd agents\weRvENum
 python -m venum_standalone.cli spectre-brief --topics config/example_topics.json
 python -m venum_standalone.cli spectre-brief-rick
 ```
@@ -290,7 +290,7 @@ runtime/spectre_narrative_brief_rick_latest.json
 `spectre-brief-rick` reads the bot's Rick sidecar snapshot from:
 
 ```bash
-F:\Cline Test\Spectre\solana-trading-bot\data\rick-context\latest.json
+..\..\data\rick-context\latest.json
 ```
 
 and converts real Rick market reports into the same structured posture brief format.

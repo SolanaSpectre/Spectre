@@ -1,15 +1,14 @@
-# Solana Memecoin Trading Bot
+# Spectre
 
-An AI-powered Solana memecoin trading bot with advanced risk management and automated trading capabilities.
+Paper-only Solana memecoin research and diagnostics bot. No live trade path is enabled by default; LIVE mode requires `--confirmLive true` and `LIVE_EXIT_ENGINE_ENABLED=true`.
 
 ## Features
 
-- 🤖 **AI-Powered Analysis**: Uses a local Ollama model to analyze market conditions and provide trading recommendations
-- 📊 **Real-time Market Data**: Fetches data from Raydium and Jupiter for optimal trading decisions
-- 🛡️ **Risk Management**: Built-in stop-loss, take-profit, and position sizing controls
-- 🔄 **Automated Trading**: Continuous market monitoring and automatic trade execution
-- 📈 **Portfolio Tracking**: Real-time PnL tracking and position management
-- ⚡ **Fast Execution**: Optimized for quick trade execution on the Solana network
+- **Paper-run lifecycle**: Runs a bounded PAPER session, then produces reports for post-run review.
+- **AI-assisted diagnostics**: Uses an Ollama runtime model for guarded review while keeping timeout fallback paper-gated.
+- **Pre-migration research**: Watches Pump.fun-style first-curve behavior and records false-negative evidence.
+- **Outcome reporting**: Builds outcome-ledger, NO_PRIOR recovery, wallet, continuation, and learning reports.
+- **Safety posture**: Keeps live execution behind explicit mode and confirmation gates.
 
 ## Agent Layout
 
@@ -36,7 +35,7 @@ This separation is intentional:
 1. Clone the repository:
 ```bash
 git clone <repository-url>
-cd solana-trading-bot
+cd Spectre
 ```
 
 2. Install dependencies:
@@ -50,9 +49,9 @@ cp .env.example .env
 # Edit .env with your configuration
 ```
 
-4. Start the bot:
+4. Run the paper lifecycle:
 ```bash
-npm start
+npm start -- PAPER 30
 ```
 
 The default start command now runs the full paper-run lifecycle: it refreshes Telegram/Rick context, launches the trading bot in the foreground, then generates the post-run report bundle after the session exits. Pass the usual bot arguments after `--`, for example:
@@ -61,19 +60,19 @@ The default start command now runs the full paper-run lifecycle: it refreshes Te
 npm start -- PAPER 30
 ```
 
-Use `npm run start:core -- PAPER 30` only when you intentionally want the raw bot without automatic context refresh or reports.
+Use `npm run start:core -- PAPER 30` only when you intentionally want the raw bot without automatic context refresh, post-run reports, or lifecycle-injected Simple Runtime AI.
 
 ## Configuration
 
 Edit the `.env` file with your settings:
 
 ### Required Variables
-- `HOT_WALLET_PRIVATE_KEY`: Your Solana hot wallet private key (Base58 encoded)
+- `HOT_WALLET_PRIVATE_KEY`: Solana hot wallet private key (Base58 encoded). For PAPER-only research, use a non-funded burner key if this validation is still enabled.
 - `COLD_WALLET_ADDRESS`: Your Solana cold wallet address
 
 ### AI Configuration
 - `AI_MODEL`: Set to `ollama`
-- `OLLAMA_HOST`: Ollama server URL (default: `http://localhost:11434`)
+- `OLLAMA_HOST`: Ollama server URL (current AWS tunnel default: `http://127.0.0.1:11435`)
 - `OLLAMA_MODEL`: Ollama model name (default: `llama3.2:3b`)
 
 ### Trading Configuration
@@ -228,17 +227,17 @@ What this does:
 
 Primary morning artifacts to inspect:
 
-- [wallet-intel latest](F:/Cline%20Test/Spectre/solana-trading-bot/data/wallet-intel/latest.json)
-- [convergence latest](F:/Cline%20Test/Spectre/solana-trading-bot/data/convergence/latest.json)
-- [false-negative watchlist](F:/Cline%20Test/Spectre/solana-trading-bot/data/watchlists/false-negative-watchlist-latest.json)
-- [battlefield report latest](F:/Cline%20Test/Spectre/solana-trading-bot/data/reports/run-battlefield-latest.json)
-- [macro posture latest](F:/Cline%20Test/Spectre/solana-trading-bot/data/reports/macro-posture-latest.json)
-- [early organic interest latest](F:/Cline%20Test/Spectre/solana-trading-bot/data/reports/early-organic-interest-latest.json)
-- [early organic interest watchlist](F:/Cline%20Test/Spectre/solana-trading-bot/data/watchlists/early-organic-interest-watchlist-latest.json)
-- [wallet first-touch latest](F:/Cline%20Test/Spectre/solana-trading-bot/data/reports/wallet-first-touch-latest.json)
-- [wallet first-touch watchlist](F:/Cline%20Test/Spectre/solana-trading-bot/data/watchlists/wallet-first-touch-watchlist-latest.json)
-- [Venum token social queue](F:/Cline%20Test/Spectre/solana-trading-bot/agents/weRvENum/runtime/token_social_research_queue.json)
-- latest file in [run-logs](F:/Cline%20Test/Spectre/solana-trading-bot/run-logs)
+- [wallet-intel latest](data/wallet-intel/latest.json)
+- [convergence latest](data/convergence/latest.json)
+- [false-negative watchlist](data/watchlists/false-negative-watchlist-latest.json)
+- [battlefield report latest](data/reports/run-battlefield-latest.json)
+- [macro posture latest](data/reports/macro-posture-latest.json)
+- [early organic interest latest](data/reports/early-organic-interest-latest.json)
+- [early organic interest watchlist](data/watchlists/early-organic-interest-watchlist-latest.json)
+- [wallet first-touch latest](data/reports/wallet-first-touch-latest.json)
+- [wallet first-touch watchlist](data/watchlists/wallet-first-touch-watchlist-latest.json)
+- [Venum token social queue](agents/weRvENum/runtime/token_social_research_queue.json)
+- latest file in [run-logs](run-logs)
 
 ### Automated Run Lifecycle
 
@@ -324,12 +323,12 @@ Current interpretation:
 
 The current runner baseline has two consecutive profitable validation sessions:
 
-1. [strategy-ledger-2026-04-11T19-37-39-356Z.jsonl](F:/Cline%20Test/Spectre/solana-trading-bot/run-logs/strategy-ledger-2026-04-11T19-37-39-356Z.jsonl)
-   [telemetry-2026-04-11T19-37-39-356Z.jsonl](F:/Cline%20Test/Spectre/solana-trading-bot/run-logs/telemetry-2026-04-11T19-37-39-356Z.jsonl)
+1. [strategy-ledger-2026-04-11T19-37-39-356Z.jsonl](run-logs/strategy-ledger-2026-04-11T19-37-39-356Z.jsonl)
+   [telemetry-2026-04-11T19-37-39-356Z.jsonl](run-logs/telemetry-2026-04-11T19-37-39-356Z.jsonl)
    Result: `2` trades, `2` wins, `+0.1030 SOL`
 
-2. [strategy-ledger-2026-04-11T20-10-14-664Z.jsonl](F:/Cline%20Test/Spectre/solana-trading-bot/run-logs/strategy-ledger-2026-04-11T20-10-14-664Z.jsonl)
-   [telemetry-2026-04-11T20-10-14-664Z.jsonl](F:/Cline%20Test/Spectre/solana-trading-bot/run-logs/telemetry-2026-04-11T20-10-14-664Z.jsonl)
+2. [strategy-ledger-2026-04-11T20-10-14-664Z.jsonl](run-logs/strategy-ledger-2026-04-11T20-10-14-664Z.jsonl)
+   [telemetry-2026-04-11T20-10-14-664Z.jsonl](run-logs/telemetry-2026-04-11T20-10-14-664Z.jsonl)
    Result: `2` trades, `2` wins, `+0.1356 SOL`
 
 Why these matter:
@@ -367,7 +366,7 @@ Planned order:
 
 Implementation notes live in:
 
-- [Rick integration roadmap](F:/Cline%20Test/Spectre/solana-trading-bot/knowledge/rick-integration-roadmap.md)
+- [Rick integration roadmap](knowledge/rick-integration-roadmap.md)
 
 ### Starting the Bot
 

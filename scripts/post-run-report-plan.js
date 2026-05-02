@@ -1,0 +1,29 @@
+const POST_RUN_REPORTS = [
+  { title: 'Macro Posture Report', script: 'macro-posture-report.js' },
+  { title: 'Battlefield Report', script: 'run-battlefield-report.js' },
+  { title: 'Outcome Ledger Report', script: 'outcome-ledger-report.js' },
+  { title: 'Early Organic Interest Report', script: 'early-organic-interest-report.js' },
+  { title: 'Wallet Battlefield Report', script: 'wallet-battlefield-report.js' },
+  { title: 'Wallet Behavior Report', script: 'report-wallet-behavior.js' },
+  { title: 'Wallet First-Touch Report', script: 'wallet-first-touch-report.js' },
+  { title: 'Wallet Outcome Audit', script: 'wallet-outcome-audit.js' },
+  { title: 'Wallet Alpha Replay Report', script: 'wallet-alpha-replay-report.js' },
+  { title: 'Wallet Alpha Shadow Ledger', script: 'wallet-alpha-shadow-ledger.js' },
+  { title: 'Watch Lane Validation Report', script: 'watch-lane-validation-report.js' },
+  { title: 'Pre-Migration Outcome Report', script: 'pre-migration-outcome-report.js' },
+  { title: 'Pre-Migration Paper Simulation Report', script: 'pre-migration-paper-sim-report.js' },
+  { title: 'Pre-Migration Preset Replay Report', script: 'pre-migration-preset-replay-report.js' },
+  { title: 'Pre-Migration Signal Quality Report', script: 'pre-migration-signal-quality-report.js' },
+  { title: 'Broad Organic Surge Replay Report', script: 'broad-organic-surge-replay-report.js' },
+  { title: 'Continuation Specimen Report', script: 'continuation-specimen-report.js' },
+  { title: 'Internal Continuation Specimen Report', script: 'internal-continuation-specimen-report.js' },
+  { title: 'Continuation Paper Ledger', script: 'continuation-paper-ledger.js' },
+  { title: 'Battlefield Report With Continuation Paper', script: 'run-battlefield-report.js' },
+  { title: 'Trade Learning Memory', script: 'trade-learning-memory.js' },
+  { title: 'Live Exit Simulation Report', script: 'live-exit-sim-report.js' },
+  { title: 'Learning Orchestrator Report', script: 'learning-orchestrator-report.js' },
+  { title: 'NO_PRIOR Recovery Diagnostic', script: 'no-prior-curve-recovery-report.js' },
+  { title: 'Latest Run Summary', script: 'latest-run-summary.js' }
+];
+
+module.exports = { POST_RUN_REPORTS };
