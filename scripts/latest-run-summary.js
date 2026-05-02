@@ -13,6 +13,7 @@ const FILES = {
   signalQuality: 'data/reports/pre-migration-signal-quality-latest.json',
   learning: 'data/reports/learning-orchestrator-latest.json',
   continuationPaper: 'data/reports/continuation-paper-latest.json',
+  continuationExitReplay: 'data/reports/continuation-exit-replay-latest.json',
   noPriorRecovery: 'data/reports/no-prior-curve-recovery-latest.json',
   noPriorReplay: 'data/reports/no-prior-replay-latest.json',
   noPriorFollowThrough: 'data/reports/no-prior-follow-through-latest.json',
@@ -230,6 +231,10 @@ function summarizeWalletFirstTouchOutcome(item = {}) {
   return `${label} | outcome=${outcome} | score=${fmt(item.firstTouchScore)} | wallets=${item.uniqueWalletCount ?? 'n/a'} | sol=${fmt(item.totalFirstTouchSol, 4)} | curve=${curve === null || curve === undefined ? 'n/a' : fmt(curve, 4)}${priority === null || priority === undefined ? '' : ` | fnPriority=${fmt(priority)}`}`;
 }
 
+function summarizeContinuationExitScenario(name, summary = {}) {
+  return `${name}: pnl=${summary.totalPnlSol === null || summary.totalPnlSol === undefined ? 'n/a' : sol(summary.totalPnlSol, 6)} (${summary.totalPnlUsd === null || summary.totalPnlUsd === undefined ? 'n/a' : money(summary.totalPnlUsd, 2)}), exits=${compactValue(summary.exitReasons)}, winRate=${summary.winRate === null || summary.winRate === undefined ? 'n/a' : pct(summary.winRate)}`;
+}
+
 function summarizeLesson(lesson = {}) {
   if (!lesson || typeof lesson !== 'object') return String(lesson || '');
   const parts = [];
@@ -312,6 +317,7 @@ function buildSummary(docs) {
   const signal = docs.signalQuality.data || {};
   const learning = docs.learning.data || {};
   const continuation = docs.continuationPaper.data || {};
+  const continuationExitReplay = docs.continuationExitReplay.data || {};
   const noPriorRecovery = docs.noPriorRecovery.data || {};
   const noPriorReplay = docs.noPriorReplay.data || {};
   const noPriorFollowThrough = docs.noPriorFollowThrough.data || {};
@@ -641,6 +647,31 @@ function buildSummary(docs) {
   }
   lines.push('');
 
+  const exitReplaySummary = continuationExitReplay.summary || {};
+  const scenarioSummaries = exitReplaySummary.scenarioSummaries || {};
+  const currentScenario = scenarioSummaries.current_config_replay || {};
+  const noSlipScenario = scenarioSummaries.no_slippage_reference || {};
+  const oneHourScenario = scenarioSummaries.max_hold_1h || {};
+  const twoHourScenario = scenarioSummaries.max_hold_2h || {};
+
+  lines.push('12. Continuation Exit Replay');
+  lines.push('----------------------------');
+  lines.push('- Mode: report-only; replays continuation paper exits from observed state timeline samples and does not affect entries or exits.');
+  lines.push(`- Actual positions closed/open: ${exitReplaySummary.actualClosed ?? 'n/a'} / ${exitReplaySummary.actualOpen ?? 'n/a'}`);
+  lines.push(`- Actual marked PnL: ${exitReplaySummary.actualPnlSol === null || exitReplaySummary.actualPnlSol === undefined ? 'n/a' : sol(exitReplaySummary.actualPnlSol, 6)}${exitReplaySummary.actualPnlUsd === null || exitReplaySummary.actualPnlUsd === undefined ? '' : ` (${money(exitReplaySummary.actualPnlUsd, 2)})`}`);
+  lines.push(`- Actual exit reasons: ${compactValue(exitReplaySummary.actualExitReasons)}`);
+  lines.push(`- Stale exit risk count (>24h held): ${exitReplaySummary.staleExitRiskCount ?? 'n/a'}`);
+  lines.push(`- Slippage tax likely dominant: ${exitReplaySummary.slippageTaxLikelyDominant === undefined ? 'n/a' : exitReplaySummary.slippageTaxLikelyDominant}`);
+  lines.push('- Scenario checks:');
+  [
+    ['current_config_replay', currentScenario],
+    ['max_hold_1h', oneHourScenario],
+    ['max_hold_2h', twoHourScenario],
+    ['no_slippage_reference', noSlipScenario]
+  ].forEach(([name, summary]) => lines.push(`  - ${summarizeContinuationExitScenario(name, summary)}`));
+  lines.push(`- Best scenario by total PnL: ${exitReplaySummary.bestScenarioByTotalPnlUsd || 'n/a'}`);
+  lines.push('');
+
   const regime = get(learning, ['regime', 'summary.regime'], null);
   const posture = get(learning, ['recommendations.recommendedPosture', 'recommendedPosture', 'posture', 'summary.recommendedPosture'], null);
   const laneScores = get(learning, ['laneScores'], null);
@@ -648,7 +679,7 @@ function buildSummary(docs) {
   const lessons = topArray(get(learning, ['lessons'], []), 8);
   const proposals = topArray(get(learning, ['proposals', 'recommendations.proposals'], []), 8);
 
-  lines.push('12. Learning Orchestrator');
+  lines.push('13. Learning Orchestrator');
   lines.push('------------------------');
   lines.push(`- Regime: ${compactValue(regime)}`);
   lines.push(`- Recommended posture: ${compactValue(posture)}`);
@@ -685,7 +716,7 @@ function buildSummary(docs) {
   const simNegative = simPnl !== null && number(simPnl) < 0;
   const simpleRuntimeFired = aiEvidence.length > 0 || aiReachability.aiDecisionEvents > 0;
 
-  lines.push('13. Evidence-backed Recommendations');
+  lines.push('14. Evidence-backed Recommendations');
   lines.push('------------------------------------');
   lines.push('1. Keep pre-migration thresholds unchanged for the next validation run.');
   lines.push(`   Evidence: false negatives=${falseNegatives.length}; NO_PRIOR_CURVE_PROGRESS=${noPriorCount ?? 'n/a'}; CURVE_NOT_ADVANCING=${curveNotAdvancingCount ?? 'n/a'}; sim PnL=${simPnl === null ? 'n/a' : sol(simPnl, 6)}.`);

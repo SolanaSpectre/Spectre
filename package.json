@@ -26,6 +26,7 @@
     "report:continuation-specimens": "node scripts/continuation-specimen-report.js",
     "report:internal-continuation-specimens": "node scripts/internal-continuation-specimen-report.js",
     "report:continuation-paper": "node scripts/continuation-paper-ledger.js",
+    "report:continuation-exit-replay": "node scripts/continuation-exit-replay-report.js",
     "report:macro-posture": "node scripts/macro-posture-report.js",
     "report:learning": "node scripts/learning-orchestrator-report.js",
     "report:trade-learning-memory": "node scripts/trade-learning-memory.js",
