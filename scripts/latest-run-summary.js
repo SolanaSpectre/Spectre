@@ -15,6 +15,7 @@ const FILES = {
   continuationPaper: 'data/reports/continuation-paper-latest.json',
   noPriorRecovery: 'data/reports/no-prior-curve-recovery-latest.json',
   noPriorReplay: 'data/reports/no-prior-replay-latest.json',
+  noPriorFollowThrough: 'data/reports/no-prior-follow-through-latest.json',
   runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json'
 };
 
@@ -184,6 +185,11 @@ function summarizeNoPriorReplay(item = {}) {
   return `${label} | diagnosis=${item.diagnosis || 'n/a'} | decisions=${item.noPriorDecisionCount ?? 'n/a'} | firstCurve=${fmt(item.firstNoPriorCurveProgress, 4)} | neededBaseline<=${fmt(needed.maxBaselineCurveProgressForMinDelta, 4)}`;
 }
 
+function summarizeNoPriorFollowThrough(item = {}) {
+  const label = candidateLabel(item);
+  return `${label} | decisions=${item.noPriorDecisionCount ?? 'n/a'} | firstCurve=${fmt(item.firstNoPriorCurveProgress, 4)} | bestDelta120s=${fmt(item.bestCurveDelta120s, 4)} | max120s=${fmt(item.maxCurveProgressWithin120s, 4)} | classes=${compactValue(item.followThroughClasses)}`;
+}
+
 function summarizeRunnerReject(item = {}) {
   const label = item.symbol || item.mint || 'UNKNOWN';
   const details = [
@@ -293,6 +299,7 @@ function buildSummary(docs) {
   const continuation = docs.continuationPaper.data || {};
   const noPriorRecovery = docs.noPriorRecovery.data || {};
   const noPriorReplay = docs.noPriorReplay.data || {};
+  const noPriorFollowThrough = docs.noPriorFollowThrough.data || {};
   const runnerRaydiumShadow = docs.runnerRaydiumShadow.data || {};
   const lines = [];
 
@@ -481,6 +488,24 @@ function buildSummary(docs) {
   }
   lines.push('');
 
+  const followThroughSummary = noPriorFollowThrough.summary || {};
+  const followThroughCandidates = topArray(noPriorFollowThrough.candidates, 5);
+
+  lines.push('7. NO_PRIOR Follow-through Diagnostic');
+  lines.push('-------------------------------------');
+  lines.push('- Mode: report-only; measures 30/60/120s behavior after NO_PRIOR skips and does not affect entries.');
+  lines.push(`- NO_PRIOR decisions / unique mints: ${followThroughSummary.noPriorDecisionCount ?? 'n/a'} / ${followThroughSummary.uniqueMints ?? 'n/a'}`);
+  lines.push(`- Mints crossing 85/95/100 after skip within 120s: ${followThroughSummary.mintsCrossed85Within120s ?? 'n/a'} / ${followThroughSummary.mintsCrossed95Within120s ?? 'n/a'} / ${followThroughSummary.mintsCrossed100Within120s ?? 'n/a'}`);
+  lines.push('- Follow-through classes:');
+  objectLines(followThroughSummary.followThroughClassCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Top follow-through candidates:');
+  if (followThroughCandidates.length) {
+    followThroughCandidates.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeNoPriorFollowThrough(item)}`));
+  } else {
+    lines.push('  - none');
+  }
+  lines.push('');
+
   const paperSummary = paper.summary || {};
   const simTrades = Object.prototype.hasOwnProperty.call(paperSummary, 'simulatedTrades')
     ? paperSummary.simulatedTrades
@@ -501,7 +526,7 @@ function buildSummary(docs) {
   const topWinners = topArray(get(signal, ['topWinners', 'winners'], []), 3);
   const topLosers = topArray(get(signal, ['topLosers', 'losers'], []), 3);
 
-  lines.push('7. Paper Sim Findings');
+  lines.push('8. Paper Sim Findings');
   lines.push('---------------------');
   lines.push(`- Simulated trades: ${simTrades ?? 'n/a'}`);
   lines.push(`- Wins/losses: ${simWins ?? 'n/a'} / ${simLosses ?? 'n/a'}`);
@@ -529,7 +554,7 @@ function buildSummary(docs) {
   const continuationOpened = topArray(get(continuation, ['opened', 'openedPositions', 'positionsOpened'], []), 8);
   const continuationSkipped = topArray(get(continuation, ['skippedIneligible', 'skipped', 'ineligible'], []), 8);
 
-  lines.push('8. Continuation Findings');
+  lines.push('9. Continuation Findings');
   lines.push('------------------------');
   lines.push(`- Opened this run: ${opened ?? 'n/a'}`);
   lines.push(`- Closed this run: ${closed ?? 'n/a'}`);
@@ -552,7 +577,7 @@ function buildSummary(docs) {
   const lessons = topArray(get(learning, ['lessons'], []), 8);
   const proposals = topArray(get(learning, ['proposals', 'recommendations.proposals'], []), 8);
 
-  lines.push('9. Learning Orchestrator');
+  lines.push('10. Learning Orchestrator');
   lines.push('------------------------');
   lines.push(`- Regime: ${compactValue(regime)}`);
   lines.push(`- Recommended posture: ${compactValue(posture)}`);
@@ -589,7 +614,7 @@ function buildSummary(docs) {
   const simNegative = simPnl !== null && number(simPnl) < 0;
   const simpleRuntimeFired = aiEvidence.length > 0 || aiReachability.aiDecisionEvents > 0;
 
-  lines.push('10. Evidence-backed Recommendations');
+  lines.push('11. Evidence-backed Recommendations');
   lines.push('------------------------------------');
   lines.push('1. Keep pre-migration thresholds unchanged for the next validation run.');
   lines.push(`   Evidence: false negatives=${falseNegatives.length}; NO_PRIOR_CURVE_PROGRESS=${noPriorCount ?? 'n/a'}; CURVE_NOT_ADVANCING=${curveNotAdvancingCount ?? 'n/a'}; sim PnL=${simPnl === null ? 'n/a' : sol(simPnl, 6)}.`);
