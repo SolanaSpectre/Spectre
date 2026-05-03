@@ -410,6 +410,7 @@ function buildSummary(docs) {
 
   const shadowSummary = runnerRaydiumShadow.summary || {};
   const shadowTop = topArray(runnerRaydiumShadow.topByRank, 5);
+  const shadowFreshPools = topArray(runnerRaydiumShadow.freshPools, 5);
   lines.push('3. Runner Raydium Shadow');
   lines.push('------------------------');
   lines.push('- Mode: report-only; blocked candidates did not generate signals, quotes, AI reviews, or entries.');
@@ -421,6 +422,12 @@ function buildSummary(docs) {
   objectLines(shadowSummary.ageBuckets, 6).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Source counts:');
   objectLines(shadowSummary.sourceCounts, 6).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Fresh pool rows:');
+  if (shadowFreshPools.length) {
+    shadowFreshPools.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRaydiumShadow(item)}`));
+  } else {
+    lines.push('  - none observed');
+  }
   lines.push('- Top blocked Raydium shadow rows:');
   if (shadowTop.length) {
     shadowTop.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRaydiumShadow(item)}`));
