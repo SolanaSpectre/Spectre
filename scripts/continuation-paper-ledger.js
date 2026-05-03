@@ -27,6 +27,11 @@ const DEFAULT_CONFIG = {
   legacyMaxHoldHours: 24,
   legacyBreakevenActivationPct: 0.2,
   legacyBreakevenStopPct: 0.025,
+  stagedExitEnabled: process.env.CONTINUATION_PAPER_STAGED_EXIT_ENABLED === 'true',
+  stagedExitFirstFraction: Number(process.env.CONTINUATION_PAPER_STAGED_EXIT_FIRST_FRACTION || 0.5),
+  stagedExitFirstAfterMinutes: Number(process.env.CONTINUATION_PAPER_STAGED_EXIT_FIRST_AFTER_MINUTES || 3),
+  stagedExitSecondFraction: Number(process.env.CONTINUATION_PAPER_STAGED_EXIT_SECOND_FRACTION || 0.4),
+  stagedExitSecondAfterMinutes: Number(process.env.CONTINUATION_PAPER_STAGED_EXIT_SECOND_AFTER_MINUTES || 10),
   chopFadeScalperEnabled: process.env.CONTINUATION_CHOP_FADE_SCALPER_ENABLED !== 'false',
   chopFadeRequiresLearningRegime: process.env.CONTINUATION_CHOP_FADE_REQUIRES_LEARNING_REGIME !== 'false',
   chopFadeNominalUsd: Number(process.env.CONTINUATION_CHOP_FADE_NOMINAL_USD || 50),
@@ -141,13 +146,18 @@ function configFromArgs(args) {
     chopFadeStopLoss: 'chopFadeStopLossPct',
     chopFadeTrailingStop: 'chopFadeTrailingStopPct',
     chopFadeMaxHoldHours: 'chopFadeMaxHoldHours',
+    stagedExitEnabled: 'stagedExitEnabled',
+    stagedExitFirstFraction: 'stagedExitFirstFraction',
+    stagedExitFirstAfterMinutes: 'stagedExitFirstAfterMinutes',
+    stagedExitSecondFraction: 'stagedExitSecondFraction',
+    stagedExitSecondAfterMinutes: 'stagedExitSecondAfterMinutes',
     allowReopen: 'allowReopen',
     respectLearningPosture: 'respectLearningPosture'
   };
 
   for (const [argKey, configKey] of Object.entries(mapping)) {
     if (args[argKey] === undefined) continue;
-    if (configKey === 'allowReopen' || configKey === 'respectLearningPosture' || configKey === 'chopFadeScalperEnabled' || configKey === 'chopFadeRequiresLearningRegime') {
+    if (configKey === 'allowReopen' || configKey === 'respectLearningPosture' || configKey === 'chopFadeScalperEnabled' || configKey === 'chopFadeRequiresLearningRegime' || configKey === 'stagedExitEnabled') {
       config[configKey] = toBool(args[argKey], true);
       continue;
     }
@@ -261,27 +271,56 @@ function positionConfig(specimen, config, profileName = null) {
     breakevenStopPct: Number(legacy ? config.legacyBreakevenStopPct : config.breakevenStopPct),
     entrySlippagePct: Number(specimen.shadowPaper?.entrySlippagePct ?? config.entrySlippagePct),
     exitSlippagePct: Number(specimen.shadowPaper?.exitSlippagePct ?? config.exitSlippagePct),
-    nominalUsd: Number(config.nominalUsd)
+    nominalUsd: Number(config.nominalUsd),
+    stagedExitEnabled: Boolean(config.stagedExitEnabled),
+    stagedExitStages: buildStagedExitStages(config)
   };
 }
 
-function applySolPnl(position, solUsdPrice = null) {
+function buildStagedExitStages(config) {
+  const stages = [
+    {
+      id: 'stage_1',
+      fraction: Number(config.stagedExitFirstFraction),
+      afterMinutes: Number(config.stagedExitFirstAfterMinutes),
+      reason: 'STAGED_EXIT_50_AT_3M'
+    },
+    {
+      id: 'stage_2',
+      fraction: Number(config.stagedExitSecondFraction),
+      afterMinutes: Number(config.stagedExitSecondAfterMinutes),
+      reason: 'STAGED_EXIT_40_AT_10M'
+    }
+  ];
+
+  return stages
+    .filter((stage) => Number.isFinite(stage.fraction) && stage.fraction > 0 && Number.isFinite(stage.afterMinutes) && stage.afterMinutes >= 0)
+    .map((stage) => ({
+      ...stage,
+      fraction: Math.max(0, Math.min(1, stage.fraction))
+    }));
+}
+
+function applyPositionPnl(position, returnPct, solUsdPrice = null) {
+  const nominalUsd = finiteNumber(position.nominalUsd, 0);
+  const openFraction = finiteNumber(position.openFraction, 1);
+  const realizedPnlUsd = finiteNumber(position.realizedPnlUsd, 0);
+  const openPnlUsd = nominalUsd * openFraction * finiteNumber(returnPct, 0);
+  position.pnlUsd = compact(realizedPnlUsd + openPnlUsd, 6);
+
   const resolvedSolUsd = finiteNumber(solUsdPrice)
-    ?? finiteNumber(position.entrySolUsd)
-    ?? finiteNumber(position.currentSolUsd);
-  if (!Number.isFinite(resolvedSolUsd) || resolvedSolUsd <= 0) {
-    return position;
+    ?? finiteNumber(position.currentSolUsd)
+    ?? finiteNumber(position.entrySolUsd);
+  if (Number.isFinite(resolvedSolUsd) && resolvedSolUsd > 0) {
+    const entrySolUsd = finiteNumber(position.entrySolUsd, resolvedSolUsd);
+    const nominalSol = entrySolUsd > 0 ? nominalUsd / entrySolUsd : null;
+    const realizedPnlSol = finiteNumber(position.realizedPnlSol, 0);
+    position.entrySolUsd = compact(entrySolUsd, 6);
+    position.currentSolUsd = compact(resolvedSolUsd, 6);
+    position.nominalSol = compact(nominalSol, 9);
+    position.pnlSol = compact(realizedPnlSol + (Number(nominalSol || 0) * openFraction * finiteNumber(returnPct, 0)), 9);
   }
 
-  const nominalUsd = finiteNumber(position.nominalUsd, 0);
-  const returnPct = finiteNumber(position.returnPct, 0);
-  const entrySolUsd = finiteNumber(position.entrySolUsd, resolvedSolUsd);
-  const nominalSol = entrySolUsd > 0 ? nominalUsd / entrySolUsd : null;
-
-  position.entrySolUsd = compact(entrySolUsd, 6);
-  position.currentSolUsd = compact(resolvedSolUsd, 6);
-  position.nominalSol = compact(nominalSol, 9);
-  position.pnlSol = compact(Number(nominalSol || 0) * returnPct, 9);
   return position;
 }
 
@@ -325,6 +364,10 @@ function openPosition(specimen, config, nowIso, profileName = null, entryMeta = 
     returnPct: compact(openingReturnPct, 6),
     pnlUsd: compact(openingPnlUsd, 6),
     pnlSol: null,
+    realizedPnlUsd: 0,
+    realizedPnlSol: 0,
+    openFraction: 1,
+    stagedExits: [],
     exitReason: null,
     updates: 0,
     lastUpdatedAt: nowIso,
@@ -351,9 +394,65 @@ function openPosition(specimen, config, nowIso, profileName = null, entryMeta = 
       entryMode: profileName === 'chop_fade_scalper' ? 'CHOP_FADE_SCALPER' : 'CONTINUATION_PAPER'
     }]
   };
-  applySolPnl(position, solUsdPrice);
+  applyPositionPnl(position, openingReturnPct, solUsdPrice);
   position.timeline[0].pnlSol = position.pnlSol;
   return position;
+}
+
+function executeDueStagedExits(position, nowIso, returnPct, sample, solUsdPrice = null) {
+  const cfg = position.config || {};
+  if (!cfg.stagedExitEnabled) return;
+
+  const stages = Array.isArray(cfg.stagedExitStages) ? cfg.stagedExitStages : [];
+  if (!stages.length) return;
+
+  const completed = new Set((position.stagedExits || []).map((exit) => exit.id));
+  const holdMinutes = hoursBetween(position.openedAt, nowIso) * 60;
+  if (!Number.isFinite(holdMinutes)) return;
+
+  for (const stage of stages) {
+    if (completed.has(stage.id)) continue;
+    if (holdMinutes < Number(stage.afterMinutes || 0)) continue;
+
+    const openFraction = finiteNumber(position.openFraction, 1);
+    if (openFraction <= 0) return;
+    const fraction = Math.min(openFraction, Math.max(0, Math.min(1, Number(stage.fraction || 0))));
+    if (fraction <= 0) continue;
+
+    const nominalUsd = finiteNumber(position.nominalUsd, 0);
+    const legPnlUsd = nominalUsd * fraction * finiteNumber(returnPct, 0);
+    const nominalSol = finiteNumber(position.nominalSol, null);
+    const legPnlSol = Number.isFinite(nominalSol)
+      ? nominalSol * fraction * finiteNumber(returnPct, 0)
+      : null;
+
+    position.realizedPnlUsd = compact(finiteNumber(position.realizedPnlUsd, 0) + legPnlUsd, 6);
+    if (legPnlSol !== null) {
+      position.realizedPnlSol = compact(finiteNumber(position.realizedPnlSol, 0) + legPnlSol, 9);
+    }
+    position.openFraction = compact(Math.max(0, openFraction - fraction), 6);
+
+    const exit = {
+      id: stage.id,
+      timestamp: nowIso,
+      reason: stage.reason || `STAGED_EXIT_${Number(stage.afterMinutes || 0)}M`,
+      fraction: compact(fraction, 4),
+      remainingFraction: position.openFraction,
+      priceUsd: compact(sample.priceUsd, 12),
+      returnPct: compact(returnPct, 6),
+      pnlUsd: compact(legPnlUsd, 6),
+      pnlSol: legPnlSol === null ? null : compact(legPnlSol, 9),
+      solUsd: compact(solUsdPrice, 6)
+    };
+
+    position.stagedExits = Array.isArray(position.stagedExits) ? position.stagedExits : [];
+    position.stagedExits.push(exit);
+    position.timeline.push({
+      timestamp: nowIso,
+      event: 'STAGED_EXIT',
+      ...exit
+    });
+  }
 }
 
 function updatePosition(position, market, nowIso, solUsdPrice = null) {
@@ -388,8 +487,6 @@ function updatePosition(position, market, nowIso, solUsdPrice = null) {
   position.maxPriceUsd = compact(maxPriceUsd, 12);
   position.minPriceUsd = compact(minPriceUsd, 12);
   position.returnPct = compact(returnPct, 6);
-  position.pnlUsd = compact(Number(position.nominalUsd || 0) * returnPct, 6);
-  applySolPnl(position, solUsdPrice);
   position.maxUnrealizedReturnPct = compact(nextMaxUnrealizedReturnPct, 6);
   position.maxDrawdownPct = compact(entryPriceUsd > 0 ? (minPriceUsd - entryPriceUsd) / entryPriceUsd : 0, 6);
   position.breakevenActivated = Boolean(position.breakevenActivated || breakevenActive);
@@ -410,7 +507,6 @@ function updatePosition(position, market, nowIso, solUsdPrice = null) {
     priceChange1hPct: market.priceChange1hPct ?? null
   };
   position.timeline.push(sample);
-  position.timeline = position.timeline.slice(-100);
 
   let exitReason = null;
   if (returnPct >= Number(cfg.takeProfitPct || 0)) {
@@ -425,12 +521,39 @@ function updatePosition(position, market, nowIso, solUsdPrice = null) {
     exitReason = 'MAX_HOLD';
   }
 
+  if (!exitReason) {
+    executeDueStagedExits(position, nowIso, returnPct, sample, solUsdPrice);
+  }
+
+  applyPositionPnl(position, returnPct, solUsdPrice);
+  sample.pnlUsd = position.pnlUsd;
+  sample.pnlSol = position.pnlSol;
+  position.timeline = position.timeline.slice(-100);
+
   if (exitReason) {
     closePosition(position, nowIso, exitReason);
+  } else if (finiteNumber(position.openFraction, 1) <= 0) {
+    closePosition(position, nowIso, 'STAGED_EXIT_COMPLETE');
   }
 }
 
 function closePosition(position, nowIso, reason) {
+  const remainingFraction = finiteNumber(position.openFraction, 1);
+  if (remainingFraction > 0) {
+    const nominalUsd = finiteNumber(position.nominalUsd, 0);
+    const returnPct = finiteNumber(position.returnPct, 0);
+    const legPnlUsd = nominalUsd * remainingFraction * returnPct;
+    const nominalSol = finiteNumber(position.nominalSol, null);
+    const legPnlSol = Number.isFinite(nominalSol) ? nominalSol * remainingFraction * returnPct : null;
+    position.realizedPnlUsd = compact(finiteNumber(position.realizedPnlUsd, 0) + legPnlUsd, 6);
+    if (legPnlSol !== null) {
+      position.realizedPnlSol = compact(finiteNumber(position.realizedPnlSol, 0) + legPnlSol, 9);
+    }
+    position.openFraction = 0;
+    position.pnlUsd = position.realizedPnlUsd;
+    position.pnlSol = legPnlSol === null ? position.pnlSol : position.realizedPnlSol;
+  }
+
   position.status = 'CLOSED';
   position.closedAt = nowIso;
   position.exitReason = reason;
@@ -553,6 +676,9 @@ function summarize(
   const openPnl = open.reduce((sum, position) => sum + Number(position.pnlUsd || 0), 0);
   const closedPnlSol = closedPositions.reduce((sum, position) => sum + Number(position.pnlSol || 0), 0);
   const openPnlSol = open.reduce((sum, position) => sum + Number(position.pnlSol || 0), 0);
+  const stagedExitEvents = positions.reduce((sum, position) => {
+    return sum + (Array.isArray(position.stagedExits) ? position.stagedExits.length : 0);
+  }, 0);
   return {
     generatedAt: new Date().toISOString(),
     source: {
@@ -577,6 +703,7 @@ function summarize(
       openPositions: open.length,
       closedPositions: closedPositions.length,
       totalPositions: positions.length,
+      stagedExitEvents,
       openPnlUsd: compact(openPnl, 6),
       closedPnlUsd: compact(closedPnl, 6),
       totalMarkedPnlUsd: compact(openPnl + closedPnl, 6),
@@ -832,7 +959,7 @@ async function buildLedger(args) {
   }
 
   for (const position of positions) {
-    applySolPnl(position, solUsdPrice);
+    applyPositionPnl(position, finiteNumber(position.returnPct, 0), solUsdPrice);
   }
 
   state.updatedAt = nowIso;
@@ -884,6 +1011,7 @@ function printReport(report) {
   console.log(`Open PnL SOL:     ${report.summary.openPnlSol} SOL`);
   console.log(`Closed PnL:       $${report.summary.closedPnlUsd}`);
   console.log(`Closed PnL SOL:   ${report.summary.closedPnlSol} SOL`);
+  console.log(`Staged exits:     ${report.summary.stagedExitEvents}`);
   console.log(`Profiles:         ${Object.entries(report.summary.positionsByProfile || {}).map(([profile, count]) => `${profile}=${count}`).join(', ') || 'none'}`);
 
   if (report.learningPause?.active) {

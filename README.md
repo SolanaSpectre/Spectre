@@ -162,6 +162,7 @@ Edit the `.env` file with your settings:
 - `POST_MIGRATION_CONTINUATION_MIN_LIQUIDITY_USD`: Liquidity-depth floor for continuation candidates (default: `25000`)
 - `POST_MIGRATION_CONTINUATION_MIN_VOLUME_TO_LIQUIDITY`: 24h volume/liquidity floor (default: `2`)
 - `POST_MIGRATION_CONTINUATION_MAX_DEXSCREENER_FETCHES_PER_CYCLE`: DexScreener token snapshots per cycle for the continuation observer (default: `6`)
+- `CONTINUATION_PAPER_STAGED_EXIT_ENABLED`: Enables paper-ledger staged exits for continuation positions only; default stages are 50% after 3 minutes and 40% after 10 minutes, leaving a 10% runner (default: `false`)
 - `CANDIDATE_DOSSIER_ENABLED`: Writes JSONL candidate dossiers for watch, paper, and continuation lanes (default: `true`)
 - `MOONSHOT_ENABLED`: Enables experimental Moonshot feed integration (default: `false`)
 - `MOONSHOT_API_BASE_URL`: Moonshot API base URL
