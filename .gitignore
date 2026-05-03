@@ -52,6 +52,9 @@ __pycache__/
 .ruff_cache/
 agents/weRvENum/runtime/*_watchlist.json
 agents/weRvENum/runtime/*_tracker_export.json
+agents/weRvENum/runtime/spectre_narrative_brief_latest.json
+agents/weRvENum/runtime/spectre_narrative_brief_rick_latest.json
+agents/weRvENum/runtime/trend-hunt-test*.txt
 agents/weRvENum/runtime/narrative_radar_latest.json
 agents/weRvENum/runtime/token_social_research_latest.json
 agents/weRvENum/runtime/token_social_research_queue.json
