@@ -78,6 +78,7 @@ Edit the `.env` file with your settings:
 ### PumpPortal Data Streams
 - `PUMP_PORTAL_API_KEY`: Local-only PumpPortal API key. Do not commit or stream it.
 - `PUMPPORTAL_USE_API_KEY_QUERY`: Keep `true` so paid data uses `?api-key=<redacted>`.
+- `PUMPPORTAL_RECONNECT_DELAY_MS` / `PUMPPORTAL_MAX_RECONNECT_DELAY_MS`: Base and capped reconnect delay for websocket backoff.
 - `subscribeNewToken` and `subscribeMigration` are free.
 - `subscribeTokenTrade` and `subscribeAccountTrade` require a PumpPortal API key and a linked wallet funded with at least `0.02 SOL`.
 - If no API key is configured, Spectre skips paid trade/account subscriptions and keeps only the free streams. See `knowledge/pumpportal-data-streams.md`.
@@ -102,6 +103,7 @@ Edit the `.env` file with your settings:
 - `PUMPPORTAL_USE_API_KEY_QUERY`: Adds the PumpPortal API key as an `api-key` websocket query parameter (default: `true`)
 - `PUMPPORTAL_WEBSOCKET_URL`: PumpPortal websocket URL (default: `wss://pumpportal.fun/api/data`)
 - `PUMPPORTAL_TRACKED_ACCOUNTS`: Comma-separated wallets for PumpPortal `subscribeAccountTrade`
+- `PUMPPORTAL_MAX_RECONNECT_DELAY_MS`: Caps PumpPortal websocket reconnect backoff (default: `60000`)
 - `PRE_MIGRATION_WATCH_ENABLED`: Enables passive pre-migration scoring/logging without trade execution (default: `true`)
 - `PRE_MIGRATION_WATCH_MIN_SCORE`: Minimum passive watch score to flag a token (default: `60`)
 - `PRE_MIGRATION_WATCH_MIN_CURVE_PROGRESS`: Curve-progress threshold for near-migration flags when available (default: `0.85`)

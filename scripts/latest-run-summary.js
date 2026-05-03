@@ -383,7 +383,12 @@ function buildPumpPortalHealth(battlefield = {}) {
   const closeEvents = number(stats.closeEvents, 0);
   const staleReconnects = number(stats.staleReconnects, 0);
   const subscribedMints = number(stats.subscribedMints, 0);
+  const skippedPaidStreamMints = number(stats.skippedPaidStreamMints, 0);
+  const tradeSubscriptionsSkippedNoApiKey = number(stats.tradeSubscriptionsSkippedNoApiKey, 0);
+  const accountSubscriptionsSkippedNoApiKey = number(stats.accountSubscriptionsSkippedNoApiKey, 0);
+  const reconnectDelayMs = number(stats.reconnectDelayMs, 0);
   const connected = stats.connected === true;
+  const paidTradeStreamsEnabled = stats.paidTradeStreamsEnabled === true;
   const lastCloseCode = stats.lastCloseCode ?? null;
   const lastCloseReason = stats.lastCloseReason || 'none';
   const lastErrorMessage = stats.lastErrorMessage || null;
@@ -427,7 +432,12 @@ function buildPumpPortalHealth(battlefield = {}) {
     closeEvents,
     staleReconnects,
     subscribedMints,
+    skippedPaidStreamMints,
+    tradeSubscriptionsSkippedNoApiKey,
+    accountSubscriptionsSkippedNoApiKey,
+    reconnectDelayMs,
     connected,
+    paidTradeStreamsEnabled,
     lastCloseCode,
     lastCloseReason,
     lastErrorMessage,
@@ -521,6 +531,8 @@ function buildSummary(docs) {
   lines.push(`  - status: ${pumpPortalHealth.status}`);
   lines.push(`  - messages / new tokens / trades / migrations: ${pumpPortalHealth.messages} / ${pumpPortalHealth.newTokens} / ${pumpPortalHealth.trades} / ${pumpPortalHealth.migrations}`);
   lines.push(`  - reconnects / closes / stale reconnects: ${pumpPortalHealth.reconnectAttempts} / ${pumpPortalHealth.closeEvents} / ${pumpPortalHealth.staleReconnects}`);
+  lines.push(`  - paid trade streams enabled / skipped mints / skipped accounts: ${pumpPortalHealth.paidTradeStreamsEnabled} / ${pumpPortalHealth.tradeSubscriptionsSkippedNoApiKey || pumpPortalHealth.skippedPaidStreamMints} / ${pumpPortalHealth.accountSubscriptionsSkippedNoApiKey}`);
+  lines.push(`  - current reconnect backoff delay: ${pumpPortalHealth.reconnectDelayMs ? `${pumpPortalHealth.reconnectDelayMs}ms` : 'n/a'}`);
   lines.push(`  - subscribed mints / connected at stop: ${pumpPortalHealth.subscribedMints} / ${pumpPortalHealth.connected}`);
   lines.push(`  - last close: code=${pumpPortalHealth.lastCloseCode ?? 'n/a'} reason=${pumpPortalHealth.lastCloseReason || 'none'}`);
   lines.push(`  - last websocket error: ${pumpPortalHealth.lastErrorMessage || 'none'}`);

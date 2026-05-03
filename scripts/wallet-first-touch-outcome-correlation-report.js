@@ -347,7 +347,7 @@ function buildReport() {
       tinyDenominatorWarning: clusters.length < 30 || matched.length < 5,
       interpretation: matched.length < clusters.length
         ? 'some wallet clusters still lack broad outcome detail; do not change wallet weighting'
-        : 'broad outcome labels are available; inspect distribution and tiny-denominator warning before changing any wallet weighting'
+        : 'broad outcome labels are available; inspect distribution, cohort denominators, and tiny-denominator warning before changing any wallet weighting'
     },
     byRecommendation: summarizeGroups(clusters, 'recommendation'),
     byScoreBucket: summarizeGroups(clusters, 'scoreBucket'),
@@ -357,7 +357,7 @@ function buildReport() {
     clusters,
     topMatchedOutcomes,
     topUnmatchedClusters,
-    note: 'Report-only wallet first-touch to outcome correlation. Broad outcome labels come from the full outcome ledger; false-negative detail remains separately marked. Unknown outcome detail means the mint was not present in the available outcome ledger, not proof of success or failure. Does not change trust tiers, wallet scoring, entries, signals, AI review, or live behavior.'
+    note: 'Report-only wallet first-touch to outcome correlation. Broad outcome labels come from the full outcome ledger; false-negative detail remains separately marked. Unknown outcome detail means the mint was not present in the available outcome ledger, not proof of success or failure. Cohort lift compares cohort outcome rates against full-ledger base rates; cohorts with weak outcome coverage or tiny denominators must not be used for wallet weighting. Does not change trust tiers, wallet scoring, entries, signals, AI review, or live behavior.'
   };
 }
 

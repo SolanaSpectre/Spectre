@@ -717,6 +717,10 @@ class Config {
     return parseInt(process.env.PUMPPORTAL_RECONNECT_DELAY_MS || '5000', 10);
   }
 
+  static get pumpPortalMaxReconnectDelayMs() {
+    return parseInt(process.env.PUMPPORTAL_MAX_RECONNECT_DELAY_MS || '60000', 10);
+  }
+
   static get pumpPortalStaleConnectionMs() {
     return parseInt(process.env.PUMPPORTAL_STALE_CONNECTION_MS || '90000', 10);
   }

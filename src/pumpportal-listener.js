@@ -12,10 +12,13 @@ class PumpPortalListener {
     this.reconnectDelayMs = Number(config.pumpPortalReconnectDelayMs || 5000);
     this.staleConnectionMs = Number(config.pumpPortalStaleConnectionMs || 90000);
     this.healthCheckIntervalMs = Number(config.pumpPortalHealthCheckIntervalMs || 15000);
+    this.maxReconnectDelayMs = Number(config.pumpPortalMaxReconnectDelayMs || 60000);
     this.reconnectTimer = null;
     this.healthCheckTimer = null;
     this.subscribedMints = new Set();
+    this.skippedPaidStreamMints = new Set();
     this.subscribedAccounts = new Set();
+    this.currentReconnectDelayMs = this.reconnectDelayMs;
     this.debugDir = path.join(process.cwd(), 'data', 'pumpportal-debug');
     this.sampleFiles = {
       newToken: path.join(this.debugDir, 'latest-new-token-sample.json'),
@@ -46,7 +49,8 @@ class PumpPortalListener {
       staleReconnects: 0,
       paidTradeStreamsEnabled: Boolean(config.pumpPortalApiKey),
       tradeSubscriptionsSkippedNoApiKey: 0,
-      accountSubscriptionsSkippedNoApiKey: 0
+      accountSubscriptionsSkippedNoApiKey: 0,
+      reconnectDelayMs: this.currentReconnectDelayMs
     };
   }
 
@@ -111,6 +115,7 @@ class PumpPortalListener {
       this.stats.lastConnectedAt = Date.now();
       this.stats.lastCloseCode = null;
       this.stats.lastCloseReason = null;
+      this.resetReconnectDelay();
       this.logger.info('PumpPortal websocket connected');
       this.send({ method: 'subscribeNewToken' });
       this.send({ method: 'subscribeMigration' });
@@ -122,6 +127,7 @@ class PumpPortalListener {
     socket.on('message', async (raw) => {
       this.stats.messages += 1;
       this.stats.lastMessageAt = Date.now();
+      this.resetReconnectDelay();
 
       let payload;
       try {
@@ -148,17 +154,18 @@ class PumpPortalListener {
       this.logger.warn('PumpPortal websocket closed', {
         code: this.stats.lastCloseCode,
         reason: this.stats.lastCloseReason || 'none',
-        reconnectDelayMs: this.reconnectDelayMs
+        reconnectDelayMs: this.currentReconnectDelayMs
       });
       if (this.ws === socket) {
         this.ws = null;
       }
       if (this.running) {
         this.stats.reconnectAttempts += 1;
+        const delayMs = this.nextReconnectDelayMs();
         this.reconnectTimer = setTimeout(() => {
           this.reconnectTimer = null;
           this.connect();
-        }, this.reconnectDelayMs);
+        }, delayMs);
       }
     });
 
@@ -181,12 +188,17 @@ class PumpPortalListener {
       if (mint && !this.subscribedMints.has(mint)) {
         if (this.canUsePaidTradeStreams()) {
           this.subscribedMints.add(mint);
+          this.skippedPaidStreamMints.delete(mint);
           this.send({
             method: 'subscribeTokenTrade',
             keys: [mint]
           });
+        } else if (!this.skippedPaidStreamMints.has(mint)) {
+          this.skippedPaidStreamMints.add(mint);
+          this.subscribedMints.add(mint);
+          this.stats.tradeSubscriptionsSkippedNoApiKey = this.skippedPaidStreamMints.size;
         } else {
-          this.stats.tradeSubscriptionsSkippedNoApiKey += 1;
+          this.subscribedMints.add(mint);
         }
       }
 
@@ -239,6 +251,25 @@ class PumpPortalListener {
 
   canUsePaidTradeStreams() {
     return Boolean(this.config.pumpPortalApiKey);
+  }
+
+  resetReconnectDelay() {
+    this.currentReconnectDelayMs = this.reconnectDelayMs;
+    this.stats.reconnectDelayMs = this.currentReconnectDelayMs;
+  }
+
+  nextReconnectDelayMs() {
+    const base = Number.isFinite(this.currentReconnectDelayMs) && this.currentReconnectDelayMs > 0
+      ? this.currentReconnectDelayMs
+      : this.reconnectDelayMs;
+    const maxDelay = Number.isFinite(this.maxReconnectDelayMs) && this.maxReconnectDelayMs > 0
+      ? Math.max(base, this.maxReconnectDelayMs)
+      : base;
+    const jitterMs = Math.floor(Math.random() * Math.min(1000, base));
+    const delayMs = Math.min(maxDelay, base + jitterMs);
+    this.currentReconnectDelayMs = Math.min(maxDelay, Math.max(this.reconnectDelayMs, base * 2));
+    this.stats.reconnectDelayMs = this.currentReconnectDelayMs;
+    return delayMs;
   }
 
   subscribeTrackedAccounts() {
@@ -343,10 +374,11 @@ class PumpPortalListener {
 
     if (this.running && !this.reconnectTimer) {
       this.stats.reconnectAttempts += 1;
+      const delayMs = this.nextReconnectDelayMs();
       this.reconnectTimer = setTimeout(() => {
         this.reconnectTimer = null;
         this.connect();
-      }, 250);
+      }, delayMs);
     }
   }
 
@@ -386,7 +418,8 @@ class PumpPortalListener {
     return {
       ...this.stats,
       subscribedMints: this.subscribedMints.size,
-      subscribedAccounts: this.subscribedAccounts.size
+      subscribedAccounts: this.subscribedAccounts.size,
+      skippedPaidStreamMints: this.skippedPaidStreamMints.size
     };
   }
 }
