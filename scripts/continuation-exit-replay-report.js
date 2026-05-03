@@ -381,6 +381,20 @@ function buildReport() {
     };
   }
 
+  const baselineSummary = scenarioSummaries.current_config_replay || {};
+  const baselinePnlUsd = num(baselineSummary.totalPnlUsd, null);
+  const baselinePnlSol = num(baselineSummary.totalPnlSol, null);
+  for (const summary of Object.values(scenarioSummaries)) {
+    const pnlUsd = num(summary.totalPnlUsd, null);
+    const pnlSol = num(summary.totalPnlSol, null);
+    summary.deltaVsCurrentConfigUsd = Number.isFinite(pnlUsd) && Number.isFinite(baselinePnlUsd)
+      ? compact(pnlUsd - baselinePnlUsd, 6)
+      : null;
+    summary.deltaVsCurrentConfigSol = Number.isFinite(pnlSol) && Number.isFinite(baselinePnlSol)
+      ? compact(pnlSol - baselinePnlSol, 9)
+      : null;
+  }
+
   const actualRows = positions.map((position) => ({
     mint: position.mint || null,
     symbol: position.symbol || null,

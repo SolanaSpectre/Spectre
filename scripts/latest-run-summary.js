@@ -233,7 +233,13 @@ function summarizeWalletFirstTouchOutcome(item = {}) {
 }
 
 function summarizeContinuationExitScenario(name, summary = {}) {
-  return `${name}: pnl=${summary.totalPnlSol === null || summary.totalPnlSol === undefined ? 'n/a' : sol(summary.totalPnlSol, 6)} (${summary.totalPnlUsd === null || summary.totalPnlUsd === undefined ? 'n/a' : money(summary.totalPnlUsd, 2)}), exits=${compactValue(summary.exitReasons)}, winRate=${summary.winRate === null || summary.winRate === undefined ? 'n/a' : pct(summary.winRate)}`;
+  const deltaSol = summary.deltaVsCurrentConfigSol === null || summary.deltaVsCurrentConfigSol === undefined
+    ? 'n/a'
+    : sol(summary.deltaVsCurrentConfigSol, 6);
+  const deltaUsd = summary.deltaVsCurrentConfigUsd === null || summary.deltaVsCurrentConfigUsd === undefined
+    ? 'n/a'
+    : money(summary.deltaVsCurrentConfigUsd, 2);
+  return `${name}: pnl=${summary.totalPnlSol === null || summary.totalPnlSol === undefined ? 'n/a' : sol(summary.totalPnlSol, 6)} (${summary.totalPnlUsd === null || summary.totalPnlUsd === undefined ? 'n/a' : money(summary.totalPnlUsd, 2)}), deltaVsCurrent=${deltaSol} (${deltaUsd}), exits=${compactValue(summary.exitReasons)}, winRate=${summary.winRate === null || summary.winRate === undefined ? 'n/a' : pct(summary.winRate)}`;
 }
 
 function summarizeLesson(lesson = {}) {
