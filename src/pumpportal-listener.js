@@ -43,7 +43,10 @@ class PumpPortalListener {
       lastCloseReason: null,
       lastErrorAt: null,
       lastErrorMessage: null,
-      staleReconnects: 0
+      staleReconnects: 0,
+      paidTradeStreamsEnabled: Boolean(config.pumpPortalApiKey),
+      tradeSubscriptionsSkippedNoApiKey: 0,
+      accountSubscriptionsSkippedNoApiKey: 0
     };
   }
 
@@ -176,11 +179,15 @@ class PumpPortalListener {
       this.captureSample('newToken', payload);
 
       if (mint && !this.subscribedMints.has(mint)) {
-        this.subscribedMints.add(mint);
-        this.send({
-          method: 'subscribeTokenTrade',
-          keys: [mint]
-        });
+        if (this.canUsePaidTradeStreams()) {
+          this.subscribedMints.add(mint);
+          this.send({
+            method: 'subscribeTokenTrade',
+            keys: [mint]
+          });
+        } else {
+          this.stats.tradeSubscriptionsSkippedNoApiKey += 1;
+        }
       }
 
       if (this.handlers.onNewToken) {
@@ -230,7 +237,19 @@ class PumpPortalListener {
     return `${this.config.pumpPortalWebsocketUrl}${separator}api-key=${encodeURIComponent(this.config.pumpPortalApiKey)}`;
   }
 
+  canUsePaidTradeStreams() {
+    return Boolean(this.config.pumpPortalApiKey);
+  }
+
   subscribeTrackedAccounts() {
+    if (!this.canUsePaidTradeStreams()) {
+      this.stats.accountSubscriptionsSkippedNoApiKey += this.config.pumpPortalTrackedAccounts.length;
+      if (this.config.pumpPortalTrackedAccounts.length) {
+        this.logger.warn('Skipping PumpPortal account trade subscriptions because PUMP_PORTAL_API_KEY is not configured');
+      }
+      return;
+    }
+
     for (const account of this.config.pumpPortalTrackedAccounts) {
       if (this.subscribedAccounts.has(account)) {
         continue;
@@ -245,6 +264,10 @@ class PumpPortalListener {
   }
 
   subscribeTrackedMints() {
+    if (!this.canUsePaidTradeStreams()) {
+      return;
+    }
+
     const mints = Array.from(this.subscribedMints);
     if (mints.length === 0) {
       return;

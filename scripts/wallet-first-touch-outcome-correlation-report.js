@@ -229,6 +229,46 @@ function baseRates(outcomeCounts = {}) {
   return { total, rates };
 }
 
+function countOutcomes(rows, outcomes) {
+  const wanted = new Set(outcomes);
+  return rows.filter((row) => wanted.has(row.outcomeLabel)).length;
+}
+
+function rateLift(cohortRate, baseRate) {
+  if (cohortRate === null || baseRate === null || baseRate === 0) return null;
+  return Number((cohortRate / baseRate).toFixed(4));
+}
+
+function cohortComparison(label, rows, base) {
+  const migrationOrNearOutcomes = ['MIGRATED_OR_COMPLETED', 'NEAR_MIGRATION_85', 'PAPER_WIN'];
+  const interestingOrBetterOutcomes = [...migrationOrNearOutcomes, 'INTERESTING_75'];
+  const baseMigrationOrNearCount = migrationOrNearOutcomes
+    .reduce((sum, outcome) => sum + num(base.rates[outcome]?.count, 0), 0);
+  const baseInterestingOrBetterCount = interestingOrBetterOutcomes
+    .reduce((sum, outcome) => sum + num(base.rates[outcome]?.count, 0), 0);
+  const migrationOrNearCount = countOutcomes(rows, migrationOrNearOutcomes);
+  const interestingOrBetterCount = countOutcomes(rows, interestingOrBetterOutcomes);
+  const migrationOrNearRate = pct(migrationOrNearCount, rows.length);
+  const interestingOrBetterRate = pct(interestingOrBetterCount, rows.length);
+  const baseMigrationOrNearRate = pct(baseMigrationOrNearCount, base.total);
+  const baseInterestingOrBetterRate = pct(baseInterestingOrBetterCount, base.total);
+
+  return {
+    label,
+    clusters: rows.length,
+    outcomeCounts: countBy(rows, (row) => row.outcomeLabel),
+    migrationOrNearCount,
+    migrationOrNearRate,
+    baseMigrationOrNearRate,
+    migrationOrNearLiftVsBase: rateLift(migrationOrNearRate, baseMigrationOrNearRate),
+    interestingOrBetterCount,
+    interestingOrBetterRate,
+    baseInterestingOrBetterRate,
+    interestingOrBetterLiftVsBase: rateLift(interestingOrBetterRate, baseInterestingOrBetterRate),
+    tinyDenominatorWarning: rows.length < 10 || migrationOrNearCount < 3
+  };
+}
+
 function buildReport() {
   const firstTouch = readJson(FIRST_TOUCH_PATH);
   const outcomeLedger = readJson(OUTCOME_LEDGER_PATH);
@@ -245,6 +285,13 @@ function buildReport() {
   const highScoreClusters = clusters.filter((row) => row.firstTouchScore >= 75);
   const multiWalletClusters = clusters.filter((row) => row.uniqueWalletCount >= 3);
   const sniperCrowdingClusters = clusters.filter((row) => row.riskFlags.includes('sniper_crowding'));
+  const cohortComparisons = {
+    allClusters: cohortComparison('allClusters', clusters, base),
+    priorityClusters: cohortComparison('priorityClusters', priorityClusters, base),
+    highScoreClusters: cohortComparison('highScoreClusters', highScoreClusters, base),
+    multiWalletClusters: cohortComparison('multiWalletClusters', multiWalletClusters, base),
+    sniperCrowdingClusters: cohortComparison('sniperCrowdingClusters', sniperCrowdingClusters, base)
+  };
 
   const topMatchedOutcomes = matched
     .slice()
@@ -296,6 +343,7 @@ function buildReport() {
       baseOutcomeRates: base.rates,
       baseOutcomeTotalMints: base.total,
       migratedOrNearMigrationMatchedCount: matched.filter((row) => ['MIGRATED_OR_COMPLETED', 'NEAR_MIGRATION_85'].includes(row.outcomeLabel)).length,
+      cohortComparisons,
       tinyDenominatorWarning: clusters.length < 30 || matched.length < 5,
       interpretation: matched.length < clusters.length
         ? 'some wallet clusters still lack broad outcome detail; do not change wallet weighting'

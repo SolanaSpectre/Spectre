@@ -72,8 +72,15 @@ Edit the `.env` file with your settings:
 
 ### AI Configuration
 - `AI_MODEL`: Set to `ollama`
-- `OLLAMA_HOST`: Ollama server URL (current AWS tunnel default: `http://127.0.0.1:11435`)
+- `OLLAMA_HOST`: Ollama server URL (local default: `http://127.0.0.1:11434`)
 - `OLLAMA_MODEL`: Ollama model name (default: `llama3.2:3b`)
+
+### PumpPortal Data Streams
+- `PUMP_PORTAL_API_KEY`: Local-only PumpPortal API key. Do not commit or stream it.
+- `PUMPPORTAL_USE_API_KEY_QUERY`: Keep `true` so paid data uses `?api-key=<redacted>`.
+- `subscribeNewToken` and `subscribeMigration` are free.
+- `subscribeTokenTrade` and `subscribeAccountTrade` require a PumpPortal API key and a linked wallet funded with at least `0.02 SOL`.
+- If no API key is configured, Spectre skips paid trade/account subscriptions and keeps only the free streams. See `knowledge/pumpportal-data-streams.md`.
 
 ### Trading Configuration
 - `TRADING_AMOUNT_SOL`: Amount of SOL to trade per transaction (default: 0.1)

@@ -237,6 +237,10 @@ function summarizeWalletFirstTouchOutcome(item = {}) {
   return `${label} | outcome=${outcome} | score=${fmt(item.firstTouchScore)} | wallets=${item.uniqueWalletCount ?? 'n/a'} | sol=${fmt(item.totalFirstTouchSol, 4)} | curve=${curve === null || curve === undefined ? 'n/a' : fmt(curve, 4)}${priority === null || priority === undefined ? '' : ` | fnPriority=${fmt(priority)}`}${source}`;
 }
 
+function summarizeWalletCohortComparison(name, item = {}) {
+  return `${name}: clusters=${item.clusters ?? 'n/a'}, migrationOrNear=${item.migrationOrNearCount ?? 'n/a'} (${pct(item.migrationOrNearRate)} vs base ${pct(item.baseMigrationOrNearRate)}, lift=${fmt(item.migrationOrNearLiftVsBase)}x), interestingOrBetter=${item.interestingOrBetterCount ?? 'n/a'} (${pct(item.interestingOrBetterRate)} vs base ${pct(item.baseInterestingOrBetterRate)}, lift=${fmt(item.interestingOrBetterLiftVsBase)}x)${item.tinyDenominatorWarning ? ' | tiny denominator' : ''}`;
+}
+
 function summarizeContinuationExitScenario(name, summary = {}) {
   const deltaSol = summary.deltaVsCurrentConfigSol === null || summary.deltaVsCurrentConfigSol === undefined
     ? 'n/a'
@@ -587,6 +591,13 @@ function buildSummary(docs) {
   objectLines(walletCorrSummary.outcomeDetailSourceCounts, 8).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Matched outcome counts:');
   objectLines(walletCorrSummary.knownOutcomeCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  const walletCohorts = walletCorrSummary.cohortComparisons || {};
+  if (Object.keys(walletCohorts).length) {
+    lines.push('- Cohort lift vs full outcome ledger:');
+    ['allClusters', 'priorityClusters', 'multiWalletClusters', 'sniperCrowdingClusters']
+      .filter((key) => walletCohorts[key])
+      .forEach((key) => lines.push(`  - ${summarizeWalletCohortComparison(key, walletCohorts[key])}`));
+  }
   if (walletMatched.length) {
     lines.push('- Top matched clusters:');
     walletMatched.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeWalletFirstTouchOutcome(item)}`));
