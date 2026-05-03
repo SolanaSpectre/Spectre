@@ -60,6 +60,11 @@ function readJson(relativePath) {
   }
 }
 
+function resolveRepoFile(filePath) {
+  if (!filePath) return null;
+  return path.isAbsolute(filePath) ? filePath : path.join(REPO_ROOT, filePath);
+}
+
 function get(obj, paths, fallback = null) {
   const candidates = Array.isArray(paths) ? paths : [paths];
   for (const candidate of candidates) {
@@ -315,6 +320,121 @@ function buildAiReachability(battlefield = {}) {
   };
 }
 
+function readPumpPortalStatsFromTelemetry(battlefield = {}) {
+  const telemetryPath = get(battlefield, 'files.telemetryPath', null);
+  const resolvedPath = resolveRepoFile(telemetryPath);
+  if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+    return {
+      ok: false,
+      telemetryPath,
+      error: telemetryPath ? 'telemetry file missing' : 'telemetry path missing',
+      stats: null
+    };
+  }
+
+  let stats = null;
+  try {
+    const lines = fs.readFileSync(resolvedPath, 'utf8').split(/\r?\n/);
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const event = JSON.parse(line);
+        const pumpPortal = get(event, [
+          'payload.stats.pumpPortal',
+          'data.stats.pumpPortal',
+          'payload.pumpPortal',
+          'data.pumpPortal'
+        ], null);
+        if (pumpPortal) stats = pumpPortal;
+      } catch (_) {
+        // Ignore malformed telemetry rows; the report should stay best-effort.
+      }
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      telemetryPath,
+      error: error.message,
+      stats: null
+    };
+  }
+
+  return {
+    ok: Boolean(stats),
+    telemetryPath,
+    error: stats ? null : 'pumpPortal stats not found',
+    stats
+  };
+}
+
+function buildPumpPortalHealth(battlefield = {}) {
+  const eventCounts = battlefield.eventCounts || {};
+  const telemetry = readPumpPortalStatsFromTelemetry(battlefield);
+  const stats = telemetry.stats || {};
+  const messages = number(stats.messages, 0);
+  const newTokens = number(stats.newTokens, number(eventCounts['provider.pumpportal.new_token'], 0));
+  const trades = number(stats.trades, number(eventCounts['provider.pumpportal.trade'], 0));
+  const migrations = number(stats.migrations, number(eventCounts['provider.pumpportal.migration'], 0));
+  const reconnectAttempts = number(stats.reconnectAttempts, 0);
+  const closeEvents = number(stats.closeEvents, 0);
+  const staleReconnects = number(stats.staleReconnects, 0);
+  const subscribedMints = number(stats.subscribedMints, 0);
+  const connected = stats.connected === true;
+  const lastCloseCode = stats.lastCloseCode ?? null;
+  const lastCloseReason = stats.lastCloseReason || 'none';
+  const lastErrorMessage = stats.lastErrorMessage || null;
+  const tradeEventCount = number(eventCounts['provider.pumpportal.trade'], trades);
+  const newTokenEventCount = number(eventCounts['provider.pumpportal.new_token'], newTokens);
+
+  let status = 'unknown';
+  let interpretation = telemetry.ok
+    ? 'PumpPortal telemetry was captured, but health is inconclusive.'
+    : `PumpPortal stats unavailable: ${telemetry.error}.`;
+
+  if (telemetry.ok) {
+    if (messages === 0 && newTokens === 0 && trades === 0) {
+      status = 'outage';
+      interpretation = 'No PumpPortal feed data was captured; treat PumpPortal-dependent evidence as unavailable.';
+    } else if (closeEvents >= 20 || reconnectAttempts >= 20 || lastErrorMessage) {
+      const tradeStreamSparse = newTokens > 0 && trades <= Math.max(2, Math.floor(newTokens * 0.02));
+      status = tradeStreamSparse ? 'degraded_trade_stream' : 'degraded';
+      interpretation = tradeStreamSparse
+        ? 'New-token feed was active, but trade stream was sparse while websocket reconnects/errors were high; treat pre-migration evidence as partial.'
+        : 'PumpPortal feed captured data but had heavy websocket churn/errors; treat feed-dependent conclusions with caution.';
+    } else if (closeEvents > 3 || reconnectAttempts > 3) {
+      status = 'churn';
+      interpretation = 'PumpPortal feed was usable but reconnecting repeatedly; review if this persists.';
+    } else {
+      status = connected || messages > 0 ? 'healthy' : 'quiet';
+      interpretation = 'PumpPortal feed health looked acceptable for this run.';
+    }
+  }
+
+  return {
+    status,
+    interpretation,
+    telemetryPath: telemetry.telemetryPath,
+    telemetryError: telemetry.error,
+    messages,
+    newTokens,
+    trades,
+    migrations,
+    reconnectAttempts,
+    closeEvents,
+    staleReconnects,
+    subscribedMints,
+    connected,
+    lastCloseCode,
+    lastCloseReason,
+    lastErrorMessage,
+    eventCounts: {
+      newTokens: newTokenEventCount,
+      trades: tradeEventCount,
+      migrations: number(eventCounts['provider.pumpportal.migration'], migrations)
+    }
+  };
+}
+
 function buildSummary(docs) {
   const battlefield = docs.battlefield.data || {};
   const ledger = docs.outcomeLedger.data || {};
@@ -378,6 +498,7 @@ function buildSummary(docs) {
   ], null);
   const aiEvidence = collectSimpleRuntimeEvidence();
   const aiReachability = buildAiReachability(battlefield);
+  const pumpPortalHealth = buildPumpPortalHealth(battlefield);
 
   lines.push('1. Run Summary');
   lines.push('--------------');
@@ -392,6 +513,15 @@ function buildSummary(docs) {
   lines.push(`  - trade rejects before signal execution: ${aiReachability.rejectedTrades}`);
   lines.push(`  - AI decision events / AI rejects / timeout fallbacks: ${aiReachability.aiDecisionEvents} / ${aiReachability.aiRejects} / ${aiReachability.aiTimeoutFallbacks}`);
   lines.push(`  - interpretation: ${aiReachability.interpretation}`);
+  lines.push('- PumpPortal feed health:');
+  lines.push(`  - status: ${pumpPortalHealth.status}`);
+  lines.push(`  - messages / new tokens / trades / migrations: ${pumpPortalHealth.messages} / ${pumpPortalHealth.newTokens} / ${pumpPortalHealth.trades} / ${pumpPortalHealth.migrations}`);
+  lines.push(`  - reconnects / closes / stale reconnects: ${pumpPortalHealth.reconnectAttempts} / ${pumpPortalHealth.closeEvents} / ${pumpPortalHealth.staleReconnects}`);
+  lines.push(`  - subscribed mints / connected at stop: ${pumpPortalHealth.subscribedMints} / ${pumpPortalHealth.connected}`);
+  lines.push(`  - last close: code=${pumpPortalHealth.lastCloseCode ?? 'n/a'} reason=${pumpPortalHealth.lastCloseReason || 'none'}`);
+  lines.push(`  - last websocket error: ${pumpPortalHealth.lastErrorMessage || 'none'}`);
+  lines.push(`  - event counts new_token/trade/migration: ${pumpPortalHealth.eventCounts.newTokens} / ${pumpPortalHealth.eventCounts.trades} / ${pumpPortalHealth.eventCounts.migrations}`);
+  lines.push(`  - interpretation: ${pumpPortalHealth.interpretation}`);
   lines.push('');
 
   const runnerNearMiss = battlefield.runnerLane?.nearMissDiagnostic || {};
