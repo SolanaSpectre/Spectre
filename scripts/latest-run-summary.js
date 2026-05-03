@@ -238,7 +238,7 @@ function summarizeWalletFirstTouchOutcome(item = {}) {
 }
 
 function summarizeWalletCohortComparison(name, item = {}) {
-  return `${name}: clusters=${item.clusters ?? 'n/a'}, migrationOrNear=${item.migrationOrNearCount ?? 'n/a'} (${pct(item.migrationOrNearRate)} vs base ${pct(item.baseMigrationOrNearRate)}, lift=${fmt(item.migrationOrNearLiftVsBase)}x), interestingOrBetter=${item.interestingOrBetterCount ?? 'n/a'} (${pct(item.interestingOrBetterRate)} vs base ${pct(item.baseInterestingOrBetterRate)}, lift=${fmt(item.interestingOrBetterLiftVsBase)}x)${item.tinyDenominatorWarning ? ' | tiny denominator' : ''}`;
+  return `${name}: clusters=${item.clusters ?? 'n/a'}, matched=${item.matchedClusters ?? 'n/a'} (${pct(item.outcomeCoverageRate)} coverage), migrationOrNear=${item.migrationOrNearCount ?? 'n/a'} (${pct(item.migrationOrNearRate)} vs base ${pct(item.baseMigrationOrNearRate)}, lift=${fmt(item.migrationOrNearLiftVsBase)}x), matchedMigrationOrNear=${item.matchedMigrationOrNearCount ?? 'n/a'} (${pct(item.matchedMigrationOrNearRate)} matched-only, lift=${fmt(item.matchedMigrationOrNearLiftVsBase)}x), interestingOrBetter=${item.interestingOrBetterCount ?? 'n/a'} (${pct(item.interestingOrBetterRate)} vs base ${pct(item.baseInterestingOrBetterRate)}, lift=${fmt(item.interestingOrBetterLiftVsBase)}x)${item.tinyDenominatorWarning ? ' | tiny denominator' : ''}`;
 }
 
 function summarizeContinuationExitScenario(name, summary = {}) {

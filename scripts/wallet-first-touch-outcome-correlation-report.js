@@ -242,30 +242,44 @@ function rateLift(cohortRate, baseRate) {
 function cohortComparison(label, rows, base) {
   const migrationOrNearOutcomes = ['MIGRATED_OR_COMPLETED', 'NEAR_MIGRATION_85', 'PAPER_WIN'];
   const interestingOrBetterOutcomes = [...migrationOrNearOutcomes, 'INTERESTING_75'];
+  const matchedRows = rows.filter((row) => row.matchedOutcomeDetail);
   const baseMigrationOrNearCount = migrationOrNearOutcomes
     .reduce((sum, outcome) => sum + num(base.rates[outcome]?.count, 0), 0);
   const baseInterestingOrBetterCount = interestingOrBetterOutcomes
     .reduce((sum, outcome) => sum + num(base.rates[outcome]?.count, 0), 0);
   const migrationOrNearCount = countOutcomes(rows, migrationOrNearOutcomes);
   const interestingOrBetterCount = countOutcomes(rows, interestingOrBetterOutcomes);
+  const matchedMigrationOrNearCount = countOutcomes(matchedRows, migrationOrNearOutcomes);
+  const matchedInterestingOrBetterCount = countOutcomes(matchedRows, interestingOrBetterOutcomes);
   const migrationOrNearRate = pct(migrationOrNearCount, rows.length);
   const interestingOrBetterRate = pct(interestingOrBetterCount, rows.length);
+  const matchedMigrationOrNearRate = pct(matchedMigrationOrNearCount, matchedRows.length);
+  const matchedInterestingOrBetterRate = pct(matchedInterestingOrBetterCount, matchedRows.length);
   const baseMigrationOrNearRate = pct(baseMigrationOrNearCount, base.total);
   const baseInterestingOrBetterRate = pct(baseInterestingOrBetterCount, base.total);
 
   return {
     label,
     clusters: rows.length,
+    matchedClusters: matchedRows.length,
+    unmatchedClusters: rows.length - matchedRows.length,
+    outcomeCoverageRate: pct(matchedRows.length, rows.length),
     outcomeCounts: countBy(rows, (row) => row.outcomeLabel),
     migrationOrNearCount,
     migrationOrNearRate,
     baseMigrationOrNearRate,
     migrationOrNearLiftVsBase: rateLift(migrationOrNearRate, baseMigrationOrNearRate),
+    matchedMigrationOrNearCount,
+    matchedMigrationOrNearRate,
+    matchedMigrationOrNearLiftVsBase: rateLift(matchedMigrationOrNearRate, baseMigrationOrNearRate),
     interestingOrBetterCount,
     interestingOrBetterRate,
     baseInterestingOrBetterRate,
     interestingOrBetterLiftVsBase: rateLift(interestingOrBetterRate, baseInterestingOrBetterRate),
-    tinyDenominatorWarning: rows.length < 10 || migrationOrNearCount < 3
+    matchedInterestingOrBetterCount,
+    matchedInterestingOrBetterRate,
+    matchedInterestingOrBetterLiftVsBase: rateLift(matchedInterestingOrBetterRate, baseInterestingOrBetterRate),
+    tinyDenominatorWarning: rows.length < 10 || matchedRows.length < 5 || matchedMigrationOrNearCount < 3
   };
 }
 
@@ -346,8 +360,8 @@ function buildReport() {
       cohortComparisons,
       tinyDenominatorWarning: clusters.length < 30 || matched.length < 5,
       interpretation: matched.length < clusters.length
-        ? 'some wallet clusters still lack broad outcome detail; do not change wallet weighting'
-        : 'broad outcome labels are available; inspect distribution, cohort denominators, and tiny-denominator warning before changing any wallet weighting'
+        ? 'some wallet clusters still lack broad outcome detail; read cohort lift with the matched/outcome-coverage denominator and do not change wallet weighting'
+        : 'broad outcome labels are available; inspect matched denominator, cohort distribution, and tiny-denominator warning before changing any wallet weighting'
     },
     byRecommendation: summarizeGroups(clusters, 'recommendation'),
     byScoreBucket: summarizeGroups(clusters, 'scoreBucket'),
@@ -357,7 +371,7 @@ function buildReport() {
     clusters,
     topMatchedOutcomes,
     topUnmatchedClusters,
-    note: 'Report-only wallet first-touch to outcome correlation. Broad outcome labels come from the full outcome ledger; false-negative detail remains separately marked. Unknown outcome detail means the mint was not present in the available outcome ledger, not proof of success or failure. Cohort lift compares cohort outcome rates against full-ledger base rates; cohorts with weak outcome coverage or tiny denominators must not be used for wallet weighting. Does not change trust tiers, wallet scoring, entries, signals, AI review, or live behavior.'
+    note: 'Report-only wallet first-touch to outcome correlation. Broad outcome labels come from the full outcome ledger; false-negative detail remains separately marked. Unknown outcome detail means the mint was not present in the available outcome ledger, not proof of success or failure. Cohort lift compares cohort outcome rates against full-ledger base rates; matched* fields use only clusters with outcome detail, while non-matched fields retain unmatched clusters in the denominator. Cohorts with weak outcome coverage or tiny denominators must not be used for wallet weighting. Does not change trust tiers, wallet scoring, entries, signals, AI review, or live behavior.'
   };
 }
 
