@@ -27,6 +27,42 @@ const SCENARIOS = [
     overrides: { maxHoldHours: 2 }
   },
   {
+    name: 'fast_fade_3m',
+    description: 'Report-only fast-fade replay: close at the first observed sample after 3 minutes if no earlier TP/SL/trailing exit fires.',
+    fastFadeMinutes: 3,
+    fastFadeReason: 'FAST_FADE_3M'
+  },
+  {
+    name: 'fast_fade_5m',
+    description: 'Report-only fast-fade replay: close at the first observed sample after 5 minutes if no earlier TP/SL/trailing exit fires.',
+    fastFadeMinutes: 5,
+    fastFadeReason: 'FAST_FADE_5M'
+  },
+  {
+    name: 'fast_fade_10m',
+    description: 'Report-only fast-fade replay: close at the first observed sample after 10 minutes if no earlier TP/SL/trailing exit fires.',
+    fastFadeMinutes: 10,
+    fastFadeReason: 'FAST_FADE_10M'
+  },
+  {
+    name: 'trailing_stop_5pct_new_slippage',
+    description: 'Report-only spike protection replay using new paper slippage and a 5% trailing stop from observed peak.',
+    overrides: { entrySlippagePct: 0.01, exitSlippagePct: 0.015, trailingStopPct: 0.05 },
+    useRawEntryPrice: true
+  },
+  {
+    name: 'staged_exit_50_40_10',
+    description: 'Report-only staged exit replay: 50% at first sample after 3m, 40% after 10m, 10% follows current exit logic.',
+    stagedExit: true,
+    stages: [
+      { fraction: 0.5, afterMinutes: 3, reason: 'STAGED_EXIT_50_AT_3M' },
+      { fraction: 0.4, afterMinutes: 10, reason: 'STAGED_EXIT_40_AT_10M' }
+    ],
+    runnerFraction: 0.1,
+    overrides: { entrySlippagePct: 0.01, exitSlippagePct: 0.015 },
+    useRawEntryPrice: true
+  },
+  {
     name: 'reduced_exit_slippage_2pct',
     description: 'Same config, but exit slippage reduced from stored value to 2%.',
     overrides: { exitSlippagePct: 0.02 }
@@ -78,6 +114,11 @@ function hoursBetween(startIso, endIso) {
   const end = new Date(endIso).getTime();
   if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
   return (end - start) / 3600000;
+}
+
+function minutesBetween(startIso, endIso) {
+  const hours = hoursBetween(startIso, endIso);
+  return Number.isFinite(hours) ? hours * 60 : null;
 }
 
 function eventSamples(position) {
@@ -152,6 +193,7 @@ function replayPosition(position, scenario) {
     }
 
     const holdHours = hoursBetween(position.openedAt, sample.timestamp);
+    const holdMinutes = minutesBetween(position.openedAt, sample.timestamp);
     const trailingStopReturn = maxReturnPct - num(cfg.trailingStopPct, 0);
     let reason = null;
 
@@ -163,6 +205,12 @@ function replayPosition(position, scenario) {
       reason = 'BREAKEVEN_STOP';
     } else if (maxReturnPct > 0 && returnPct <= trailingStopReturn) {
       reason = 'TRAILING_STOP';
+    } else if (
+      Number.isFinite(holdMinutes)
+      && num(scenario.fastFadeMinutes, 0) > 0
+      && holdMinutes >= num(scenario.fastFadeMinutes, 0)
+    ) {
+      reason = scenario.fastFadeReason || `FAST_FADE_${num(scenario.fastFadeMinutes, 0)}M`;
     } else if (Number.isFinite(holdHours) && holdHours >= num(cfg.maxHoldHours, 0)) {
       reason = 'MAX_HOLD';
     }
@@ -175,6 +223,101 @@ function replayPosition(position, scenario) {
   const last = samples[samples.length - 1] || {};
   const lastReturn = samples.length ? sampleReturn(last, entryPriceUsd, cfg) : num(position.returnPct, 0);
   return closeResult(position, scenario, last, position.status === 'OPEN' ? 'STILL_OPEN_AT_LAST_SAMPLE' : 'END_OF_SAMPLES', lastReturn || 0, maxReturnPct);
+}
+
+function firstSampleAfter(position, samples, afterMinutes) {
+  return samples.find((sample) => {
+    const holdMinutes = minutesBetween(position.openedAt, sample.timestamp);
+    return Number.isFinite(holdMinutes) && holdMinutes >= afterMinutes;
+  }) || null;
+}
+
+function replayStagedPosition(position, scenario) {
+  const samples = eventSamples(position);
+  const cfg = configFor(position, scenario);
+  const entryPriceUsd = entryPriceFor(position, scenario, cfg);
+  const nominalUsd = num(position.nominalUsd, 100);
+  const legs = [];
+  let usedFraction = 0;
+  let maxReturnPct = -Infinity;
+
+  for (const sample of samples) {
+    const returnPct = sampleReturn(sample, entryPriceUsd, cfg);
+    if (returnPct !== null) maxReturnPct = Math.max(maxReturnPct, returnPct);
+  }
+
+  for (const stage of (scenario.stages || [])) {
+    const fraction = Math.max(0, Math.min(1, num(stage.fraction, 0)));
+    if (fraction <= 0 || usedFraction >= 1) continue;
+    const effectiveFraction = Math.min(fraction, 1 - usedFraction);
+    const sample = firstSampleAfter(position, samples, num(stage.afterMinutes, 0)) || samples[samples.length - 1] || {};
+    const returnPct = sampleReturn(sample, entryPriceUsd, cfg) ?? num(position.returnPct, 0);
+    const solUsd = num(sample.solUsd, num(position.currentSolUsd, num(position.entrySolUsd, 0)));
+    const pnlUsd = nominalUsd * effectiveFraction * returnPct;
+    legs.push({
+      fraction: compact(effectiveFraction, 4),
+      reason: stage.reason || `STAGED_EXIT_${num(stage.afterMinutes, 0)}M`,
+      exitAt: sample.timestamp || null,
+      returnPct: compact(returnPct),
+      pnlUsd: compact(pnlUsd),
+      pnlSol: solUsd > 0 ? compact(pnlUsd / solUsd, 9) : null,
+      holdHours: compact(hoursBetween(position.openedAt, sample.timestamp), 4)
+    });
+    usedFraction += effectiveFraction;
+  }
+
+  const runnerFraction = Math.max(0, Math.min(1 - usedFraction, num(scenario.runnerFraction, 1 - usedFraction)));
+  let runnerResult = null;
+  if (runnerFraction > 0) {
+    runnerResult = replayPosition(position, {
+      ...scenario,
+      stagedExit: false,
+      name: `${scenario.name}_runner`,
+      description: `${scenario.description} runner leg`
+    });
+    legs.push({
+      fraction: compact(runnerFraction, 4),
+      reason: `RUNNER_${runnerResult.replayExitReason || 'UNKNOWN'}`,
+      exitAt: runnerResult.replayExitAt || null,
+      returnPct: runnerResult.replayReturnPct,
+      pnlUsd: compact(num(runnerResult.replayPnlUsd, 0) * runnerFraction),
+      pnlSol: compact(num(runnerResult.replayPnlSol, 0) * runnerFraction, 9),
+      holdHours: runnerResult.holdHours
+    });
+  }
+
+  const totalPnlUsd = legs.reduce((sum, leg) => sum + num(leg.pnlUsd, 0), 0);
+  const totalPnlSol = legs.reduce((sum, leg) => sum + num(leg.pnlSol, 0), 0);
+  const lastLeg = legs[legs.length - 1] || {};
+  return {
+    scenario: scenario.name,
+    mint: position.mint || null,
+    symbol: position.symbol || null,
+    statusAtReplayStart: position.status || null,
+    actualExitReason: position.exitReason || null,
+    actualReturnPct: compact(position.returnPct),
+    actualPnlUsd: compact(position.pnlUsd),
+    actualPnlSol: compact(position.pnlSol),
+    openedAt: position.openedAt || null,
+    replayExitAt: lastLeg.exitAt || null,
+    replayExitReason: 'STAGED_EXIT',
+    replayReturnPct: nominalUsd > 0 ? compact(totalPnlUsd / nominalUsd) : null,
+    replayPnlUsd: compact(totalPnlUsd),
+    replayPnlSol: compact(totalPnlSol, 9),
+    holdHours: lastLeg.holdHours ?? null,
+    observedSamples: samples.length,
+    maxObservedReturnPct: compact(maxReturnPct),
+    entryScore: compact(position.entryScore, 2),
+    paperProfile: position.paperProfile || null,
+    sourceLabel: position.sourceLabel || null,
+    entryRiskFlags: Array.isArray(position.entryRiskFlags) ? position.entryRiskFlags : [],
+    stagedLegs: legs
+  };
+}
+
+function replayScenarioPosition(position, scenario) {
+  if (scenario.stagedExit) return replayStagedPosition(position, scenario);
+  return replayPosition(position, scenario);
 }
 
 function countBy(items, key) {
@@ -229,7 +372,7 @@ function buildReport() {
   const scenarioSummaries = {};
 
   for (const scenario of SCENARIOS) {
-    const rows = positions.map((position) => replayPosition(position, scenario));
+    const rows = positions.map((position) => replayScenarioPosition(position, scenario));
     scenarioRows[scenario.name] = rows;
     scenarioSummaries[scenario.name] = {
       description: scenario.description,

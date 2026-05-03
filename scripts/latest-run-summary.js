@@ -664,6 +664,11 @@ function buildSummary(docs) {
   const reducedSlippageScenario = scenarioSummaries.reduced_paper_slippage_1_1p5pct || {};
   const oneHourScenario = scenarioSummaries.max_hold_1h || {};
   const twoHourScenario = scenarioSummaries.max_hold_2h || {};
+  const fastFade3mScenario = scenarioSummaries.fast_fade_3m || {};
+  const fastFade5mScenario = scenarioSummaries.fast_fade_5m || {};
+  const fastFade10mScenario = scenarioSummaries.fast_fade_10m || {};
+  const trailing5PctScenario = scenarioSummaries.trailing_stop_5pct_new_slippage || {};
+  const stagedExitScenario = scenarioSummaries.staged_exit_50_40_10 || {};
 
   lines.push('12. Continuation Exit Replay');
   lines.push('----------------------------');
@@ -677,6 +682,11 @@ function buildSummary(docs) {
   [
     ['current_config_replay', currentScenario],
     ['reduced_paper_slippage_1_1p5pct', reducedSlippageScenario],
+    ['fast_fade_3m', fastFade3mScenario],
+    ['fast_fade_5m', fastFade5mScenario],
+    ['fast_fade_10m', fastFade10mScenario],
+    ['trailing_stop_5pct_new_slippage', trailing5PctScenario],
+    ['staged_exit_50_40_10', stagedExitScenario],
     ['max_hold_1h', oneHourScenario],
     ['max_hold_2h', twoHourScenario],
     ['no_slippage_reference', noSlipScenario]
