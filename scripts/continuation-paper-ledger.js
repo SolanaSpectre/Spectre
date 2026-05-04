@@ -884,38 +884,7 @@ async function buildLedger(args) {
     }
 
     if (learningPause.active) {
-      if (chopFade.eligible) {
-        if (!config.allowReopen && everOpened.has(specimen.mint)) {
-          skippedReopen.push({
-            mint: specimen.mint,
-            symbol: specimen.symbol || null,
-            label: specimen.label || null,
-            score: compact(specimen.continuationScore, 2),
-            reason: 'MINT_ALREADY_TRADED',
-            paperProfile: 'chop_fade_scalper',
-            previousPositions: positions
-              .filter((position) => position.mint === specimen.mint)
-              .map((position) => ({
-                id: position.id,
-                status: position.status,
-                openedAt: position.openedAt,
-                closedAt: position.closedAt || null,
-                exitReason: position.exitReason || null,
-                returnPct: position.returnPct ?? null,
-                pnlUsd: position.pnlUsd ?? null,
-                paperProfile: position.paperProfile || null
-              }))
-          });
-          continue;
-        }
-        const position = openPosition(specimen, config, nowIso, 'chop_fade_scalper', chopFade.diagnostics || {}, solUsdPrice);
-        positions.push(position);
-        openMints.add(specimen.mint);
-        everOpened.add(specimen.mint);
-        opened.push(position);
-        continue;
-      }
-
+      // During a learning pause, only manage existing paper positions; do not open fresh probes.
       skippedLearning.push({
         mint: specimen.mint,
         symbol: specimen.symbol || null,
@@ -923,8 +892,12 @@ async function buildLedger(args) {
         score: compact(specimen.continuationScore, 2),
         reason: learningPause.reason,
         marketRegime: learningPause.marketRegime,
+        recommendedPosture: learningPause.recommendedPosture,
         continuationPosture: learningPause.continuationPosture,
-        learningGeneratedAt: learningPause.learningGeneratedAt
+        learningGeneratedAt: learningPause.learningGeneratedAt,
+        chopFadeEligible: Boolean(chopFade.eligible),
+        chopFadeReason: chopFade.reason || null,
+        chopFadeDiagnostics: chopFade.diagnostics || null
       });
       continue;
     }
