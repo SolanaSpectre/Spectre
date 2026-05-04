@@ -69,16 +69,16 @@ class Logger {
   }
 
   error(message, data = null) {
+    this.mirrorIssue('error', message, data);
     if (this.shouldLog('error')) {
       console.error(chalk.red(this.formatMessage('error', message, data)));
-      this.mirrorIssue('error', message, data);
     }
   }
 
   warn(message, data = null) {
+    this.mirrorIssue('warn', message, data);
     if (this.shouldLog('warn')) {
       console.warn(chalk.yellow(this.formatMessage('warn', message, data)));
-      this.mirrorIssue('warn', message, data);
     }
   }
 
