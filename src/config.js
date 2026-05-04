@@ -1356,6 +1356,14 @@ class Config {
     return parseInt(process.env.SOL_PRICE_CACHE_TTL_MS || '30000', 10);
   }
 
+  static get solPriceStaleTtlMs() {
+    return parseInt(process.env.SOL_PRICE_STALE_TTL_MS || '300000', 10);
+  }
+
+  static get solPriceFailureCooldownMs() {
+    return parseInt(process.env.SOL_PRICE_FAILURE_COOLDOWN_MS || '60000', 10);
+  }
+
   static get jupiterMinRequestIntervalMs() {
     return parseInt(process.env.JUPITER_MIN_REQUEST_INTERVAL_MS || '500', 10);
   }
@@ -1601,6 +1609,8 @@ class Config {
       { key: 'liquidityThresholdSol', value: this.liquidityThresholdSol, min: 1 },
       { key: 'maxSignalsPerCycle', value: this.maxSignalsPerCycle, min: 1 },
       { key: 'solPriceCacheTtlMs', value: this.solPriceCacheTtlMs, min: 1000 },
+      { key: 'solPriceStaleTtlMs', value: this.solPriceStaleTtlMs, min: 1000 },
+      { key: 'solPriceFailureCooldownMs', value: this.solPriceFailureCooldownMs, min: 1000 },
       { key: 'raydiumPoolCacheTtlMs', value: this.raydiumPoolCacheTtlMs, min: 1000 },
       { key: 'raydiumPoolStaleTtlMs', value: this.raydiumPoolStaleTtlMs, min: 1000 },
       { key: 'meteoraPoolCacheTtlMs', value: this.meteoraPoolCacheTtlMs, min: 1000 },

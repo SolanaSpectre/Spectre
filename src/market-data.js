@@ -64,11 +64,18 @@ class MarketData {
   }
 
   async getSolanaPrice() {
+    const cached = this.getFreshCache(this.solPriceCache, this.config.solPriceCacheTtlMs);
+    if (cached !== null) {
+      return cached;
+    }
+
+    const stale = this.getStaleCache(this.solPriceCache, this.config.solPriceStaleTtlMs);
     if (
-      this.solPriceCache &&
-      Date.now() - this.solPriceCache.timestamp <= this.config.solPriceCacheTtlMs
+      stale &&
+      this.solPriceCache.lastErrorAt &&
+      Date.now() - this.solPriceCache.lastErrorAt <= this.config.solPriceFailureCooldownMs
     ) {
-      return this.solPriceCache.value;
+      return stale.value;
     }
 
     try {
@@ -84,10 +91,26 @@ class MarketData {
       const value = response.data?.[this.config.baseTokenMint]?.usdPrice || 0;
       this.solPriceCache = {
         value,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        lastErrorAt: null,
+        lastErrorMessage: null
       };
       return value;
     } catch (error) {
+      const fallback = this.getStaleCache(this.solPriceCache, this.config.solPriceStaleTtlMs);
+      if (this.solPriceCache) {
+        this.solPriceCache.lastErrorAt = Date.now();
+        this.solPriceCache.lastErrorMessage = error.message;
+      }
+
+      if (fallback) {
+        this.logger.warn('Failed to fetch SOL price; using cached SOL price', {
+          error: error.message,
+          ageMs: Math.round(fallback.ageMs)
+        });
+        return fallback.value;
+      }
+
       this.logger.error('Failed to fetch SOL price', error.message);
       throw error;
     }
