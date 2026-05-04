@@ -4,7 +4,9 @@ class SolanaRpcRouter {
   constructor(config, logger) {
     this.config = config;
     this.logger = logger;
-    this.primaryDowngradeMs = 30000;
+    this.primaryDowngradeMs = Number.isFinite(config.solanaRpcPrimaryDowngradeMs)
+      ? Math.max(config.solanaRpcPrimaryDowngradeMs, 30000)
+      : 300000;
     this.primaryDegradedUntil = 0;
     this.lastPrimaryFailureAt = null;
     this.lastPrimaryFailureReason = null;
@@ -111,7 +113,7 @@ class SolanaRpcRouter {
     }
 
     if (Date.now() < this.primaryDegradedUntil) {
-      return [this.fallback, this.primary];
+      return [this.fallback];
     }
 
     return [this.primary, this.fallback];

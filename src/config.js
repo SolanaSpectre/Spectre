@@ -22,6 +22,10 @@ class Config {
     return process.env.SOLANA_RPC_FALLBACK_WEBSOCKET_URL || null;
   }
 
+  static get solanaRpcPrimaryDowngradeMs() {
+    return parseInt(process.env.SOLANA_RPC_PRIMARY_DOWNGRADE_MS || '300000', 10);
+  }
+
   static get heliusEnhancedWebsocketUrl() {
     return process.env.HELIUS_ENHANCED_WEBSOCKET_URL || null;
   }
