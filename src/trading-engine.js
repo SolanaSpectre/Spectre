@@ -356,7 +356,6 @@ class TradingEngine {
 
     this.resetCandidateSnapshotCounter();
     this.syncTelegramSightings();
-    await this.refreshCapitalState();
     await this.updatePositions();
     this.checkPreMigrationPaperPositions();
     await this.refreshCapitalState();
