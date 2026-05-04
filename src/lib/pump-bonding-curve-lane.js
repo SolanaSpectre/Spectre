@@ -210,8 +210,6 @@ class PumpBondingCurveLane {
 
   noteSuccessfulFetch() {
     this.recentFailureTimestamps = [];
-    this.globalBackoffUntil = 0;
-    this.stats.globalBackoffUntil = null;
   }
 
   noteFailedFetch(now) {
