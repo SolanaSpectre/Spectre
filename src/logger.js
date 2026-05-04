@@ -5,6 +5,7 @@ const path = require('path');
 const ISSUE_LEVELS = new Set(['error', 'warn']);
 const SECRET_KEY_PATTERN = /(secret|private|api[_-]?key|token|password|session|authorization|wallet)/i;
 const MAX_RECENT_ISSUES = 80;
+const MAX_SUMMARY_GROUPS = 25;
 
 function redactString(value) {
   return String(value)
@@ -36,6 +37,49 @@ function sanitize(value, key = '') {
   return String(value);
 }
 
+function summarizeIssues(recent) {
+  const groups = new Map();
+
+  for (const issue of recent) {
+    const key = `${issue.level}:${issue.message}`;
+    const group = groups.get(key) || {
+      level: issue.level,
+      message: issue.message,
+      count: 0,
+      firstAt: issue.timestamp,
+      lastAt: issue.timestamp,
+      latestData: null
+    };
+
+    group.count += 1;
+    group.lastAt = issue.timestamp;
+    if (issue.data !== null && issue.data !== undefined) {
+      group.latestData = issue.data;
+    }
+    groups.set(key, group);
+  }
+
+  const byMessage = Array.from(groups.values()).sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    return String(b.lastAt).localeCompare(String(a.lastAt));
+  });
+
+  const byLevel = recent.reduce(
+    (acc, issue) => {
+      acc[issue.level] = (acc[issue.level] || 0) + 1;
+      return acc;
+    },
+    { warn: 0, error: 0 }
+  );
+
+  return {
+    totalRecentIssues: recent.length,
+    byLevel,
+    uniqueIssueGroups: byMessage.length,
+    topIssues: byMessage.slice(0, MAX_SUMMARY_GROUPS)
+  };
+}
+
 class Logger {
   constructor(level = 'info') {
     this.level = level;
@@ -48,6 +92,7 @@ class Logger {
     this.issueMirrorEnabled = process.env.LIVE_ISSUES_LOG_ENABLED !== 'false';
     this.issueMirrorDir = process.env.LIVE_ISSUES_LOG_DIR || path.join(process.cwd(), 'run-logs');
     this.issueMirrorPath = path.join(this.issueMirrorDir, 'live-terminal-issues.json');
+    this.issueMirrorSummaryPath = path.join(this.issueMirrorDir, 'live-terminal-issues-summary.json');
     this.issueMirrorJsonlPath = path.join(this.issueMirrorDir, 'live-terminal-issues.jsonl');
   }
 
@@ -138,6 +183,7 @@ class Logger {
 
       recent.push(issue);
       recent = recent.slice(-MAX_RECENT_ISSUES);
+      const summary = summarizeIssues(recent);
       fs.writeFileSync(
         this.issueMirrorPath,
         `${JSON.stringify({
@@ -146,6 +192,17 @@ class Logger {
           note: 'Recent WARN/ERROR logger output for Codex inspection during paper runs. Secret-looking fields are redacted.',
           count: recent.length,
           recent
+        }, null, 2)}\n`,
+        'utf8'
+      );
+      fs.writeFileSync(
+        this.issueMirrorSummaryPath,
+        `${JSON.stringify({
+          generatedAt: issue.timestamp,
+          mode: 'local_runtime_issue_summary',
+          note: 'Grouped WARN/ERROR logger output for quick Codex inspection during paper runs. Secret-looking fields are redacted.',
+          sourcePath: this.issueMirrorPath,
+          ...summary
         }, null, 2)}\n`,
         'utf8'
       );
