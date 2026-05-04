@@ -91,12 +91,28 @@ class Config {
     return process.env.RAYDIUM_API_BASE_URL || 'https://api-v3.raydium.io';
   }
 
+  static get raydiumPoolCacheTtlMs() {
+    return parseInt(process.env.RAYDIUM_POOL_CACHE_TTL_MS || '60000', 10);
+  }
+
+  static get raydiumPoolStaleTtlMs() {
+    return parseInt(process.env.RAYDIUM_POOL_STALE_TTL_MS || '300000', 10);
+  }
+
   static get meteoraApiBaseUrl() {
     return process.env.METEORA_API_BASE_URL || 'https://dlmm.datapi.meteora.ag';
   }
 
   static get meteoraEnabled() {
     return process.env.METEORA_ENABLED !== 'false';
+  }
+
+  static get meteoraPoolCacheTtlMs() {
+    return parseInt(process.env.METEORA_POOL_CACHE_TTL_MS || '60000', 10);
+  }
+
+  static get meteoraPoolStaleTtlMs() {
+    return parseInt(process.env.METEORA_POOL_STALE_TTL_MS || '300000', 10);
   }
 
   static get moonshotApiBaseUrl() {
@@ -1585,6 +1601,10 @@ class Config {
       { key: 'liquidityThresholdSol', value: this.liquidityThresholdSol, min: 1 },
       { key: 'maxSignalsPerCycle', value: this.maxSignalsPerCycle, min: 1 },
       { key: 'solPriceCacheTtlMs', value: this.solPriceCacheTtlMs, min: 1000 },
+      { key: 'raydiumPoolCacheTtlMs', value: this.raydiumPoolCacheTtlMs, min: 1000 },
+      { key: 'raydiumPoolStaleTtlMs', value: this.raydiumPoolStaleTtlMs, min: 1000 },
+      { key: 'meteoraPoolCacheTtlMs', value: this.meteoraPoolCacheTtlMs, min: 1000 },
+      { key: 'meteoraPoolStaleTtlMs', value: this.meteoraPoolStaleTtlMs, min: 1000 },
       { key: 'jupiterMinRequestIntervalMs', value: this.jupiterMinRequestIntervalMs, min: 0 },
       { key: 'profitTakeThreshold', value: this.profitTakeThreshold, min: 0.1 },
       { key: 'profitTakePercentage', value: this.profitTakePercentage, min: 0.1, max: 1.0 },

@@ -20,6 +20,8 @@ class MarketData {
     this.birdeyeCooldownUntil = 0;
     this.birdeyeSuppressedTokens = new Map();
     this.dexScreenerCache = new Map();
+    this.raydiumPoolCache = null;
+    this.meteoraPoolCache = null;
     this.http = axios.create({
       proxy: config.disableEnvProxy ? false : undefined,
       timeout: 10000
@@ -41,6 +43,24 @@ class MarketData {
       'x-chain': 'solana',
       ...(this.config.birdeyeApiKey ? { 'X-API-KEY': this.config.birdeyeApiKey } : {})
     };
+  }
+
+  getFreshCache(cache, ttlMs) {
+    if (!cache) {
+      return null;
+    }
+
+    const ageMs = Date.now() - cache.timestamp;
+    return ageMs <= ttlMs ? cache.value : null;
+  }
+
+  getStaleCache(cache, staleTtlMs) {
+    if (!cache) {
+      return null;
+    }
+
+    const ageMs = Date.now() - cache.timestamp;
+    return ageMs <= staleTtlMs ? { value: cache.value, ageMs } : null;
   }
 
   async getSolanaPrice() {
@@ -91,6 +111,20 @@ class MarketData {
   }
 
   async getRaydiumPools() {
+    const cached = this.getFreshCache(this.raydiumPoolCache, this.config.raydiumPoolCacheTtlMs);
+    if (cached) {
+      return cached;
+    }
+
+    const stale = this.getStaleCache(this.raydiumPoolCache, this.config.raydiumPoolStaleTtlMs);
+    if (
+      stale &&
+      this.raydiumPoolCache.lastErrorAt &&
+      Date.now() - this.raydiumPoolCache.lastErrorAt <= this.config.raydiumPoolCacheTtlMs
+    ) {
+      return stale.value;
+    }
+
     try {
       const response = await this.http.get(`${this.raydiumApi}/pools/info/list`, {
         params: {
@@ -103,8 +137,27 @@ class MarketData {
       });
 
       const pools = response.data?.data?.data || [];
-      return pools.map((pool) => this.normalizeRaydiumPool(pool)).filter(Boolean);
+      const normalized = pools.map((pool) => this.normalizeRaydiumPool(pool)).filter(Boolean);
+      this.raydiumPoolCache = {
+        timestamp: Date.now(),
+        value: normalized,
+        lastErrorAt: null
+      };
+      return normalized;
     } catch (error) {
+      const fallback = this.getStaleCache(this.raydiumPoolCache, this.config.raydiumPoolStaleTtlMs);
+      if (this.raydiumPoolCache) {
+        this.raydiumPoolCache.lastErrorAt = Date.now();
+      }
+
+      if (fallback) {
+        this.logger.warn('Failed to fetch Raydium pools; using cached Raydium pool snapshot', {
+          error: error.message,
+          ageMs: Math.round(fallback.ageMs)
+        });
+        return fallback.value;
+      }
+
       this.logger.warn('Failed to fetch Raydium pools; continuing without Raydium pool snapshot', error.message);
       return [];
     }
@@ -113,6 +166,20 @@ class MarketData {
   async getMeteoraPools() {
     if (!this.config.meteoraEnabled) {
       return [];
+    }
+
+    const cached = this.getFreshCache(this.meteoraPoolCache, this.config.meteoraPoolCacheTtlMs);
+    if (cached) {
+      return cached;
+    }
+
+    const stale = this.getStaleCache(this.meteoraPoolCache, this.config.meteoraPoolStaleTtlMs);
+    if (
+      stale &&
+      this.meteoraPoolCache.lastErrorAt &&
+      Date.now() - this.meteoraPoolCache.lastErrorAt <= this.config.meteoraPoolCacheTtlMs
+    ) {
+      return stale.value;
     }
 
     try {
@@ -127,8 +194,27 @@ class MarketData {
         ? response.data
         : response.data?.data || response.data?.pools || [];
 
-      return pools.map((pool) => this.normalizeMeteoraPool(pool)).filter(Boolean);
+      const normalized = pools.map((pool) => this.normalizeMeteoraPool(pool)).filter(Boolean);
+      this.meteoraPoolCache = {
+        timestamp: Date.now(),
+        value: normalized,
+        lastErrorAt: null
+      };
+      return normalized;
     } catch (error) {
+      const fallback = this.getStaleCache(this.meteoraPoolCache, this.config.meteoraPoolStaleTtlMs);
+      if (this.meteoraPoolCache) {
+        this.meteoraPoolCache.lastErrorAt = Date.now();
+      }
+
+      if (fallback) {
+        this.logger.warn('Failed to fetch Meteora pools; using cached Meteora pool snapshot', {
+          error: error.message,
+          ageMs: Math.round(fallback.ageMs)
+        });
+        return fallback.value;
+      }
+
       this.logger.warn('Failed to fetch Meteora pools; continuing without Meteora pool snapshot', error.message);
       return [];
     }
