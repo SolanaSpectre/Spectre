@@ -131,6 +131,10 @@ class Config {
     return parseInt(process.env.PUMP_BONDING_CURVE_REFRESH_INTERVAL_MS || '15000', 10);
   }
 
+  static get pumpBondingCurveFailureCooldownMs() {
+    return parseInt(process.env.PUMP_BONDING_CURVE_FAILURE_COOLDOWN_MS || '120000', 10);
+  }
+
   static get pumpBondingCurveMaxTrackedMints() {
     return parseInt(process.env.PUMP_BONDING_CURVE_MAX_TRACKED_MINTS || '5000', 10);
   }

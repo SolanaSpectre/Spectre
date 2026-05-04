@@ -23,6 +23,7 @@ class PumpBondingCurveLane {
     this.connection = connection;
     this.enabled = config.pumpBondingCurveLaneEnabled !== false;
     this.refreshIntervalMs = config.pumpBondingCurveRefreshIntervalMs;
+    this.failureCooldownMs = config.pumpBondingCurveFailureCooldownMs;
     this.maxTrackedMints = config.pumpBondingCurveMaxTrackedMints;
     this.maxFetchesPerCycle = config.pumpBondingCurveMaxFetchesPerCycle;
     this.programId = new PublicKey(config.pumpBondingCurveProgramId || DEFAULT_PUMP_FUN_PROGRAM_ID);
@@ -36,6 +37,7 @@ class PumpBondingCurveLane {
       decoded: 0,
       missingAccounts: 0,
       skipped: 0,
+      skippedFailureCooldown: 0,
       errors: 0,
       lastUpdateAt: null
     };
@@ -58,6 +60,16 @@ class PumpBondingCurveLane {
     const forceRefresh = Boolean(options.forceRefresh);
     const now = Date.now();
     const existing = this.states.get(mint);
+    if (existing && !options.bypassFailureCooldown && this.isFailureCooldownActive(existing, now)) {
+      this.stats.skipped += 1;
+      this.stats.skippedFailureCooldown += 1;
+      return {
+        ...this.toSummary(existing),
+        refreshed: false,
+        skipReason: 'FAILURE_COOLDOWN'
+      };
+    }
+
     if (existing && !forceRefresh && !this.shouldRefresh(existing, now)) {
       this.stats.skipped += 1;
       return {
@@ -118,12 +130,18 @@ class PumpBondingCurveLane {
       };
     } catch (error) {
       this.stats.errors += 1;
+      const failed = this.mergeState(mint, tokenMeta, {
+        bondingCurveAddress: this.safeDeriveBondingCurveAddress(mint),
+        lastErrorAt: now,
+        lastErrorAtIso: new Date(now).toISOString(),
+        lastErrorMessage: error.message
+      });
       this.logger?.warn?.('Pump bonding curve lookup failed', {
         mint,
         error: error.message
       });
-      return existing ? {
-        ...this.toSummary(existing),
+      return failed ? {
+        ...this.toSummary(failed),
         refreshed: false
       } : null;
     } finally {
@@ -132,6 +150,10 @@ class PumpBondingCurveLane {
   }
 
   shouldRefresh(state, now) {
+    if (this.isFailureCooldownActive(state, now)) {
+      return false;
+    }
+
     if (!state.lastFetchAt) {
       return true;
     }
@@ -150,6 +172,22 @@ class PumpBondingCurveLane {
 
     const existing = this.states.get(mint);
     return !existing || this.shouldRefresh(existing, now);
+  }
+
+  isFailureCooldownActive(state, now) {
+    if (!state?.lastErrorAt || !Number.isFinite(this.failureCooldownMs) || this.failureCooldownMs <= 0) {
+      return false;
+    }
+
+    return now - Number(state.lastErrorAt) < this.failureCooldownMs;
+  }
+
+  safeDeriveBondingCurveAddress(mint) {
+    try {
+      return this.deriveBondingCurveAddress(mint).toBase58();
+    } catch (_) {
+      return null;
+    }
   }
 
   decodeBondingCurveAccount(data) {
@@ -287,6 +325,8 @@ class PumpBondingCurveLane {
       priceSol: state.priceSol ?? null,
       creator: state.creator || null,
       isMayhemMode: Boolean(state.isMayhemMode),
+      lastErrorAt: state.lastErrorAtIso || null,
+      lastErrorMessage: state.lastErrorMessage || null,
       lastFetchAt: state.lastFetchAtIso || null
     };
   }
