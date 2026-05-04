@@ -151,6 +151,18 @@ class Config {
     return parseInt(process.env.PUMP_BONDING_CURVE_FAILURE_COOLDOWN_MS || '120000', 10);
   }
 
+  static get pumpBondingCurveGlobalBackoffMs() {
+    return parseInt(process.env.PUMP_BONDING_CURVE_GLOBAL_BACKOFF_MS || '30000', 10);
+  }
+
+  static get pumpBondingCurveGlobalBackoffErrorThreshold() {
+    return parseInt(process.env.PUMP_BONDING_CURVE_GLOBAL_BACKOFF_ERROR_THRESHOLD || '5', 10);
+  }
+
+  static get pumpBondingCurveGlobalBackoffWindowMs() {
+    return parseInt(process.env.PUMP_BONDING_CURVE_GLOBAL_BACKOFF_WINDOW_MS || '15000', 10);
+  }
+
   static get pumpBondingCurveMaxTrackedMints() {
     return parseInt(process.env.PUMP_BONDING_CURVE_MAX_TRACKED_MINTS || '5000', 10);
   }
@@ -1578,6 +1590,10 @@ class Config {
       { key: 'preMigrationPaperHighConvictionFirstSightStopLossPct', value: this.preMigrationPaperHighConvictionFirstSightStopLossPct, min: 0.001, max: 1 },
       { key: 'preMigrationPaperHighConvictionFirstSightMaxHoldSeconds', value: this.preMigrationPaperHighConvictionFirstSightMaxHoldSeconds, min: 1 },
       { key: 'pumpBondingCurveRefreshIntervalMs', value: this.pumpBondingCurveRefreshIntervalMs, min: 1000 },
+      { key: 'pumpBondingCurveFailureCooldownMs', value: this.pumpBondingCurveFailureCooldownMs, min: 1000 },
+      { key: 'pumpBondingCurveGlobalBackoffMs', value: this.pumpBondingCurveGlobalBackoffMs, min: 1000 },
+      { key: 'pumpBondingCurveGlobalBackoffErrorThreshold', value: this.pumpBondingCurveGlobalBackoffErrorThreshold, min: 1 },
+      { key: 'pumpBondingCurveGlobalBackoffWindowMs', value: this.pumpBondingCurveGlobalBackoffWindowMs, min: 1000 },
       { key: 'pumpBondingCurveMaxTrackedMints', value: this.pumpBondingCurveMaxTrackedMints, min: 1 },
       { key: 'pumpBondingCurveMaxFetchesPerCycle', value: this.pumpBondingCurveMaxFetchesPerCycle, min: 1 },
       { key: 'walletIntelRefreshIntervalMs', value: this.walletIntelRefreshIntervalMs, min: 1000 },

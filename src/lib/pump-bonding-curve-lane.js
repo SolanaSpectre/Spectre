@@ -24,11 +24,16 @@ class PumpBondingCurveLane {
     this.enabled = config.pumpBondingCurveLaneEnabled !== false;
     this.refreshIntervalMs = config.pumpBondingCurveRefreshIntervalMs;
     this.failureCooldownMs = config.pumpBondingCurveFailureCooldownMs;
+    this.globalBackoffMs = config.pumpBondingCurveGlobalBackoffMs;
+    this.globalBackoffErrorThreshold = config.pumpBondingCurveGlobalBackoffErrorThreshold;
+    this.globalBackoffWindowMs = config.pumpBondingCurveGlobalBackoffWindowMs;
     this.maxTrackedMints = config.pumpBondingCurveMaxTrackedMints;
     this.maxFetchesPerCycle = config.pumpBondingCurveMaxFetchesPerCycle;
     this.programId = new PublicKey(config.pumpBondingCurveProgramId || DEFAULT_PUMP_FUN_PROGRAM_ID);
     this.states = new Map();
     this.inFlight = new Set();
+    this.recentFailureTimestamps = [];
+    this.globalBackoffUntil = 0;
     this.stats = {
       enabled: this.enabled,
       trackedMints: 0,
@@ -38,6 +43,9 @@ class PumpBondingCurveLane {
       missingAccounts: 0,
       skipped: 0,
       skippedFailureCooldown: 0,
+      skippedGlobalBackoff: 0,
+      globalBackoffActivations: 0,
+      globalBackoffUntil: null,
       errors: 0,
       lastUpdateAt: null
     };
@@ -60,6 +68,18 @@ class PumpBondingCurveLane {
     const forceRefresh = Boolean(options.forceRefresh);
     const now = Date.now();
     const existing = this.states.get(mint);
+
+    if (!options.bypassGlobalBackoff && this.isGlobalBackoffActive(now)) {
+      this.stats.skipped += 1;
+      this.stats.skippedGlobalBackoff += 1;
+      this.stats.globalBackoffUntil = new Date(this.globalBackoffUntil).toISOString();
+      return existing ? {
+        ...this.toSummary(existing),
+        refreshed: false,
+        skipReason: 'GLOBAL_BACKOFF'
+      } : null;
+    }
+
     if (existing && !options.bypassFailureCooldown && this.isFailureCooldownActive(existing, now)) {
       this.stats.skipped += 1;
       this.stats.skippedFailureCooldown += 1;
@@ -94,6 +114,7 @@ class PumpBondingCurveLane {
       const bondingCurveAddress = this.deriveBondingCurveAddress(mint);
       const accountInfo = await this.connection.getAccountInfo(bondingCurveAddress, 'confirmed');
       this.stats.fetches += 1;
+      this.noteSuccessfulFetch();
 
       if (!accountInfo?.data) {
         const missing = this.mergeState(mint, tokenMeta, {
@@ -130,6 +151,7 @@ class PumpBondingCurveLane {
       };
     } catch (error) {
       this.stats.errors += 1;
+      this.noteFailedFetch(now);
       const failed = this.mergeState(mint, tokenMeta, {
         bondingCurveAddress: this.safeDeriveBondingCurveAddress(mint),
         lastErrorAt: now,
@@ -150,6 +172,10 @@ class PumpBondingCurveLane {
   }
 
   shouldRefresh(state, now) {
+    if (this.isGlobalBackoffActive(now)) {
+      return false;
+    }
+
     if (this.isFailureCooldownActive(state, now)) {
       return false;
     }
@@ -170,8 +196,58 @@ class PumpBondingCurveLane {
       return false;
     }
 
+    if (this.isGlobalBackoffActive(now)) {
+      return false;
+    }
+
     const existing = this.states.get(mint);
     return !existing || this.shouldRefresh(existing, now);
+  }
+
+  isGlobalBackoffActive(now) {
+    return Number.isFinite(this.globalBackoffUntil) && this.globalBackoffUntil > now;
+  }
+
+  noteSuccessfulFetch() {
+    this.recentFailureTimestamps = [];
+    this.globalBackoffUntil = 0;
+    this.stats.globalBackoffUntil = null;
+  }
+
+  noteFailedFetch(now) {
+    if (
+      !Number.isFinite(this.globalBackoffMs) ||
+      this.globalBackoffMs <= 0 ||
+      !Number.isFinite(this.globalBackoffWindowMs) ||
+      this.globalBackoffWindowMs <= 0 ||
+      !Number.isFinite(this.globalBackoffErrorThreshold) ||
+      this.globalBackoffErrorThreshold <= 0
+    ) {
+      return;
+    }
+
+    const windowStart = now - this.globalBackoffWindowMs;
+    this.recentFailureTimestamps = this.recentFailureTimestamps
+      .filter((timestamp) => timestamp >= windowStart);
+    this.recentFailureTimestamps.push(now);
+
+    if (this.recentFailureTimestamps.length < this.globalBackoffErrorThreshold) {
+      return;
+    }
+
+    const nextBackoffUntil = now + this.globalBackoffMs;
+    if (nextBackoffUntil > this.globalBackoffUntil) {
+      this.globalBackoffUntil = nextBackoffUntil;
+      this.stats.globalBackoffActivations += 1;
+      this.stats.globalBackoffUntil = new Date(this.globalBackoffUntil).toISOString();
+      this.logger?.warn?.('Pump bonding curve global backoff activated', {
+        backoffMs: this.globalBackoffMs,
+        errorsInWindow: this.recentFailureTimestamps.length,
+        windowMs: this.globalBackoffWindowMs
+      });
+    }
+
+    this.recentFailureTimestamps = [];
   }
 
   isFailureCooldownActive(state, now) {
@@ -335,7 +411,11 @@ class PumpBondingCurveLane {
     return {
       ...this.stats,
       trackedMints: this.states.size,
-      inFlight: this.inFlight.size
+      inFlight: this.inFlight.size,
+      globalBackoffActive: this.isGlobalBackoffActive(Date.now()),
+      globalBackoffUntil: this.globalBackoffUntil
+        ? new Date(this.globalBackoffUntil).toISOString()
+        : null
     };
   }
 }
