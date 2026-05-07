@@ -598,7 +598,12 @@ function buildSummary(docs) {
   lines.push(`- Clusters / priority / matched outcomes: ${walletCorrSummary.clusters ?? 'n/a'} / ${walletCorrSummary.priorityClusters ?? 'n/a'} / ${walletCorrSummary.matchedOutcomeDetails ?? 'n/a'}`);
   lines.push(`- Broad-only / false-negative-detail / unknown: ${walletCorrSummary.broadOutcomeMatches ?? 'n/a'} / ${walletCorrSummary.matchedFalseNegativeDetails ?? 'n/a'} / ${walletCorrSummary.unknownOutcomeDetails ?? 'n/a'}`);
   lines.push(`- High-score / multi-wallet / sniper-crowding clusters: ${walletCorrSummary.highScoreClusters ?? 'n/a'} / ${walletCorrSummary.multiWalletClusters ?? 'n/a'} / ${walletCorrSummary.sniperCrowdingClusters ?? 'n/a'}`);
+  lines.push(`- Clean early support / mixed-or-late clusters: ${walletCorrSummary.cleanEarlySupportClusters ?? 'n/a'} / ${walletCorrSummary.mixedOrLateClusters ?? 'n/a'}`);
   lines.push(`- Interpretation: ${walletCorrSummary.interpretation || 'n/a'}`);
+  if (walletCorrSummary.clusterArchetypeCounts && Object.keys(walletCorrSummary.clusterArchetypeCounts).length) {
+    lines.push('- Cluster archetypes:');
+    objectLines(walletCorrSummary.clusterArchetypeCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  }
   lines.push('- Outcome detail sources:');
   objectLines(walletCorrSummary.outcomeDetailSourceCounts, 8).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Matched outcome counts:');
@@ -606,7 +611,7 @@ function buildSummary(docs) {
   const walletCohorts = walletCorrSummary.cohortComparisons || {};
   if (Object.keys(walletCohorts).length) {
     lines.push('- Cohort lift vs full outcome ledger:');
-    ['allClusters', 'priorityClusters', 'multiWalletClusters', 'sniperCrowdingClusters']
+    ['allClusters', 'priorityClusters', 'cleanEarlySupportClusters', 'sniperCrowdingClusters', 'mixedOrLateClusters']
       .filter((key) => walletCohorts[key])
       .forEach((key) => lines.push(`  - ${summarizeWalletCohortComparison(key, walletCohorts[key])}`));
   }

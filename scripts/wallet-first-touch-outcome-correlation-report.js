@@ -79,6 +79,32 @@ function riskBucket(riskFlags = []) {
     : 'no_sniper_crowding';
 }
 
+function clusterArchetype(cluster = {}) {
+  const riskFlags = Array.isArray(cluster.riskFlags) ? cluster.riskFlags : [];
+  const phases = Array.isArray(cluster.phases) ? cluster.phases : [];
+  const uniqueWalletCount = num(cluster.uniqueWalletCount, 0);
+  const buyWalletCount = num(cluster.buyWalletCount, 0);
+  const sellWalletCount = num(cluster.sellWalletCount, 0);
+  const totalFirstTouchSol = num(cluster.totalFirstTouchSol, 0);
+  const earliestSeconds = nullableNum(cluster.earliestSecondsSinceCreate);
+  const windowSeconds = nullableNum(cluster.firstTouchWindowSeconds);
+
+  if (riskFlags.includes('sniper_crowding')) return 'sniper_crowded_cluster';
+  if (sellWalletCount > 0 || phases.includes('post_migration')) return 'mixed_or_late_cluster';
+  if (
+    uniqueWalletCount >= 3
+    && buyWalletCount >= 3
+    && totalFirstTouchSol >= 3
+    && (earliestSeconds === null || earliestSeconds <= 60)
+    && (windowSeconds === null || windowSeconds <= 90)
+  ) {
+    return 'clean_early_support_cluster';
+  }
+  if (uniqueWalletCount >= 3) return 'multi_wallet_watch_cluster';
+  if (uniqueWalletCount >= 2) return 'pair_watch_cluster';
+  return 'single_wallet_touch';
+}
+
 function outcomeRank(outcome) {
   const ranks = {
     MIGRATED_OR_COMPLETED: 6,
@@ -172,6 +198,7 @@ function compactCluster(cluster, outcomeByMint) {
     walletClusterBucket: walletClusterBucket(cluster.uniqueWalletCount),
     solBucket: solBucket(cluster.totalFirstTouchSol),
     riskBucket: riskBucket(riskFlags),
+    clusterArchetype: clusterArchetype(cluster),
     matchedOutcomeDetail,
     matchedFalseNegativeDetail: Boolean(outcome?.hasFalseNegativeDetail),
     outcomeDetailSource: outcome?.detailSource || 'missing',
@@ -299,12 +326,16 @@ function buildReport() {
   const highScoreClusters = clusters.filter((row) => row.firstTouchScore >= 75);
   const multiWalletClusters = clusters.filter((row) => row.uniqueWalletCount >= 3);
   const sniperCrowdingClusters = clusters.filter((row) => row.riskFlags.includes('sniper_crowding'));
+  const cleanEarlySupportClusters = clusters.filter((row) => row.clusterArchetype === 'clean_early_support_cluster');
+  const mixedOrLateClusters = clusters.filter((row) => row.clusterArchetype === 'mixed_or_late_cluster');
   const cohortComparisons = {
     allClusters: cohortComparison('allClusters', clusters, base),
     priorityClusters: cohortComparison('priorityClusters', priorityClusters, base),
     highScoreClusters: cohortComparison('highScoreClusters', highScoreClusters, base),
     multiWalletClusters: cohortComparison('multiWalletClusters', multiWalletClusters, base),
-    sniperCrowdingClusters: cohortComparison('sniperCrowdingClusters', sniperCrowdingClusters, base)
+    sniperCrowdingClusters: cohortComparison('sniperCrowdingClusters', sniperCrowdingClusters, base),
+    cleanEarlySupportClusters: cohortComparison('cleanEarlySupportClusters', cleanEarlySupportClusters, base),
+    mixedOrLateClusters: cohortComparison('mixedOrLateClusters', mixedOrLateClusters, base)
   };
 
   const topMatchedOutcomes = matched
@@ -344,6 +375,8 @@ function buildReport() {
       highScoreClusters: highScoreClusters.length,
       multiWalletClusters: multiWalletClusters.length,
       sniperCrowdingClusters: sniperCrowdingClusters.length,
+      cleanEarlySupportClusters: cleanEarlySupportClusters.length,
+      mixedOrLateClusters: mixedOrLateClusters.length,
       matchedOutcomeDetails: matched.length,
       matchedFalseNegativeDetails: falseNegativeDetailMatched.length,
       broadOutcomeMatches: broadOutcomeMatched.length,
@@ -352,6 +385,7 @@ function buildReport() {
       falseNegativeDetailRate: pct(falseNegativeDetailMatched.length, clusters.length),
       outcomeCounts: countBy(clusters, (row) => row.outcomeLabel),
       knownOutcomeCounts: countBy(matched, (row) => row.outcomeLabel),
+      clusterArchetypeCounts: countBy(clusters, (row) => row.clusterArchetype),
       outcomeDetailSourceCounts: countBy(clusters, (row) => row.outcomeDetailSource),
       baseOutcomeCounts: outcomeLedger.summary?.outcomeCounts || {},
       baseOutcomeRates: base.rates,
@@ -368,10 +402,11 @@ function buildReport() {
     byWalletClusterBucket: summarizeGroups(clusters, 'walletClusterBucket'),
     bySolBucket: summarizeGroups(clusters, 'solBucket'),
     byRiskBucket: summarizeGroups(clusters, 'riskBucket'),
+    byClusterArchetype: summarizeGroups(clusters, 'clusterArchetype'),
     clusters,
     topMatchedOutcomes,
     topUnmatchedClusters,
-    note: 'Report-only wallet first-touch to outcome correlation. Broad outcome labels come from the full outcome ledger; false-negative detail remains separately marked. Unknown outcome detail means the mint was not present in the available outcome ledger, not proof of success or failure. Cohort lift compares cohort outcome rates against full-ledger base rates; matched* fields use only clusters with outcome detail, while non-matched fields retain unmatched clusters in the denominator. Cohorts with weak outcome coverage or tiny denominators must not be used for wallet weighting. Does not change trust tiers, wallet scoring, entries, signals, AI review, or live behavior.'
+    note: 'Report-only wallet first-touch to outcome correlation. Broad outcome labels come from the full outcome ledger; false-negative detail remains separately marked. Cluster archetypes are descriptive only: clean_early_support_cluster means early multi-wallet buy support without sniper_crowding, sniper_crowded_cluster means the existing first-touch risk flag fired, and mixed_or_late_cluster means sells or post-migration touches are present. Unknown outcome detail means the mint was not present in the available outcome ledger, not proof of success or failure. Cohort lift compares cohort outcome rates against full-ledger base rates; matched* fields use only clusters with outcome detail, while non-matched fields retain unmatched clusters in the denominator. Cohorts with weak outcome coverage or tiny denominators must not be used for wallet weighting. Does not change trust tiers, wallet scoring, entries, signals, AI review, or live behavior.'
   };
 }
 
