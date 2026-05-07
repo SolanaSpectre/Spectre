@@ -310,6 +310,57 @@ function cohortComparison(label, rows, base) {
   };
 }
 
+function paperPnlByGroup(rows, key) {
+  const groups = {};
+  for (const row of rows) {
+    const groupKey = row[key] || 'UNKNOWN';
+    const paperEntries = num(row.outcome?.paperEntries, 0);
+    const paperPnlSol = nullableNum(row.outcome?.paperPnlSol);
+    const entered = paperEntries > 0 || ['PAPER_WIN', 'PAPER_LOSS'].includes(row.outcomeLabel);
+
+    if (!groups[groupKey]) {
+      groups[groupKey] = {
+        clusters: 0,
+        paperEnteredClusters: 0,
+        paperWins: 0,
+        paperLosses: 0,
+        totalPaperEntries: 0,
+        totalPaperPnlSol: 0,
+        averagePaperPnlSol: null,
+        migrationOrNearCount: 0,
+        interestingOrBetterCount: 0,
+        movementWithoutPaperProfit: false
+      };
+    }
+
+    const group = groups[groupKey];
+    group.clusters += 1;
+    group.totalPaperEntries += paperEntries;
+    if (entered) group.paperEnteredClusters += 1;
+    if (row.outcomeLabel === 'PAPER_WIN') group.paperWins += 1;
+    if (row.outcomeLabel === 'PAPER_LOSS') group.paperLosses += 1;
+    if (['MIGRATED_OR_COMPLETED', 'NEAR_MIGRATION_85', 'PAPER_WIN'].includes(row.outcomeLabel)) {
+      group.migrationOrNearCount += 1;
+    }
+    if (['MIGRATED_OR_COMPLETED', 'NEAR_MIGRATION_85', 'PAPER_WIN', 'INTERESTING_75'].includes(row.outcomeLabel)) {
+      group.interestingOrBetterCount += 1;
+    }
+    if (paperPnlSol !== null) {
+      group.totalPaperPnlSol = Number((group.totalPaperPnlSol + paperPnlSol).toFixed(6));
+    }
+  }
+
+  for (const group of Object.values(groups)) {
+    group.averagePaperPnlSol = group.paperEnteredClusters > 0
+      ? Number((group.totalPaperPnlSol / group.paperEnteredClusters).toFixed(6))
+      : null;
+    group.paperWinRate = pct(group.paperWins, group.paperWins + group.paperLosses);
+    group.movementWithoutPaperProfit = group.interestingOrBetterCount > 0 && group.totalPaperPnlSol <= 0;
+  }
+
+  return groups;
+}
+
 function buildReport() {
   const firstTouch = readJson(FIRST_TOUCH_PATH);
   const outcomeLedger = readJson(OUTCOME_LEDGER_PATH);
@@ -386,6 +437,7 @@ function buildReport() {
       outcomeCounts: countBy(clusters, (row) => row.outcomeLabel),
       knownOutcomeCounts: countBy(matched, (row) => row.outcomeLabel),
       clusterArchetypeCounts: countBy(clusters, (row) => row.clusterArchetype),
+      paperPnlByArchetype: paperPnlByGroup(clusters, 'clusterArchetype'),
       outcomeDetailSourceCounts: countBy(clusters, (row) => row.outcomeDetailSource),
       baseOutcomeCounts: outcomeLedger.summary?.outcomeCounts || {},
       baseOutcomeRates: base.rates,
@@ -406,7 +458,7 @@ function buildReport() {
     clusters,
     topMatchedOutcomes,
     topUnmatchedClusters,
-    note: 'Report-only wallet first-touch to outcome correlation. Broad outcome labels come from the full outcome ledger; false-negative detail remains separately marked. Cluster archetypes are descriptive only: clean_early_support_cluster means early multi-wallet buy support without sniper_crowding, sniper_crowded_cluster means the existing first-touch risk flag fired, and mixed_or_late_cluster means sells or post-migration touches are present. Unknown outcome detail means the mint was not present in the available outcome ledger, not proof of success or failure. Cohort lift compares cohort outcome rates against full-ledger base rates; matched* fields use only clusters with outcome detail, while non-matched fields retain unmatched clusters in the denominator. Cohorts with weak outcome coverage or tiny denominators must not be used for wallet weighting. Does not change trust tiers, wallet scoring, entries, signals, AI review, or live behavior.'
+    note: 'Report-only wallet first-touch to outcome correlation. Broad outcome labels come from the full outcome ledger; false-negative detail remains separately marked. Cluster archetypes are descriptive only: clean_early_support_cluster means early multi-wallet buy support without sniper_crowding, sniper_crowded_cluster means the existing first-touch risk flag fired, and mixed_or_late_cluster means sells or post-migration touches are present. paperPnlByArchetype separates movement detection from realized paper outcome; movementWithoutPaperProfit means the archetype found interesting/migrating mints but summed paper PnL is not positive. Unknown outcome detail means the mint was not present in the available outcome ledger, not proof of success or failure. Cohort lift compares cohort outcome rates against full-ledger base rates; matched* fields use only clusters with outcome detail, while non-matched fields retain unmatched clusters in the denominator. Cohorts with weak outcome coverage or tiny denominators must not be used for wallet weighting. Does not change trust tiers, wallet scoring, entries, signals, AI review, or live behavior.'
   };
 }
 

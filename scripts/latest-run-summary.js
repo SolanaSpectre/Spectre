@@ -241,6 +241,11 @@ function summarizeWalletCohortComparison(name, item = {}) {
   return `${name}: clusters=${item.clusters ?? 'n/a'}, matched=${item.matchedClusters ?? 'n/a'} (${pct(item.outcomeCoverageRate)} coverage), migrationOrNear=${item.migrationOrNearCount ?? 'n/a'} (${pct(item.migrationOrNearRate)} vs base ${pct(item.baseMigrationOrNearRate)}, lift=${fmt(item.migrationOrNearLiftVsBase)}x), matchedMigrationOrNear=${item.matchedMigrationOrNearCount ?? 'n/a'} (${pct(item.matchedMigrationOrNearRate)} matched-only, lift=${fmt(item.matchedMigrationOrNearLiftVsBase)}x), interestingOrBetter=${item.interestingOrBetterCount ?? 'n/a'} (${pct(item.interestingOrBetterRate)} vs base ${pct(item.baseInterestingOrBetterRate)}, lift=${fmt(item.interestingOrBetterLiftVsBase)}x)${item.tinyDenominatorWarning ? ' | tiny denominator' : ''}`;
 }
 
+function summarizeWalletArchetypePnl(name, item = {}) {
+  const flag = item.movementWithoutPaperProfit ? ' | movement without paper profit' : '';
+  return `${name}: clusters=${item.clusters ?? 'n/a'}, entered=${item.paperEnteredClusters ?? 'n/a'}, paper W/L=${item.paperWins ?? 'n/a'}/${item.paperLosses ?? 'n/a'}, entries=${item.totalPaperEntries ?? 'n/a'}, pnl=${sol(item.totalPaperPnlSol ?? 0, 6)}, avg=${item.averagePaperPnlSol === null || item.averagePaperPnlSol === undefined ? 'n/a' : sol(item.averagePaperPnlSol, 6)}, movement=${item.interestingOrBetterCount ?? 'n/a'}${flag}`;
+}
+
 function summarizeContinuationExitScenario(name, summary = {}) {
   const deltaSol = summary.deltaVsCurrentConfigSol === null || summary.deltaVsCurrentConfigSol === undefined
     ? 'n/a'
@@ -603,6 +608,13 @@ function buildSummary(docs) {
   if (walletCorrSummary.clusterArchetypeCounts && Object.keys(walletCorrSummary.clusterArchetypeCounts).length) {
     lines.push('- Cluster archetypes:');
     objectLines(walletCorrSummary.clusterArchetypeCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  }
+  const walletArchetypePnl = walletCorrSummary.paperPnlByArchetype || {};
+  if (Object.keys(walletArchetypePnl).length) {
+    lines.push('- Paper PnL by archetype:');
+    ['sniper_crowded_cluster', 'clean_early_support_cluster', 'mixed_or_late_cluster', 'multi_wallet_watch_cluster', 'pair_watch_cluster']
+      .filter((key) => walletArchetypePnl[key])
+      .forEach((key) => lines.push(`  - ${summarizeWalletArchetypePnl(key, walletArchetypePnl[key])}`));
   }
   lines.push('- Outcome detail sources:');
   objectLines(walletCorrSummary.outcomeDetailSourceCounts, 8).forEach((line) => lines.push(`  - ${line}`));
