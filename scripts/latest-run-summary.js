@@ -19,7 +19,8 @@ const FILES = {
   noPriorFollowThrough: 'data/reports/no-prior-follow-through-latest.json',
   noPriorDelayedEntry: 'data/reports/no-prior-delayed-entry-replay-latest.json',
   runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json',
-  walletFirstTouchOutcomeCorr: 'data/reports/wallet-first-touch-outcome-corr-latest.json'
+  walletFirstTouchOutcomeCorr: 'data/reports/wallet-first-touch-outcome-corr-latest.json',
+  walletSniperCrowdedReplay: 'data/reports/wallet-sniper-crowded-replay-latest.json'
 };
 
 function parseArgs(argv) {
@@ -246,6 +247,18 @@ function summarizeWalletArchetypePnl(name, item = {}) {
   return `${name}: clusters=${item.clusters ?? 'n/a'}, entered=${item.paperEnteredClusters ?? 'n/a'}, paper W/L=${item.paperWins ?? 'n/a'}/${item.paperLosses ?? 'n/a'}, entries=${item.totalPaperEntries ?? 'n/a'}, pnl=${sol(item.totalPaperPnlSol ?? 0, 6)}, avg=${item.averagePaperPnlSol === null || item.averagePaperPnlSol === undefined ? 'n/a' : sol(item.averagePaperPnlSol, 6)}, movement=${item.interestingOrBetterCount ?? 'n/a'}${flag}`;
 }
 
+function summarizeWalletSniperReplayBucket(name, item = {}) {
+  return `${name}: clusters=${item.clusters ?? 'n/a'}, entered=${item.paperEnteredClusters ?? 'n/a'}, paper W/L=${item.paperWins ?? 'n/a'}/${item.paperLosses ?? 'n/a'}, entries=${item.totalPaperEntries ?? 'n/a'}, pnl=${sol(item.totalPaperPnlSol ?? 0, 6)}, avg=${item.averagePaperPnlSol === null || item.averagePaperPnlSol === undefined ? 'n/a' : sol(item.averagePaperPnlSol, 6)}, movement=${item.interestingOrBetterCount ?? 'n/a'}`;
+}
+
+function summarizeWalletSniperReplayRow(item = {}) {
+  const label = `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim();
+  const failed = Array.isArray(item.failedChecks) && item.failedChecks.length
+    ? ` | fails=${item.failedChecks.join(',')}`
+    : '';
+  return `${label} | gate=${item.passesCurrentGate ? 'pass' : 'fail'} | outcome=${item.outcomeLabel || 'n/a'} | pnl=${item.paperPnlSol === null || item.paperPnlSol === undefined ? 'n/a' : sol(item.paperPnlSol, 6)} | score=${fmt(item.maxScore)} | curve=${fmt(item.maxCurveProgress, 4)} | vol=${fmt(item.maxRecentVolumeSol, 2)} | vel=${fmt(item.maxTradeVelocityPerMin, 2)}${failed}`;
+}
+
 function summarizeContinuationExitScenario(name, summary = {}) {
   const deltaSol = summary.deltaVsCurrentConfigSol === null || summary.deltaVsCurrentConfigSol === undefined
     ? 'n/a'
@@ -470,6 +483,7 @@ function buildSummary(docs) {
   const noPriorDelayedEntry = docs.noPriorDelayedEntry.data || {};
   const runnerRaydiumShadow = docs.runnerRaydiumShadow.data || {};
   const walletFirstTouchOutcomeCorr = docs.walletFirstTouchOutcomeCorr.data || {};
+  const walletSniperCrowdedReplay = docs.walletSniperCrowdedReplay.data || {};
   const lines = [];
 
   const generatedAt = new Date().toISOString();
@@ -615,6 +629,23 @@ function buildSummary(docs) {
     ['sniper_crowded_cluster', 'clean_early_support_cluster', 'mixed_or_late_cluster', 'multi_wallet_watch_cluster', 'pair_watch_cluster']
       .filter((key) => walletArchetypePnl[key])
       .forEach((key) => lines.push(`  - ${summarizeWalletArchetypePnl(key, walletArchetypePnl[key])}`));
+  }
+  const walletSniperSummary = walletSniperCrowdedReplay.summary || {};
+  if (walletSniperSummary.sniperCrowdedClusters !== undefined) {
+    lines.push('- Sniper-crowded current-gate replay:');
+    lines.push(`  - Strategy gate: score>=${fmt(walletSniperCrowdedReplay.strategy?.minScore)}, curve>=${fmt(walletSniperCrowdedReplay.strategy?.minCurveProgress, 4)}, vol>=${fmt(walletSniperCrowdedReplay.strategy?.minRecentVolumeSol, 2)} SOL, velocity>=${fmt(walletSniperCrowdedReplay.strategy?.minTradeVelocityPerMin, 2)}/min`);
+    lines.push(`  - Current-run clusters / gate pass / gate fail: ${walletSniperSummary.currentRunSniperCrowdedClusters ?? 'n/a'} / ${walletSniperSummary.currentRunGatePassClusters ?? 'n/a'} / ${walletSniperSummary.currentRunGateFailClusters ?? 'n/a'} (${pct(walletSniperSummary.currentRunGatePassRate)} pass)${walletSniperSummary.currentRunTinyDenominatorWarning ? ' | tiny denominator' : ''}`);
+    lines.push(`  - ${summarizeWalletSniperReplayBucket('currentRunGatePass', walletSniperSummary.currentRunGatePass || {})}`);
+    lines.push(`  - ${summarizeWalletSniperReplayBucket('currentRunGateFail', walletSniperSummary.currentRunGateFail || {})}`);
+    lines.push(`  - Cumulative context gate pass/fail: ${walletSniperSummary.gatePassClusters ?? 'n/a'} / ${walletSniperSummary.gateFailClusters ?? 'n/a'} of ${walletSniperSummary.sniperCrowdedClusters ?? 'n/a'} (${pct(walletSniperSummary.gatePassRate)} pass)`);
+    lines.push('- Current-run sniper gate failure counts:');
+    objectLines(walletSniperSummary.currentRunFailureCounts, 6).forEach((line) => lines.push(`  - ${line}`));
+    lines.push(`  - Interpretation: ${walletSniperSummary.interpretation || 'n/a'}`);
+    const topSniperPass = topArray(walletSniperCrowdedReplay.topCurrentRunGatePassRows, 3);
+    if (topSniperPass.length) {
+      lines.push('- Top current-run sniper-crowded gate-pass rows:');
+      topSniperPass.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeWalletSniperReplayRow(item)}`));
+    }
   }
   lines.push('- Outcome detail sources:');
   objectLines(walletCorrSummary.outcomeDetailSourceCounts, 8).forEach((line) => lines.push(`  - ${line}`));

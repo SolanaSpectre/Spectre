@@ -52,6 +52,7 @@
     "report:wallet-behavior": "node scripts/report-wallet-behavior.js",
     "report:wallet-first-touch": "node scripts/wallet-first-touch-report.js",
     "report:wallet-first-touch-outcomes": "node scripts/wallet-first-touch-outcome-correlation-report.js",
+    "report:wallet-sniper-crowded-replay": "node scripts/wallet-sniper-crowded-replay-report.js",
     "report:convergence": "node scripts/build-convergence-report.js",
     "build:false-negatives": "node scripts/build-false-negative-watchlist.js",
     "build:model-benchmark-replay": "node scripts/build-model-benchmark-replay.js",
