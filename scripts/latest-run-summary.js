@@ -10,6 +10,7 @@ const FILES = {
   falseNegatives: 'data/watchlists/outcome-ledger-false-negative-latest.json',
   preMigrationOutcomes: 'data/reports/pre-migration-outcomes-latest.json',
   preMigrationPaper: 'data/reports/pre-migration-paper-sim-latest.json',
+  preMigrationEntryLossAttribution: 'data/reports/pre-migration-entry-loss-attribution-latest.json',
   signalQuality: 'data/reports/pre-migration-signal-quality-latest.json',
   learning: 'data/reports/learning-orchestrator-latest.json',
   continuationPaper: 'data/reports/continuation-paper-latest.json',
@@ -259,6 +260,16 @@ function summarizeWalletSniperReplayRow(item = {}) {
   return `${label} | gate=${item.passesCurrentGate ? 'pass' : 'fail'} | outcome=${item.outcomeLabel || 'n/a'} | pnl=${item.paperPnlSol === null || item.paperPnlSol === undefined ? 'n/a' : sol(item.paperPnlSol, 6)} | score=${fmt(item.maxScore)} | curve=${fmt(item.maxCurveProgress, 4)} | vol=${fmt(item.maxRecentVolumeSol, 2)} | vel=${fmt(item.maxTradeVelocityPerMin, 2)}${failed}`;
 }
 
+function summarizeEntryLossBucket(name, item = {}) {
+  return `${name}: entries=${item.entries ?? 'n/a'}, W/L/F=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}/${item.flats ?? 'n/a'}, pnl=${sol(item.totalPnlSol ?? 0, 6)}, avg=${item.averagePnlSol === null || item.averagePnlSol === undefined ? 'n/a' : sol(item.averagePnlSol, 6)}, exits=${compactValue(item.exitReasonCounts)}`;
+}
+
+function summarizeEntryLossRow(item = {}) {
+  const label = `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim();
+  const guard = item.guardOverride ? ` | guard=${item.guardOverride}` : '';
+  return `${label} | preset=${item.preset || 'n/a'} | band=${item.curveBand || 'n/a'} | exit=${item.exitReason || 'OPEN'} | pnl=${item.pnlSol === null || item.pnlSol === undefined ? 'n/a' : sol(item.pnlSol, 6)} | score=${fmt(item.entryScore)} | curve=${fmt(item.entryCurveProgress, 4)} | hold=${item.holdSeconds ?? 'n/a'}s${guard}`;
+}
+
 function summarizeContinuationExitScenario(name, summary = {}) {
   const deltaSol = summary.deltaVsCurrentConfigSol === null || summary.deltaVsCurrentConfigSol === undefined
     ? 'n/a'
@@ -473,6 +484,7 @@ function buildSummary(docs) {
   const falseNeg = docs.falseNegatives.data || {};
   const preOutcomes = docs.preMigrationOutcomes.data || {};
   const paper = docs.preMigrationPaper.data || {};
+  const entryLoss = docs.preMigrationEntryLossAttribution.data || {};
   const signal = docs.signalQuality.data || {};
   const learning = docs.learning.data || {};
   const continuation = docs.continuationPaper.data || {};
@@ -708,6 +720,22 @@ function buildSummary(docs) {
   if (topWatch.length) {
     lines.push('- Top watch candidates:');
     topWatch.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeFalseNegative(item)}`));
+  }
+  const entryLossSummary = entryLoss.summary || {};
+  if (entryLossSummary.entries !== undefined) {
+    lines.push('- Entry loss attribution:');
+    lines.push(`  - Actual entries/closed W/L/F: ${entryLossSummary.entries ?? 'n/a'} / ${entryLossSummary.closed ?? 'n/a'} ${entryLossSummary.wins ?? 'n/a'}/${entryLossSummary.losses ?? 'n/a'}/${entryLossSummary.flats ?? 'n/a'}, pnl=${sol(entryLossSummary.totalPnlSol ?? 0, 6)}, avg=${entryLossSummary.averagePnlSol === null || entryLossSummary.averagePnlSol === undefined ? 'n/a' : sol(entryLossSummary.averagePnlSol, 6)}`);
+    lines.push(`  - First-sight guard entries/PnL: ${entryLossSummary.firstSightGuardEntries ?? 'n/a'} / ${sol(entryLossSummary.firstSightGuardPnlSol ?? 0, 6)}`);
+    lines.push(`  - Low-curve(<75%) entries/PnL: ${entryLossSummary.lowCurveEntries ?? 'n/a'} / ${sol(entryLossSummary.lowCurvePnlSol ?? 0, 6)}; high-curve(>=90%) entries/PnL: ${entryLossSummary.highCurveEntries ?? 'n/a'} / ${sol(entryLossSummary.highCurvePnlSol ?? 0, 6)}`);
+    lines.push('  - By preset:');
+    Object.entries(entryLossSummary.byPreset || {}).slice(0, 5).forEach(([key, value]) => lines.push(`    - ${summarizeEntryLossBucket(key, value)}`));
+    lines.push('  - By curve band:');
+    Object.entries(entryLossSummary.byCurveBand || {}).slice(0, 6).forEach(([key, value]) => lines.push(`    - ${summarizeEntryLossBucket(key, value)}`));
+    const topEntryLosers = topArray(entryLoss.topLosers, 5);
+    if (topEntryLosers.length) {
+      lines.push('  - Worst actual entries:');
+      topEntryLosers.forEach((item, index) => lines.push(`    ${index + 1}. ${summarizeEntryLossRow(item)}`));
+    }
   }
   lines.push('');
 

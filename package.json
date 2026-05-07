@@ -19,6 +19,7 @@
     "report:watch-validation": "node scripts/watch-lane-validation-report.js",
     "report:pre-migration-outcomes": "node scripts/pre-migration-outcome-report.js",
     "report:pre-migration-paper": "node scripts/pre-migration-paper-sim-report.js",
+    "report:pre-migration-entry-loss-attribution": "node scripts/pre-migration-entry-loss-attribution-report.js",
     "report:pre-migration-sweep": "node scripts/pre-migration-paper-sweep-report.js",
     "report:pre-migration-presets": "node scripts/pre-migration-preset-replay-report.js",
     "report:pre-migration-signal-quality": "node scripts/pre-migration-signal-quality-report.js",
