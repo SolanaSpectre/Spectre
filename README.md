@@ -131,6 +131,8 @@ Edit the `.env` file with your settings:
 - `PRE_MIGRATION_PAPER_EARLY_SURGE_MIN_CURVE_PROGRESS_DELTA`: Minimum lookback curve-progress delta required when early-surge history exists, keeping `EARLY_SURGE_FIRST_SIGHT` tied to real acceleration (default: `0.035`)
 - `PRE_MIGRATION_PAPER_EARLY_SURGE_NO_BASELINE_MIN_SCORE`: Higher score floor required when an early-surge candidate has no prior curve baseline yet (default: `84`)
 - Pre-migration dossiers now export `uniqueBuyerCount`, `uniqueBuyerRatio`, and `sniperWalletCount` on watch-lane summaries and paper decisions so buyer-breadth guards can be validated before becoming hard rejects.
+- `PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_SNIPER_CROWDING_GUARD_ENABLED`: Paper-only guard that blocks `FIRST_CURVE_SNAPSHOT_SCALP` entries when the current first-sight snapshot is dominated by sniper crowding (default: `true`).
+- `PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MAX_SNIPER_WALLET_COUNT`: Maximum sniper-wallet count allowed for `FIRST_CURVE_SNAPSHOT_SCALP`; `8+` is skipped with `FIRST_CURVE_SNAPSHOT_SCALP_SNIPER_CROWDING` by default (default: `7`).
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_OVERRIDE_ENABLED`: Allows high-conviction flat/paused curves to bypass the curve-delta guard in paper only (default: `true`)
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_SCORE`: Minimum watch score for curve-pause override consideration (default: `82`)
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_CURVE_PROGRESS`: Minimum curve progress for curve-pause override consideration (default: `0.75`)

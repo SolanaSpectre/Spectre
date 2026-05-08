@@ -483,6 +483,14 @@ class Config {
     return parseInt(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MAX_RISK_WALLET_COUNT || '1', 10);
   }
 
+  static get preMigrationPaperFirstCurveSnapshotScalpSniperCrowdingGuardEnabled() {
+    return process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_SNIPER_CROWDING_GUARD_ENABLED !== 'false';
+  }
+
+  static get preMigrationPaperFirstCurveSnapshotScalpMaxSniperWalletCount() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MAX_SNIPER_WALLET_COUNT || '7', 10);
+  }
+
   static get preMigrationPaperFirstCurveSnapshotScalpMinBuyRatio() {
     return parseFloat(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MIN_BUY_RATIO || '0.45');
   }
@@ -1553,6 +1561,7 @@ class Config {
       { key: 'preMigrationPaperFirstCurveSnapshotScalpMinInterestCount', value: this.preMigrationPaperFirstCurveSnapshotScalpMinInterestCount, min: 1 },
       { key: 'preMigrationPaperFirstCurveSnapshotScalpMinUniqueBuyerCount', value: this.preMigrationPaperFirstCurveSnapshotScalpMinUniqueBuyerCount, min: 1 },
       { key: 'preMigrationPaperFirstCurveSnapshotScalpMaxRiskWalletCount', value: this.preMigrationPaperFirstCurveSnapshotScalpMaxRiskWalletCount, min: 0 },
+      { key: 'preMigrationPaperFirstCurveSnapshotScalpMaxSniperWalletCount', value: this.preMigrationPaperFirstCurveSnapshotScalpMaxSniperWalletCount, min: 0 },
       { key: 'preMigrationPaperFirstCurveSnapshotScalpMinBuyRatio', value: this.preMigrationPaperFirstCurveSnapshotScalpMinBuyRatio, min: 0, max: 1 },
       { key: 'preMigrationPaperEarlySurgeMinScore', value: this.preMigrationPaperEarlySurgeMinScore, min: 0, max: 100 },
       { key: 'preMigrationPaperEarlySurgeMinCurveProgress', value: this.preMigrationPaperEarlySurgeMinCurveProgress, min: 0, max: 1 },
