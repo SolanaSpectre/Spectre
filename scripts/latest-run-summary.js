@@ -11,6 +11,7 @@ const FILES = {
   preMigrationOutcomes: 'data/reports/pre-migration-outcomes-latest.json',
   preMigrationPaper: 'data/reports/pre-migration-paper-sim-latest.json',
   preMigrationEntryLossAttribution: 'data/reports/pre-migration-entry-loss-attribution-latest.json',
+  preMigrationEntryTimingPressure: 'data/reports/pre-migration-entry-timing-pressure-latest.json',
   signalQuality: 'data/reports/pre-migration-signal-quality-latest.json',
   learning: 'data/reports/learning-orchestrator-latest.json',
   continuationPaper: 'data/reports/continuation-paper-latest.json',
@@ -270,6 +271,17 @@ function summarizeEntryLossRow(item = {}) {
   return `${label} | preset=${item.preset || 'n/a'} | band=${item.curveBand || 'n/a'} | exit=${item.exitReason || 'OPEN'} | pnl=${item.pnlSol === null || item.pnlSol === undefined ? 'n/a' : sol(item.pnlSol, 6)} | score=${fmt(item.entryScore)} | curve=${fmt(item.entryCurveProgress, 4)} | hold=${item.holdSeconds ?? 'n/a'}s${guard}`;
 }
 
+function summarizeEntryTimingPressureRow(item = {}) {
+  const label = `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim();
+  const actual = item.actual || {};
+  const sim = item.sim || {};
+  const comparison = item.comparison || {};
+  const flags = Array.isArray(comparison.pressureFlags) && comparison.pressureFlags.length
+    ? ` | flags=${comparison.pressureFlags.join(',')}`
+    : '';
+  return `${label} | band=${item.curveBand || 'n/a'} | actual=${actual.exitReason || 'n/a'} ${actual.pnlSol === null || actual.pnlSol === undefined ? 'n/a' : sol(actual.pnlSol, 6)} | sim=${sim.exitReason || 'n/a'} ${sim.pnlSol === null || sim.pnlSol === undefined ? 'n/a' : sol(sim.pnlSol, 6)} | delta=${comparison.deltaPnlSol === null || comparison.deltaPnlSol === undefined ? 'n/a' : sol(comparison.deltaPnlSol, 6)} | simMin=${fmt(sim.unrealizedMinReturnPct, 4)} | simMax=${fmt(sim.unrealizedMaxReturnPct, 4)}${flags}`;
+}
+
 function summarizeContinuationExitScenario(name, summary = {}) {
   const deltaSol = summary.deltaVsCurrentConfigSol === null || summary.deltaVsCurrentConfigSol === undefined
     ? 'n/a'
@@ -485,6 +497,7 @@ function buildSummary(docs) {
   const preOutcomes = docs.preMigrationOutcomes.data || {};
   const paper = docs.preMigrationPaper.data || {};
   const entryLoss = docs.preMigrationEntryLossAttribution.data || {};
+  const entryTimingPressure = docs.preMigrationEntryTimingPressure.data || {};
   const signal = docs.signalQuality.data || {};
   const learning = docs.learning.data || {};
   const continuation = docs.continuationPaper.data || {};
@@ -735,6 +748,20 @@ function buildSummary(docs) {
     if (topEntryLosers.length) {
       lines.push('  - Worst actual entries:');
       topEntryLosers.forEach((item, index) => lines.push(`    ${index + 1}. ${summarizeEntryLossRow(item)}`));
+    }
+  }
+  const entryTimingSummary = entryTimingPressure.summary || {};
+  if (entryTimingSummary.actualEntries !== undefined) {
+    lines.push('- Entry timing / exit-pressure comparison:');
+    lines.push(`  - Actual/matched/unmatched sim: ${entryTimingSummary.actualEntries ?? 'n/a'} / ${entryTimingSummary.matchedActualToSim ?? 'n/a'} / ${entryTimingSummary.unmatchedSimTrades ?? 'n/a'}`);
+    lines.push(`  - Actual better vs sim better: ${entryTimingSummary.actualBetterThanSim ?? 'n/a'} / ${entryTimingSummary.simBetterThanActual ?? 'n/a'}, total actual-minus-sim=${entryTimingSummary.totalActualMinusSimPnlSol === null || entryTimingSummary.totalActualMinusSimPnlSol === undefined ? 'n/a' : sol(entryTimingSummary.totalActualMinusSimPnlSol, 6)}`);
+    lines.push(`  - Actual win / sim loss: ${entryTimingSummary.actualWinSimLoss ?? 'n/a'}; sim held to stop: ${entryTimingSummary.simHeldToStop ?? 'n/a'}; avoided deep drawdown: ${entryTimingSummary.actualAvoidedDeepDrawdown ?? 'n/a'}; high-curve pressure: ${entryTimingSummary.highCurveEntryPressure ?? 'n/a'}`);
+    lines.push('  - Pressure flags:');
+    objectLines(entryTimingSummary.pressureFlagCounts, 8).forEach((line) => lines.push(`    - ${line}`));
+    const timingPressureRows = topArray(entryTimingPressure.pressureRows, 5);
+    if (timingPressureRows.length) {
+      lines.push('  - Top pressure rows:');
+      timingPressureRows.forEach((item, index) => lines.push(`    ${index + 1}. ${summarizeEntryTimingPressureRow(item)}`));
     }
   }
   lines.push('');
