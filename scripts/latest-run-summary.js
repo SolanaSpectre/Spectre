@@ -12,6 +12,7 @@ const FILES = {
   preMigrationPaper: 'data/reports/pre-migration-paper-sim-latest.json',
   preMigrationEntryLossAttribution: 'data/reports/pre-migration-entry-loss-attribution-latest.json',
   preMigrationEntryTimingPressure: 'data/reports/pre-migration-entry-timing-pressure-latest.json',
+  preMigrationRollingEntryTrend: 'data/reports/pre-migration-rolling-entry-trend-latest.json',
   signalQuality: 'data/reports/pre-migration-signal-quality-latest.json',
   learning: 'data/reports/learning-orchestrator-latest.json',
   continuationPaper: 'data/reports/continuation-paper-latest.json',
@@ -282,6 +283,19 @@ function summarizeEntryTimingPressureRow(item = {}) {
   return `${label} | band=${item.curveBand || 'n/a'} | actual=${actual.exitReason || 'n/a'} ${actual.pnlSol === null || actual.pnlSol === undefined ? 'n/a' : sol(actual.pnlSol, 6)} | sim=${sim.exitReason || 'n/a'} ${sim.pnlSol === null || sim.pnlSol === undefined ? 'n/a' : sol(sim.pnlSol, 6)} | delta=${comparison.deltaPnlSol === null || comparison.deltaPnlSol === undefined ? 'n/a' : sol(comparison.deltaPnlSol, 6)} | simMin=${fmt(sim.unrealizedMinReturnPct, 4)} | simMax=${fmt(sim.unrealizedMaxReturnPct, 4)}${flags}`;
 }
 
+function summarizeRollingEntryBucket(name, item = {}) {
+  return `${name}: entries=${item.entries ?? 'n/a'}, W/L/F=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}/${item.flats ?? 'n/a'}, pnl=${sol(item.totalPnlSol ?? 0, 6)}, avg=${item.averagePnlSol === null || item.averagePnlSol === undefined ? 'n/a' : sol(item.averagePnlSol, 6)}, stop=${item.stopLosses ?? 'n/a'}, stall=${item.curveStalls ?? 'n/a'}, take=${item.takeProfits ?? 'n/a'}`;
+}
+
+function summarizeRollingRun(item = {}) {
+  return `${item.runId || item.telemetryPath || 'run'} | entries=${item.entries ?? 'n/a'} W/L/F=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}/${item.flats ?? 'n/a'} pnl=${sol(item.totalPnlSol ?? 0, 6)} firstSight=${sol(item.firstSight?.totalPnlSol ?? 0, 6)} sniper=${sol(item.sniperCrowded?.totalPnlSol ?? 0, 6)}`;
+}
+
+function summarizeRollingEntryRow(item = {}) {
+  const label = `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim();
+  return `${label} | run=${item.runId || 'n/a'} | preset=${item.preset || 'n/a'} | guard=${item.guardOverride || 'n/a'} | band=${item.curveBand || 'n/a'} | sniper=${item.sniperCrowdingBucket || 'n/a'} | exit=${item.exitReason || 'n/a'} | pnl=${item.pnlSol === null || item.pnlSol === undefined ? 'n/a' : sol(item.pnlSol, 6)} | curve=${fmt(item.entryCurveProgress, 4)}`;
+}
+
 function summarizeContinuationExitScenario(name, summary = {}) {
   const deltaSol = summary.deltaVsCurrentConfigSol === null || summary.deltaVsCurrentConfigSol === undefined
     ? 'n/a'
@@ -498,6 +512,7 @@ function buildSummary(docs) {
   const paper = docs.preMigrationPaper.data || {};
   const entryLoss = docs.preMigrationEntryLossAttribution.data || {};
   const entryTimingPressure = docs.preMigrationEntryTimingPressure.data || {};
+  const rollingEntryTrend = docs.preMigrationRollingEntryTrend.data || {};
   const signal = docs.signalQuality.data || {};
   const learning = docs.learning.data || {};
   const continuation = docs.continuationPaper.data || {};
@@ -762,6 +777,30 @@ function buildSummary(docs) {
     if (timingPressureRows.length) {
       lines.push('  - Top pressure rows:');
       timingPressureRows.forEach((item, index) => lines.push(`    ${index + 1}. ${summarizeEntryTimingPressureRow(item)}`));
+    }
+  }
+  const rollingSummary = rollingEntryTrend.summary || {};
+  if (rollingSummary.runsRead !== undefined) {
+    lines.push('- Rolling entry trend:');
+    lines.push(`  - Runs/entries W/L/F: ${rollingSummary.runsRead ?? 'n/a'} / ${rollingSummary.entries ?? 'n/a'} ${rollingSummary.wins ?? 'n/a'}/${rollingSummary.losses ?? 'n/a'}/${rollingSummary.flats ?? 'n/a'}, pnl=${sol(rollingSummary.totalPnlSol ?? 0, 6)}, avg=${rollingSummary.averagePnlSol === null || rollingSummary.averagePnlSol === undefined ? 'n/a' : sol(rollingSummary.averagePnlSol, 6)}`);
+    lines.push(`  - First-sight guard: ${summarizeRollingEntryBucket('FIRST_CURVE_SNAPSHOT_SCALP', rollingSummary.firstSightGuard || {})}`);
+    lines.push(`  - Sniper crowded: ${summarizeRollingEntryBucket('sniper_crowded', rollingSummary.sniperCrowded || {})}`);
+    lines.push(`  - Wallet touched: ${summarizeRollingEntryBucket('wallet_touched', rollingSummary.walletTouched || {})}`);
+    lines.push('  - By guard override:');
+    Object.entries(rollingSummary.byGuardOverride || {}).slice(0, 6).forEach(([key, value]) => lines.push(`    - ${summarizeRollingEntryBucket(key, value)}`));
+    lines.push('  - By curve band:');
+    Object.entries(rollingSummary.byCurveBand || {}).slice(0, 6).forEach(([key, value]) => lines.push(`    - ${summarizeRollingEntryBucket(key, value)}`));
+    lines.push('  - By sniper crowding:');
+    Object.entries(rollingSummary.bySniperCrowdingBucket || {}).slice(0, 6).forEach(([key, value]) => lines.push(`    - ${summarizeRollingEntryBucket(key, value)}`));
+    const worstTrendRuns = topArray(rollingEntryTrend.worstRuns, 3);
+    if (worstTrendRuns.length) {
+      lines.push('  - Worst rolling runs:');
+      worstTrendRuns.forEach((item, index) => lines.push(`    ${index + 1}. ${summarizeRollingRun(item)}`));
+    }
+    const worstTrendEntries = topArray(rollingEntryTrend.worstEntries, 5);
+    if (worstTrendEntries.length) {
+      lines.push('  - Worst rolling entries:');
+      worstTrendEntries.forEach((item, index) => lines.push(`    ${index + 1}. ${summarizeRollingEntryRow(item)}`));
     }
   }
   lines.push('');
