@@ -22,10 +22,27 @@ class MarketData {
     this.dexScreenerCache = new Map();
     this.raydiumPoolCache = null;
     this.meteoraPoolCache = null;
+    this.warnLogTimestamps = new Map();
     this.http = axios.create({
       proxy: config.disableEnvProxy ? false : undefined,
       timeout: 10000
     });
+  }
+
+  warnOnce(key, ttlMs, message, details = undefined) {
+    const now = Date.now();
+    const lastAt = this.warnLogTimestamps.get(key) || 0;
+    if (now - lastAt < ttlMs) {
+      return false;
+    }
+
+    this.warnLogTimestamps.set(key, now);
+    if (details === undefined) {
+      this.logger.warn(message);
+    } else {
+      this.logger.warn(message, details);
+    }
+    return true;
   }
 
   getJupiterHeaders() {
@@ -174,14 +191,14 @@ class MarketData {
       }
 
       if (fallback) {
-        this.logger.warn('Failed to fetch Raydium pools; using cached Raydium pool snapshot', {
+        this.warnOnce('raydium-pools:cached-fallback', this.config.raydiumPoolCacheTtlMs, 'Failed to fetch Raydium pools; using cached Raydium pool snapshot', {
           error: error.message,
           ageMs: Math.round(fallback.ageMs)
         });
         return fallback.value;
       }
 
-      this.logger.warn('Failed to fetch Raydium pools; continuing without Raydium pool snapshot', error.message);
+      this.warnOnce('raydium-pools:no-snapshot', this.config.raydiumPoolCacheTtlMs, 'Failed to fetch Raydium pools; continuing without Raydium pool snapshot', error.message);
       return [];
     }
   }
@@ -231,14 +248,14 @@ class MarketData {
       }
 
       if (fallback) {
-        this.logger.warn('Failed to fetch Meteora pools; using cached Meteora pool snapshot', {
+        this.warnOnce('meteora-pools:cached-fallback', this.config.meteoraPoolCacheTtlMs, 'Failed to fetch Meteora pools; using cached Meteora pool snapshot', {
           error: error.message,
           ageMs: Math.round(fallback.ageMs)
         });
         return fallback.value;
       }
 
-      this.logger.warn('Failed to fetch Meteora pools; continuing without Meteora pool snapshot', error.message);
+      this.warnOnce('meteora-pools:no-snapshot', this.config.meteoraPoolCacheTtlMs, 'Failed to fetch Meteora pools; continuing without Meteora pool snapshot', error.message);
       return [];
     }
   }
@@ -877,7 +894,12 @@ class MarketData {
       this.setTokenPriceCached(mintAddress, value);
       return value;
     } catch (error) {
-      this.logger.warn(`Failed to fetch token price for ${mintAddress}`, error.message);
+      this.warnOnce(
+        `token-price:${mintAddress}`,
+        this.config.tokenPriceCacheTtlMs,
+        `Failed to fetch token price for ${mintAddress}`,
+        error.message
+      );
       const birdeyePrice = await this.getBirdeyePrice(mintAddress);
       if (birdeyePrice?.value) {
         const solPrice = await this.getSolanaPrice();

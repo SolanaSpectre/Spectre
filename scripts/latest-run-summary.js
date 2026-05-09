@@ -443,6 +443,51 @@ function readPumpPortalStatsFromTelemetry(battlefield = {}) {
   };
 }
 
+function readRuntimeStatsFromTelemetry(battlefield = {}) {
+  const telemetryPath = get(battlefield, 'files.telemetryPath', null);
+  const resolvedPath = resolveRepoFile(telemetryPath);
+  if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+    return {
+      ok: false,
+      telemetryPath,
+      error: 'telemetry file missing',
+      stats: null
+    };
+  }
+
+  let stats = null;
+  try {
+    const lines = fs.readFileSync(resolvedPath, 'utf8').split(/\r?\n/);
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const event = JSON.parse(line);
+        const candidate = get(event, [
+          'payload.stats',
+          'data.stats'
+        ], null);
+        if (candidate) stats = candidate;
+      } catch (_) {
+        // Ignore malformed telemetry rows; this is best-effort report context.
+      }
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      telemetryPath,
+      error: error.message,
+      stats: null
+    };
+  }
+
+  return {
+    ok: Boolean(stats),
+    telemetryPath,
+    error: stats ? null : 'runtime stats not found',
+    stats
+  };
+}
+
 function buildPumpPortalHealth(battlefield = {}) {
   const eventCounts = battlefield.eventCounts || {};
   const telemetry = readPumpPortalStatsFromTelemetry(battlefield);
@@ -459,6 +504,8 @@ function buildPumpPortalHealth(battlefield = {}) {
   const tradeSubscriptionsSkippedNoApiKey = number(stats.tradeSubscriptionsSkippedNoApiKey, 0);
   const accountSubscriptionsSkippedNoApiKey = number(stats.accountSubscriptionsSkippedNoApiKey, 0);
   const reconnectDelayMs = number(stats.reconnectDelayMs, 0);
+  const reconnectDelayStableResets = number(stats.reconnectDelayStableResets, 0);
+  const reconnectDelayResetAfterStableMs = number(stats.reconnectDelayResetAfterStableMs, 0);
   const connected = stats.connected === true;
   const paidTradeStreamsEnabled = stats.paidTradeStreamsEnabled === true;
   const lastCloseCode = stats.lastCloseCode ?? null;
@@ -508,6 +555,8 @@ function buildPumpPortalHealth(battlefield = {}) {
     tradeSubscriptionsSkippedNoApiKey,
     accountSubscriptionsSkippedNoApiKey,
     reconnectDelayMs,
+    reconnectDelayStableResets,
+    reconnectDelayResetAfterStableMs,
     connected,
     paidTradeStreamsEnabled,
     lastCloseCode,
@@ -518,6 +567,26 @@ function buildPumpPortalHealth(battlefield = {}) {
       trades: tradeEventCount,
       migrations: number(eventCounts['provider.pumpportal.migration'], migrations)
     }
+  };
+}
+
+function buildBondingCurvePressure(battlefield = {}) {
+  const telemetry = readRuntimeStatsFromTelemetry(battlefield);
+  const stats = telemetry.stats?.pumpBondingCurveLane || {};
+  return {
+    ok: telemetry.ok && Boolean(telemetry.stats?.pumpBondingCurveLane),
+    error: telemetry.ok ? null : telemetry.error,
+    fetches: number(stats.fetches, 0),
+    updates: number(stats.updates, 0),
+    errors: number(stats.errors, 0),
+    skippedGlobalBackoff: number(stats.skippedGlobalBackoff, 0),
+    globalBackoffActivations: number(stats.globalBackoffActivations, 0),
+    globalBackoffActive: stats.globalBackoffActive === true,
+    globalBackoffRemainingMs: number(stats.globalBackoffRemainingMs, 0),
+    lastGlobalBackoffActivatedAt: stats.lastGlobalBackoffActivatedAt || null,
+    lastGlobalBackoffErrorsInWindow: number(stats.lastGlobalBackoffErrorsInWindow, 0),
+    recentFailuresInWindow: number(stats.recentFailuresInWindow, 0),
+    inFlight: number(stats.inFlight, 0)
   };
 }
 
@@ -589,6 +658,7 @@ function buildSummary(docs) {
   const aiEvidence = collectSimpleRuntimeEvidence();
   const aiReachability = buildAiReachability(battlefield);
   const pumpPortalHealth = buildPumpPortalHealth(battlefield);
+  const bondingCurvePressure = buildBondingCurvePressure(battlefield);
 
   lines.push('1. Run Summary');
   lines.push('--------------');
@@ -609,11 +679,17 @@ function buildSummary(docs) {
   lines.push(`  - reconnects / closes / stale reconnects: ${pumpPortalHealth.reconnectAttempts} / ${pumpPortalHealth.closeEvents} / ${pumpPortalHealth.staleReconnects}`);
   lines.push(`  - paid trade streams enabled / skipped mints / skipped accounts: ${pumpPortalHealth.paidTradeStreamsEnabled} / ${pumpPortalHealth.tradeSubscriptionsSkippedNoApiKey || pumpPortalHealth.skippedPaidStreamMints} / ${pumpPortalHealth.accountSubscriptionsSkippedNoApiKey}`);
   lines.push(`  - current reconnect backoff delay: ${pumpPortalHealth.reconnectDelayMs ? `${pumpPortalHealth.reconnectDelayMs}ms` : 'n/a'}`);
+  lines.push(`  - stable reconnect resets / reset window: ${pumpPortalHealth.reconnectDelayStableResets} / ${pumpPortalHealth.reconnectDelayResetAfterStableMs ? `${pumpPortalHealth.reconnectDelayResetAfterStableMs}ms` : 'n/a'}`);
   lines.push(`  - subscribed mints / connected at stop: ${pumpPortalHealth.subscribedMints} / ${pumpPortalHealth.connected}`);
   lines.push(`  - last close: code=${pumpPortalHealth.lastCloseCode ?? 'n/a'} reason=${pumpPortalHealth.lastCloseReason || 'none'}`);
   lines.push(`  - last websocket error: ${pumpPortalHealth.lastErrorMessage || 'none'}`);
   lines.push(`  - event counts new_token/trade/migration: ${pumpPortalHealth.eventCounts.newTokens} / ${pumpPortalHealth.eventCounts.trades} / ${pumpPortalHealth.eventCounts.migrations}`);
   lines.push(`  - interpretation: ${pumpPortalHealth.interpretation}`);
+  lines.push('- Bonding curve pressure:');
+  lines.push(`  - fetches / updates / errors: ${bondingCurvePressure.fetches} / ${bondingCurvePressure.updates} / ${bondingCurvePressure.errors}`);
+  lines.push(`  - global backoff activations / skipped: ${bondingCurvePressure.globalBackoffActivations} / ${bondingCurvePressure.skippedGlobalBackoff}`);
+  lines.push(`  - active / remaining: ${bondingCurvePressure.globalBackoffActive} / ${bondingCurvePressure.globalBackoffRemainingMs}ms`);
+  lines.push(`  - last activation: ${bondingCurvePressure.lastGlobalBackoffActivatedAt || 'none'} (${bondingCurvePressure.lastGlobalBackoffErrorsInWindow} errors in window)`);
   lines.push('');
 
   const runnerNearMiss = battlefield.runnerLane?.nearMissDiagnostic || {};

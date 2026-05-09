@@ -46,6 +46,9 @@ class PumpBondingCurveLane {
       skippedGlobalBackoff: 0,
       globalBackoffActivations: 0,
       globalBackoffUntil: null,
+      lastGlobalBackoffActivatedAt: null,
+      lastGlobalBackoffErrorsInWindow: 0,
+      lastGlobalBackoffWindowMs: null,
       errors: 0,
       lastUpdateAt: null
     };
@@ -238,6 +241,9 @@ class PumpBondingCurveLane {
       this.globalBackoffUntil = nextBackoffUntil;
       this.stats.globalBackoffActivations += 1;
       this.stats.globalBackoffUntil = new Date(this.globalBackoffUntil).toISOString();
+      this.stats.lastGlobalBackoffActivatedAt = new Date(now).toISOString();
+      this.stats.lastGlobalBackoffErrorsInWindow = this.recentFailureTimestamps.length;
+      this.stats.lastGlobalBackoffWindowMs = this.globalBackoffWindowMs;
       this.logger?.warn?.('Pump bonding curve global backoff activated', {
         backoffMs: this.globalBackoffMs,
         errorsInWindow: this.recentFailureTimestamps.length,
@@ -410,7 +416,11 @@ class PumpBondingCurveLane {
       ...this.stats,
       trackedMints: this.states.size,
       inFlight: this.inFlight.size,
+      recentFailuresInWindow: this.recentFailureTimestamps.length,
       globalBackoffActive: this.isGlobalBackoffActive(Date.now()),
+      globalBackoffRemainingMs: this.isGlobalBackoffActive(Date.now())
+        ? Math.max(0, this.globalBackoffUntil - Date.now())
+        : 0,
       globalBackoffUntil: this.globalBackoffUntil
         ? new Date(this.globalBackoffUntil).toISOString()
         : null

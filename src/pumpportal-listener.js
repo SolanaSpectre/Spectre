@@ -14,6 +14,8 @@ class PumpPortalListener {
     this.healthCheckIntervalMs = Number(config.pumpPortalHealthCheckIntervalMs || 15000);
     this.maxReconnectDelayMs = Number(config.pumpPortalMaxReconnectDelayMs || 60000);
     this.reconnectTimer = null;
+    this.reconnectDelayResetTimer = null;
+    this.reconnectDelayResetAfterStableMs = 30000;
     this.healthCheckTimer = null;
     this.subscribedMints = new Set();
     this.skippedPaidStreamMints = new Set();
@@ -47,6 +49,8 @@ class PumpPortalListener {
       lastErrorAt: null,
       lastErrorMessage: null,
       staleReconnects: 0,
+      reconnectDelayStableResets: 0,
+      reconnectDelayResetAfterStableMs: this.reconnectDelayResetAfterStableMs,
       paidTradeStreamsEnabled: Boolean(config.pumpPortalApiKey),
       tradeSubscriptionsSkippedNoApiKey: 0,
       accountSubscriptionsSkippedNoApiKey: 0,
@@ -75,6 +79,8 @@ class PumpPortalListener {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+
+    this.clearReconnectDelayResetTimer();
 
     if (this.healthCheckTimer) {
       clearInterval(this.healthCheckTimer);
@@ -115,7 +121,7 @@ class PumpPortalListener {
       this.stats.lastConnectedAt = Date.now();
       this.stats.lastCloseCode = null;
       this.stats.lastCloseReason = null;
-      this.resetReconnectDelay();
+      this.scheduleReconnectDelayReset(socket);
       this.logger.info('PumpPortal websocket connected');
       this.send({ method: 'subscribeNewToken' });
       this.send({ method: 'subscribeMigration' });
@@ -127,7 +133,6 @@ class PumpPortalListener {
     socket.on('message', async (raw) => {
       this.stats.messages += 1;
       this.stats.lastMessageAt = Date.now();
-      this.resetReconnectDelay();
 
       let payload;
       try {
@@ -151,6 +156,7 @@ class PumpPortalListener {
       this.stats.lastCloseCode = Number(code || 0) || 0;
       this.stats.lastCloseReason = reasonBuffer ? reasonBuffer.toString() : '';
       this.stopHealthCheck();
+      this.clearReconnectDelayResetTimer();
       this.logger.warn('PumpPortal websocket closed', {
         code: this.stats.lastCloseCode,
         reason: this.stats.lastCloseReason || 'none',
@@ -256,6 +262,31 @@ class PumpPortalListener {
   resetReconnectDelay() {
     this.currentReconnectDelayMs = this.reconnectDelayMs;
     this.stats.reconnectDelayMs = this.currentReconnectDelayMs;
+  }
+
+  scheduleReconnectDelayReset(socket) {
+    this.clearReconnectDelayResetTimer();
+
+    this.reconnectDelayResetTimer = setTimeout(() => {
+      this.reconnectDelayResetTimer = null;
+      if (!this.running || this.ws !== socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      this.resetReconnectDelay();
+      this.stats.reconnectDelayStableResets += 1;
+    }, this.reconnectDelayResetAfterStableMs);
+
+    if (typeof this.reconnectDelayResetTimer.unref === 'function') {
+      this.reconnectDelayResetTimer.unref();
+    }
+  }
+
+  clearReconnectDelayResetTimer() {
+    if (this.reconnectDelayResetTimer) {
+      clearTimeout(this.reconnectDelayResetTimer);
+      this.reconnectDelayResetTimer = null;
+    }
   }
 
   nextReconnectDelayMs() {
