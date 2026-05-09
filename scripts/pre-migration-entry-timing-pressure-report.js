@@ -305,6 +305,15 @@ function firstSightQualityBucket(row) {
   return 'fresh_or_strong_flow';
 }
 
+function highCurvePressureBucket(row) {
+  const stale = row.freshness.curveUpdateAgeSeconds !== null
+    && row.freshness.curveUpdateAgeSeconds > FRESH_CURVE_UPDATE_SECONDS;
+  if (row.freshness.bondingBackoffWithin60s) return 'recent_bonding_backoff';
+  if (row.freshness.pumpPortalDisconnectWithin60s) return 'recent_pumpportal_disconnect';
+  if (stale) return 'stale_curve_update';
+  return 'fresh_curve_update';
+}
+
 function summarizeFirstSightCohorts(rows) {
   const firstSightRows = rows.filter((row) => row.guardOverride === 'FIRST_CURVE_SNAPSHOT_SCALP');
   return {
@@ -333,6 +342,41 @@ function summarizeFirstSightCohorts(rows) {
         deltaPnlSol: row.comparison.deltaPnlSol
       })),
     note: 'Report-only first-sight scalp cohort split. This does not change thresholds, gates, entries, exits, scoring, AI review, quotes, or live behavior.'
+  };
+}
+
+function summarizeHighCurveCohorts(rows) {
+  const highCurveRows = rows.filter((row) => num(row.actual.entryCurveProgress, 0) >= 0.9);
+  return {
+    mode: 'report_only',
+    entries: highCurveRows.length,
+    byPressureBucket: summarizeBuckets(highCurveRows, highCurvePressureBucket),
+    byCurveFreshness: summarizeBuckets(highCurveRows, curveFreshnessBucket),
+    byGuardOverride: summarizeBuckets(highCurveRows, (row) => row.guardOverride || 'none'),
+    byPreset: summarizeBuckets(highCurveRows, (row) => row.preset || 'UNKNOWN'),
+    byCurveBand: summarizeBuckets(highCurveRows, (row) => row.curveBand),
+    byExitReason: summarizeBuckets(highCurveRows, (row) => row.actual.exitReason || 'OPEN'),
+    topLosingHighCurveRows: highCurveRows
+      .slice()
+      .sort((a, b) => num(a.actual.pnlSol, 0) - num(b.actual.pnlSol, 0))
+      .slice(0, 8)
+      .map((row) => ({
+        mint: row.mint,
+        symbol: row.symbol,
+        preset: row.preset,
+        guardOverride: row.guardOverride,
+        curveBand: row.curveBand,
+        pressureBucket: highCurvePressureBucket(row),
+        entryScore: row.actual.entryScore,
+        entryCurveProgress: row.actual.entryCurveProgress,
+        curveUpdateAgeSeconds: row.freshness.curveUpdateAgeSeconds,
+        recentBondingBackoff: row.freshness.bondingBackoffWithin60s,
+        recentPumpPortalDisconnect: row.freshness.pumpPortalDisconnectWithin60s,
+        exitReason: row.actual.exitReason,
+        pnlSol: row.actual.pnlSol,
+        deltaPnlSol: row.comparison.deltaPnlSol
+      })),
+    note: 'Report-only high-curve entry pressure split. This does not change thresholds, gates, entries, exits, scoring, AI review, quotes, or live behavior.'
   };
 }
 
@@ -492,6 +536,7 @@ function summarize(rows, unmatchedSimTrades, telemetryContext) {
     highCurveEntryPressure: highCurvePressure.length,
     firstSightScalpFreshness: summarizeFreshness(rows, telemetryContext),
     firstSightScalpCohorts: summarizeFirstSightCohorts(rows),
+    highCurveEntryCohorts: summarizeHighCurveCohorts(rows),
     totalActualMinusSimPnlSol: compact(totalDelta, 6),
     averageActualMinusSimPnlSol: matchedRows.length ? compact(totalDelta / matchedRows.length, 6) : null,
     pressureFlagCounts: groupCount(

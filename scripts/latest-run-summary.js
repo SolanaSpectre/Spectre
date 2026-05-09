@@ -291,6 +291,10 @@ function summarizeFirstSightCohortBucket(name, item = {}) {
   return `${name}: entries=${item.entries ?? 'n/a'}, W/L/F=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}/${item.flats ?? 'n/a'}, pnl=${sol(item.totalPnlSol ?? 0, 6)}, avg=${item.averagePnlSol === null || item.averagePnlSol === undefined ? 'n/a' : sol(item.averagePnlSol, 6)}, stale=${item.staleCurveUpdates ?? 'n/a'}, exit_saved=${item.actualOutperformedSim ?? 'n/a'}`;
 }
 
+function summarizeHighCurveCohortBucket(name, item = {}) {
+  return `${name}: entries=${item.entries ?? 'n/a'}, W/L/F=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}/${item.flats ?? 'n/a'}, pnl=${sol(item.totalPnlSol ?? 0, 6)}, avg=${item.averagePnlSol === null || item.averagePnlSol === undefined ? 'n/a' : sol(item.averagePnlSol, 6)}, stale=${item.staleCurveUpdates ?? 'n/a'}, backoff=${item.recentBondingBackoff ?? 'n/a'}, disconnect=${item.recentPumpPortalDisconnect ?? 'n/a'}`;
+}
+
 function summarizeRollingRun(item = {}) {
   return `${item.runId || item.telemetryPath || 'run'} | entries=${item.entries ?? 'n/a'} W/L/F=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}/${item.flats ?? 'n/a'} pnl=${sol(item.totalPnlSol ?? 0, 6)} firstSight=${sol(item.firstSight?.totalPnlSol ?? 0, 6)} sniper=${sol(item.sniperCrowded?.totalPnlSol ?? 0, 6)}`;
 }
@@ -882,6 +886,13 @@ function buildSummary(docs) {
       Object.entries(firstSightCohorts.byCurveFreshness || {}).slice(0, 5).forEach(([key, value]) => lines.push(`    - freshness ${summarizeFirstSightCohortBucket(key, value)}`));
       Object.entries(firstSightCohorts.byVolumeBucket || {}).slice(0, 5).forEach(([key, value]) => lines.push(`    - volume ${summarizeFirstSightCohortBucket(key, value)}`));
       Object.entries(firstSightCohorts.byVelocityBucket || {}).slice(0, 5).forEach(([key, value]) => lines.push(`    - velocity ${summarizeFirstSightCohortBucket(key, value)}`));
+    }
+    const highCurveCohorts = entryTimingSummary.highCurveEntryCohorts || {};
+    if (highCurveCohorts.entries !== undefined) {
+      lines.push('  - High-curve entry cohorts:');
+      Object.entries(highCurveCohorts.byPressureBucket || {}).slice(0, 5).forEach(([key, value]) => lines.push(`    - pressure ${summarizeHighCurveCohortBucket(key, value)}`));
+      Object.entries(highCurveCohorts.byGuardOverride || {}).slice(0, 5).forEach(([key, value]) => lines.push(`    - guard ${summarizeHighCurveCohortBucket(key, value)}`));
+      Object.entries(highCurveCohorts.byExitReason || {}).slice(0, 5).forEach(([key, value]) => lines.push(`    - exit ${summarizeHighCurveCohortBucket(key, value)}`));
     }
     lines.push('  - Pressure flags:');
     objectLines(entryTimingSummary.pressureFlagCounts, 8).forEach((line) => lines.push(`    - ${line}`));
