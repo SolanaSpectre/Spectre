@@ -287,6 +287,10 @@ function summarizeRollingEntryBucket(name, item = {}) {
   return `${name}: entries=${item.entries ?? 'n/a'}, W/L/F=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}/${item.flats ?? 'n/a'}, pnl=${sol(item.totalPnlSol ?? 0, 6)}, avg=${item.averagePnlSol === null || item.averagePnlSol === undefined ? 'n/a' : sol(item.averagePnlSol, 6)}, stop=${item.stopLosses ?? 'n/a'}, stall=${item.curveStalls ?? 'n/a'}, take=${item.takeProfits ?? 'n/a'}`;
 }
 
+function summarizeFirstSightCohortBucket(name, item = {}) {
+  return `${name}: entries=${item.entries ?? 'n/a'}, W/L/F=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}/${item.flats ?? 'n/a'}, pnl=${sol(item.totalPnlSol ?? 0, 6)}, avg=${item.averagePnlSol === null || item.averagePnlSol === undefined ? 'n/a' : sol(item.averagePnlSol, 6)}, stale=${item.staleCurveUpdates ?? 'n/a'}, exit_saved=${item.actualOutperformedSim ?? 'n/a'}`;
+}
+
 function summarizeRollingRun(item = {}) {
   return `${item.runId || item.telemetryPath || 'run'} | entries=${item.entries ?? 'n/a'} W/L/F=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}/${item.flats ?? 'n/a'} pnl=${sol(item.totalPnlSol ?? 0, 6)} firstSight=${sol(item.firstSight?.totalPnlSol ?? 0, 6)} sniper=${sol(item.sniperCrowded?.totalPnlSol ?? 0, 6)}`;
 }
@@ -870,6 +874,14 @@ function buildSummary(docs) {
       lines.push(`    - entries/losses/fast stopouts: ${firstSightFreshness.firstSightEntries ?? 'n/a'} / ${firstSightFreshness.firstSightLosses ?? 'n/a'} / ${firstSightFreshness.firstSightFastStopouts ?? 'n/a'}, pnl=${firstSightFreshness.firstSightPnlSol === null || firstSightFreshness.firstSightPnlSol === undefined ? 'n/a' : sol(firstSightFreshness.firstSightPnlSol, 6)}`);
       lines.push(`    - stale curve updates / recent bonding backoff / recent PumpPortal disconnect: ${firstSightFreshness.staleCurveUpdateEntries ?? 'n/a'} / ${firstSightFreshness.recentBondingBackoffEntries ?? 'n/a'} / ${firstSightFreshness.recentPumpPortalDisconnectEntries ?? 'n/a'}`);
       lines.push(`    - avg curve update age: ${firstSightFreshness.averageCurveUpdateAgeSeconds === null || firstSightFreshness.averageCurveUpdateAgeSeconds === undefined ? 'n/a' : `${firstSightFreshness.averageCurveUpdateAgeSeconds}s`}`);
+    }
+    const firstSightCohorts = entryTimingSummary.firstSightScalpCohorts || {};
+    if (firstSightCohorts.entries !== undefined) {
+      lines.push('  - First-sight scalp cohorts:');
+      Object.entries(firstSightCohorts.byQualityBucket || {}).slice(0, 5).forEach(([key, value]) => lines.push(`    - quality ${summarizeFirstSightCohortBucket(key, value)}`));
+      Object.entries(firstSightCohorts.byCurveFreshness || {}).slice(0, 5).forEach(([key, value]) => lines.push(`    - freshness ${summarizeFirstSightCohortBucket(key, value)}`));
+      Object.entries(firstSightCohorts.byVolumeBucket || {}).slice(0, 5).forEach(([key, value]) => lines.push(`    - volume ${summarizeFirstSightCohortBucket(key, value)}`));
+      Object.entries(firstSightCohorts.byVelocityBucket || {}).slice(0, 5).forEach(([key, value]) => lines.push(`    - velocity ${summarizeFirstSightCohortBucket(key, value)}`));
     }
     lines.push('  - Pressure flags:');
     objectLines(entryTimingSummary.pressureFlagCounts, 8).forEach((line) => lines.push(`    - ${line}`));

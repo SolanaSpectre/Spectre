@@ -215,6 +215,127 @@ function groupCount(rows, keyFn) {
   return counts;
 }
 
+function pnlBucketSummary(rows) {
+  const entries = rows.length;
+  const wins = rows.filter((row) => row.actual.pnlClass === 'win').length;
+  const losses = rows.filter((row) => row.actual.pnlClass === 'loss').length;
+  const flats = rows.filter((row) => row.actual.pnlClass === 'flat').length;
+  const totalPnlSol = compact(rows.reduce((sum, row) => sum + num(row.actual.pnlSol, 0), 0), 6);
+  const matchedRows = rows.filter((row) => row.sim);
+  const totalActualMinusSimPnlSol = compact(
+    matchedRows.reduce((sum, row) => sum + num(row.comparison.deltaPnlSol, 0), 0),
+    6
+  );
+
+  return {
+    entries,
+    wins,
+    losses,
+    flats,
+    winRate: wins + losses > 0 ? compact(wins / (wins + losses), 4) : null,
+    totalPnlSol,
+    averagePnlSol: entries ? compact(num(totalPnlSol, 0) / entries, 6) : null,
+    stopLosses: rows.filter((row) => row.actual.exitReason === 'STOP_LOSS').length,
+    sellPressureFlips: rows.filter((row) => row.actual.exitReason === 'SELL_PRESSURE_FLIP').length,
+    curveStalls: rows.filter((row) => row.actual.exitReason === 'CURVE_STALL').length,
+    takeProfits: rows.filter((row) => row.actual.exitReason === 'TAKE_PROFIT').length,
+    staleCurveUpdates: rows.filter((row) => row.freshness.curveUpdateAgeSeconds !== null && row.freshness.curveUpdateAgeSeconds > FRESH_CURVE_UPDATE_SECONDS).length,
+    freshCurveUpdates: rows.filter((row) => row.freshness.curveUpdateFresh).length,
+    recentBondingBackoff: rows.filter((row) => row.freshness.bondingBackoffWithin60s).length,
+    recentPumpPortalDisconnect: rows.filter((row) => row.freshness.pumpPortalDisconnectWithin60s).length,
+    actualOutperformedSim: matchedRows.filter((row) => num(row.comparison.deltaPnlSol, 0) > 0).length,
+    simOutperformedActual: matchedRows.filter((row) => num(row.comparison.deltaPnlSol, 0) < 0).length,
+    totalActualMinusSimPnlSol
+  };
+}
+
+function summarizeBuckets(rows, keyFn) {
+  const groups = {};
+  for (const row of rows) {
+    const key = keyFn(row) || 'UNKNOWN';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(row);
+  }
+  return Object.fromEntries(
+    Object.entries(groups)
+      .map(([key, members]) => [key, pnlBucketSummary(members)])
+      .sort((a, b) => num(a[1].totalPnlSol, 0) - num(b[1].totalPnlSol, 0))
+  );
+}
+
+function volumeBucket(value) {
+  const volume = nullableNum(value);
+  if (volume === null) return 'volume_unknown';
+  if (volume < 10) return 'volume_under_10';
+  if (volume < 25) return 'volume_10_25';
+  if (volume < 50) return 'volume_25_50';
+  if (volume < 100) return 'volume_50_100';
+  return 'volume_100_plus';
+}
+
+function velocityBucket(value) {
+  const velocity = nullableNum(value);
+  if (velocity === null) return 'velocity_unknown';
+  if (velocity < 15) return 'velocity_under_15';
+  if (velocity < 25) return 'velocity_15_25';
+  if (velocity < 50) return 'velocity_25_50';
+  if (velocity < 100) return 'velocity_50_100';
+  return 'velocity_100_plus';
+}
+
+function curveFreshnessBucket(row) {
+  const age = nullableNum(row.freshness.curveUpdateAgeSeconds);
+  if (age === null) return 'curve_update_unknown';
+  if (age <= FRESH_CURVE_UPDATE_SECONDS) return 'curve_update_fresh';
+  if (age <= 60) return 'curve_update_15_60s';
+  if (age <= 120) return 'curve_update_60_120s';
+  return 'curve_update_over_120s';
+}
+
+function firstSightQualityBucket(row) {
+  const volume = nullableNum(row.actual.entryRecentVolumeSol);
+  const velocity = nullableNum(row.actual.entryTradeVelocityPerMin);
+  const stale = row.freshness.curveUpdateAgeSeconds !== null
+    && row.freshness.curveUpdateAgeSeconds > FRESH_CURVE_UPDATE_SECONDS;
+  const weakVolume = volume !== null && volume < 25;
+  const weakVelocity = velocity !== null && velocity < 25;
+  if (stale && (weakVolume || weakVelocity)) return 'stale_and_weak_flow';
+  if (stale) return 'stale_curve_only';
+  if (weakVolume || weakVelocity) return 'fresh_but_weak_flow';
+  return 'fresh_or_strong_flow';
+}
+
+function summarizeFirstSightCohorts(rows) {
+  const firstSightRows = rows.filter((row) => row.guardOverride === 'FIRST_CURVE_SNAPSHOT_SCALP');
+  return {
+    mode: 'report_only',
+    entries: firstSightRows.length,
+    byQualityBucket: summarizeBuckets(firstSightRows, firstSightQualityBucket),
+    byCurveFreshness: summarizeBuckets(firstSightRows, curveFreshnessBucket),
+    byVolumeBucket: summarizeBuckets(firstSightRows, (row) => volumeBucket(row.actual.entryRecentVolumeSol)),
+    byVelocityBucket: summarizeBuckets(firstSightRows, (row) => velocityBucket(row.actual.entryTradeVelocityPerMin)),
+    byCurveBand: summarizeBuckets(firstSightRows, (row) => row.curveBand),
+    byExitReason: summarizeBuckets(firstSightRows, (row) => row.actual.exitReason || 'OPEN'),
+    topLosingFirstSightRows: firstSightRows
+      .slice()
+      .sort((a, b) => num(a.actual.pnlSol, 0) - num(b.actual.pnlSol, 0))
+      .slice(0, 8)
+      .map((row) => ({
+        mint: row.mint,
+        symbol: row.symbol,
+        curveBand: row.curveBand,
+        qualityBucket: firstSightQualityBucket(row),
+        entryRecentVolumeSol: row.actual.entryRecentVolumeSol,
+        entryTradeVelocityPerMin: row.actual.entryTradeVelocityPerMin,
+        curveUpdateAgeSeconds: row.freshness.curveUpdateAgeSeconds,
+        exitReason: row.actual.exitReason,
+        pnlSol: row.actual.pnlSol,
+        deltaPnlSol: row.comparison.deltaPnlSol
+      })),
+    note: 'Report-only first-sight scalp cohort split. This does not change thresholds, gates, entries, exits, scoring, AI review, quotes, or live behavior.'
+  };
+}
+
 function simKey(sim) {
   return `${sim.mint}:${sim.entryAt}`;
 }
@@ -370,6 +491,7 @@ function summarize(rows, unmatchedSimTrades, telemetryContext) {
     actualAvoidedDeepDrawdown: avoidedDeepDrawdown.length,
     highCurveEntryPressure: highCurvePressure.length,
     firstSightScalpFreshness: summarizeFreshness(rows, telemetryContext),
+    firstSightScalpCohorts: summarizeFirstSightCohorts(rows),
     totalActualMinusSimPnlSol: compact(totalDelta, 6),
     averageActualMinusSimPnlSol: matchedRows.length ? compact(totalDelta / matchedRows.length, 6) : null,
     pressureFlagCounts: groupCount(
