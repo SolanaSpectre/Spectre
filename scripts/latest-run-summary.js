@@ -324,6 +324,8 @@ function collectSimpleRuntimeEvidence() {
   const evidence = [];
   const paths = [path.join(REPO_ROOT, 'run-logs'), path.join(REPO_ROOT, 'data', 'outcomes')];
   const patterns = ['Simple runtime AI', 'SIMPLE_RUNTIME_AI', 'llama3.2'];
+  const maxWholeFileBytes = 32 * 1024 * 1024;
+  const tailBytes = 4 * 1024 * 1024;
 
   for (const base of paths) {
     if (!fs.existsSync(base)) continue;
@@ -331,7 +333,22 @@ function collectSimpleRuntimeEvidence() {
       .filter((name) => name.endsWith('.jsonl') || name.endsWith('.log') || name.endsWith('.txt'))
       .map((name) => path.join(base, name));
     for (const file of files) {
-      const content = fs.readFileSync(file, 'utf8');
+      let content = '';
+      try {
+        const stat = fs.statSync(file);
+        if (stat.size > maxWholeFileBytes) {
+          const fd = fs.openSync(file, 'r');
+          const length = Math.min(tailBytes, stat.size);
+          const buffer = Buffer.alloc(length);
+          fs.readSync(fd, buffer, 0, length, stat.size - length);
+          fs.closeSync(fd);
+          content = buffer.toString('utf8');
+        } else {
+          content = fs.readFileSync(file, 'utf8');
+        }
+      } catch {
+        continue;
+      }
       for (const pattern of patterns) {
         if (content.includes(pattern)) {
           evidence.push(path.relative(REPO_ROOT, file));
