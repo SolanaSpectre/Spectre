@@ -864,6 +864,13 @@ function buildSummary(docs) {
     lines.push(`  - Actual/matched/unmatched sim: ${entryTimingSummary.actualEntries ?? 'n/a'} / ${entryTimingSummary.matchedActualToSim ?? 'n/a'} / ${entryTimingSummary.unmatchedSimTrades ?? 'n/a'}`);
     lines.push(`  - Actual better vs sim better: ${entryTimingSummary.actualBetterThanSim ?? 'n/a'} / ${entryTimingSummary.simBetterThanActual ?? 'n/a'}, total actual-minus-sim=${entryTimingSummary.totalActualMinusSimPnlSol === null || entryTimingSummary.totalActualMinusSimPnlSol === undefined ? 'n/a' : sol(entryTimingSummary.totalActualMinusSimPnlSol, 6)}`);
     lines.push(`  - Actual win / sim loss: ${entryTimingSummary.actualWinSimLoss ?? 'n/a'}; sim held to stop: ${entryTimingSummary.simHeldToStop ?? 'n/a'}; avoided deep drawdown: ${entryTimingSummary.actualAvoidedDeepDrawdown ?? 'n/a'}; high-curve pressure: ${entryTimingSummary.highCurveEntryPressure ?? 'n/a'}`);
+    const firstSightFreshness = entryTimingSummary.firstSightScalpFreshness || {};
+    if (firstSightFreshness.firstSightEntries !== undefined) {
+      lines.push('  - First-sight scalp freshness:');
+      lines.push(`    - entries/losses/fast stopouts: ${firstSightFreshness.firstSightEntries ?? 'n/a'} / ${firstSightFreshness.firstSightLosses ?? 'n/a'} / ${firstSightFreshness.firstSightFastStopouts ?? 'n/a'}, pnl=${firstSightFreshness.firstSightPnlSol === null || firstSightFreshness.firstSightPnlSol === undefined ? 'n/a' : sol(firstSightFreshness.firstSightPnlSol, 6)}`);
+      lines.push(`    - stale curve updates / recent bonding backoff / recent PumpPortal disconnect: ${firstSightFreshness.staleCurveUpdateEntries ?? 'n/a'} / ${firstSightFreshness.recentBondingBackoffEntries ?? 'n/a'} / ${firstSightFreshness.recentPumpPortalDisconnectEntries ?? 'n/a'}`);
+      lines.push(`    - avg curve update age: ${firstSightFreshness.averageCurveUpdateAgeSeconds === null || firstSightFreshness.averageCurveUpdateAgeSeconds === undefined ? 'n/a' : `${firstSightFreshness.averageCurveUpdateAgeSeconds}s`}`);
+    }
     lines.push('  - Pressure flags:');
     objectLines(entryTimingSummary.pressureFlagCounts, 8).forEach((line) => lines.push(`    - ${line}`));
     const timingPressureRows = topArray(entryTimingPressure.pressureRows, 5);

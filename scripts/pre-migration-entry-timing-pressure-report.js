@@ -5,6 +5,9 @@ const ROOT = path.join(__dirname, '..');
 const ENTRY_LOSS_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-entry-loss-attribution-latest.json');
 const PAPER_SIM_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-paper-sim-latest.json');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-entry-timing-pressure-latest.json');
+const FRESH_CURVE_UPDATE_SECONDS = 15;
+const RECENT_INFRA_WINDOW_SECONDS = 60;
+const FAST_STOPOUT_SECONDS = 30;
 
 function readJson(filePath, fallback = {}) {
   try {
@@ -48,6 +51,161 @@ function signClass(value) {
   return 'flat';
 }
 
+function resolveRepoPath(filePath) {
+  if (!filePath) return null;
+  return path.isAbsolute(filePath) ? filePath : path.join(ROOT, filePath);
+}
+
+function eventTimestampMs(event) {
+  const parsed = Date.parse(event?.timestamp);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function payloadOf(event) {
+  return event?.payload || event?.data || {};
+}
+
+function mintOf(payload) {
+  return payload?.mint || payload?.token || payload?.mintAddress || null;
+}
+
+function readTelemetryContext(telemetryPath) {
+  const resolvedPath = resolveRepoPath(telemetryPath);
+  const context = {
+    telemetryPath: telemetryPath ? rel(resolvedPath) : null,
+    ok: false,
+    error: null,
+    curveUpdatesByMint: new Map(),
+    globalBackoffActivations: [],
+    pumpPortalDisconnects: []
+  };
+
+  if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+    context.error = 'telemetry file missing';
+    return context;
+  }
+
+  const backoffSeen = new Set();
+  const disconnectSeen = new Set();
+
+  try {
+    const lines = fs.readFileSync(resolvedPath, 'utf8').split(/\r?\n/);
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch (_) {
+        continue;
+      }
+
+      const atMs = eventTimestampMs(event);
+      if (!Number.isFinite(atMs)) continue;
+      const payload = payloadOf(event);
+
+      if (event.type === 'pump_bonding_curve.updated') {
+        const mint = mintOf(payload);
+        if (mint) {
+          if (!context.curveUpdatesByMint.has(mint)) context.curveUpdatesByMint.set(mint, []);
+          context.curveUpdatesByMint.get(mint).push({
+            timestamp: event.timestamp,
+            timestampMs: atMs,
+            accountFound: payload.accountFound === true,
+            curveProgress: compact(payload.curveProgress, 6),
+            bondingCurvePriceSol: compact(payload.bondingCurvePriceSol, 12)
+          });
+        }
+      }
+
+      const stats = payload.stats || null;
+      const lane = stats?.pumpBondingCurveLane || null;
+      if (lane?.lastGlobalBackoffActivatedAt && !backoffSeen.has(lane.lastGlobalBackoffActivatedAt)) {
+        const backoffMs = Date.parse(lane.lastGlobalBackoffActivatedAt);
+        if (Number.isFinite(backoffMs)) {
+          backoffSeen.add(lane.lastGlobalBackoffActivatedAt);
+          context.globalBackoffActivations.push({
+            timestamp: lane.lastGlobalBackoffActivatedAt,
+            timestampMs: backoffMs,
+            errorsInWindow: nullableNum(lane.lastGlobalBackoffErrorsInWindow),
+            windowMs: nullableNum(lane.lastGlobalBackoffWindowMs)
+          });
+        }
+      }
+
+      const lastDisconnectedAt = stats?.pumpPortal?.lastDisconnectedAt;
+      if (Number.isFinite(Number(lastDisconnectedAt)) && Number(lastDisconnectedAt) > 0) {
+        const disconnectMs = Number(lastDisconnectedAt);
+        const key = String(disconnectMs);
+        if (!disconnectSeen.has(key)) {
+          disconnectSeen.add(key);
+          context.pumpPortalDisconnects.push({
+            timestamp: new Date(disconnectMs).toISOString(),
+            timestampMs: disconnectMs
+          });
+        }
+      }
+    }
+  } catch (error) {
+    context.error = error.message;
+    return context;
+  }
+
+  for (const updates of context.curveUpdatesByMint.values()) {
+    updates.sort((a, b) => a.timestampMs - b.timestampMs);
+  }
+  context.globalBackoffActivations.sort((a, b) => a.timestampMs - b.timestampMs);
+  context.pumpPortalDisconnects.sort((a, b) => a.timestampMs - b.timestampMs);
+  context.ok = true;
+  return context;
+}
+
+function nearestPrior(rows, atMs, windowSeconds = Infinity) {
+  let best = null;
+  const windowMs = Number.isFinite(windowSeconds) ? windowSeconds * 1000 : Infinity;
+  for (const row of rows || []) {
+    if (!Number.isFinite(row.timestampMs) || row.timestampMs > atMs) continue;
+    const ageMs = atMs - row.timestampMs;
+    if (ageMs > windowMs) continue;
+    if (!best || row.timestampMs > best.timestampMs) best = row;
+  }
+  return best;
+}
+
+function buildFreshness(actual, telemetryContext) {
+  const entryAtMs = Date.parse(actual.entryAt);
+  const mint = actual.mint || null;
+  const curveUpdates = mint ? telemetryContext.curveUpdatesByMint.get(mint) || [] : [];
+  const lastCurveUpdate = Number.isFinite(entryAtMs)
+    ? nearestPrior(curveUpdates, entryAtMs)
+    : null;
+  const lastBackoff = Number.isFinite(entryAtMs)
+    ? nearestPrior(telemetryContext.globalBackoffActivations, entryAtMs, 120)
+    : null;
+  const lastDisconnect = Number.isFinite(entryAtMs)
+    ? nearestPrior(telemetryContext.pumpPortalDisconnects, entryAtMs, 120)
+    : null;
+  const curveUpdateAgeSeconds = lastCurveUpdate ? compact((entryAtMs - lastCurveUpdate.timestampMs) / 1000, 2) : null;
+  const secondsSinceBackoff = lastBackoff ? compact((entryAtMs - lastBackoff.timestampMs) / 1000, 2) : null;
+  const secondsSincePumpPortalDisconnect = lastDisconnect ? compact((entryAtMs - lastDisconnect.timestampMs) / 1000, 2) : null;
+  const holdSeconds = nullableNum(actual.holdSeconds);
+  const exitReason = actual.exitReason || null;
+
+  return {
+    lastCurveUpdateAt: lastCurveUpdate?.timestamp || null,
+    curveUpdateAgeSeconds,
+    curveUpdateFresh: curveUpdateAgeSeconds !== null && curveUpdateAgeSeconds <= FRESH_CURVE_UPDATE_SECONDS,
+    lastCurveAccountFound: lastCurveUpdate?.accountFound ?? null,
+    lastCurveProgress: lastCurveUpdate?.curveProgress ?? null,
+    recentBondingBackoffAt: lastBackoff?.timestamp || null,
+    secondsSinceBondingBackoff: secondsSinceBackoff,
+    bondingBackoffWithin60s: secondsSinceBackoff !== null && secondsSinceBackoff <= RECENT_INFRA_WINDOW_SECONDS,
+    recentPumpPortalDisconnectAt: lastDisconnect?.timestamp || null,
+    secondsSincePumpPortalDisconnect,
+    pumpPortalDisconnectWithin60s: secondsSincePumpPortalDisconnect !== null && secondsSincePumpPortalDisconnect <= RECENT_INFRA_WINDOW_SECONDS,
+    fastStopout: exitReason === 'STOP_LOSS' && holdSeconds !== null && holdSeconds <= FAST_STOPOUT_SECONDS
+  };
+}
+
 function groupCount(rows, keyFn) {
   const counts = {};
   for (const row of rows) {
@@ -72,7 +230,7 @@ function chooseNearestSim(actual, simByMint, usedSimKeys) {
     .sort((a, b) => a.distanceMs - b.distanceMs)[0]?.sim || null;
 }
 
-function buildPressureFlags(actual, sim, deltaPnlSol) {
+function buildPressureFlags(actual, sim, deltaPnlSol, freshness = {}) {
   const flags = [];
   if (!sim) {
     flags.push('NO_SIM_MATCH');
@@ -94,14 +252,20 @@ function buildPressureFlags(actual, sim, deltaPnlSol) {
   if (simMaxReturn !== null && simMaxReturn >= 0.25 && sim.exitReason === 'STOP_LOSS') flags.push('SIM_GAVE_BACK_BIG_POP');
   if (actualCurve >= 0.9 && actualPnl <= 0) flags.push('HIGH_CURVE_ENTRY_PRESSURE');
   if (actual.exitReason === 'CURVE_STALL' || sim.exitReason === 'STOP_LOSS') flags.push('EXIT_PRESSURE');
+  if (freshness.fastStopout) flags.push('FAST_STOPOUT');
+  if (actual.guardOverride === 'FIRST_CURVE_SNAPSHOT_SCALP' && freshness.fastStopout) flags.push('FIRST_SIGHT_FAST_STOPOUT');
+  if (freshness.curveUpdateAgeSeconds !== null && freshness.curveUpdateAgeSeconds > FRESH_CURVE_UPDATE_SECONDS) flags.push('STALE_BONDING_CURVE_UPDATE');
+  if (freshness.bondingBackoffWithin60s) flags.push('RECENT_BONDING_BACKOFF');
+  if (freshness.pumpPortalDisconnectWithin60s) flags.push('RECENT_PUMPPORTAL_DISCONNECT');
 
   return flags;
 }
 
-function compactRow(actual, sim) {
+function compactRow(actual, sim, telemetryContext) {
   const actualPnl = nullableNum(actual.pnlSol);
   const simPnl = sim ? nullableNum(sim.pnlSol) : null;
   const deltaPnlSol = actualPnl !== null && simPnl !== null ? compact(actualPnl - simPnl, 6) : null;
+  const freshness = buildFreshness(actual, telemetryContext);
 
   return {
     mint: actual.mint || null,
@@ -144,12 +308,47 @@ function compactRow(actual, sim) {
       actualBetter: deltaPnlSol === null ? null : deltaPnlSol > 0,
       actualExitReason: actual.exitReason || null,
       simExitReason: sim?.exitReason || null,
-      pressureFlags: buildPressureFlags(actual, sim, deltaPnlSol)
-    }
+      pressureFlags: buildPressureFlags(actual, sim, deltaPnlSol, freshness)
+    },
+    freshness
   };
 }
 
-function summarize(rows, unmatchedSimTrades) {
+function summarizeFreshness(rows, telemetryContext) {
+  const firstSightRows = rows.filter((row) => row.guardOverride === 'FIRST_CURVE_SNAPSHOT_SCALP');
+  const losses = firstSightRows.filter((row) => row.actual.pnlClass === 'loss');
+  const totalPnl = firstSightRows.reduce((sum, row) => sum + num(row.actual.pnlSol, 0), 0);
+  const curveAges = firstSightRows
+    .map((row) => nullableNum(row.freshness.curveUpdateAgeSeconds))
+    .filter((value) => value !== null);
+
+  return {
+    mode: 'report_only',
+    telemetryRead: telemetryContext.ok,
+    telemetryPath: telemetryContext.telemetryPath,
+    totalEntries: rows.length,
+    firstSightEntries: firstSightRows.length,
+    firstSightLosses: losses.length,
+    firstSightPnlSol: compact(totalPnl, 6),
+    firstSightFastStopouts: firstSightRows.filter((row) => row.freshness.fastStopout).length,
+    staleCurveUpdateEntries: firstSightRows.filter((row) => row.freshness.curveUpdateAgeSeconds !== null && row.freshness.curveUpdateAgeSeconds > FRESH_CURVE_UPDATE_SECONDS).length,
+    recentBondingBackoffEntries: firstSightRows.filter((row) => row.freshness.bondingBackoffWithin60s).length,
+    recentPumpPortalDisconnectEntries: firstSightRows.filter((row) => row.freshness.pumpPortalDisconnectWithin60s).length,
+    averageCurveUpdateAgeSeconds: curveAges.length
+      ? compact(curveAges.reduce((sum, value) => sum + value, 0) / curveAges.length, 2)
+      : null,
+    thresholds: {
+      freshCurveUpdateSeconds: FRESH_CURVE_UPDATE_SECONDS,
+      recentInfraWindowSeconds: RECENT_INFRA_WINDOW_SECONDS,
+      fastStopoutSeconds: FAST_STOPOUT_SECONDS
+    },
+    interpretation: firstSightRows.length
+      ? 'first-sight scalp entries are checked against curve-update freshness, recent bonding-curve backoff, PumpPortal disconnects, and fast stopouts; report-only, no gate changes'
+      : 'no first-sight scalp entries were available for freshness analysis'
+  };
+}
+
+function summarize(rows, unmatchedSimTrades, telemetryContext) {
   const matchedRows = rows.filter((row) => row.sim);
   const actualBetterRows = matchedRows.filter((row) => row.comparison.deltaPnlSol > 0);
   const simBetterRows = matchedRows.filter((row) => row.comparison.deltaPnlSol < 0);
@@ -170,6 +369,7 @@ function summarize(rows, unmatchedSimTrades) {
     simHeldToStop: simHeldToStop.length,
     actualAvoidedDeepDrawdown: avoidedDeepDrawdown.length,
     highCurveEntryPressure: highCurvePressure.length,
+    firstSightScalpFreshness: summarizeFreshness(rows, telemetryContext),
     totalActualMinusSimPnlSol: compact(totalDelta, 6),
     averageActualMinusSimPnlSol: matchedRows.length ? compact(totalDelta / matchedRows.length, 6) : null,
     pressureFlagCounts: groupCount(
@@ -190,6 +390,7 @@ function buildReport() {
   const paperSim = readJson(PAPER_SIM_PATH, {});
   const actualRows = Array.isArray(entryLoss.rows) ? entryLoss.rows : [];
   const simTrades = Array.isArray(paperSim.simulatedTrades) ? paperSim.simulatedTrades : [];
+  const telemetryContext = readTelemetryContext(entryLoss.sources?.telemetryPath);
   const simByMint = new Map();
 
   for (const trade of simTrades) {
@@ -203,7 +404,7 @@ function buildReport() {
   const rows = actualRows.map((actual) => {
     const sim = chooseNearestSim(actual, simByMint, matchedSimKeys);
     if (sim) matchedSimKeys.add(simKey(sim));
-    return compactRow(actual, sim);
+    return compactRow(actual, sim, telemetryContext);
   });
 
   const unmatchedSimTrades = simTrades
@@ -230,10 +431,11 @@ function buildReport() {
     mode: 'report_only',
     sources: {
       entryLossAttributionPath: rel(ENTRY_LOSS_PATH),
-      paperSimPath: rel(PAPER_SIM_PATH)
+      paperSimPath: rel(PAPER_SIM_PATH),
+      telemetryPath: entryLoss.sources?.telemetryPath || null
     },
     runWindow: entryLoss.runWindow || paperSim.run || {},
-    summary: summarize(rows, unmatchedSimTrades),
+    summary: summarize(rows, unmatchedSimTrades, telemetryContext),
     rows,
     topActualOutperformedSim: rows
       .filter((row) => row.comparison.deltaPnlSol !== null)
