@@ -53,6 +53,55 @@ function extractJsonObject(text) {
   }
 }
 
+function classifyRuntimeError(error) {
+  const message = String(error?.message || '').trim();
+  const code = String(error?.code || '').trim();
+  const status = Number(error?.response?.status || 0);
+  const lower = `${message} ${code}`.toLowerCase();
+
+  if (code === 'ECONNABORTED' || lower.includes('timeout')) {
+    return {
+      failureType: 'timeout',
+      reason: 'SIMPLE_RUNTIME_AI_TIMEOUT'
+    };
+  }
+
+  if (
+    ['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EHOSTUNREACH', 'ETIMEDOUT'].includes(code) ||
+    lower.includes('connect') ||
+    lower.includes('socket hang up')
+  ) {
+    return {
+      failureType: 'unavailable',
+      reason: 'SIMPLE_RUNTIME_AI_UNAVAILABLE'
+    };
+  }
+
+  if (
+    lower.includes('json') ||
+    lower.includes('empty response') ||
+    lower.includes('no json object found') ||
+    error instanceof SyntaxError
+  ) {
+    return {
+      failureType: 'malformed_json',
+      reason: 'SIMPLE_RUNTIME_AI_MALFORMED_JSON'
+    };
+  }
+
+  if (Number.isFinite(status) && status > 0) {
+    return {
+      failureType: 'http_error',
+      reason: `SIMPLE_RUNTIME_AI_HTTP_${status}`
+    };
+  }
+
+  return {
+    failureType: 'unknown',
+    reason: 'SIMPLE_RUNTIME_AI_FAILED'
+  };
+}
+
 function simpleSystemPrompt() {
   return `You are a fast JSON-only Solana memecoin runtime guard.
 Return exactly one compact JSON object. Do not use markdown. Do not include text before or after JSON.
@@ -224,18 +273,28 @@ function patchAIAgent(AIAgent) {
         this.logger.info(`Simple runtime AI review ${result.action} ${result.confidence}% ${result.simpleRuntime.risk} (${Date.now() - startedAt}ms)`);
         return result;
       } catch (error) {
-        this.logger.warn('Simple runtime AI review failed', error.message);
+        const failure = classifyRuntimeError(error);
+        this.logger.warn('Simple runtime AI review failed', {
+          failureType: failure.failureType,
+          reason: failure.reason,
+          message: error.message
+        });
         return {
           approved: false,
           confidence: 0,
-          reason: 'SIMPLE_RUNTIME_AI_FAILED',
+          reason: failure.reason,
           primaryStrategy: 'NONE',
           convergenceScore: 0,
           action: 'WATCH',
           strategyScores: this.buildEmptyStrategyScores(),
-          contradictions: ['simple runtime AI failure'],
+          contradictions: [`simple runtime AI ${failure.failureType}`],
           executionProfile: this.buildDefaultExecutionProfile(),
-          simpleRuntime: { model: RUNTIME_MODEL, risk: 'HIGH', error: error.message }
+          simpleRuntime: {
+            model: RUNTIME_MODEL,
+            risk: 'HIGH',
+            error: error.message,
+            failureType: failure.failureType
+          }
         };
       }
     }

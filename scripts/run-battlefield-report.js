@@ -479,6 +479,14 @@ function buildScalperDiagnostics({ pumpFailures, tradeRejected, signalGenerated,
 
 function buildRunnerNearMissDiagnostic({ tradeRejected, signalGenerated, signalExecuted, aiEvents, limit }) {
   const summarizedRejects = tradeRejected.map(summarizeTradeReject);
+  const aiFailureTypeCounts = countBy(aiEvents, (event) => {
+    const payload = payloadOf(event);
+    return payload.simpleRuntime?.failureType || null;
+  });
+  const aiFailureReasonCounts = countBy(aiEvents, (event) => {
+    const payload = payloadOf(event);
+    return payload.reason || payload.rejectionReason || null;
+  });
   const closestRejected = summarizedRejects
     .slice()
     .sort((a, b) => (
@@ -495,6 +503,23 @@ function buildRunnerNearMissDiagnostic({ tradeRejected, signalGenerated, signalE
     generatedSignals: signalGenerated.length,
     executedSignals: signalExecuted.length,
     aiEventCount: aiEvents.length,
+    aiFailureTypes: aiFailureTypeCounts,
+    aiFailureReasons: aiFailureReasonCounts,
+    recentAiFailures: aiEvents
+      .filter((event) => payloadOf(event).simpleRuntime?.failureType)
+      .slice(-8)
+      .map((event) => {
+        const payload = payloadOf(event);
+        return {
+          timestamp: event.timestamp || null,
+          type: eventType(event),
+          mint: payload.token || payload.mint || null,
+          reason: payload.reason || payload.rejectionReason || null,
+          failureType: payload.simpleRuntime?.failureType || null,
+          model: payload.simpleRuntime?.model || null,
+          timeout: payload.timeout === true
+        };
+      }),
     rejectionReasons: countBy(tradeRejected, (event) => payloadOf(event).reason),
     rejectionSources: countBy(tradeRejected, (event) => payloadOf(event).source || 'unknown'),
     closestRejected,
@@ -521,7 +546,8 @@ function buildReport(events, dossiers, options = {}) {
     return eventType(event).startsWith('ai.')
       || haystack.includes('AI_TIMEOUT_FALLBACK')
       || haystack.includes('AI_REVIEW_TIMEOUT')
-      || haystack.includes('AI_REVIEW_FAILED');
+      || haystack.includes('AI_REVIEW_FAILED')
+      || haystack.includes('SIMPLE_RUNTIME_AI_');
   });
 
   const paperDecisions = events.filter((event) => eventType(event) === 'pre_migration_paper.decision');
@@ -812,6 +838,10 @@ function printReport(report) {
     const diag = report.runnerLane.nearMissDiagnostic;
     console.log(`  near-miss posture=${diag.posture} aiEvents=${diag.aiEventCount}`);
     console.log(`  near-miss interpretation: ${diag.interpretation}`);
+    if (diag.aiFailureTypes && Object.keys(diag.aiFailureTypes).length > 0) {
+      console.log('  AI failure types:');
+      printCountObject(diag.aiFailureTypes);
+    }
     if (diag.rejectionSources && Object.keys(diag.rejectionSources).length > 0) {
       console.log('  rejection sources:');
       printCountObject(diag.rejectionSources);

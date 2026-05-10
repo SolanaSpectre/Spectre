@@ -595,7 +595,9 @@ class TradingEngine {
         confidence: aiDecision.confidence,
         primaryStrategy: aiDecision.primaryStrategy,
         convergenceScore: aiDecision.convergenceScore,
-        strategyScores: aiDecision.strategyScores
+        strategyScores: aiDecision.strategyScores,
+        simpleRuntime: aiDecision.simpleRuntime || null,
+        timeout: aiDecision.timeout === true
       });
       this.emitCandidateSnapshot({
         signal,
@@ -621,7 +623,9 @@ class TradingEngine {
         confidence: aiDecision.confidence,
         primaryStrategy: aiDecision.primaryStrategy,
         convergenceScore: aiDecision.convergenceScore,
-        strategyScores: aiDecision.strategyScores
+        strategyScores: aiDecision.strategyScores,
+        simpleRuntime: aiDecision.simpleRuntime || null,
+        timeout: aiDecision.timeout === true
       });
       this.emitCandidateSnapshot({
         signal,
@@ -761,7 +765,9 @@ class TradingEngine {
             primaryStrategy: aiReview.primaryStrategy || null,
             convergenceScore: aiReview.convergenceScore ?? null,
             strategyScores: aiReview.strategyScores || null,
-            executionProfile: aiReview.executionProfile || null
+            executionProfile: aiReview.executionProfile || null,
+            simpleRuntime: aiReview.simpleRuntime || null,
+            timeout: aiReview.timeout === true
           }
         : null,
       marketContext: {
@@ -983,6 +989,7 @@ class TradingEngine {
       reason.includes('ai_review_failed') ||
       reason.includes('ai_review_timeout') ||
       reason.includes('ollama_timeout') ||
+      reason.includes('simple_runtime_ai_timeout') ||
       aiDecision.timeout === true;
 
     if (aiReviewFailure && this.config.aiTimeoutFallbackEnabled) {

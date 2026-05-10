@@ -382,6 +382,9 @@ function buildAiReachability(battlefield = {}) {
     + number(eventCounts['ai.veto'], 0)
     + number(eventCounts['ai.caution'], 0);
   const aiTimeoutFallbacks = Array.isArray(runner.aiTimeoutFallback) ? runner.aiTimeoutFallback.length : 0;
+  const nearMiss = runner.nearMissDiagnostic || {};
+  const aiFailureTypes = nearMiss.aiFailureTypes || {};
+  const aiFailureReasons = nearMiss.aiFailureReasons || {};
 
   let interpretation = 'AI path status is inconclusive from the available report fields.';
   if (generatedSignals === 0) {
@@ -400,6 +403,8 @@ function buildAiReachability(battlefield = {}) {
     aiRejects,
     aiDecisionEvents,
     aiTimeoutFallbacks,
+    aiFailureTypes,
+    aiFailureReasons,
     interpretation
   };
 }
@@ -680,6 +685,12 @@ function buildSummary(docs) {
   lines.push(`  - runner/scalper signals generated/executed: ${aiReachability.generatedSignals} / ${aiReachability.executedSignals}`);
   lines.push(`  - trade rejects before signal execution: ${aiReachability.rejectedTrades}`);
   lines.push(`  - AI decision events / AI rejects / timeout fallbacks: ${aiReachability.aiDecisionEvents} / ${aiReachability.aiRejects} / ${aiReachability.aiTimeoutFallbacks}`);
+  const aiFailureTypeSummary = Object.entries(aiReachability.aiFailureTypes || {})
+    .map(([key, value]) => `${key}=${value}`)
+    .join(', ');
+  if (aiFailureTypeSummary) {
+    lines.push(`  - AI failure types: ${aiFailureTypeSummary}`);
+  }
   lines.push(`  - interpretation: ${aiReachability.interpretation}`);
   lines.push('- PumpPortal feed health:');
   lines.push(`  - status: ${pumpPortalHealth.status}`);
