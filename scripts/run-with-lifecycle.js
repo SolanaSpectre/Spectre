@@ -16,6 +16,7 @@ let interrupted = false;
 let wroteInterrupted = false;
 let paperSnapshotTimer = null;
 let lastSnapshotSignature = '';
+let ledgerSnapshotStartOffset = 0;
 
 function write(kind, meta = {}) {
   try {
@@ -59,17 +60,60 @@ function readLedgerEvents() {
   const ledgerPath = getLedgerPath();
   if (!ledgerPath || !fs.existsSync(ledgerPath)) return [];
 
-  return fs.readFileSync(ledgerPath, 'utf8')
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line.replace(/^\uFEFF/, ''));
-      } catch {
-        return null;
+  const events = [];
+  forEachLedgerEvent(ledgerPath, (event) => events.push(event));
+  return events;
+}
+
+function forEachLedgerEvent(ledgerPath, onEvent, startOffset = 0) {
+  if (!ledgerPath || !fs.existsSync(ledgerPath)) return 0;
+
+  const fd = fs.openSync(ledgerPath, 'r');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  let carry = '';
+  let count = 0;
+  let position = Math.max(0, Number(startOffset) || 0);
+
+  try {
+    while (true) {
+      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, position);
+      if (bytesRead === 0) break;
+      position += bytesRead;
+
+      carry += buffer.toString('utf8', 0, bytesRead);
+      const lines = carry.split(/\r?\n/);
+      carry = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line) continue;
+        try {
+          const event = JSON.parse(line.replace(/^\uFEFF/, ''));
+          if (event) {
+            onEvent(event);
+            count += 1;
+          }
+        } catch {
+          // Ignore malformed rows so an interrupted append cannot break shutdown.
+        }
       }
-    })
-    .filter(Boolean);
+    }
+
+    if (carry.trim()) {
+      try {
+        const event = JSON.parse(carry.replace(/^\uFEFF/, ''));
+        if (event) {
+          onEvent(event);
+          count += 1;
+        }
+      } catch {
+        // Ignore a partial final row from an interrupted append.
+      }
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+
+  return count;
 }
 
 function paperPositionKey(event) {
@@ -81,47 +125,68 @@ function buildOpenPaperPositions(events) {
   const open = new Map();
 
   for (const event of events) {
-    if (!event?.mint || String(event.mint).startsWith('SESSION:')) continue;
-
-    if (event.kind === 'paper.entry') {
-      open.set(paperPositionKey(event), {
-        mint: event.mint,
-        symbol: event.symbol || null,
-        name: event.name || null,
-        entryAt: event.timestamp || null,
-        lastSeenAt: event.timestamp || null,
-        score: event.score ?? null,
-        curveProgress: event.curveProgress ?? null,
-        priceSol: event.priceSol ?? event.paper?.entryPriceSol ?? null,
-        market: event.market || {},
-        paper: event.paper || {}
-      });
-      continue;
-    }
-
-    if (event.kind === 'paper.exit') {
-      open.delete(paperPositionKey(event));
-      continue;
-    }
-
-    if (['paper.open_snapshot', 'paper.eligible', 'paper.skipped', 'paper.near_miss'].includes(event.kind)) {
-      const key = paperPositionKey(event);
-      const existing = open.get(key);
-      if (existing) {
-        open.set(key, {
-          ...existing,
-          lastSeenAt: event.timestamp || existing.lastSeenAt,
-          score: event.score ?? existing.score,
-          curveProgress: event.curveProgress ?? existing.curveProgress,
-          priceSol: event.priceSol ?? existing.priceSol,
-          market: { ...existing.market, ...(event.market || {}) },
-          paper: { ...existing.paper, ...(event.paper || {}) }
-        });
-      }
-    }
+    applyOpenPaperPositionEvent(open, event);
   }
 
   return Array.from(open.values());
+}
+
+function applyOpenPaperPositionEvent(open, event) {
+  if (!event?.mint || String(event.mint).startsWith('SESSION:')) return;
+
+  if (event.kind === 'paper.entry') {
+    open.set(paperPositionKey(event), {
+      mint: event.mint,
+      symbol: event.symbol || null,
+      name: event.name || null,
+      entryAt: event.timestamp || null,
+      lastSeenAt: event.timestamp || null,
+      score: event.score ?? null,
+      curveProgress: event.curveProgress ?? null,
+      priceSol: event.priceSol ?? event.paper?.entryPriceSol ?? null,
+      market: event.market || {},
+      paper: event.paper || {}
+    });
+    return;
+  }
+
+  if (event.kind === 'paper.exit') {
+    open.delete(paperPositionKey(event));
+    return;
+  }
+
+  if (['paper.open_snapshot', 'paper.eligible', 'paper.skipped', 'paper.near_miss'].includes(event.kind)) {
+    const key = paperPositionKey(event);
+    const existing = open.get(key);
+    if (existing) {
+      open.set(key, {
+        ...existing,
+        lastSeenAt: event.timestamp || existing.lastSeenAt,
+        score: event.score ?? existing.score,
+        curveProgress: event.curveProgress ?? existing.curveProgress,
+        priceSol: event.priceSol ?? existing.priceSol,
+        market: { ...existing.market, ...(event.market || {}) },
+        paper: { ...existing.paper, ...(event.paper || {}) }
+      });
+    }
+  }
+}
+
+function buildOpenPaperPositionsFromLedger() {
+  const open = new Map();
+  const ledgerPath = getLedgerPath();
+  forEachLedgerEvent(ledgerPath, (event) => applyOpenPaperPositionEvent(open, event), ledgerSnapshotStartOffset);
+  return Array.from(open.values());
+}
+
+function rememberLedgerSnapshotStartOffset() {
+  const ledgerPath = getLedgerPath();
+  if (!ledgerPath || !fs.existsSync(ledgerPath)) {
+    ledgerSnapshotStartOffset = 0;
+    return;
+  }
+
+  ledgerSnapshotStartOffset = fs.statSync(ledgerPath).size;
 }
 
 function secondsBetween(startIso, endIso) {
@@ -168,7 +233,7 @@ function appendPaperSnapshotEvent(position, reason) {
 
 function snapshotOpenPaperPositions(reason = 'PERIODIC_SNAPSHOT') {
   try {
-    const positions = buildOpenPaperPositions(readLedgerEvents());
+    const positions = buildOpenPaperPositionsFromLedger();
     const signature = positions
       .map((position) => `${position.mint}:${position.paper?.preset || 'default'}:${position.lastSeenAt || ''}`)
       .sort()
@@ -228,6 +293,7 @@ write('session.started', {
   startedAt: new Date().toISOString(),
   shutdownClean: null
 });
+rememberLedgerSnapshotStartOffset();
 
 startPaperSnapshotTimer();
 

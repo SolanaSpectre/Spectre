@@ -35,17 +35,60 @@ function readJsonl(filePath) {
     return [];
   }
 
-  return fs.readFileSync(filePath, 'utf8')
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line.replace(/^\uFEFF/, ''));
-      } catch {
-        return null;
+  const rows = [];
+  forEachJsonl(filePath, (row) => rows.push(row));
+  return rows;
+}
+
+function forEachJsonl(filePath, onRow) {
+  if (!fs.existsSync(filePath)) {
+    return 0;
+  }
+
+  const fd = fs.openSync(filePath, 'r');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  let carry = '';
+  let rowCount = 0;
+
+  try {
+    while (true) {
+      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, null);
+      if (bytesRead === 0) break;
+
+      carry += buffer.toString('utf8', 0, bytesRead);
+      const lines = carry.split(/\r?\n/);
+      carry = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line) continue;
+        try {
+          const row = JSON.parse(line.replace(/^\uFEFF/, ''));
+          if (row) {
+            onRow(row);
+            rowCount += 1;
+          }
+        } catch {
+          // Ignore malformed rows so one bad append does not break reports.
+        }
       }
-    })
-    .filter(Boolean);
+    }
+
+    if (carry.trim()) {
+      try {
+        const row = JSON.parse(carry.replace(/^\uFEFF/, ''));
+        if (row) {
+          onRow(row);
+          rowCount += 1;
+        }
+      } catch {
+        // Ignore a partial final row from an interrupted append.
+      }
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+
+  return rowCount;
 }
 
 function writeJson(filePath, payload) {
@@ -281,18 +324,41 @@ function normalizeRecord(record) {
   };
 }
 
-function buildReport(events, options = {}) {
+function buildReportFromRows(rows, options = {}) {
   const records = new Map();
   const eventCounts = {};
   const sourceCounts = {};
+  let rawEvents = 0;
 
-  for (const event of events) {
+  for (const event of rows) {
     if (!event?.mint) continue;
+    rawEvents += 1;
     increment(eventCounts, event.kind || 'unknown');
     increment(sourceCounts, event.source || 'unknown');
     applyEvent(getRecord(records, event.mint), event);
   }
 
+  return buildReportFromRecords(records, eventCounts, sourceCounts, rawEvents, options);
+}
+
+function buildReportFromJsonl(ledgerPath, options = {}) {
+  const records = new Map();
+  const eventCounts = {};
+  const sourceCounts = {};
+  let rawEvents = 0;
+
+  forEachJsonl(ledgerPath, (event) => {
+    if (!event?.mint) return;
+    rawEvents += 1;
+    increment(eventCounts, event.kind || 'unknown');
+    increment(sourceCounts, event.source || 'unknown');
+    applyEvent(getRecord(records, event.mint), event);
+  });
+
+  return buildReportFromRecords(records, eventCounts, sourceCounts, rawEvents, options);
+}
+
+function buildReportFromRecords(records, eventCounts, sourceCounts, rawEvents, options = {}) {
   const outcomes = Array.from(records.values())
     .map(normalizeRecord)
     .sort((a, b) => {
@@ -316,7 +382,7 @@ function buildReport(events, options = {}) {
     generatedAt: new Date().toISOString(),
     ledgerPath: options.ledgerPath,
     summary: {
-      rawEvents: events.length,
+      rawEvents,
       uniqueMints: outcomes.length,
       eventCounts,
       sourceCounts,
@@ -330,6 +396,10 @@ function buildReport(events, options = {}) {
     recentOutcomes: outcomes.slice(0, 100),
     outcomes
   };
+}
+
+function buildReport(events, options = {}) {
+  return buildReportFromRows(events, options);
 }
 
 function buildWatchlist(report) {
@@ -407,8 +477,7 @@ function main() {
   const reportPath = resolveRepoPath(args.output) || DEFAULT_REPORT_PATH;
   const watchlistPath = resolveRepoPath(args.watchlist) || DEFAULT_WATCHLIST_PATH;
 
-  const events = readJsonl(ledgerPath);
-  const report = buildReport(events, {
+  const report = buildReportFromJsonl(ledgerPath, {
     ledgerPath,
     falseNegativeLimit: args.falseNegativeLimit || 50
   });
@@ -429,5 +498,7 @@ if (require.main === module) {
 module.exports = {
   buildReport,
   buildWatchlist,
+  buildReportFromJsonl,
+  forEachJsonl,
   readJsonl
 };
