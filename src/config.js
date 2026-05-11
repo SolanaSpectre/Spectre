@@ -503,6 +503,18 @@ class Config {
     return parseFloat(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MAX_CURVE_SNAPSHOT_AGE_SECONDS || '30');
   }
 
+  static get preMigrationPaperHighCurveStaleSnapshotGuardEnabled() {
+    return process.env.PRE_MIGRATION_PAPER_HIGH_CURVE_STALE_SNAPSHOT_GUARD_ENABLED !== 'false';
+  }
+
+  static get preMigrationPaperHighCurveStaleSnapshotMinCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_HIGH_CURVE_STALE_SNAPSHOT_MIN_CURVE_PROGRESS || '0.9');
+  }
+
+  static get preMigrationPaperHighCurveStaleSnapshotMaxCurveSnapshotAgeSeconds() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_HIGH_CURVE_STALE_SNAPSHOT_MAX_CURVE_SNAPSHOT_AGE_SECONDS || '30');
+  }
+
   static get preMigrationPaperLogDecisionEvents() {
     return process.env.PRE_MIGRATION_PAPER_LOG_DECISION_EVENTS !== 'false';
   }
@@ -1571,6 +1583,8 @@ class Config {
       { key: 'preMigrationPaperFirstCurveSnapshotScalpMaxRiskWalletCount', value: this.preMigrationPaperFirstCurveSnapshotScalpMaxRiskWalletCount, min: 0 },
       { key: 'preMigrationPaperFirstCurveSnapshotScalpMaxSniperWalletCount', value: this.preMigrationPaperFirstCurveSnapshotScalpMaxSniperWalletCount, min: 0 },
       { key: 'preMigrationPaperFirstCurveSnapshotScalpMinBuyRatio', value: this.preMigrationPaperFirstCurveSnapshotScalpMinBuyRatio, min: 0, max: 1 },
+      { key: 'preMigrationPaperHighCurveStaleSnapshotMinCurveProgress', value: this.preMigrationPaperHighCurveStaleSnapshotMinCurveProgress, min: 0, max: 1 },
+      { key: 'preMigrationPaperHighCurveStaleSnapshotMaxCurveSnapshotAgeSeconds', value: this.preMigrationPaperHighCurveStaleSnapshotMaxCurveSnapshotAgeSeconds, min: 1 },
       { key: 'preMigrationPaperEarlySurgeMinScore', value: this.preMigrationPaperEarlySurgeMinScore, min: 0, max: 100 },
       { key: 'preMigrationPaperEarlySurgeMinCurveProgress', value: this.preMigrationPaperEarlySurgeMinCurveProgress, min: 0, max: 1 },
       { key: 'preMigrationPaperEarlySurgeMaxCurveProgress', value: this.preMigrationPaperEarlySurgeMaxCurveProgress, min: 0, max: 1 },

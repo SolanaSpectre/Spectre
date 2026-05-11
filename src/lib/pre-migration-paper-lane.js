@@ -57,6 +57,13 @@ class PreMigrationPaperLane {
     this.firstCurveSnapshotScalpMaxSniperWalletCount = Number(config.preMigrationPaperFirstCurveSnapshotScalpMaxSniperWalletCount ?? 7);
     this.firstCurveSnapshotScalpMinBuyRatio = Number(config.preMigrationPaperFirstCurveSnapshotScalpMinBuyRatio ?? 0.45);
     this.firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds = Number(config.preMigrationPaperFirstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds ?? 30);
+    this.highCurveStaleSnapshotGuardEnabled = config.preMigrationPaperHighCurveStaleSnapshotGuardEnabled !== false;
+    this.highCurveStaleSnapshotMinCurveProgress = Number(config.preMigrationPaperHighCurveStaleSnapshotMinCurveProgress ?? 0.9);
+    this.highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds = Number(
+      config.preMigrationPaperHighCurveStaleSnapshotMaxCurveSnapshotAgeSeconds
+        ?? this.firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds
+        ?? 30
+    );
     this.logDecisionEvents = config.preMigrationPaperLogDecisionEvents !== false;
     this.earlyAccelerationMinScore = Number(config.preMigrationPaperEarlyAccelerationRunnerMinScore ?? 84.5);
     this.earlyAccelerationMinCurveProgress = Number(config.preMigrationPaperEarlyAccelerationRunnerMinCurveProgress ?? 0.88);
@@ -472,6 +479,18 @@ class PreMigrationPaperLane {
     if (!baseline) {
       const lateFastTrack = this.evaluateLateFastTrack(state);
       if (lateFastTrack.passed) {
+        const staleGuard = this.evaluateHighCurveStaleSnapshotGuard(state, timestamp, 'LATE_NEAR_COMPLETION_FAST_TRACK');
+        if (staleGuard.blocked) {
+          return {
+            reason: 'HIGH_CURVE_STALE_CURVE_UPDATE',
+            guardOverride: 'LATE_NEAR_COMPLETION_FAST_TRACK',
+            ...this.formatDelta60s(delta60s),
+            ...lateFastTrack,
+            ...staleGuard,
+            passed: false
+          };
+        }
+
         return {
           passed: true,
           guardOverride: 'LATE_NEAR_COMPLETION_FAST_TRACK',
@@ -481,6 +500,19 @@ class PreMigrationPaperLane {
 
       const earlyAcceleration = this.evaluateEarlyAccelerationFastTrack(state);
       if (earlyAcceleration.passed) {
+        const staleGuard = this.evaluateHighCurveStaleSnapshotGuard(state, timestamp, 'EARLY_ACCELERATION_FAST_TRACK');
+        if (staleGuard.blocked) {
+          return {
+            reason: 'HIGH_CURVE_STALE_CURVE_UPDATE',
+            guardOverride: 'EARLY_ACCELERATION_FAST_TRACK',
+            allowedPresetNames: ['earlyAccelerationRunner'],
+            ...this.formatDelta60s(delta60s),
+            ...earlyAcceleration,
+            ...staleGuard,
+            passed: false
+          };
+        }
+
         return {
           passed: true,
           guardOverride: 'EARLY_ACCELERATION_FAST_TRACK',
@@ -566,6 +598,22 @@ class PreMigrationPaperLane {
     if (curveProgressDelta < this.minCurveProgressDelta) {
       const lateFastTrack = this.evaluateLateFastTrack(state);
       if (lateFastTrack.passed) {
+        const staleGuard = this.evaluateHighCurveStaleSnapshotGuard(state, timestamp, 'LATE_NEAR_COMPLETION_FAST_TRACK');
+        if (staleGuard.blocked) {
+          return {
+            reason: 'HIGH_CURVE_STALE_CURVE_UPDATE',
+            guardOverride: 'LATE_NEAR_COMPLETION_FAST_TRACK',
+            curveProgressDelta: this.compact(curveProgressDelta, 6),
+            threshold: this.minCurveProgressDelta,
+            baselineCurveProgress: this.compact(baseline.curveProgress, 6),
+            baselineAt: baseline.timestamp,
+            ...this.formatDelta60s(delta60s),
+            ...lateFastTrack,
+            ...staleGuard,
+            passed: false
+          };
+        }
+
         return {
           passed: true,
           guardOverride: 'LATE_NEAR_COMPLETION_FAST_TRACK',
@@ -580,6 +628,23 @@ class PreMigrationPaperLane {
 
       const earlyAcceleration = this.evaluateEarlyAccelerationFastTrack(state);
       if (earlyAcceleration.passed) {
+        const staleGuard = this.evaluateHighCurveStaleSnapshotGuard(state, timestamp, 'EARLY_ACCELERATION_FAST_TRACK');
+        if (staleGuard.blocked) {
+          return {
+            reason: 'HIGH_CURVE_STALE_CURVE_UPDATE',
+            guardOverride: 'EARLY_ACCELERATION_FAST_TRACK',
+            allowedPresetNames: ['earlyAccelerationRunner'],
+            curveProgressDelta: this.compact(curveProgressDelta, 6),
+            threshold: this.minCurveProgressDelta,
+            baselineCurveProgress: this.compact(baseline.curveProgress, 6),
+            baselineAt: baseline.timestamp,
+            ...this.formatDelta60s(delta60s),
+            ...earlyAcceleration,
+            ...staleGuard,
+            passed: false
+          };
+        }
+
         return {
           passed: true,
           guardOverride: 'EARLY_ACCELERATION_FAST_TRACK',
@@ -937,6 +1002,30 @@ class PreMigrationPaperLane {
         maxCurveSnapshotAgeSeconds: this.firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds,
         sniperCrowdingGuardEnabled: this.firstCurveSnapshotScalpSniperCrowdingGuardEnabled
       }
+    };
+  }
+
+  evaluateHighCurveStaleSnapshotGuard(state = {}, timestamp = null, guardOverride = null) {
+    const curveProgress = Number(state.curveProgress);
+    const curveSnapshotAgeSeconds = this.curveSnapshotAgeSeconds(state, timestamp);
+    const blocked = this.highCurveStaleSnapshotGuardEnabled
+      && Number.isFinite(curveProgress)
+      && Number.isFinite(this.highCurveStaleSnapshotMinCurveProgress)
+      && curveProgress >= this.highCurveStaleSnapshotMinCurveProgress
+      && Number.isFinite(this.highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds)
+      && this.highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds > 0
+      && curveSnapshotAgeSeconds !== null
+      && curveSnapshotAgeSeconds > this.highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds;
+
+    return {
+      blocked,
+      highCurveStaleSnapshotBlocked: blocked,
+      highCurveStaleSnapshotGuardEnabled: this.highCurveStaleSnapshotGuardEnabled,
+      highCurveStaleSnapshotGuardOverride: guardOverride,
+      highCurveStaleSnapshotCurveProgress: this.compact(curveProgress, 6),
+      highCurveStaleSnapshotCurveSnapshotAgeSeconds: this.compact(curveSnapshotAgeSeconds, 2),
+      highCurveStaleSnapshotMinCurveProgress: this.highCurveStaleSnapshotMinCurveProgress,
+      highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds: this.highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds
     };
   }
 
@@ -1808,6 +1897,13 @@ class PreMigrationPaperLane {
         firstCurveSnapshotScalpBuyRatio: this.compact(details.firstCurveSnapshotScalpBuyRatio, 4),
         firstCurveSnapshotScalpHasPrice: details.firstCurveSnapshotScalpHasPrice ?? null,
         firstCurveSnapshotScalpThresholds: details.firstCurveSnapshotScalpThresholds || null,
+        highCurveStaleSnapshotBlocked: details.highCurveStaleSnapshotBlocked ?? null,
+        highCurveStaleSnapshotGuardEnabled: details.highCurveStaleSnapshotGuardEnabled ?? null,
+        highCurveStaleSnapshotGuardOverride: details.highCurveStaleSnapshotGuardOverride || null,
+        highCurveStaleSnapshotCurveProgress: this.compact(details.highCurveStaleSnapshotCurveProgress, 6),
+        highCurveStaleSnapshotCurveSnapshotAgeSeconds: this.compact(details.highCurveStaleSnapshotCurveSnapshotAgeSeconds, 2),
+        highCurveStaleSnapshotMinCurveProgress: this.compact(details.highCurveStaleSnapshotMinCurveProgress, 6),
+        highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds: this.compact(details.highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds, 2),
         curvePauseScore: this.compact(details.curvePauseScore, 2),
         curvePauseCurveProgress: this.compact(details.curvePauseCurveProgress, 6),
         curvePauseRecentVolumeSol: this.compact(details.curvePauseRecentVolumeSol, 4),
