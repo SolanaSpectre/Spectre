@@ -163,6 +163,10 @@ class Config {
     return parseInt(process.env.PUMP_BONDING_CURVE_GLOBAL_BACKOFF_WINDOW_MS || '15000', 10);
   }
 
+  static get pumpBondingCurveGlobalBackoffHighCurveBypassProgress() {
+    return parseFloat(process.env.PUMP_BONDING_CURVE_GLOBAL_BACKOFF_HIGH_CURVE_BYPASS_PROGRESS || '0.85');
+  }
+
   static get pumpBondingCurveMaxTrackedMints() {
     return parseInt(process.env.PUMP_BONDING_CURVE_MAX_TRACKED_MINTS || '5000', 10);
   }
@@ -1603,6 +1607,7 @@ class Config {
       { key: 'pumpBondingCurveGlobalBackoffMs', value: this.pumpBondingCurveGlobalBackoffMs, min: 1000 },
       { key: 'pumpBondingCurveGlobalBackoffErrorThreshold', value: this.pumpBondingCurveGlobalBackoffErrorThreshold, min: 1 },
       { key: 'pumpBondingCurveGlobalBackoffWindowMs', value: this.pumpBondingCurveGlobalBackoffWindowMs, min: 1000 },
+      { key: 'pumpBondingCurveGlobalBackoffHighCurveBypassProgress', value: this.pumpBondingCurveGlobalBackoffHighCurveBypassProgress, min: 0, max: 1 },
       { key: 'pumpBondingCurveMaxTrackedMints', value: this.pumpBondingCurveMaxTrackedMints, min: 1 },
       { key: 'pumpBondingCurveMaxFetchesPerCycle', value: this.pumpBondingCurveMaxFetchesPerCycle, min: 1 },
       { key: 'walletIntelRefreshIntervalMs', value: this.walletIntelRefreshIntervalMs, min: 1000 },

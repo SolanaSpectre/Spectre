@@ -593,6 +593,7 @@ function buildBondingCurvePressure(battlefield = {}) {
     updates: number(stats.updates, 0),
     errors: number(stats.errors, 0),
     skippedGlobalBackoff: number(stats.skippedGlobalBackoff, 0),
+    skippedGlobalBackoffHighCurveBypass: number(stats.skippedGlobalBackoffHighCurveBypass, 0),
     globalBackoffActivations: number(stats.globalBackoffActivations, 0),
     globalBackoffActive: stats.globalBackoffActive === true,
     globalBackoffRemainingMs: number(stats.globalBackoffRemainingMs, 0),
@@ -706,7 +707,7 @@ function buildSummary(docs) {
   lines.push(`  - interpretation: ${pumpPortalHealth.interpretation}`);
   lines.push('- Bonding curve pressure:');
   lines.push(`  - fetches / updates / errors: ${bondingCurvePressure.fetches} / ${bondingCurvePressure.updates} / ${bondingCurvePressure.errors}`);
-  lines.push(`  - global backoff activations / skipped: ${bondingCurvePressure.globalBackoffActivations} / ${bondingCurvePressure.skippedGlobalBackoff}`);
+  lines.push(`  - global backoff activations / skipped / high-curve bypasses: ${bondingCurvePressure.globalBackoffActivations} / ${bondingCurvePressure.skippedGlobalBackoff} / ${bondingCurvePressure.skippedGlobalBackoffHighCurveBypass}`);
   lines.push(`  - active / remaining: ${bondingCurvePressure.globalBackoffActive} / ${bondingCurvePressure.globalBackoffRemainingMs}ms`);
   lines.push(`  - last activation: ${bondingCurvePressure.lastGlobalBackoffActivatedAt || 'none'} (${bondingCurvePressure.lastGlobalBackoffErrorsInWindow} errors in window)`);
   lines.push('');

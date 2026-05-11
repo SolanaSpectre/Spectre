@@ -27,6 +27,9 @@ class PumpBondingCurveLane {
     this.globalBackoffMs = config.pumpBondingCurveGlobalBackoffMs;
     this.globalBackoffErrorThreshold = config.pumpBondingCurveGlobalBackoffErrorThreshold;
     this.globalBackoffWindowMs = config.pumpBondingCurveGlobalBackoffWindowMs;
+    this.globalBackoffHighCurveBypassProgress = Number.isFinite(config.pumpBondingCurveGlobalBackoffHighCurveBypassProgress)
+      ? config.pumpBondingCurveGlobalBackoffHighCurveBypassProgress
+      : 0.85;
     this.maxTrackedMints = config.pumpBondingCurveMaxTrackedMints;
     this.maxFetchesPerCycle = config.pumpBondingCurveMaxFetchesPerCycle;
     this.programId = new PublicKey(config.pumpBondingCurveProgramId || DEFAULT_PUMP_FUN_PROGRAM_ID);
@@ -44,6 +47,7 @@ class PumpBondingCurveLane {
       skipped: 0,
       skippedFailureCooldown: 0,
       skippedGlobalBackoff: 0,
+      skippedGlobalBackoffHighCurveBypass: 0,
       globalBackoffActivations: 0,
       globalBackoffUntil: null,
       lastGlobalBackoffActivatedAt: null,
@@ -72,7 +76,10 @@ class PumpBondingCurveLane {
     const now = Date.now();
     const existing = this.states.get(mint);
 
-    if (!options.bypassGlobalBackoff && this.isGlobalBackoffActive(now)) {
+    const bypassGlobalBackoff = Boolean(options.bypassGlobalBackoff)
+      || this.shouldBypassGlobalBackoff(existing);
+
+    if (!bypassGlobalBackoff && this.isGlobalBackoffActive(now)) {
       this.stats.skipped += 1;
       this.stats.skippedGlobalBackoff += 1;
       this.stats.globalBackoffUntil = new Date(this.globalBackoffUntil).toISOString();
@@ -81,6 +88,10 @@ class PumpBondingCurveLane {
         refreshed: false,
         skipReason: 'GLOBAL_BACKOFF'
       } : null;
+    }
+
+    if (!options.bypassGlobalBackoff && this.isGlobalBackoffActive(now) && bypassGlobalBackoff) {
+      this.stats.skippedGlobalBackoffHighCurveBypass += 1;
     }
 
     if (existing && !options.bypassFailureCooldown && this.isFailureCooldownActive(existing, now)) {
@@ -175,7 +186,7 @@ class PumpBondingCurveLane {
   }
 
   shouldRefresh(state, now) {
-    if (this.isGlobalBackoffActive(now)) {
+    if (this.isGlobalBackoffActive(now) && !this.shouldBypassGlobalBackoff(state)) {
       return false;
     }
 
@@ -199,16 +210,25 @@ class PumpBondingCurveLane {
       return false;
     }
 
-    if (this.isGlobalBackoffActive(now)) {
+    const existing = this.states.get(mint);
+    if (this.isGlobalBackoffActive(now) && !this.shouldBypassGlobalBackoff(existing)) {
       return false;
     }
 
-    const existing = this.states.get(mint);
     return !existing || this.shouldRefresh(existing, now);
   }
 
   isGlobalBackoffActive(now) {
     return Number.isFinite(this.globalBackoffUntil) && this.globalBackoffUntil > now;
+  }
+
+  shouldBypassGlobalBackoff(state) {
+    if (!state || !Number.isFinite(this.globalBackoffHighCurveBypassProgress)) {
+      return false;
+    }
+
+    const curveProgress = Number(state.curveProgress);
+    return Number.isFinite(curveProgress) && curveProgress >= this.globalBackoffHighCurveBypassProgress;
   }
 
   noteSuccessfulFetch() {
