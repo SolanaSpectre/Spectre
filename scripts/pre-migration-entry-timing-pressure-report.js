@@ -314,6 +314,17 @@ function highCurvePressureBucket(row) {
   return 'fresh_curve_update';
 }
 
+function entryInfraBucket(row) {
+  if (row.freshness.bondingBackoffWithin60s) return 'recent_bonding_backoff';
+  if (row.freshness.pumpPortalDisconnectWithin60s) return 'recent_pumpportal_disconnect';
+  const age = nullableNum(row.freshness.curveUpdateAgeSeconds);
+  if (age === null) return 'curve_update_missing';
+  if (age <= FRESH_CURVE_UPDATE_SECONDS) return 'curve_update_fresh';
+  if (age <= 60) return 'curve_update_15_60s';
+  if (age <= 120) return 'curve_update_60_120s';
+  return 'curve_update_over_120s';
+}
+
 function summarizeFirstSightCohorts(rows) {
   const firstSightRows = rows.filter((row) => row.guardOverride === 'FIRST_CURVE_SNAPSHOT_SCALP');
   return {
@@ -342,6 +353,70 @@ function summarizeFirstSightCohorts(rows) {
         deltaPnlSol: row.comparison.deltaPnlSol
       })),
     note: 'Report-only first-sight scalp cohort split. This does not change thresholds, gates, entries, exits, scoring, AI review, quotes, or live behavior.'
+  };
+}
+
+function summarizeEntryInfraContext(rows, telemetryContext) {
+  const curveAges = rows
+    .map((row) => nullableNum(row.freshness.curveUpdateAgeSeconds))
+    .filter((value) => value !== null);
+  const staleRows = rows.filter((row) => row.freshness.curveUpdateAgeSeconds !== null
+    && row.freshness.curveUpdateAgeSeconds > FRESH_CURVE_UPDATE_SECONDS);
+  const recentBackoffRows = rows.filter((row) => row.freshness.bondingBackoffWithin60s);
+  const recentDisconnectRows = rows.filter((row) => row.freshness.pumpPortalDisconnectWithin60s);
+
+  return {
+    mode: 'report_only',
+    telemetryRead: telemetryContext.ok,
+    telemetryPath: telemetryContext.telemetryPath,
+    totalEntries: rows.length,
+    freshCurveUpdateEntries: rows.filter((row) => row.freshness.curveUpdateFresh).length,
+    staleCurveUpdateEntries: staleRows.length,
+    missingCurveUpdateEntries: rows.filter((row) => row.freshness.curveUpdateAgeSeconds === null).length,
+    recentBondingBackoffEntries: recentBackoffRows.length,
+    recentPumpPortalDisconnectEntries: recentDisconnectRows.length,
+    avgCurveUpdateAgeSeconds: curveAges.length
+      ? compact(curveAges.reduce((sum, value) => sum + value, 0) / curveAges.length, 2)
+      : null,
+    maxCurveUpdateAgeSeconds: curveAges.length ? compact(Math.max(...curveAges), 2) : null,
+    staleCurvePnlSol: compact(staleRows.reduce((sum, row) => sum + num(row.actual.pnlSol, 0), 0), 6),
+    freshCurvePnlSol: compact(
+      rows
+        .filter((row) => row.freshness.curveUpdateFresh)
+        .reduce((sum, row) => sum + num(row.actual.pnlSol, 0), 0),
+      6
+    ),
+    byInfraBucket: summarizeBuckets(rows, entryInfraBucket),
+    entryRows: rows.map((row) => ({
+      mint: row.mint,
+      symbol: row.symbol,
+      entryAt: row.actual.entryAt,
+      preset: row.preset,
+      guardOverride: row.guardOverride,
+      curveBand: row.curveBand,
+      entryScore: row.actual.entryScore,
+      entryCurveProgress: row.actual.entryCurveProgress,
+      entryRecentVolumeSol: row.actual.entryRecentVolumeSol,
+      entryTradeVelocityPerMin: row.actual.entryTradeVelocityPerMin,
+      exitReason: row.actual.exitReason,
+      pnlSol: row.actual.pnlSol,
+      infraBucket: entryInfraBucket(row),
+      curveUpdateAgeSeconds: row.freshness.curveUpdateAgeSeconds,
+      lastCurveUpdateAt: row.freshness.lastCurveUpdateAt,
+      lastCurveProgress: row.freshness.lastCurveProgress,
+      recentBondingBackoff: row.freshness.bondingBackoffWithin60s,
+      secondsSinceBondingBackoff: row.freshness.secondsSinceBondingBackoff,
+      recentPumpPortalDisconnect: row.freshness.pumpPortalDisconnectWithin60s,
+      secondsSincePumpPortalDisconnect: row.freshness.secondsSincePumpPortalDisconnect,
+      pressureFlags: row.comparison.pressureFlags
+    })),
+    thresholds: {
+      freshCurveUpdateSeconds: FRESH_CURVE_UPDATE_SECONDS,
+      recentInfraWindowSeconds: RECENT_INFRA_WINDOW_SECONDS
+    },
+    interpretation: rows.length
+      ? 'each actual pre-migration paper entry is annotated with curve freshness, recent bonding backoff, and recent PumpPortal disconnect context; report-only, no gate changes'
+      : 'no actual pre-migration entries were available for entry infra context'
   };
 }
 
@@ -534,6 +609,7 @@ function summarize(rows, unmatchedSimTrades, telemetryContext) {
     simHeldToStop: simHeldToStop.length,
     actualAvoidedDeepDrawdown: avoidedDeepDrawdown.length,
     highCurveEntryPressure: highCurvePressure.length,
+    entryInfraContext: summarizeEntryInfraContext(rows, telemetryContext),
     firstSightScalpFreshness: summarizeFreshness(rows, telemetryContext),
     firstSightScalpCohorts: summarizeFirstSightCohorts(rows),
     highCurveEntryCohorts: summarizeHighCurveCohorts(rows),

@@ -223,6 +223,12 @@ class PreMigrationWatchLane {
       realSolReservesSol: token.realSolReservesSol ?? bondingCurveState.realSolReservesSol ?? existing.realSolReservesSol ?? null,
       virtualTokenReservesTokens: token.virtualTokenReservesTokens ?? bondingCurveState.virtualTokenReservesTokens ?? existing.virtualTokenReservesTokens ?? null,
       bondingCurvePriceSol: token.bondingCurvePriceSol ?? bondingCurveState.priceSol ?? existing.bondingCurvePriceSol ?? null,
+      lastCurveUpdateAt: token.lastCurveUpdateAt
+        || token.bondingCurveLastFetchAt
+        || bondingCurveState.lastFetchAt
+        || bondingCurveState.lastFetchAtIso
+        || existing.lastCurveUpdateAt
+        || null,
       bondingStage: token.bondingStage || existing.bondingStage || null,
       curveProgress: curveProgress ?? existing.curveProgress ?? null,
       holderProxy: Math.max(
@@ -633,6 +639,7 @@ class PreMigrationWatchLane {
       realSolReservesSol: state.realSolReservesSol,
       virtualTokenReservesTokens: state.virtualTokenReservesTokens,
       bondingCurvePriceSol: state.bondingCurvePriceSol,
+      lastCurveUpdateAt: state.lastCurveUpdateAt || null,
       externalMentionCount: Number(state.externalMentionCount || 0),
       externalChatCount: Number(state.externalChatCount || 0),
       kolFirstWaveCount: Number(state.kolFirstWaveCount || 0),

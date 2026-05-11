@@ -283,6 +283,21 @@ function summarizeEntryTimingPressureRow(item = {}) {
   return `${label} | band=${item.curveBand || 'n/a'} | actual=${actual.exitReason || 'n/a'} ${actual.pnlSol === null || actual.pnlSol === undefined ? 'n/a' : sol(actual.pnlSol, 6)} | sim=${sim.exitReason || 'n/a'} ${sim.pnlSol === null || sim.pnlSol === undefined ? 'n/a' : sol(sim.pnlSol, 6)} | delta=${comparison.deltaPnlSol === null || comparison.deltaPnlSol === undefined ? 'n/a' : sol(comparison.deltaPnlSol, 6)} | simMin=${fmt(sim.unrealizedMinReturnPct, 4)} | simMax=${fmt(sim.unrealizedMaxReturnPct, 4)}${flags}`;
 }
 
+function summarizeEntryInfraBucket(name, item = {}) {
+  return `${name}: entries=${item.entries ?? 'n/a'}, W/L/F=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}/${item.flats ?? 'n/a'}, pnl=${sol(item.totalPnlSol ?? 0, 6)}, avg=${item.averagePnlSol === null || item.averagePnlSol === undefined ? 'n/a' : sol(item.averagePnlSol, 6)}, stale=${item.staleCurveUpdates ?? 'n/a'}, backoff=${item.recentBondingBackoff ?? 'n/a'}, disconnect=${item.recentPumpPortalDisconnect ?? 'n/a'}`;
+}
+
+function summarizeEntryInfraRow(item = {}) {
+  const label = `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim();
+  const age = item.curveUpdateAgeSeconds === null || item.curveUpdateAgeSeconds === undefined
+    ? 'n/a'
+    : `${item.curveUpdateAgeSeconds}s`;
+  const flags = Array.isArray(item.pressureFlags) && item.pressureFlags.length
+    ? ` | flags=${item.pressureFlags.join(',')}`
+    : '';
+  return `${label} | bucket=${item.infraBucket || 'n/a'} | preset=${item.preset || 'n/a'} | guard=${item.guardOverride || 'none'} | band=${item.curveBand || 'n/a'} | exit=${item.exitReason || 'n/a'} | pnl=${item.pnlSol === null || item.pnlSol === undefined ? 'n/a' : sol(item.pnlSol, 6)} | curve=${fmt(item.entryCurveProgress, 4)} | curveAge=${age} | backoff=${item.recentBondingBackoff ? 'yes' : 'no'} | disconnect=${item.recentPumpPortalDisconnect ? 'yes' : 'no'}${flags}`;
+}
+
 function summarizeRollingEntryBucket(name, item = {}) {
   return `${name}: entries=${item.entries ?? 'n/a'}, W/L/F=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}/${item.flats ?? 'n/a'}, pnl=${sol(item.totalPnlSol ?? 0, 6)}, avg=${item.averagePnlSol === null || item.averagePnlSol === undefined ? 'n/a' : sol(item.averagePnlSol, 6)}, stop=${item.stopLosses ?? 'n/a'}, stall=${item.curveStalls ?? 'n/a'}, take=${item.takeProfits ?? 'n/a'}`;
 }
@@ -884,6 +899,20 @@ function buildSummary(docs) {
     lines.push(`  - Actual/matched/unmatched sim: ${entryTimingSummary.actualEntries ?? 'n/a'} / ${entryTimingSummary.matchedActualToSim ?? 'n/a'} / ${entryTimingSummary.unmatchedSimTrades ?? 'n/a'}`);
     lines.push(`  - Actual better vs sim better: ${entryTimingSummary.actualBetterThanSim ?? 'n/a'} / ${entryTimingSummary.simBetterThanActual ?? 'n/a'}, total actual-minus-sim=${entryTimingSummary.totalActualMinusSimPnlSol === null || entryTimingSummary.totalActualMinusSimPnlSol === undefined ? 'n/a' : sol(entryTimingSummary.totalActualMinusSimPnlSol, 6)}`);
     lines.push(`  - Actual win / sim loss: ${entryTimingSummary.actualWinSimLoss ?? 'n/a'}; sim held to stop: ${entryTimingSummary.simHeldToStop ?? 'n/a'}; avoided deep drawdown: ${entryTimingSummary.actualAvoidedDeepDrawdown ?? 'n/a'}; high-curve pressure: ${entryTimingSummary.highCurveEntryPressure ?? 'n/a'}`);
+    const entryInfraContext = entryTimingSummary.entryInfraContext || {};
+    if (entryInfraContext.totalEntries !== undefined) {
+      lines.push('  - Entry infra context:');
+      lines.push(`    - entries fresh/stale/missing curve: ${entryInfraContext.freshCurveUpdateEntries ?? 'n/a'} / ${entryInfraContext.staleCurveUpdateEntries ?? 'n/a'} / ${entryInfraContext.missingCurveUpdateEntries ?? 'n/a'}`);
+      lines.push(`    - recent bonding backoff / PumpPortal disconnect: ${entryInfraContext.recentBondingBackoffEntries ?? 'n/a'} / ${entryInfraContext.recentPumpPortalDisconnectEntries ?? 'n/a'}`);
+      lines.push(`    - avg/max curve update age: ${entryInfraContext.avgCurveUpdateAgeSeconds === null || entryInfraContext.avgCurveUpdateAgeSeconds === undefined ? 'n/a' : `${entryInfraContext.avgCurveUpdateAgeSeconds}s`} / ${entryInfraContext.maxCurveUpdateAgeSeconds === null || entryInfraContext.maxCurveUpdateAgeSeconds === undefined ? 'n/a' : `${entryInfraContext.maxCurveUpdateAgeSeconds}s`}`);
+      lines.push(`    - stale/fresh curve PnL: ${sol(entryInfraContext.staleCurvePnlSol ?? 0, 6)} / ${sol(entryInfraContext.freshCurvePnlSol ?? 0, 6)}`);
+      Object.entries(entryInfraContext.byInfraBucket || {}).slice(0, 5).forEach(([key, value]) => lines.push(`    - bucket ${summarizeEntryInfraBucket(key, value)}`));
+      const infraRows = topArray(entryInfraContext.entryRows, 5);
+      if (infraRows.length) {
+        lines.push('    - Entry rows:');
+        infraRows.forEach((item, index) => lines.push(`      ${index + 1}. ${summarizeEntryInfraRow(item)}`));
+      }
+    }
     const firstSightFreshness = entryTimingSummary.firstSightScalpFreshness || {};
     if (firstSightFreshness.firstSightEntries !== undefined) {
       lines.push('  - First-sight scalp freshness:');

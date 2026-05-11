@@ -56,6 +56,7 @@ class PreMigrationPaperLane {
     this.firstCurveSnapshotScalpSniperCrowdingGuardEnabled = config.preMigrationPaperFirstCurveSnapshotScalpSniperCrowdingGuardEnabled !== false;
     this.firstCurveSnapshotScalpMaxSniperWalletCount = Number(config.preMigrationPaperFirstCurveSnapshotScalpMaxSniperWalletCount ?? 7);
     this.firstCurveSnapshotScalpMinBuyRatio = Number(config.preMigrationPaperFirstCurveSnapshotScalpMinBuyRatio ?? 0.45);
+    this.firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds = Number(config.preMigrationPaperFirstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds ?? 30);
     this.logDecisionEvents = config.preMigrationPaperLogDecisionEvents !== false;
     this.earlyAccelerationMinScore = Number(config.preMigrationPaperEarlyAccelerationRunnerMinScore ?? 84.5);
     this.earlyAccelerationMinCurveProgress = Number(config.preMigrationPaperEarlyAccelerationRunnerMinCurveProgress ?? 0.88);
@@ -512,13 +513,23 @@ class PreMigrationPaperLane {
         };
       }
 
-      const firstCurveSnapshotScalp = this.evaluateFirstCurveSnapshotScalp(state);
+      const firstCurveSnapshotScalp = this.evaluateFirstCurveSnapshotScalp(state, timestamp);
       if (firstCurveSnapshotScalp.passed) {
         return {
           passed: true,
           guardOverride: 'FIRST_CURVE_SNAPSHOT_SCALP',
           allowedPresetNames: ['earlyAccelerationRunner'],
           thresholdOverrides: firstCurveSnapshotScalp.thresholdOverrides,
+          ...this.formatDelta60s(delta60s),
+          ...firstCurveSnapshotScalp
+        };
+      }
+      if (firstCurveSnapshotScalp.firstCurveSnapshotScalpStaleCurveBlocked) {
+        return {
+          passed: false,
+          reason: 'FIRST_CURVE_SNAPSHOT_SCALP_STALE_CURVE_UPDATE',
+          guardOverride: 'FIRST_CURVE_SNAPSHOT_SCALP',
+          allowedPresetNames: ['earlyAccelerationRunner'],
           ...this.formatDelta60s(delta60s),
           ...firstCurveSnapshotScalp
         };
@@ -832,7 +843,7 @@ class PreMigrationPaperLane {
     };
   }
 
-  evaluateFirstCurveSnapshotScalp(state = {}) {
+  evaluateFirstCurveSnapshotScalp(state = {}, timestamp = null) {
     if (!this.firstCurveSnapshotScalpEnabled) {
       return { passed: false };
     }
@@ -847,6 +858,11 @@ class PreMigrationPaperLane {
     const sniperWalletCount = Number(state.sniperWalletCount || 0);
     const buyRatio = this.computeBuyRatio(state);
     const price = this.getPrice(state);
+    const curveSnapshotAgeSeconds = this.curveSnapshotAgeSeconds(state, timestamp);
+    const staleCurveBlocked = Number.isFinite(this.firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds)
+      && this.firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds > 0
+      && curveSnapshotAgeSeconds !== null
+      && curveSnapshotAgeSeconds > this.firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds;
     const sniperCrowdingBlocked = this.firstCurveSnapshotScalpSniperCrowdingGuardEnabled
       && Number.isFinite(sniperWalletCount)
       && Number.isFinite(this.firstCurveSnapshotScalpMaxSniperWalletCount)
@@ -866,6 +882,7 @@ class PreMigrationPaperLane {
       && interestSignalCount >= this.firstCurveSnapshotScalpMinInterestCount
       && uniqueBuyerCount >= this.firstCurveSnapshotScalpMinUniqueBuyerCount
       && riskWalletCount <= this.firstCurveSnapshotScalpMaxRiskWalletCount
+      && !staleCurveBlocked
       && !sniperCrowdingBlocked
       && (buyRatio === null || buyRatio >= this.firstCurveSnapshotScalpMinBuyRatio);
 
@@ -880,6 +897,7 @@ class PreMigrationPaperLane {
     if (interestSignalCount < this.firstCurveSnapshotScalpMinInterestCount) failedChecks.push('LOW_INTEREST_COUNT');
     if (uniqueBuyerCount < this.firstCurveSnapshotScalpMinUniqueBuyerCount) failedChecks.push('LOW_UNIQUE_BUYERS');
     if (riskWalletCount > this.firstCurveSnapshotScalpMaxRiskWalletCount) failedChecks.push('RISK_WALLET_COUNT');
+    if (staleCurveBlocked) failedChecks.push('STALE_CURVE_UPDATE');
     if (sniperCrowdingBlocked) failedChecks.push('SNIPER_CROWDING_8_PLUS');
     if (buyRatio !== null && buyRatio < this.firstCurveSnapshotScalpMinBuyRatio) failedChecks.push('LOW_BUY_RATIO');
 
@@ -904,6 +922,9 @@ class PreMigrationPaperLane {
       firstCurveSnapshotScalpUniqueBuyerCount: uniqueBuyerCount,
       firstCurveSnapshotScalpRiskWalletCount: riskWalletCount,
       firstCurveSnapshotScalpSniperWalletCount: Number.isFinite(sniperWalletCount) ? sniperWalletCount : null,
+      firstCurveSnapshotScalpCurveSnapshotAgeSeconds: this.compact(curveSnapshotAgeSeconds, 2),
+      firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds: this.firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds,
+      firstCurveSnapshotScalpStaleCurveBlocked: staleCurveBlocked,
       firstCurveSnapshotScalpSniperCrowdingBlocked: sniperCrowdingBlocked,
       firstCurveSnapshotScalpBuyRatio: this.compact(buyRatio, 4),
       firstCurveSnapshotScalpHasPrice: Number.isFinite(price) && price > 0,
@@ -913,9 +934,32 @@ class PreMigrationPaperLane {
         minUniqueBuyerCount: this.firstCurveSnapshotScalpMinUniqueBuyerCount,
         maxRiskWalletCount: this.firstCurveSnapshotScalpMaxRiskWalletCount,
         maxSniperWalletCount: this.firstCurveSnapshotScalpMaxSniperWalletCount,
+        maxCurveSnapshotAgeSeconds: this.firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds,
         sniperCrowdingGuardEnabled: this.firstCurveSnapshotScalpSniperCrowdingGuardEnabled
       }
     };
+  }
+
+  curveSnapshotAgeSeconds(state = {}, timestamp = null) {
+    const parsedNow = Date.parse(timestamp);
+    const nowMs = Number.isFinite(parsedNow) ? parsedNow : Date.now();
+    const snapshotTimestamp = state.bondingCurveState?.lastFetchAtIso
+      || state.bondingCurveState?.lastFetchAt
+      || state.bondingCurveState?.lastUpdateAt
+      || state.bondingCurveState?.lastFetchedAt
+      || state.lastCurveUpdateAt
+      || state.bondingCurveUpdatedAt;
+    const parsed = Date.parse(snapshotTimestamp);
+    if (Number.isFinite(parsed)) {
+      return this.compact((nowMs - parsed) / 1000, 2);
+    }
+
+    const numericTimestamp = Number(state.bondingCurveState?.lastFetchAt || state.lastCurveUpdateMs);
+    if (Number.isFinite(numericTimestamp) && numericTimestamp > 0) {
+      return this.compact((nowMs - numericTimestamp) / 1000, 2);
+    }
+
+    return null;
   }
 
   firstCurveSnapshotNearMissEvent(state = {}, history = [], timestamp) {
@@ -928,7 +972,7 @@ class PreMigrationPaperLane {
       return null;
     }
 
-    const snapshot = this.evaluateFirstCurveSnapshotScalp(state);
+    const snapshot = this.evaluateFirstCurveSnapshotScalp(state, timestamp);
     if (snapshot.passed) {
       return null;
     }
@@ -953,8 +997,11 @@ class PreMigrationPaperLane {
         uniqueBuyerCount: Number.isFinite(Number(state.uniqueBuyerCount)) ? Number(state.uniqueBuyerCount) : 0,
         riskWalletCount: Number.isFinite(Number(state.riskWalletCount)) ? Number(state.riskWalletCount) : 0,
         sniperWalletCount: Number.isFinite(Number(state.sniperWalletCount)) ? Number(state.sniperWalletCount) : null,
+        curveSnapshotAgeSeconds: this.compact(snapshot.firstCurveSnapshotScalpCurveSnapshotAgeSeconds, 2),
+        maxCurveSnapshotAgeSeconds: this.compact(snapshot.firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds, 2),
         buyRatio: this.compact(this.computeBuyRatio(state), 4),
         hasPrice: Boolean(snapshot.firstCurveSnapshotScalpHasPrice),
+        staleCurveBlocked: Boolean(snapshot.firstCurveSnapshotScalpStaleCurveBlocked),
         sniperCrowdingBlocked: Boolean(snapshot.firstCurveSnapshotScalpSniperCrowdingBlocked),
         failedChecks: snapshot.failedChecks || [],
         thresholds: snapshot.firstCurveSnapshotScalpThresholds || null,
@@ -1754,6 +1801,9 @@ class PreMigrationPaperLane {
         firstCurveSnapshotScalpUniqueBuyerCount: Number.isFinite(Number(details.firstCurveSnapshotScalpUniqueBuyerCount)) ? Number(details.firstCurveSnapshotScalpUniqueBuyerCount) : null,
         firstCurveSnapshotScalpRiskWalletCount: Number.isFinite(Number(details.firstCurveSnapshotScalpRiskWalletCount)) ? Number(details.firstCurveSnapshotScalpRiskWalletCount) : null,
         firstCurveSnapshotScalpSniperWalletCount: Number.isFinite(Number(details.firstCurveSnapshotScalpSniperWalletCount)) ? Number(details.firstCurveSnapshotScalpSniperWalletCount) : null,
+        firstCurveSnapshotScalpCurveSnapshotAgeSeconds: this.compact(details.firstCurveSnapshotScalpCurveSnapshotAgeSeconds, 2),
+        firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds: this.compact(details.firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds, 2),
+        firstCurveSnapshotScalpStaleCurveBlocked: details.firstCurveSnapshotScalpStaleCurveBlocked ?? null,
         firstCurveSnapshotScalpSniperCrowdingBlocked: details.firstCurveSnapshotScalpSniperCrowdingBlocked ?? null,
         firstCurveSnapshotScalpBuyRatio: this.compact(details.firstCurveSnapshotScalpBuyRatio, 4),
         firstCurveSnapshotScalpHasPrice: details.firstCurveSnapshotScalpHasPrice ?? null,

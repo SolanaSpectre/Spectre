@@ -499,6 +499,10 @@ class Config {
     return parseFloat(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MIN_BUY_RATIO || '0.45');
   }
 
+  static get preMigrationPaperFirstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MAX_CURVE_SNAPSHOT_AGE_SECONDS || '30');
+  }
+
   static get preMigrationPaperLogDecisionEvents() {
     return process.env.PRE_MIGRATION_PAPER_LOG_DECISION_EVENTS !== 'false';
   }
