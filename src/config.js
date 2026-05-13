@@ -172,7 +172,7 @@ class Config {
   }
 
   static get pumpBondingCurveMaxFetchesPerCycle() {
-    return parseInt(process.env.PUMP_BONDING_CURVE_MAX_FETCHES_PER_CYCLE || '25', 10);
+    return parseInt(process.env.PUMP_BONDING_CURVE_MAX_FETCHES_PER_CYCLE || '12', 10);
   }
 
   static get preMigrationWatchEnabled() {
