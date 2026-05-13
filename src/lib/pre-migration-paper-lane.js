@@ -56,7 +56,7 @@ class PreMigrationPaperLane {
     this.firstCurveSnapshotScalpSniperCrowdingGuardEnabled = config.preMigrationPaperFirstCurveSnapshotScalpSniperCrowdingGuardEnabled !== false;
     this.firstCurveSnapshotScalpMaxSniperWalletCount = Number(config.preMigrationPaperFirstCurveSnapshotScalpMaxSniperWalletCount ?? 7);
     this.firstCurveSnapshotScalpMinBuyRatio = Number(config.preMigrationPaperFirstCurveSnapshotScalpMinBuyRatio ?? 0.45);
-    this.firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds = Number(config.preMigrationPaperFirstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds ?? 30);
+    this.firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds = Number(config.preMigrationPaperFirstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds ?? 15);
     this.highCurveStaleSnapshotGuardEnabled = config.preMigrationPaperHighCurveStaleSnapshotGuardEnabled !== false;
     this.highCurveStaleSnapshotMinCurveProgress = Number(config.preMigrationPaperHighCurveStaleSnapshotMinCurveProgress ?? 0.9);
     this.highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds = Number(

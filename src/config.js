@@ -500,7 +500,7 @@ class Config {
   }
 
   static get preMigrationPaperFirstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds() {
-    return parseFloat(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MAX_CURVE_SNAPSHOT_AGE_SECONDS || '30');
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_FIRST_CURVE_SNAPSHOT_SCALP_MAX_CURVE_SNAPSHOT_AGE_SECONDS || '15');
   }
 
   static get preMigrationPaperHighCurveStaleSnapshotGuardEnabled() {
