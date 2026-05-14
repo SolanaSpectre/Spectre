@@ -32,6 +32,7 @@ const DEFAULT_CONFIG = {
   stagedExitFirstAfterMinutes: Number(process.env.CONTINUATION_PAPER_STAGED_EXIT_FIRST_AFTER_MINUTES || 3),
   stagedExitSecondFraction: Number(process.env.CONTINUATION_PAPER_STAGED_EXIT_SECOND_FRACTION || 0.4),
   stagedExitSecondAfterMinutes: Number(process.env.CONTINUATION_PAPER_STAGED_EXIT_SECOND_AFTER_MINUTES || 10),
+  pauseNewEntriesInChurn: process.env.CONTINUATION_PAPER_PAUSE_NEW_ENTRIES_IN_CHURN !== 'false',
   chopFadeScalperEnabled: process.env.CONTINUATION_CHOP_FADE_SCALPER_ENABLED !== 'false',
   chopFadeRequiresLearningRegime: process.env.CONTINUATION_CHOP_FADE_REQUIRES_LEARNING_REGIME !== 'false',
   chopFadeNominalUsd: Number(process.env.CONTINUATION_CHOP_FADE_NOMINAL_USD || 50),
@@ -152,12 +153,13 @@ function configFromArgs(args) {
     stagedExitSecondFraction: 'stagedExitSecondFraction',
     stagedExitSecondAfterMinutes: 'stagedExitSecondAfterMinutes',
     allowReopen: 'allowReopen',
-    respectLearningPosture: 'respectLearningPosture'
+    respectLearningPosture: 'respectLearningPosture',
+    pauseNewEntriesInChurn: 'pauseNewEntriesInChurn'
   };
 
   for (const [argKey, configKey] of Object.entries(mapping)) {
     if (args[argKey] === undefined) continue;
-    if (configKey === 'allowReopen' || configKey === 'respectLearningPosture' || configKey === 'chopFadeScalperEnabled' || configKey === 'chopFadeRequiresLearningRegime' || configKey === 'stagedExitEnabled') {
+    if (configKey === 'allowReopen' || configKey === 'respectLearningPosture' || configKey === 'pauseNewEntriesInChurn' || configKey === 'chopFadeScalperEnabled' || configKey === 'chopFadeRequiresLearningRegime' || configKey === 'stagedExitEnabled') {
       config[configKey] = toBool(args[argKey], true);
       continue;
     }
@@ -786,25 +788,34 @@ function resolveLearningPause(args, config) {
   const marketRegime = learning?.regime?.marketRegime || null;
   const recommendedPosture = learning?.recommendations?.recommendedPosture || null;
   const continuationPosture = continuation?.posture || null;
+  const churnPauseActive = Boolean(
+    config.pauseNewEntriesInChurn
+    && marketRegime === 'continuation_churn'
+  );
   const active = Boolean(
     config.respectLearningPosture
     && learning
     && (
       continuationPosture === 'pause_paper_entries'
       || (marketRegime === 'chop_fade' && recommendedPosture === 'observe_only')
+      || churnPauseActive
     )
   );
+  const reason = continuationPosture === 'pause_paper_entries'
+    ? 'LEARNING_ORCHESTRATOR_PAUSED_CONTINUATION'
+    : (churnPauseActive ? 'CONTINUATION_CHURN_PAUSED_NEW_ENTRIES' : 'LEARNING_ORCHESTRATOR_PAUSED_CONTINUATION');
 
   return {
     active,
-    reason: active ? 'LEARNING_ORCHESTRATOR_PAUSED_CONTINUATION' : null,
+    reason: active ? reason : null,
     learningPath,
     learningGeneratedAt: learning?.generatedAt || null,
     marketRegime,
     recommendedPosture,
     continuationPosture,
     rationale: continuation?.rationale || null,
-    respectLearningPosture: config.respectLearningPosture
+    respectLearningPosture: config.respectLearningPosture,
+    pauseNewEntriesInChurn: config.pauseNewEntriesInChurn
   };
 }
 
