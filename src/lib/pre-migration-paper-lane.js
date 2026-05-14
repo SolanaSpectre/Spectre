@@ -69,6 +69,9 @@ class PreMigrationPaperLane {
     this.earlyAccelerationMinCurveProgress = Number(config.preMigrationPaperEarlyAccelerationRunnerMinCurveProgress ?? 0.88);
     this.earlyAccelerationMinRecentVolumeSol = Number(config.preMigrationPaperEarlyAccelerationRunnerMinRecentVolumeSol ?? 60);
     this.earlyAccelerationMinTradeVelocityPerMin = Number(config.preMigrationPaperEarlyAccelerationRunnerMinTradeVelocityPerMin ?? 40);
+    this.earlyAccelerationWeakWalletFlowGuardEnabled = config.preMigrationPaperEarlyAccelerationBlockWeakWalletFlow !== false;
+    this.earlyAccelerationWeakWalletFlowMinLowSignalTouches = Number(config.preMigrationPaperEarlyAccelerationWeakWalletFlowMinLowSignalTouches ?? 3);
+    this.earlyAccelerationWeakWalletFlowMinLateSellSol = Number(config.preMigrationPaperEarlyAccelerationWeakWalletFlowMinLateSellSol ?? 1);
     this.presets = this.buildPresets(config);
     this.strategy = this.presets[0]?.strategy || {
       minScore: config.preMigrationPaperMinScore,
@@ -349,6 +352,14 @@ class PreMigrationPaperLane {
         reason: 'PRESET_NOT_ELIGIBLE_FOR_GUARD_OVERRIDE',
         guardOverride: entryGuards.guardOverride,
         allowedPresetNames: entryGuards.allowedPresetNames
+      };
+    }
+
+    const weakWalletFlowGuard = this.evaluateEarlyAccelerationWeakWalletFlowGuard(state, preset, entryGuards);
+    if (!weakWalletFlowGuard.passed) {
+      return {
+        ...entryGuards,
+        ...weakWalletFlowGuard
       };
     }
 
@@ -1244,6 +1255,62 @@ class PreMigrationPaperLane {
     };
   }
 
+  evaluateEarlyAccelerationWeakWalletFlowGuard(state = {}, preset = {}, entryGuards = {}) {
+    if (!this.earlyAccelerationWeakWalletFlowGuardEnabled) {
+      return { passed: true };
+    }
+
+    if (preset.name !== 'earlyAccelerationRunner' || entryGuards.guardOverride !== 'EARLY_ACCELERATION_FAST_TRACK') {
+      return { passed: true };
+    }
+
+    const context = state.walletClassificationContext || {};
+    const labelCounts = context.labelCounts || {};
+    const observedTouches = Number(context.observedWalletTradeCount || 0);
+    const lowSignalTouches =
+      Number(labelCounts.LOW_SIGNAL || 0)
+      + Number(labelCounts.LOW_SIGNAL_AVOID || 0);
+    const positiveWalletSignals =
+      Number(context.earlySniperCount || 0)
+      + Number(context.alphaScalperCount || 0)
+      + Number(context.convictionWhaleCount || 0);
+    const wallets = Array.isArray(context.wallets) ? context.wallets : [];
+    const lateSellSol = wallets.reduce((sum, wallet) => {
+      const side = String(wallet.side || '').toLowerCase();
+      const phase = String(wallet.phase || '').toLowerCase();
+      const solAmount = Number(wallet.solAmount || 0);
+      if (side === 'sell' && phase.includes('late') && Number.isFinite(solAmount)) {
+        return sum + solAmount;
+      }
+      return sum;
+    }, 0);
+
+    const lowSignalDominant = Number.isFinite(observedTouches)
+      && observedTouches > 0
+      && Number.isFinite(lowSignalTouches)
+      && lowSignalTouches >= this.earlyAccelerationWeakWalletFlowMinLowSignalTouches
+      && lowSignalTouches / observedTouches >= 0.75;
+    const blocked = observedTouches >= this.earlyAccelerationWeakWalletFlowMinLowSignalTouches
+      && lowSignalDominant
+      && positiveWalletSignals <= 0
+      && lateSellSol >= this.earlyAccelerationWeakWalletFlowMinLateSellSol;
+
+    return {
+      passed: !blocked,
+      reason: blocked ? 'EARLY_ACCELERATION_WEAK_WALLET_FLOW' : null,
+      earlyAccelerationWeakWalletFlowBlocked: blocked,
+      earlyAccelerationWeakWalletFlowObservedTouches: Number.isFinite(observedTouches) ? observedTouches : null,
+      earlyAccelerationWeakWalletFlowLowSignalTouches: Number.isFinite(lowSignalTouches) ? lowSignalTouches : null,
+      earlyAccelerationWeakWalletFlowLateSellSol: this.compact(lateSellSol, 4),
+      earlyAccelerationWeakWalletFlowPositiveSignals: Number.isFinite(positiveWalletSignals) ? positiveWalletSignals : null,
+      earlyAccelerationWeakWalletFlowThresholds: {
+        minLowSignalTouches: this.earlyAccelerationWeakWalletFlowMinLowSignalTouches,
+        minLateSellSol: this.earlyAccelerationWeakWalletFlowMinLateSellSol,
+        minLowSignalShare: 0.75
+      }
+    };
+  }
+
   computeBuyRatio(state = {}) {
     const recentBuys = Number(state.recentBuys);
     const recentSells = Number(state.recentSells);
@@ -1936,6 +2003,12 @@ class PreMigrationPaperLane {
         earlyAccelerationRepeatedEarlyBuyerCount: details.earlyAccelerationRepeatedEarlyBuyerCount ?? null,
         earlyAccelerationHolderProxy: details.earlyAccelerationHolderProxy ?? null,
         earlyAccelerationThresholds: details.earlyAccelerationThresholds || null,
+        earlyAccelerationWeakWalletFlowBlocked: details.earlyAccelerationWeakWalletFlowBlocked ?? null,
+        earlyAccelerationWeakWalletFlowObservedTouches: details.earlyAccelerationWeakWalletFlowObservedTouches ?? null,
+        earlyAccelerationWeakWalletFlowLowSignalTouches: details.earlyAccelerationWeakWalletFlowLowSignalTouches ?? null,
+        earlyAccelerationWeakWalletFlowLateSellSol: this.compact(details.earlyAccelerationWeakWalletFlowLateSellSol, 4),
+        earlyAccelerationWeakWalletFlowPositiveSignals: details.earlyAccelerationWeakWalletFlowPositiveSignals ?? null,
+        earlyAccelerationWeakWalletFlowThresholds: details.earlyAccelerationWeakWalletFlowThresholds || null,
         earlySurgeScore: this.compact(details.earlySurgeScore, 2),
         earlySurgeCurveProgress: this.compact(details.earlySurgeCurveProgress, 6),
         earlySurgeRecentVolumeSol: this.compact(details.earlySurgeRecentVolumeSol, 4),

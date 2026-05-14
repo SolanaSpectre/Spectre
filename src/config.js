@@ -671,6 +671,18 @@ class Config {
     return parseInt(process.env.PRE_MIGRATION_PAPER_EARLY_ACCELERATION_RUNNER_MAX_HOLD_SECONDS || '240', 10);
   }
 
+  static get preMigrationPaperEarlyAccelerationBlockWeakWalletFlow() {
+    return process.env.PRE_MIGRATION_PAPER_EARLY_ACCELERATION_BLOCK_WEAK_WALLET_FLOW !== 'false';
+  }
+
+  static get preMigrationPaperEarlyAccelerationWeakWalletFlowMinLowSignalTouches() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_EARLY_ACCELERATION_WEAK_WALLET_FLOW_MIN_LOW_SIGNAL_TOUCHES || '3', 10);
+  }
+
+  static get preMigrationPaperEarlyAccelerationWeakWalletFlowMinLateSellSol() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_EARLY_ACCELERATION_WEAK_WALLET_FLOW_MIN_LATE_SELL_SOL || '1');
+  }
+
   static get preMigrationPaperHighConvictionFirstSightMinScore() {
     return parseFloat(process.env.PRE_MIGRATION_PAPER_HIGH_CONVICTION_FIRST_SIGHT_MIN_SCORE || String(this.preMigrationPaperFirstSightMinScore));
   }
@@ -1612,6 +1624,8 @@ class Config {
       { key: 'preMigrationPaperEarlyAccelerationRunnerTakeProfitPct', value: this.preMigrationPaperEarlyAccelerationRunnerTakeProfitPct, min: 0.001, max: 5 },
       { key: 'preMigrationPaperEarlyAccelerationRunnerStopLossPct', value: this.preMigrationPaperEarlyAccelerationRunnerStopLossPct, min: 0.001, max: 1 },
       { key: 'preMigrationPaperEarlyAccelerationRunnerMaxHoldSeconds', value: this.preMigrationPaperEarlyAccelerationRunnerMaxHoldSeconds, min: 1 },
+      { key: 'preMigrationPaperEarlyAccelerationWeakWalletFlowMinLowSignalTouches', value: this.preMigrationPaperEarlyAccelerationWeakWalletFlowMinLowSignalTouches, min: 1 },
+      { key: 'preMigrationPaperEarlyAccelerationWeakWalletFlowMinLateSellSol', value: this.preMigrationPaperEarlyAccelerationWeakWalletFlowMinLateSellSol, min: 0 },
       { key: 'preMigrationPaperHighConvictionFirstSightMinScore', value: this.preMigrationPaperHighConvictionFirstSightMinScore, min: 0, max: 100 },
       { key: 'preMigrationPaperHighConvictionFirstSightMinCurveProgress', value: this.preMigrationPaperHighConvictionFirstSightMinCurveProgress, min: 0, max: 1 },
       { key: 'preMigrationPaperHighConvictionFirstSightMinRecentVolumeSol', value: this.preMigrationPaperHighConvictionFirstSightMinRecentVolumeSol, min: 0 },
