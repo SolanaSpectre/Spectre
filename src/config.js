@@ -508,7 +508,7 @@ class Config {
   }
 
   static get preMigrationPaperHighCurveStaleSnapshotMinCurveProgress() {
-    return parseFloat(process.env.PRE_MIGRATION_PAPER_HIGH_CURVE_STALE_SNAPSHOT_MIN_CURVE_PROGRESS || '0.9');
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_HIGH_CURVE_STALE_SNAPSHOT_MIN_CURVE_PROGRESS || '0.85');
   }
 
   static get preMigrationPaperHighCurveStaleSnapshotMaxCurveSnapshotAgeSeconds() {
