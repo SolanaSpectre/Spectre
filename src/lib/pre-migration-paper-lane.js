@@ -697,6 +697,23 @@ class PreMigrationPaperLane {
 
       const curvePause = this.evaluateCurvePauseOverride(state);
       if (curvePause.passed) {
+        const staleGuard = this.evaluateHighCurveStaleSnapshotGuard(state, timestamp, 'HIGH_CONVICTION_CURVE_PAUSE');
+        if (staleGuard.blocked) {
+          return {
+            reason: 'HIGH_CURVE_STALE_CURVE_UPDATE',
+            guardOverride: 'HIGH_CONVICTION_CURVE_PAUSE',
+            allowedPresetNames: ['highConvictionFirstSight'],
+            curveProgressDelta: this.compact(curveProgressDelta, 6),
+            threshold: this.minCurveProgressDelta,
+            baselineCurveProgress: this.compact(baseline.curveProgress, 6),
+            baselineAt: baseline.timestamp,
+            ...this.formatDelta60s(delta60s),
+            ...curvePause,
+            ...staleGuard,
+            passed: false
+          };
+        }
+
         return {
           passed: true,
           guardOverride: 'HIGH_CONVICTION_CURVE_PAUSE',
