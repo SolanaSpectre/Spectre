@@ -262,12 +262,13 @@ What this does:
 
 Primary morning artifacts to inspect:
 
-- [wallet-intel latest](data/wallet-intel/latest.json)
+- [wallet-intel latest](data/wallet-intel/latest.json) - legacy/context path; may be absent until wallet-analysis inputs are rebuilt
 - [wallet realized PnL latest](data/wallet-realized-pnl/latest.json)
 - [wallet PnL evidence latest](data/reports/wallet-pnl-evidence-latest.json)
 - [wallet promotion review latest](data/reports/wallet-promotion-review-latest.json)
 - [wallet review outcome lift latest](data/reports/wallet-review-outcome-lift-latest.json)
 - [wallet per-wallet lift latest](data/reports/wallet-per-wallet-lift-latest.json)
+- [wallet PnL evidence notes](knowledge/wallet-pnl-evidence.md)
 - [convergence latest](data/convergence/latest.json)
 - [false-negative watchlist](data/watchlists/false-negative-watchlist-latest.json)
 - [battlefield report latest](data/reports/run-battlefield-latest.json)

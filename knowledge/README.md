@@ -15,6 +15,7 @@ This directory holds compact local context files meant to improve AI judgment fo
 - `agent-policy-patterns.md`
 - `rick-venum-spectre-bridge.md`
 - `wallet-intel.md`
+- `wallet-pnl-evidence.md`
 - `narrative-signals.md`
 - `decision-rules.md`
 - `rick-integration-roadmap.md`
@@ -40,6 +41,7 @@ These files are designed to teach the local model:
 - what the April 2026 Pump fee-recipient upgrade means for future live-executor compatibility
 - which operational sharpness issues still need hardening later
 - how wallet flow should be interpreted
+- how realized wallet PnL evidence should be reviewed without auto-promoting runtime trust
 - how narrative should be used without becoming hype-blind
 
 ## Usage Intent
@@ -61,6 +63,7 @@ The best pattern is selective retrieval:
 - `agent-policy-patterns.md`
 - `rick-venum-spectre-bridge.md`
 - `wallet-intel.md`
+- `wallet-pnl-evidence.md`
 - `narrative-signals.md`
 - `rick-signals.md`
 - `bags-integration-roadmap.md`

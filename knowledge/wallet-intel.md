@@ -1,5 +1,9 @@
 # Wallet Intel
 
+This note describes the older `wallet-intel` layer used for supporting context inside runtime prompts and overlap reports. In the current checkout, that path is only useful when `data/wallet-analysis/` and `data/wallet-comparison/` have been rebuilt first; otherwise `data/wallet-intel/latest.json` may be absent and downstream legacy wallet reports will stay empty.
+
+For current realized-PnL research and wallet promotion review, use [wallet-pnl-evidence.md](wallet-pnl-evidence.md). That newer stack is report-only and intentionally stays separate from runtime trust mutation.
+
 Wallet flow is supporting context, not automatic permission to trade.
 
 ## What Wallet Flow Can Tell Us
