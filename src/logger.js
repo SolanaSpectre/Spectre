@@ -6,6 +6,7 @@ const ISSUE_LEVELS = new Set(['error', 'warn']);
 const SECRET_KEY_PATTERN = /(secret|private|api[_-]?key|token|password|session|authorization|wallet)/i;
 const MAX_RECENT_ISSUES = 80;
 const MAX_SUMMARY_GROUPS = 25;
+const PROCESS_STARTED_AT = new Date().toISOString();
 
 function redactString(value) {
   return String(value)
@@ -175,7 +176,9 @@ class Logger {
       if (fs.existsSync(this.issueMirrorPath)) {
         try {
           const existing = JSON.parse(fs.readFileSync(this.issueMirrorPath, 'utf8'));
-          recent = Array.isArray(existing.recent) ? existing.recent : [];
+          recent = Array.isArray(existing.recent)
+            ? existing.recent.filter((item) => String(item?.timestamp || '') >= PROCESS_STARTED_AT)
+            : [];
         } catch (_) {
           recent = [];
         }
@@ -189,7 +192,8 @@ class Logger {
         `${JSON.stringify({
           generatedAt: issue.timestamp,
           mode: 'local_runtime_issue_mirror',
-          note: 'Recent WARN/ERROR logger output for Codex inspection during paper runs. Secret-looking fields are redacted.',
+          note: 'Current-process WARN/ERROR logger output for Codex inspection during paper runs. Secret-looking fields are redacted.',
+          processStartedAt: PROCESS_STARTED_AT,
           count: recent.length,
           recent
         }, null, 2)}\n`,
@@ -200,7 +204,8 @@ class Logger {
         `${JSON.stringify({
           generatedAt: issue.timestamp,
           mode: 'local_runtime_issue_summary',
-          note: 'Grouped WARN/ERROR logger output for quick Codex inspection during paper runs. Secret-looking fields are redacted.',
+          note: 'Grouped current-process WARN/ERROR logger output for quick Codex inspection during paper runs. Secret-looking fields are redacted.',
+          processStartedAt: PROCESS_STARTED_AT,
           sourcePath: this.issueMirrorPath,
           ...summary
         }, null, 2)}\n`,
