@@ -4,7 +4,8 @@ const fs = require('fs');
 const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '..');
-const WATCHLIST_PATH = path.join(REPO_ROOT, 'data', 'wallet-watchlists', 'kolscan-leaderboard.json');
+const DEFAULT_KOLSCAN_WATCHLIST_PATH = path.join(REPO_ROOT, 'data', 'wallet-watchlists', 'kolscan-leaderboard.json');
+const DEFAULT_MANUAL_WATCHLIST_PATH = path.join(REPO_ROOT, 'data', 'wallet-watchlists', 'manual-kol-wallets.json');
 const OUTPUT_DIR = path.join(REPO_ROOT, 'data', 'wallet-realized-pnl');
 const LATEST_PATH = path.join(OUTPUT_DIR, 'latest.json');
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -49,32 +50,78 @@ function compact(value, decimals = 8) {
   return Number.isFinite(numeric) ? Number(numeric.toFixed(decimals)) : null;
 }
 
+function resolveRepoPath(filePath) {
+  if (!filePath) return null;
+  return path.isAbsolute(filePath) ? filePath : path.join(REPO_ROOT, filePath);
+}
+
+function defaultWatchlistPath() {
+  return fs.existsSync(DEFAULT_KOLSCAN_WATCHLIST_PATH)
+    ? DEFAULT_KOLSCAN_WATCHLIST_PATH
+    : DEFAULT_MANUAL_WATCHLIST_PATH;
+}
+
+function looksNumeric(value) {
+  return value !== null
+    && value !== undefined
+    && String(value).trim() !== ''
+    && Number.isFinite(Number(value));
+}
+
 function getHeliusApiKey() {
   return process.env.HELIUS_PARSE_API_KEY || process.env.HELIUS_API_KEY || '';
 }
 
-function getHistoryEndpoint(walletAddress, txLimit) {
+function getHistoryEndpoint(walletAddress, txLimit, beforeSignature = null) {
   const apiKey = getHeliusApiKey();
   const params = new URLSearchParams({
     'api-key': apiKey,
     limit: String(txLimit)
   });
+  if (beforeSignature) {
+    params.set('before-signature', beforeSignature);
+  }
   return `https://api-mainnet.helius-rpc.com/v0/addresses/${walletAddress}/transactions?${params.toString()}`;
 }
 
 async function fetchWalletHistory(walletAddress, txLimit) {
-  const response = await fetch(getHistoryEndpoint(walletAddress, txLimit), {
-    headers: {
-      'user-agent': 'Spectre/1.0 wallet-realized-pnl'
-    }
-  });
+  const pageLimit = Math.min(txLimit, 100);
+  const transactions = [];
+  const seenSignatures = new Set();
+  let beforeSignature = null;
+  let pagesFetched = 0;
 
-  if (!response.ok) {
-    throw new Error(`Helius history request failed with status ${response.status}`);
+  while (transactions.length < txLimit) {
+    const remaining = txLimit - transactions.length;
+    const limit = Math.min(pageLimit, remaining);
+    const response = await fetch(getHistoryEndpoint(walletAddress, limit, beforeSignature), {
+      headers: {
+        'user-agent': 'Spectre/1.0 wallet-realized-pnl'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Helius history request failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
+    const page = Array.isArray(data) ? data : [];
+    pagesFetched += 1;
+    if (!page.length) break;
+
+    for (const tx of page) {
+      const signature = tx.signature || null;
+      if (signature && seenSignatures.has(signature)) continue;
+      if (signature) seenSignatures.add(signature);
+      transactions.push(tx);
+      if (transactions.length >= txLimit) break;
+    }
+
+    beforeSignature = page[page.length - 1]?.signature || null;
+    if (!beforeSignature || page.length < limit) break;
   }
 
-  const data = await response.json();
-  return Array.isArray(data) ? data : [];
+  return { transactions, pagesFetched };
 }
 
 function toIso(value) {
@@ -257,11 +304,12 @@ function summarizePosition(position) {
   };
 }
 
-function summarizeWallet(wallet, transactions) {
+function summarizeWallet(wallet, transactions, pagesFetched = null) {
   const walletState = {
     wallet,
     positions: new Map(),
-    ignoredSwapLikeTxs: 0
+    ignoredSwapLikeTxs: 0,
+    ambiguousMultiTokenTxs: 0
   };
 
   // Oldest first keeps average-cost realized PnL sane.
@@ -271,6 +319,10 @@ function summarizeWallet(wallet, transactions) {
     const { solDelta, tokenDeltas } = extractWalletDelta(tx, wallet.walletAddress);
     if (!Number.isFinite(solDelta) || tokenDeltas.size === 0) {
       if (tx.type === 'SWAP') walletState.ignoredSwapLikeTxs += 1;
+      continue;
+    }
+    if (tokenDeltas.size !== 1) {
+      if (tx.type === 'SWAP') walletState.ambiguousMultiTokenTxs += 1;
       continue;
     }
 
@@ -301,7 +353,9 @@ function summarizeWallet(wallet, transactions) {
     twitter: wallet.twitter || null,
     telegram: wallet.telegram || null,
     transactionsFetched: transactions.length,
+    pagesFetched,
     ignoredSwapLikeTxs: walletState.ignoredSwapLikeTxs,
+    ambiguousMultiTokenTxs: walletState.ambiguousMultiTokenTxs,
     positionCount: positions.length,
     realizedPositionCount: knownRealized.length,
     proceedsOnlyPositionCount: realized.length - knownRealized.length,
@@ -368,29 +422,49 @@ function buildMintIndex(walletSummaries) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const walletLimit = Math.max(parseInt(args.limit || args._[0] || '10', 10), 1);
-  const txLimit = Math.max(parseInt(args.txLimit || args._[1] || '100', 10), 1);
+  const positionalWatchlist = args._[0] && String(args._[0]).endsWith('.json') ? args._[0] : null;
+  const positionalWallet = positionalWatchlist && !looksNumeric(args._[1]) ? args._[1] : null;
+  const positionalWalletLimit = positionalWatchlist && looksNumeric(args._[1])
+    ? args._[1]
+    : (!positionalWatchlist ? args._[0] : null);
+  const positionalTxLimit = positionalWatchlist
+    ? (positionalWallet ? args._[2] : args._[2])
+    : args._[1];
+  const walletLimit = Math.max(parseInt(args.limit || positionalWalletLimit || '10', 10), 1);
+  const txLimit = Math.max(parseInt(args.txLimit || positionalTxLimit || '100', 10), 1);
+  const watchlistPath = resolveRepoPath(args.watchlist || positionalWatchlist) || defaultWatchlistPath();
+  const requestedWallet = args.wallet || positionalWallet || null;
+  const requestedName = args.name ? String(args.name).toLowerCase() : null;
   const apiKey = getHeliusApiKey();
 
   if (!apiKey) {
     throw new Error('HELIUS_PARSE_API_KEY or HELIUS_API_KEY is required to build wallet realized PnL');
   }
 
-  const watchlist = readJson(WATCHLIST_PATH, null);
+  const watchlist = readJson(watchlistPath, null);
   if (!watchlist || !Array.isArray(watchlist.wallets)) {
-    throw new Error(`Kolscan wallet watchlist not found at ${WATCHLIST_PATH}`);
+    throw new Error(`Wallet watchlist not found at ${watchlistPath}`);
   }
 
-  const wallets = watchlist.wallets.slice(0, walletLimit);
+  const filteredWallets = watchlist.wallets.filter((wallet) => {
+    if (requestedWallet && wallet.walletAddress !== requestedWallet) return false;
+    if (requestedName && String(wallet.name || '').toLowerCase() !== requestedName) return false;
+    return true;
+  });
+  const wallets = filteredWallets.slice(0, walletLimit);
+  if (!wallets.length) {
+    throw new Error('No matching wallets found in the selected watchlist');
+  }
   const walletSummaries = [];
 
   for (const wallet of wallets) {
     try {
-      const transactions = await fetchWalletHistory(wallet.walletAddress, txLimit);
-      const summary = summarizeWallet(wallet, transactions);
+      const history = await fetchWalletHistory(wallet.walletAddress, txLimit);
+      const summary = summarizeWallet(wallet, history.transactions, history.pagesFetched);
       walletSummaries.push(summary);
+      const rankLabel = wallet.rank === null || wallet.rank === undefined ? '-' : wallet.rank;
       console.log(
-        `PnL #${wallet.rank} ${wallet.name || 'unknown'} | tx=${summary.transactionsFetched} positions=${summary.positionCount} realized=${summary.realizedPositionCount} pnl=${summary.realizedPnlSol}`
+        `PnL #${rankLabel} ${wallet.name || 'unknown'} | tx=${summary.transactionsFetched} positions=${summary.positionCount} realized=${summary.realizedPositionCount} pnl=${summary.realizedPnlSol}`
       );
     } catch (error) {
       console.warn(`Failed wallet realized PnL for ${wallet.walletAddress}: ${error.message}`);
@@ -406,8 +480,14 @@ async function main() {
   const generatedAt = new Date().toISOString();
   const mintIndex = buildMintIndex(walletSummaries.filter((item) => !item.error));
   const payload = {
-    source: 'kolscan_leaderboard+helius_history_realized_pnl',
+    source: 'wallet_watchlist+helius_history_realized_pnl',
     generatedAt,
+    watchlistPath,
+    watchlistSource: watchlist.source || null,
+    filters: {
+      wallet: requestedWallet,
+      name: requestedName
+    },
     walletLimit,
     txLimit,
     summary: {

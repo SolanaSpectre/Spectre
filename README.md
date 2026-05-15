@@ -227,6 +227,12 @@ npm run report:early-organic-interest
 npm run report:wallet-first-touch
 npm run compare:kolscan
 npm run build:wallet-intel
+npm run build:wallet-realized-pnl -- --watchlist data/wallet-watchlists/manual-kol-wallets.json --wallet <wallet-address> --txLimit 500
+npm run build:wallet-realized-pnl -- --watchlist data/wallet-watchlists/manual-kol-wallets.json --walletLimit 104 --txLimit 500
+npm run report:wallet-pnl-evidence
+npm run report:wallet-promotion-review
+npm run report:wallet-review-outcome-lift
+npm run report:wallet-per-wallet-lift
 npm run sync:telegram
 npm run report:convergence
 npm run build:false-negatives
@@ -246,6 +252,8 @@ What this does:
 - builds watched-wallet first-touch token clusters from wallet trade telemetry
 - refreshes wallet-vs-paper overlap analysis
 - rebuilds wallet intel for the AI layer
+- builds report-only realized wallet PnL evidence for selected tracked wallets
+- ranks wallets by realized PnL evidence without promoting them into runtime trust tiers
 - syncs approved Telegram chats/channels only
 - rebuilds the convergence report
 - rebuilds the false-negative watchlist
@@ -255,6 +263,11 @@ What this does:
 Primary morning artifacts to inspect:
 
 - [wallet-intel latest](data/wallet-intel/latest.json)
+- [wallet realized PnL latest](data/wallet-realized-pnl/latest.json)
+- [wallet PnL evidence latest](data/reports/wallet-pnl-evidence-latest.json)
+- [wallet promotion review latest](data/reports/wallet-promotion-review-latest.json)
+- [wallet review outcome lift latest](data/reports/wallet-review-outcome-lift-latest.json)
+- [wallet per-wallet lift latest](data/reports/wallet-per-wallet-lift-latest.json)
 - [convergence latest](data/convergence/latest.json)
 - [false-negative watchlist](data/watchlists/false-negative-watchlist-latest.json)
 - [battlefield report latest](data/reports/run-battlefield-latest.json)
