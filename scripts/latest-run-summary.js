@@ -23,7 +23,11 @@ const FILES = {
   noPriorDelayedEntry: 'data/reports/no-prior-delayed-entry-replay-latest.json',
   runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json',
   walletFirstTouchOutcomeCorr: 'data/reports/wallet-first-touch-outcome-corr-latest.json',
-  walletSniperCrowdedReplay: 'data/reports/wallet-sniper-crowded-replay-latest.json'
+  walletSniperCrowdedReplay: 'data/reports/wallet-sniper-crowded-replay-latest.json',
+  walletPnlEvidence: 'data/reports/wallet-pnl-evidence-latest.json',
+  walletPromotionReview: 'data/reports/wallet-promotion-review-latest.json',
+  walletReviewOutcomeLift: 'data/reports/wallet-review-outcome-lift-latest.json',
+  walletPerWalletLift: 'data/reports/wallet-per-wallet-lift-latest.json'
 };
 
 function parseArgs(argv) {
@@ -260,6 +264,14 @@ function summarizeWalletSniperReplayRow(item = {}) {
     ? ` | fails=${item.failedChecks.join(',')}`
     : '';
   return `${label} | gate=${item.passesCurrentGate ? 'pass' : 'fail'} | outcome=${item.outcomeLabel || 'n/a'} | pnl=${item.paperPnlSol === null || item.paperPnlSol === undefined ? 'n/a' : sol(item.paperPnlSol, 6)} | score=${fmt(item.maxScore)} | curve=${fmt(item.maxCurveProgress, 4)} | vol=${fmt(item.maxRecentVolumeSol, 2)} | vel=${fmt(item.maxTradeVelocityPerMin, 2)}${failed}`;
+}
+
+function summarizeWalletPnlEvidence(item = {}) {
+  return `${item.name || 'UNKNOWN'} | tier=${item.evidenceTier || 'n/a'} | realized=${item.realizedPositionCount ?? 'n/a'} | win=${pct(item.winRate)} | pnl=${sol(item.realizedPnlSol ?? 0, 4)} | median=${sol(item.medianRealizedPnlSol ?? 0, 4)}`;
+}
+
+function summarizeWalletLift(item = {}) {
+  return `${item.name || 'UNKNOWN'} | mints=${item.uniqueMintCount ?? 'n/a'} | positive=${pct(item.positiveRate)} | interesting=${pct(item.interestingRate)} | buys=${pct(item.firstBuyRate)}${item.tinyDenominatorWarning ? ' | tiny denominator' : ''}`;
 }
 
 function summarizeEntryLossBucket(name, item = {}) {
@@ -639,6 +651,10 @@ function buildSummary(docs) {
   const runnerRaydiumShadow = docs.runnerRaydiumShadow.data || {};
   const walletFirstTouchOutcomeCorr = docs.walletFirstTouchOutcomeCorr.data || {};
   const walletSniperCrowdedReplay = docs.walletSniperCrowdedReplay.data || {};
+  const walletPnlEvidence = docs.walletPnlEvidence.data || {};
+  const walletPromotionReview = docs.walletPromotionReview.data || {};
+  const walletReviewOutcomeLift = docs.walletReviewOutcomeLift.data || {};
+  const walletPerWalletLift = docs.walletPerWalletLift.data || {};
   const lines = [];
 
   const generatedAt = new Date().toISOString();
@@ -835,6 +851,37 @@ function buildSummary(docs) {
   if (walletUnmatched.length) {
     lines.push('- Top unmatched clusters:');
     walletUnmatched.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeWalletFirstTouchOutcome(item)}`));
+  }
+  lines.push('');
+
+  const walletPnlSummary = walletPnlEvidence.summary || {};
+  const walletPromotionSummary = walletPromotionReview.summary || {};
+  const walletLiftSummary = walletPerWalletLift.summary || {};
+  const stableTrustCandidates = topArray(walletPerWalletLift.stableTrustCandidates, 6);
+  const stableAvoidCandidates = topArray(walletPerWalletLift.stableAvoidCandidates, 6);
+  const topWalletPnl = topArray(walletPnlEvidence.topPositiveWallets, 5);
+
+  lines.push('4b. Wallet PnL / Promotion Evidence');
+  lines.push('------------------------------------');
+  lines.push('- Mode: report-only; realized wallet PnL and promotion review do not mutate runtime trust tiers.');
+  lines.push(`- PnL evidence wallets / proven / promising / negative: ${walletPnlSummary.wallets ?? 'n/a'} / ${walletPnlSummary.provenPositiveWallets ?? 'n/a'} / ${walletPnlSummary.promisingPositiveWallets ?? 'n/a'} / ${walletPnlSummary.negativeEvidenceWallets ?? 'n/a'}`);
+  lines.push(`- Promotion review trust / profitable-needs-touch / watch / avoid / hold: ${walletPromotionSummary.trustReviewWallets ?? 'n/a'} / ${walletPromotionSummary.profitableNeedsFirstTouchEvidenceWallets ?? 'n/a'} / ${walletPromotionSummary.watchReviewWallets ?? 'n/a'} / ${walletPromotionSummary.avoidReviewWallets ?? 'n/a'} / ${walletPromotionSummary.holdWallets ?? 'n/a'}`);
+  lines.push(`- Per-wallet lift baselines: ledger positive=${pct(walletLiftSummary.ledgerPositiveRate)}, first-touch positive=${pct(walletLiftSummary.firstTouchPositiveRate)}`);
+  if (topWalletPnl.length) {
+    lines.push('- Top realized PnL evidence wallets:');
+    topWalletPnl.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeWalletPnlEvidence(item)}`));
+  }
+  lines.push('- Stable trust candidates:');
+  if (stableTrustCandidates.length) {
+    stableTrustCandidates.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeWalletLift(item)}`));
+  } else {
+    lines.push('  - none yet');
+  }
+  lines.push('- Stable avoid candidates:');
+  if (stableAvoidCandidates.length) {
+    stableAvoidCandidates.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeWalletLift(item)}`));
+  } else {
+    lines.push('  - none yet');
   }
   lines.push('');
 
