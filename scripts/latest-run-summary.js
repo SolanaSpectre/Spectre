@@ -1078,7 +1078,9 @@ function buildSummary(docs) {
 
   const delayedSummary = noPriorDelayedEntry.summary || {};
   const delayedByDelay = delayedSummary.byDelay || {};
+  const delayedUniqueMintByDelay = delayedSummary.byDelayUniqueMintEntries || {};
   const delayed120 = delayedByDelay['120s'] || {};
+  const delayedUniqueMint120 = delayedUniqueMintByDelay['120s'] || {};
   const delayedPriceUnavailable = Object.values(delayedByDelay)
     .reduce((sum, row) => sum + number(row?.priceUnavailableCount, 0), 0);
   const delayedWinners = topArray(noPriorDelayedEntry.topWouldWinners, 5);
@@ -1089,7 +1091,9 @@ function buildSummary(docs) {
   lines.push('- Mode: report-only; reconstructs delayed-entry decisions and does not affect entries.');
   lines.push(`- Decisions / unique mints considered: ${delayedSummary.decisionsConsidered ?? 'n/a'} / ${delayedSummary.uniqueMintsConsidered ?? 'n/a'}`);
   lines.push(`- Would-enter by delay: 30s=${delayedByDelay['30s']?.wouldEnterCount ?? 'n/a'}, 60s=${delayedByDelay['60s']?.wouldEnterCount ?? 'n/a'}, 120s=${delayedByDelay['120s']?.wouldEnterCount ?? 'n/a'}`);
+  lines.push(`- Unique-mint would-enter by delay: 30s=${delayedUniqueMintByDelay['30s']?.wouldEnterCount ?? 'n/a'}, 60s=${delayedUniqueMintByDelay['60s']?.wouldEnterCount ?? 'n/a'}, 120s=${delayedUniqueMintByDelay['120s']?.wouldEnterCount ?? 'n/a'}`);
   lines.push(`- Simulated outcomes (delay=120s): TP=${delayed120.wouldExitTpCount ?? 'n/a'}, SL=${delayed120.wouldExitSlCount ?? 'n/a'}, MAX_HOLD=${delayed120.wouldExitMaxHoldCount ?? 'n/a'}, END_OF_RUN=${delayed120.wouldExitEndOfRunCount ?? 'n/a'}, totalPnl=${delayed120.totalPnlSol === null || delayed120.totalPnlSol === undefined ? 'n/a' : sol(delayed120.totalPnlSol, 6)}, winRate=${delayed120.winRate === null || delayed120.winRate === undefined ? 'n/a' : pct(delayed120.winRate)}`);
+  lines.push(`- Unique-mint outcomes (delay=120s): TP=${delayedUniqueMint120.wouldExitTpCount ?? 'n/a'}, SL=${delayedUniqueMint120.wouldExitSlCount ?? 'n/a'}, MAX_HOLD=${delayedUniqueMint120.wouldExitMaxHoldCount ?? 'n/a'}, END_OF_RUN=${delayedUniqueMint120.wouldExitEndOfRunCount ?? 'n/a'}, totalPnl=${delayedUniqueMint120.totalPnlSol === null || delayedUniqueMint120.totalPnlSol === undefined ? 'n/a' : sol(delayedUniqueMint120.totalPnlSol, 6)}, winRate=${delayedUniqueMint120.winRate === null || delayedUniqueMint120.winRate === undefined ? 'n/a' : pct(delayedUniqueMint120.winRate)}`);
   lines.push(`- Coverage: priceFound=${delayedSummary.priceCoverage?.decisionsWithPostConfirmPriceSnapshot ?? 'n/a'}, PRICE_UNAVAILABLE=${delayedPriceUnavailable}`);
   if (delayedWinners.length) {
     lines.push('- Top would-winners:');

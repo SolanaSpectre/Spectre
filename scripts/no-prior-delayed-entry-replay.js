@@ -435,10 +435,30 @@ function summarizeDelay(rows, delayKey, strategy) {
   };
 }
 
+function dedupeEnteredRowsByMint(rows, delayKey) {
+  const selected = new Map();
+  for (const row of rows) {
+    const result = row.perDelay?.[delayKey] || {};
+    if (!row.mint || !String(result.class || '').startsWith('WOULD_ENTER_')) continue;
+    const current = selected.get(row.mint);
+    if (!current || String(row.decisionTimestamp || '').localeCompare(String(current.decisionTimestamp || '')) < 0) {
+      selected.set(row.mint, row);
+    }
+  }
+  return Array.from(selected.values());
+}
+
 function summarizeRows(rows, strategy) {
   const byDelay = {};
+  const byDelayUniqueMintEntries = {};
   for (const delaySeconds of strategy.delaysSeconds) {
-    byDelay[`${delaySeconds}s`] = summarizeDelay(rows, `${delaySeconds}s`, strategy);
+    const delayKey = `${delaySeconds}s`;
+    byDelay[delayKey] = summarizeDelay(rows, delayKey, strategy);
+    byDelayUniqueMintEntries[delayKey] = summarizeDelay(
+      dedupeEnteredRowsByMint(rows, delayKey),
+      delayKey,
+      strategy
+    );
   }
 
   const byOutcome = {};
@@ -462,6 +482,7 @@ function summarizeRows(rows, strategy) {
     decisionsConsidered: rows.length,
     uniqueMintsConsidered: new Set(rows.map((row) => row.mint).filter(Boolean)).size,
     byDelay,
+    byDelayUniqueMintEntries,
     byOutcome,
     priceCoverage: {
       decisionsWithPostConfirmPriceSnapshot: pricedResults.length,
@@ -472,7 +493,21 @@ function summarizeRows(rows, strategy) {
 }
 
 function topRows(rows, limit, direction = 'desc') {
-  const flattened = rows.flatMap((row) => Object.entries(row.perDelay).map(([delay, result]) => ({ row, delay, result })))
+  const selected = new Map();
+  for (const row of rows) {
+    for (const [delay, result] of Object.entries(row.perDelay)) {
+      if (!row.mint || !String(result.class || '').startsWith('WOULD_ENTER_') || !Number.isFinite(Number(result.pnlSol))) {
+        continue;
+      }
+      const key = `${row.mint}:${delay}`;
+      const current = selected.get(key);
+      if (!current || String(row.decisionTimestamp || '').localeCompare(String(current.row.decisionTimestamp || '')) < 0) {
+        selected.set(key, { row, delay, result });
+      }
+    }
+  }
+
+  const flattened = Array.from(selected.values())
     .filter(({ result }) => String(result.class || '').startsWith('WOULD_ENTER_') && Number.isFinite(Number(result.pnlSol)))
     .sort((a, b) => direction === 'asc'
       ? Number(a.result.pnlSol) - Number(b.result.pnlSol)
@@ -529,7 +564,7 @@ function buildReport({ followThroughReport, followThroughPath, falseNegativeRows
     decisions,
     topWouldWinners: topRows(decisions, 15, 'desc'),
     topWouldLosers: topRows(decisions, 15, 'asc'),
-    note: 'Report-only delayed-entry NO_PRIOR replay. Does not change thresholds, entries, signals, quotes, AI review, or live behavior. PRICE_UNAVAILABLE rows are NOT evidence of edge and must not be used to justify threshold loosening.'
+    note: 'Report-only delayed-entry NO_PRIOR replay. Raw delay summaries count every NO_PRIOR decision; byDelayUniqueMintEntries counts at most one replayed entry per mint and is the safer decision-facing view. Does not change thresholds, entries, signals, quotes, AI review, or live behavior. PRICE_UNAVAILABLE rows are NOT evidence of edge and must not be used to justify threshold loosening.'
   };
 }
 
