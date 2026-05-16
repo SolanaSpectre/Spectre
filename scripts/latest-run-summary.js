@@ -31,7 +31,9 @@ const FILES = {
   walletHistoricalRetrospective: 'data/reports/wallet-historical-run-retrospective-latest.json',
   walletCoalition: 'data/reports/wallet-coalition-latest.json',
   walletTimeblockedStability: 'data/reports/wallet-timeblocked-stability-latest.json',
-  walletPaperEntryConditional: 'data/reports/wallet-paper-entry-conditional-latest.json'
+  walletPaperEntryConditional: 'data/reports/wallet-paper-entry-conditional-latest.json',
+  walletFalseNegativeBridge: 'data/reports/wallet-false-negative-bridge-latest.json',
+  walletFalseNegativeEntryReplay: 'data/reports/wallet-false-negative-entry-replay-latest.json'
 };
 
 function parseArgs(argv) {
@@ -284,6 +286,20 @@ function summarizeWalletTimeblocked(item = {}) {
 
 function summarizeWalletPaperEntry(item = {}) {
   return `${item.canonicalWallet || 'UNKNOWN'} | entered=${item.uniqueEnteredMints ?? 'n/a'} | W/L=${item.paperWins ?? 'n/a'}/${item.paperLosses ?? 'n/a'} | pnl=${sol(item.paperPnlSol ?? 0, 6)} | avg=${item.averagePaperPnlSol === null || item.averagePaperPnlSol === undefined ? 'n/a' : sol(item.averagePaperPnlSol, 6)}`;
+}
+
+function summarizeWalletFalseNegativeBridge(item = {}) {
+  const leads = item.strongLeadWallets?.length ? item.strongLeadWallets.join(',') : item.leadWallets?.join(',') || 'none';
+  return `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim()
+    + ` | outcome=${item.outcome || 'n/a'} | priority=${fmt(item.falseNegativePriority)}`
+    + ` | pre85=${item.pre85WalletTouchCount ?? 'n/a'} | strongPre85=${item.strongPre85WalletTouchCount ?? 'n/a'} | leads=${leads}`;
+}
+
+function summarizeWalletFalseNegativeEntryReplay(item = {}) {
+  return `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim()
+    + ` | trigger=${item.triggerWallet || 'n/a'} | ${item.replayClass || 'n/a'}`
+    + ` | pnl=${item.pnlSol === null || item.pnlSol === undefined ? 'n/a' : sol(item.pnlSol, 6)}`
+    + ` | touchToEntry=${item.secondsTouchToEntry ?? 'n/a'}s | curve=${fmt(item.entryCurveProgress, 4)}`;
 }
 
 function summarizeEntryLossBucket(name, item = {}) {
@@ -671,6 +687,8 @@ function buildSummary(docs) {
   const walletCoalition = docs.walletCoalition.data || {};
   const walletTimeblockedStability = docs.walletTimeblockedStability.data || {};
   const walletPaperEntryConditional = docs.walletPaperEntryConditional.data || {};
+  const walletFalseNegativeBridge = docs.walletFalseNegativeBridge.data || {};
+  const walletFalseNegativeEntryReplay = docs.walletFalseNegativeEntryReplay.data || {};
   const lines = [];
 
   const generatedAt = new Date().toISOString();
@@ -910,6 +928,10 @@ function buildSummary(docs) {
   const paperEntrySummary = walletPaperEntryConditional.summary || {};
   const topMonetizableWallets = topArray(walletPaperEntryConditional.topProfitableWallets, 6);
   const worstMonetizableWallets = topArray(walletPaperEntryConditional.worstWallets, 6);
+  const walletBridgeSummary = walletFalseNegativeBridge.summary || {};
+  const topStrongWalletLedMisses = topArray(walletFalseNegativeBridge.topStrongWalletLedMisses, 6);
+  const walletEntryReplaySummary = walletFalseNegativeEntryReplay.summary || {};
+  const topWalletEntryReplayWinners = topArray(walletFalseNegativeEntryReplay.topWouldWinners, 6);
 
   lines.push('4c. Wallet Historical / Monetization Check');
   lines.push('------------------------------------------');
@@ -938,6 +960,20 @@ function buildSummary(docs) {
   lines.push('- Worst monetized wallets on actually-entered mints:');
   if (worstMonetizableWallets.length) {
     worstMonetizableWallets.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeWalletPaperEntry(item)}`));
+  } else {
+    lines.push('  - none yet');
+  }
+  lines.push(`- Wallet-led false-negative bridge: candidates=${walletBridgeSummary.falseNegativeCandidates ?? 'n/a'}, walletTouched=${walletBridgeSummary.walletTouchedCandidates ?? 'n/a'}, pre85Touched=${walletBridgeSummary.pre85WalletTouchedCandidates ?? 'n/a'}, walletLedMisses=${walletBridgeSummary.walletLedMisses ?? 'n/a'}, strongWalletLedMisses=${walletBridgeSummary.strongWalletLedMisses ?? 'n/a'}`);
+  lines.push('- Top strong wallet-led skipped winners:');
+  if (topStrongWalletLedMisses.length) {
+    topStrongWalletLedMisses.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeWalletFalseNegativeBridge(item)}`));
+  } else {
+    lines.push('  - none yet');
+  }
+  lines.push(`- Wallet-led entry replay: strongMisses=${walletEntryReplaySummary.strongWalletLedMisses ?? 'n/a'}, wouldEnter=${walletEntryReplaySummary.wouldEnter ?? 'n/a'}, noGateConfirm=${walletEntryReplaySummary.noGateConfirmAfterTouch ?? 'n/a'}, pnl=${walletEntryReplaySummary.totalPnlSol === null || walletEntryReplaySummary.totalPnlSol === undefined ? 'n/a' : sol(walletEntryReplaySummary.totalPnlSol, 6)}, winRate=${pct(walletEntryReplaySummary.winRate)}`);
+  lines.push('- Top wallet-led replay rows:');
+  if (topWalletEntryReplayWinners.length) {
+    topWalletEntryReplayWinners.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeWalletFalseNegativeEntryReplay(item)}`));
   } else {
     lines.push('  - none yet');
   }

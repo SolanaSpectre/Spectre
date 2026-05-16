@@ -18,6 +18,8 @@ const POST_RUN_REPORTS = [
   { title: 'Wallet Coalition Report', script: 'wallet-coalition-report.js' },
   { title: 'Wallet Timeblocked Stability', script: 'wallet-timeblocked-stability-report.js' },
   { title: 'Wallet Paper-Entry Conditional', script: 'wallet-paper-entry-conditional-report.js' },
+  { title: 'Wallet False-Negative Bridge', script: 'wallet-false-negative-bridge-report.js' },
+  { title: 'Wallet False-Negative Entry Replay', script: 'wallet-false-negative-entry-replay.js' },
   { title: 'Wallet Alpha Replay Report', script: 'wallet-alpha-replay-report.js' },
   { title: 'Wallet Alpha Shadow Ledger', script: 'wallet-alpha-shadow-ledger.js' },
   { title: 'Watch Lane Validation Report', script: 'watch-lane-validation-report.js' },

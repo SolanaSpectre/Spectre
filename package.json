@@ -48,6 +48,8 @@
     "report:wallet-coalition": "node scripts/wallet-coalition-report.js",
     "report:wallet-timeblocked-stability": "node scripts/wallet-timeblocked-stability-report.js",
     "report:wallet-paper-entry-conditional": "node scripts/wallet-paper-entry-conditional-report.js",
+    "report:wallet-false-negative-bridge": "node scripts/wallet-false-negative-bridge-report.js",
+    "report:wallet-false-negative-entry-replay": "node scripts/wallet-false-negative-entry-replay.js",
     "report:wallet-alpha": "node scripts/wallet-alpha-replay-report.js",
     "report:wallet-alpha-shadow": "node scripts/wallet-alpha-shadow-ledger.js",
     "report:post-run": "node scripts/run-post-run-reports.js",
