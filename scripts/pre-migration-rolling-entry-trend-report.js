@@ -5,6 +5,7 @@ const ROOT = path.join(__dirname, '..');
 const RUN_LOGS_DIR = path.join(ROOT, 'run-logs');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-rolling-entry-trend-latest.json');
 const DEFAULT_RUNS = 8;
+const FRESH_CURVE_UPDATE_SECONDS = 15;
 
 function parseArgs(argv) {
   const args = {};
@@ -84,6 +85,33 @@ function sniperCrowdingBucket(sniperWalletCount) {
   return 'no_snipers';
 }
 
+function eventTimestampMs(event) {
+  const parsed = Date.parse(event?.timestamp);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function mintOf(payload = {}) {
+  return payload.mint || payload.token || payload.mintAddress || null;
+}
+
+function nearestPrior(rows, atMs) {
+  let best = null;
+  for (const row of rows || []) {
+    if (!Number.isFinite(row.timestampMs) || row.timestampMs > atMs) continue;
+    if (!best || row.timestampMs > best.timestampMs) best = row;
+  }
+  return best;
+}
+
+function curveFreshnessBucket(curveUpdateAgeSeconds) {
+  const age = nullableNum(curveUpdateAgeSeconds);
+  if (age === null) return 'curve_update_missing';
+  if (age <= FRESH_CURVE_UPDATE_SECONDS) return 'curve_update_fresh';
+  if (age <= 60) return 'curve_update_15_60s';
+  if (age <= 120) return 'curve_update_60_120s';
+  return 'curve_update_over_120s';
+}
+
 function readJsonl(filePath) {
   if (!filePath || !fs.existsSync(filePath)) return [];
   return fs.readFileSync(filePath, 'utf8')
@@ -112,11 +140,19 @@ function latestTelemetryFiles(limit) {
     .map((item) => item.filePath);
 }
 
-function compactEntry(payload = {}, exitPayload = {}, telemetryPath, runWindow = {}) {
+function compactEntry(payload = {}, exitPayload = {}, telemetryPath, runWindow = {}, curveUpdatesByMint = new Map()) {
   const walletContext = payload.walletClassificationContext || {};
   const pnlSol = nullableNum(exitPayload.pnlSol);
   const reasons = Array.isArray(payload.reasons) ? payload.reasons : [];
   const sniperWalletCount = nullableNum(payload.entrySniperWalletCount);
+  const entryAtMs = Date.parse(payload.entryAt);
+  const mint = payload.mint || payload.token || null;
+  const lastCurveUpdate = Number.isFinite(entryAtMs)
+    ? nearestPrior(curveUpdatesByMint.get(mint) || [], entryAtMs)
+    : null;
+  const curveUpdateAgeSeconds = lastCurveUpdate
+    ? compact((entryAtMs - lastCurveUpdate.timestampMs) / 1000, 2)
+    : null;
 
   return {
     telemetryPath: rel(telemetryPath),
@@ -124,7 +160,7 @@ function compactEntry(payload = {}, exitPayload = {}, telemetryPath, runWindow =
     runStartedAt: runWindow.startedAt || null,
     runStoppedAt: runWindow.stoppedAt || null,
     positionKey: keyOf(payload),
-    mint: payload.mint || payload.token || null,
+    mint,
     symbol: payload.symbol || null,
     preset: payload.preset || payload.presetName || null,
     lane: payload.lane || null,
@@ -145,6 +181,9 @@ function compactEntry(payload = {}, exitPayload = {}, telemetryPath, runWindow =
     walletTouched: Boolean(walletContext.touched),
     walletAlphaScalperCount: num(walletContext.alphaScalperCount, 0),
     walletRiskCount: num(walletContext.riskWalletCount, 0),
+    lastCurveUpdateAt: lastCurveUpdate?.timestamp || null,
+    curveUpdateAgeSeconds,
+    curveUpdateFreshnessBucket: curveFreshnessBucket(curveUpdateAgeSeconds),
     exitReason: exitPayload.reason || null,
     exitCurveProgress: compact(exitPayload.exitCurveProgress, 6),
     returnPct: compact(exitPayload.returnPct, 6),
@@ -163,9 +202,22 @@ function parseTelemetryRun(telemetryPath) {
     stoppedAt: events[events.length - 1]?.timestamp || null
   };
   const exitsByKey = new Map();
+  const curveUpdatesByMint = new Map();
   const rows = [];
 
   for (const event of events) {
+    if (eventType(event) === 'pump_bonding_curve.updated') {
+      const payload = payloadOf(event);
+      const mint = mintOf(payload);
+      const timestampMs = eventTimestampMs(event);
+      if (mint && Number.isFinite(timestampMs)) {
+        if (!curveUpdatesByMint.has(mint)) curveUpdatesByMint.set(mint, []);
+        curveUpdatesByMint.get(mint).push({
+          timestamp: event.timestamp,
+          timestampMs
+        });
+      }
+    }
     if (eventType(event) !== 'pre_migration_paper.exit') continue;
     const payload = payloadOf(event);
     exitsByKey.set(keyOf(payload), { ...payload, exitAt: payload.exitAt || event.timestamp });
@@ -177,7 +229,7 @@ function parseTelemetryRun(telemetryPath) {
 
   for (const event of entries) {
     const payload = payloadOf(event);
-    rows.push(compactEntry(payload, exitsByKey.get(keyOf(payload)) || {}, telemetryPath, runWindow));
+    rows.push(compactEntry(payload, exitsByKey.get(keyOf(payload)) || {}, telemetryPath, runWindow, curveUpdatesByMint));
   }
 
   return {
@@ -223,6 +275,9 @@ function summarizeRows(rows) {
     curveStalls: rows.filter((row) => row.exitReason === 'CURVE_STALL').length,
     sellPressureFlips: rows.filter((row) => row.exitReason === 'SELL_PRESSURE_FLIP').length,
     takeProfits: rows.filter((row) => row.exitReason === 'TAKE_PROFIT').length,
+    staleCurveUpdates: rows.filter((row) => row.curveUpdateAgeSeconds !== null && row.curveUpdateAgeSeconds > FRESH_CURVE_UPDATE_SECONDS).length,
+    freshCurveUpdates: rows.filter((row) => row.curveUpdateAgeSeconds !== null && row.curveUpdateAgeSeconds <= FRESH_CURVE_UPDATE_SECONDS).length,
+    missingCurveUpdates: rows.filter((row) => row.curveUpdateAgeSeconds === null).length,
     exitReasonCounts: countBy(rows, (row) => row.exitReason || 'OPEN')
   };
 }
@@ -238,6 +293,27 @@ function summarizeGroups(rows, key) {
     Object.entries(groups)
       .map(([groupKey, members]) => [groupKey, summarizeRows(members)])
       .sort((a, b) => num(a[1].totalPnlSol, 0) - num(b[1].totalPnlSol, 0))
+  );
+}
+
+function summarizeCurveBandFreshness(rows) {
+  const groups = {};
+  for (const row of rows) {
+    const curveKey = row.curveBand || 'UNKNOWN';
+    const freshnessKey = row.curveUpdateFreshnessBucket || 'curve_update_missing';
+    if (!groups[curveKey]) groups[curveKey] = {};
+    if (!groups[curveKey][freshnessKey]) groups[curveKey][freshnessKey] = [];
+    groups[curveKey][freshnessKey].push(row);
+  }
+  return Object.fromEntries(
+    Object.entries(groups).map(([curveKey, freshnessGroups]) => [
+      curveKey,
+      Object.fromEntries(
+        Object.entries(freshnessGroups)
+          .map(([freshnessKey, members]) => [freshnessKey, summarizeRows(members)])
+          .sort((a, b) => num(a[1].totalPnlSol, 0) - num(b[1].totalPnlSol, 0))
+      )
+    ])
   );
 }
 
@@ -264,6 +340,8 @@ function compactRow(row) {
     curveBand: row.curveBand,
     sniperCrowdingBucket: row.sniperCrowdingBucket,
     walletTouched: row.walletTouched,
+    curveUpdateAgeSeconds: row.curveUpdateAgeSeconds,
+    curveUpdateFreshnessBucket: row.curveUpdateFreshnessBucket,
     entryAt: row.entryAt,
     entryScore: row.entryScore,
     entryCurveProgress: row.entryCurveProgress,
@@ -305,13 +383,15 @@ function buildReport(options = {}) {
       byGuardOverride: summarizeGroups(rows, 'guardOverride'),
       byPreset: summarizeGroups(rows, 'preset'),
       byCurveBand: summarizeGroups(rows, 'curveBand'),
+      byCurveFreshness: summarizeGroups(rows, 'curveUpdateFreshnessBucket'),
+      byCurveBandAndFreshness: summarizeCurveBandFreshness(rows),
       bySniperCrowdingBucket: summarizeGroups(rows, 'sniperCrowdingBucket'),
       byWalletTouched: {
         wallet_touched: summarizeRows(walletTouchedRows),
         wallet_not_touched: summarizeRows(rows.filter((row) => !row.walletTouched))
       },
       interpretation: rows.length
-        ? 'rolling actual pre-migration paper entries grouped by guard, preset, curve band, wallet touch, and sniper crowding; report-only, no gate changes'
+        ? 'rolling actual pre-migration paper entries grouped by guard, preset, curve band, curve freshness, wallet touch, and sniper crowding; report-only, no gate changes'
         : 'no pre-migration paper entries were found in the selected telemetry files'
     },
     runs: summarizeRuns(runs),

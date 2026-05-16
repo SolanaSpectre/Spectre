@@ -33,7 +33,8 @@ const FILES = {
   walletTimeblockedStability: 'data/reports/wallet-timeblocked-stability-latest.json',
   walletPaperEntryConditional: 'data/reports/wallet-paper-entry-conditional-latest.json',
   walletFalseNegativeBridge: 'data/reports/wallet-false-negative-bridge-latest.json',
-  walletFalseNegativeEntryReplay: 'data/reports/wallet-false-negative-entry-replay-latest.json'
+  walletFalseNegativeEntryReplay: 'data/reports/wallet-false-negative-entry-replay-latest.json',
+  walletFalseNegativeShape: 'data/reports/wallet-false-negative-shape-latest.json'
 };
 
 function parseArgs(argv) {
@@ -302,6 +303,10 @@ function summarizeWalletFalseNegativeEntryReplay(item = {}) {
     + ` | touchToEntry=${item.secondsTouchToEntry ?? 'n/a'}s | curve=${fmt(item.entryCurveProgress, 4)}`;
 }
 
+function summarizeWalletShapeBucket(item = {}) {
+  return `rows=${item.rows ?? 'n/a'}, enter=${item.wouldEnter ?? 'n/a'}, pnl=${item.totalPnlSol === null || item.totalPnlSol === undefined ? 'n/a' : sol(item.totalPnlSol, 6)}, win=${pct(item.winRate)}`;
+}
+
 function summarizeEntryLossBucket(name, item = {}) {
   return `${name}: entries=${item.entries ?? 'n/a'}, W/L/F=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}/${item.flats ?? 'n/a'}, pnl=${sol(item.totalPnlSol ?? 0, 6)}, avg=${item.averagePnlSol === null || item.averagePnlSol === undefined ? 'n/a' : sol(item.averagePnlSol, 6)}, exits=${compactValue(item.exitReasonCounts)}`;
 }
@@ -339,7 +344,7 @@ function summarizeEntryInfraRow(item = {}) {
 }
 
 function summarizeRollingEntryBucket(name, item = {}) {
-  return `${name}: entries=${item.entries ?? 'n/a'}, W/L/F=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}/${item.flats ?? 'n/a'}, pnl=${sol(item.totalPnlSol ?? 0, 6)}, avg=${item.averagePnlSol === null || item.averagePnlSol === undefined ? 'n/a' : sol(item.averagePnlSol, 6)}, stop=${item.stopLosses ?? 'n/a'}, stall=${item.curveStalls ?? 'n/a'}, take=${item.takeProfits ?? 'n/a'}`;
+  return `${name}: entries=${item.entries ?? 'n/a'}, W/L/F=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}/${item.flats ?? 'n/a'}, pnl=${sol(item.totalPnlSol ?? 0, 6)}, avg=${item.averagePnlSol === null || item.averagePnlSol === undefined ? 'n/a' : sol(item.averagePnlSol, 6)}, stop=${item.stopLosses ?? 'n/a'}, stall=${item.curveStalls ?? 'n/a'}, take=${item.takeProfits ?? 'n/a'}, stale=${item.staleCurveUpdates ?? 'n/a'}, fresh=${item.freshCurveUpdates ?? 'n/a'}, missing=${item.missingCurveUpdates ?? 'n/a'}`;
 }
 
 function summarizeFirstSightCohortBucket(name, item = {}) {
@@ -356,7 +361,10 @@ function summarizeRollingRun(item = {}) {
 
 function summarizeRollingEntryRow(item = {}) {
   const label = `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim();
-  return `${label} | run=${item.runId || 'n/a'} | preset=${item.preset || 'n/a'} | guard=${item.guardOverride || 'n/a'} | band=${item.curveBand || 'n/a'} | sniper=${item.sniperCrowdingBucket || 'n/a'} | exit=${item.exitReason || 'n/a'} | pnl=${item.pnlSol === null || item.pnlSol === undefined ? 'n/a' : sol(item.pnlSol, 6)} | curve=${fmt(item.entryCurveProgress, 4)}`;
+  const age = item.curveUpdateAgeSeconds === null || item.curveUpdateAgeSeconds === undefined
+    ? 'n/a'
+    : `${item.curveUpdateAgeSeconds}s`;
+  return `${label} | run=${item.runId || 'n/a'} | preset=${item.preset || 'n/a'} | guard=${item.guardOverride || 'n/a'} | band=${item.curveBand || 'n/a'} | freshness=${item.curveUpdateFreshnessBucket || 'n/a'} | curveAge=${age} | sniper=${item.sniperCrowdingBucket || 'n/a'} | exit=${item.exitReason || 'n/a'} | pnl=${item.pnlSol === null || item.pnlSol === undefined ? 'n/a' : sol(item.pnlSol, 6)} | curve=${fmt(item.entryCurveProgress, 4)}`;
 }
 
 function summarizeContinuationExitScenario(name, summary = {}) {
@@ -689,6 +697,7 @@ function buildSummary(docs) {
   const walletPaperEntryConditional = docs.walletPaperEntryConditional.data || {};
   const walletFalseNegativeBridge = docs.walletFalseNegativeBridge.data || {};
   const walletFalseNegativeEntryReplay = docs.walletFalseNegativeEntryReplay.data || {};
+  const walletFalseNegativeShape = docs.walletFalseNegativeShape.data || {};
   const lines = [];
 
   const generatedAt = new Date().toISOString();
@@ -932,6 +941,8 @@ function buildSummary(docs) {
   const topStrongWalletLedMisses = topArray(walletFalseNegativeBridge.topStrongWalletLedMisses, 6);
   const walletEntryReplaySummary = walletFalseNegativeEntryReplay.summary || {};
   const topWalletEntryReplayWinners = topArray(walletFalseNegativeEntryReplay.topWouldWinners, 6);
+  const walletShapeSummary = walletFalseNegativeShape.summary || {};
+  const walletShapeByEarlyMix = walletFalseNegativeShape.byEarlyMix || {};
 
   lines.push('4c. Wallet Historical / Monetization Check');
   lines.push('------------------------------------------');
@@ -977,6 +988,10 @@ function buildSummary(docs) {
   } else {
     lines.push('  - none yet');
   }
+  lines.push(`- Wallet-led miss shapes: rows=${walletShapeSummary.rows ?? 'n/a'}, cleanStrong=${walletShapeSummary.cleanStrongRows ?? 'n/a'}, contaminatedStrong=${walletShapeSummary.contaminatedStrongRows ?? 'n/a'}`);
+  lines.push(`  - single strong clean: ${summarizeWalletShapeBucket(walletShapeByEarlyMix.single_strong_clean)}`);
+  lines.push(`  - strong plus neutral: ${summarizeWalletShapeBucket(walletShapeByEarlyMix.strong_plus_neutral)}`);
+  lines.push(`  - strong plus avoid: ${summarizeWalletShapeBucket(walletShapeByEarlyMix.strong_plus_avoid)}`);
   lines.push('');
 
   const watchFlags = get(battlefield, [
@@ -1095,6 +1110,14 @@ function buildSummary(docs) {
     Object.entries(rollingSummary.byGuardOverride || {}).slice(0, 6).forEach(([key, value]) => lines.push(`    - ${summarizeRollingEntryBucket(key, value)}`));
     lines.push('  - By curve band:');
     Object.entries(rollingSummary.byCurveBand || {}).slice(0, 6).forEach(([key, value]) => lines.push(`    - ${summarizeRollingEntryBucket(key, value)}`));
+    lines.push('  - By curve freshness:');
+    Object.entries(rollingSummary.byCurveFreshness || {}).slice(0, 6).forEach(([key, value]) => lines.push(`    - ${summarizeRollingEntryBucket(key, value)}`));
+    lines.push('  - By curve band + freshness:');
+    Object.entries(rollingSummary.byCurveBandAndFreshness || {}).slice(0, 6).forEach(([band, freshnessRows]) => {
+      Object.entries(freshnessRows || {}).slice(0, 6).forEach(([freshness, value]) => {
+        lines.push(`    - ${band}/${summarizeRollingEntryBucket(freshness, value)}`);
+      });
+    });
     lines.push('  - By sniper crowding:');
     Object.entries(rollingSummary.bySniperCrowdingBucket || {}).slice(0, 6).forEach(([key, value]) => lines.push(`    - ${summarizeRollingEntryBucket(key, value)}`));
     const worstTrendRuns = topArray(rollingEntryTrend.worstRuns, 3);
