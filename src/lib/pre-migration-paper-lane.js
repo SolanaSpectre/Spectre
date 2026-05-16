@@ -460,6 +460,21 @@ class PreMigrationPaperLane {
       return curveGuard;
     }
 
+    // High-curve entries need a fresh snapshot even on the normal, non-override path.
+    const staleGuard = this.evaluateHighCurveStaleSnapshotGuard(
+      state,
+      timestamp,
+      curveGuard.guardOverride || null
+    );
+    if (staleGuard.blocked) {
+      return {
+        ...curveGuard,
+        ...staleGuard,
+        passed: false,
+        reason: 'HIGH_CURVE_STALE_CURVE_UPDATE'
+      };
+    }
+
     const cloneGuard = this.evaluateCloneGuard(state, timestamp);
     if (!cloneGuard.passed) {
       return cloneGuard;
@@ -467,6 +482,7 @@ class PreMigrationPaperLane {
 
     return {
       ...curveGuard,
+      ...staleGuard,
       ...cloneGuard,
       passed: true
     };
