@@ -13,6 +13,7 @@ const FILES = {
   preMigrationEntryLossAttribution: 'data/reports/pre-migration-entry-loss-attribution-latest.json',
   preMigrationEntryParity: 'data/reports/pre-migration-entry-parity-latest.json',
   preMigrationDelayedEntryTiming: 'data/reports/pre-migration-delayed-entry-timing-latest.json',
+  preMigrationDelayedEntryPressureShadow: 'data/reports/pre-migration-delayed-entry-pressure-shadow-latest.json',
   preMigrationSimStrategyDelta: 'data/reports/pre-migration-sim-strategy-delta-latest.json',
   preMigrationEntryTimingPressure: 'data/reports/pre-migration-entry-timing-pressure-latest.json',
   preMigrationRollingEntryTrend: 'data/reports/pre-migration-rolling-entry-trend-latest.json',
@@ -691,6 +692,7 @@ function buildSummary(docs) {
   const entryLoss = docs.preMigrationEntryLossAttribution.data || {};
   const entryParity = docs.preMigrationEntryParity.data || {};
   const delayedEntryTiming = docs.preMigrationDelayedEntryTiming.data || {};
+  const delayedEntryPressureShadow = docs.preMigrationDelayedEntryPressureShadow.data || {};
   const simStrategyDelta = docs.preMigrationSimStrategyDelta.data || {};
   const entryTimingPressure = docs.preMigrationEntryTimingPressure.data || {};
   const rollingEntryTrend = docs.preMigrationRollingEntryTrend.data || {};
@@ -1217,6 +1219,18 @@ function buildSummary(docs) {
         + ` | sim=${item.simPnlSol === null || item.simPnlSol === undefined ? 'n/a' : sol(item.simPnlSol, 6)}`
         + ` | actual=${item.actualPnlSol === null || item.actualPnlSol === undefined ? 'n/a' : sol(item.actualPnlSol, 6)}`
         + ` | delta=${item.pnlDeltaSol === null || item.pnlDeltaSol === undefined ? 'n/a' : sol(item.pnlDeltaSol, 6)}`);
+    });
+  }
+  const delayedEntryPressureShadowSummary = delayedEntryPressureShadow.summary || {};
+  if (delayedEntryPressureShadowSummary.delayedRows !== undefined) {
+    lines.push('- Delayed-entry runtime pressure shadow:');
+    lines.push(`  - Rows / actual PnL / earlier-anchor replay PnL: ${delayedEntryPressureShadowSummary.delayedRows ?? 'n/a'} / ${delayedEntryPressureShadowSummary.actualPnl?.totalPnlSol === null || delayedEntryPressureShadowSummary.actualPnl?.totalPnlSol === undefined ? 'n/a' : sol(delayedEntryPressureShadowSummary.actualPnl.totalPnlSol, 6)} / ${delayedEntryPressureShadowSummary.simEntryReplayPnl?.totalPnlSol === null || delayedEntryPressureShadowSummary.simEntryReplayPnl?.totalPnlSol === undefined ? 'n/a' : sol(delayedEntryPressureShadowSummary.simEntryReplayPnl.totalPnlSol, 6)}`);
+    lines.push(`  - First-recheck replay PnL / actual-minus-early replay: ${delayedEntryPressureShadowSummary.firstRecheckReplayPnl?.totalPnlSol === null || delayedEntryPressureShadowSummary.firstRecheckReplayPnl?.totalPnlSol === undefined ? 'n/a' : sol(delayedEntryPressureShadowSummary.firstRecheckReplayPnl.totalPnlSol, 6)} / ${delayedEntryPressureShadowSummary.actualMinusSimEntryReplayPnlSol === null || delayedEntryPressureShadowSummary.actualMinusSimEntryReplayPnlSol === undefined ? 'n/a' : sol(delayedEntryPressureShadowSummary.actualMinusSimEntryReplayPnlSol, 6)}`);
+    topArray(delayedEntryPressureShadow.rows, 3).forEach((item) => {
+      lines.push(`  - Pressure shadow: ${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim()
+        + ` | preset=${item.actualPreset || 'n/a'}`
+        + ` | early=${item.replays?.simEntry?.pnlSol === null || item.replays?.simEntry?.pnlSol === undefined ? 'n/a' : sol(item.replays.simEntry.pnlSol, 6)}`
+        + ` | actual=${item.actualPnlSol === null || item.actualPnlSol === undefined ? 'n/a' : sol(item.actualPnlSol, 6)}`);
     });
   }
   const simStrategyDeltaSummary = simStrategyDelta.summary || {};
