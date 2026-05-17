@@ -9,6 +9,7 @@ const REPO_ROOT = path.join(__dirname, '..');
 const NODE = process.execPath;
 const DEFAULT_RICK_STATE_PATH = path.join(REPO_ROOT, 'data', 'rick-context', 'command-state.json');
 const DEFAULT_RICK_CONTEXT_PATH = path.join(REPO_ROOT, 'data', 'rick-context', 'latest.json');
+const RUN_LOG_DIR = path.join(REPO_ROOT, 'run-logs');
 
 const DEFAULT_RICK_COMMANDS = ['vol', 'runners', 'dt', 'pft', 'burp'];
 const DEFAULT_RICK_REPLY_WAIT_MS = 10000;
@@ -57,6 +58,19 @@ function resolveRepoPath(filePath, fallback) {
 
 function fileExists(filePath) {
   return Boolean(filePath) && fs.existsSync(filePath);
+}
+
+function latestTelemetrySignature() {
+  if (!fs.existsSync(RUN_LOG_DIR)) return null;
+  const latest = fs.readdirSync(RUN_LOG_DIR)
+    .filter((name) => name.startsWith('telemetry-') && name.endsWith('.jsonl'))
+    .map((name) => {
+      const fullPath = path.join(RUN_LOG_DIR, name);
+      const stat = fs.statSync(fullPath);
+      return { name, mtimeMs: stat.mtimeMs, size: stat.size };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)[0];
+  return latest ? `${latest.name}:${latest.mtimeMs}:${latest.size}` : null;
 }
 
 function readJson(filePath, fallback) {
@@ -421,6 +435,7 @@ async function main() {
 
   await refreshRunContext(options);
 
+  const telemetryBeforeRun = latestTelemetrySignature();
   let botExitCode = 0;
   try {
     botExitCode = await runProcess('Trading Bot Foreground Run', NODE, [path.join('src', 'index.js'), ...botArgs], {
@@ -432,7 +447,13 @@ async function main() {
     console.error(`[ERROR] Trading bot failed: ${error.message}`);
   }
 
-  await generatePostRunReports(options);
+  const telemetryAfterRun = latestTelemetrySignature();
+  const freshTelemetryObserved = telemetryAfterRun && telemetryAfterRun !== telemetryBeforeRun;
+  if (botExitCode === 0 || freshTelemetryObserved) {
+    await generatePostRunReports(options);
+  } else {
+    console.warn('[WARN] Skipping post-run reports because the bot exited before producing fresh telemetry.');
+  }
 
   if (interrupted && botExitCode === 0) {
     process.exit(130);
