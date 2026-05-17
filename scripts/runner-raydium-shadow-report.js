@@ -154,6 +154,55 @@ function latestByMint(rows) {
   return Array.from(byMint.values());
 }
 
+function minutesBetween(start, end) {
+  const left = new Date(start || 0).getTime();
+  const right = new Date(end || 0).getTime();
+  if (!Number.isFinite(left) || !Number.isFinite(right)) return null;
+  return compact((right - left) / 60000, 4);
+}
+
+function returnPct(entryPrice, exitPrice) {
+  if (!(Number(entryPrice) > 0) || !(Number(exitPrice) > 0)) return null;
+  return compact((Number(exitPrice) - Number(entryPrice)) / Number(entryPrice), 6);
+}
+
+function buildOutcomeRows(rows) {
+  const byMint = new Map();
+  for (const row of rows) {
+    if (!row.mint || !(Number(row.price) > 0)) continue;
+    const mintRows = byMint.get(row.mint) || [];
+    mintRows.push(row);
+    byMint.set(row.mint, mintRows);
+  }
+
+  return Array.from(byMint.values()).map((mintRows) => {
+    const ordered = mintRows.slice().sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+    const first = ordered[0];
+    const last = ordered[ordered.length - 1];
+    const prices = ordered.map((row) => Number(row.price)).filter((value) => Number.isFinite(value) && value > 0);
+    const maxPrice = prices.length ? Math.max(...prices) : null;
+    const minPrice = prices.length ? Math.min(...prices) : null;
+    return {
+      mint: first.mint,
+      symbol: first.symbol || null,
+      firstObservedAt: first.timestamp,
+      lastObservedAt: last.timestamp,
+      observationCount: ordered.length,
+      observedMinutes: minutesBetween(first.timestamp, last.timestamp),
+      entryPrice: first.price,
+      lastPrice: last.price,
+      maxPrice: compact(maxPrice, 12),
+      minPrice: compact(minPrice, 12),
+      lastReturnPct: returnPct(first.price, last.price),
+      maxRunupPct: returnPct(first.price, maxPrice),
+      maxDrawdownPct: returnPct(first.price, minPrice),
+      ageBucket: last.ageBucket,
+      continuationVerdict: last.continuation?.verdict || null,
+      continuationRejectReason: last.continuation?.rejectReason || null
+    };
+  });
+}
+
 function buildReport(events, telemetryPath) {
   const rows = events
     .filter((event) => eventType(event) === 'runner.raydium_shadow.observed')
@@ -174,6 +223,7 @@ function buildReport(events, telemetryPath) {
 
   const rankScores = uniqueRows.map((row) => row.rankScore);
   const qualityScores = uniqueRows.map((row) => row.qualityScore);
+  const outcomeRows = buildOutcomeRows(rows);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -192,6 +242,9 @@ function buildReport(events, telemetryPath) {
       reasonCounts: countBy(rows, (row) => row.reason),
       ageBuckets: countBy(uniqueRows, (row) => row.ageBucket),
       continuationVerdicts: countBy(continuationRows, (row) => row.continuation?.verdict || 'unknown'),
+      outcomeCoverageCount: outcomeRows.length,
+      positiveLastReturnCount: outcomeRows.filter((row) => Number(row.lastReturnPct) > 0).length,
+      negativeLastReturnCount: outcomeRows.filter((row) => Number(row.lastReturnPct) < 0).length,
       qualityScoreQuantiles: {
         p50: percentile(qualityScores, 50),
         p90: percentile(qualityScores, 90),
@@ -218,7 +271,10 @@ function buildReport(events, telemetryPath) {
       .sort((a, b) => Number(b.rankScore || 0) - Number(a.rankScore || 0))
       .slice(0, 10),
     continuationOverlap: continuationRows.slice(0, 10),
-    note: 'Report-only shadow diagnostic. These rows were blocked by paper runner mode and did not generate signals, quotes, AI reviews, or entries.'
+    outcomeRows: outcomeRows
+      .slice()
+      .sort((a, b) => Number(b.maxRunupPct || 0) - Number(a.maxRunupPct || 0)),
+    note: 'Report-only shadow diagnostic. These rows were blocked by paper runner mode and did not generate signals, quotes, AI reviews, or entries. Outcome rows use repeated in-run shadow observations only; they are not trade recommendations.'
   };
 }
 
@@ -248,6 +304,7 @@ function main() {
   console.log(`Fresh pools: ${report.summary.freshPoolCount}`);
   console.log(`Mature/established: ${report.summary.matureOrEstablishedCount}`);
   console.log(`Age unknown: ${report.summary.ageUnknownCount}`);
+  console.log(`Outcome coverage: ${report.summary.outcomeCoverageCount}`);
   console.log(`Wrote JSON report: ${outputPath}`);
 }
 

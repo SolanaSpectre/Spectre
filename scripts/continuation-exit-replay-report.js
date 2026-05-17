@@ -414,6 +414,17 @@ function buildReport() {
   const openActual = actualRows.filter((row) => row.status === 'OPEN');
   const actualPnlUsd = actualRows.reduce((sum, row) => sum + num(row.pnlUsd, 0), 0);
   const actualPnlSol = actualRows.reduce((sum, row) => sum + num(row.pnlSol, 0), 0);
+  const noSlippageDeltaSol = scenarioSummaries.no_slippage_reference?.deltaVsCurrentConfigSol ?? null;
+  const nonSlippageScenarioNames = SCENARIOS
+    .filter((scenario) => !scenario.overrides?.entrySlippagePct && !scenario.overrides?.exitSlippagePct)
+    .map((scenario) => scenario.name)
+    .filter((name) => !['current_config_replay', 'no_slippage_reference'].includes(name));
+  const bestNonSlippageDeltaSol = Object.entries(scenarioSummaries)
+    .filter(([name]) => nonSlippageScenarioNames.includes(name))
+    .reduce((best, [, summary]) => Math.max(best, num(summary.deltaVsCurrentConfigSol, -Infinity)), -Infinity);
+  const slippageTaxLikelyDominant = Number.isFinite(noSlippageDeltaSol)
+    && noSlippageDeltaSol > 0
+    && (!Number.isFinite(bestNonSlippageDeltaSol) || noSlippageDeltaSol >= bestNonSlippageDeltaSol);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -439,7 +450,12 @@ function buildReport() {
       bestScenarioByTotalPnlUsd: Object.entries(scenarioSummaries)
         .sort((a, b) => num(b[1].totalPnlUsd, -Infinity) - num(a[1].totalPnlUsd, -Infinity))[0]?.[0] || null,
       staleExitRiskCount: actualRows.filter((row) => row.holdHours !== null && row.holdHours > 24).length,
-      slippageTaxLikelyDominant: positions.some((position) => num(eventSamples(position)[0]?.returnPct, 0) <= -0.1)
+      slippageTaxLikelyDominant,
+      noSlippageDeltaVsCurrentConfigSol: compact(noSlippageDeltaSol, 9),
+      nonSlippageScenarioNames,
+      bestNonSlippageDeltaVsCurrentConfigSol: Number.isFinite(bestNonSlippageDeltaSol)
+        ? compact(bestNonSlippageDeltaSol, 9)
+        : null
     },
     actualRows,
     scenarioRows,

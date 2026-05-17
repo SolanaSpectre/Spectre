@@ -11,6 +11,8 @@ const FILES = {
   preMigrationOutcomes: 'data/reports/pre-migration-outcomes-latest.json',
   preMigrationPaper: 'data/reports/pre-migration-paper-sim-latest.json',
   preMigrationEntryLossAttribution: 'data/reports/pre-migration-entry-loss-attribution-latest.json',
+  preMigrationEntryParity: 'data/reports/pre-migration-entry-parity-latest.json',
+  preMigrationSimStrategyDelta: 'data/reports/pre-migration-sim-strategy-delta-latest.json',
   preMigrationEntryTimingPressure: 'data/reports/pre-migration-entry-timing-pressure-latest.json',
   preMigrationRollingEntryTrend: 'data/reports/pre-migration-rolling-entry-trend-latest.json',
   preMigrationEntryShape: 'data/reports/pre-migration-entry-shape-latest.json',
@@ -242,6 +244,11 @@ function summarizeRaydiumShadow(item = {}) {
     : 'age=unknown';
   const bucket = item.ageBucket ? ` | bucket=${item.ageBucket}` : '';
   return `${label} | BLOCKED report-only | rank=${fmt(item.rankScore)} | quality=${fmt(item.qualityScore)} | liq=${money(item.liquidityUsd, 0)} | vol24h=${money(item.volume24h, 0)} | risk=${fmt(item.riskScore, 3)} | ${age}${bucket}${continuation}`;
+}
+
+function summarizeRaydiumShadowOutcome(item = {}) {
+  const label = item.symbol || item.mint || 'UNKNOWN';
+  return `${label} | obs=${item.observationCount ?? 'n/a'} | window=${fmt(item.observedMinutes, 2)}m | last=${pct(item.lastReturnPct)} | maxRunup=${pct(item.maxRunupPct)} | maxDrawdown=${pct(item.maxDrawdownPct)} | verdict=${item.continuationVerdict || item.continuationRejectReason || 'n/a'}`;
 }
 
 function summarizeWalletFirstTouchOutcome(item = {}) {
@@ -675,6 +682,8 @@ function buildSummary(docs) {
   const preOutcomes = docs.preMigrationOutcomes.data || {};
   const paper = docs.preMigrationPaper.data || {};
   const entryLoss = docs.preMigrationEntryLossAttribution.data || {};
+  const entryParity = docs.preMigrationEntryParity.data || {};
+  const simStrategyDelta = docs.preMigrationSimStrategyDelta.data || {};
   const entryTimingPressure = docs.preMigrationEntryTimingPressure.data || {};
   const rollingEntryTrend = docs.preMigrationRollingEntryTrend.data || {};
   const entryShape = docs.preMigrationEntryShape.data || {};
@@ -811,6 +820,7 @@ function buildSummary(docs) {
   const shadowSummary = runnerRaydiumShadow.summary || {};
   const shadowTop = topArray(runnerRaydiumShadow.topByRank, 5);
   const shadowFreshPools = topArray(runnerRaydiumShadow.freshPools, 5);
+  const shadowOutcomeRows = topArray(runnerRaydiumShadow.outcomeRows, 5);
   lines.push('3. Runner Raydium Shadow');
   lines.push('------------------------');
   lines.push('- Mode: report-only; blocked candidates did not generate signals, quotes, AI reviews, or entries.');
@@ -818,6 +828,7 @@ function buildSummary(docs) {
   lines.push(`- Would pass quality/risk counter: ${shadowSummary.wouldPassQualityRiskCount ?? 'n/a'}`);
   lines.push(`- Continuation overlap: ${shadowSummary.continuationOverlapCount ?? 'n/a'}`);
   lines.push(`- Fresh / mature-or-established / age-unknown: ${shadowSummary.freshPoolCount ?? 'n/a'} / ${shadowSummary.matureOrEstablishedCount ?? 'n/a'} / ${shadowSummary.ageUnknownCount ?? 'n/a'}`);
+  lines.push(`- Outcome coverage / positive-last / negative-last: ${shadowSummary.outcomeCoverageCount ?? 'n/a'} / ${shadowSummary.positiveLastReturnCount ?? 'n/a'} / ${shadowSummary.negativeLastReturnCount ?? 'n/a'}`);
   lines.push('- Age buckets:');
   objectLines(shadowSummary.ageBuckets, 6).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Source counts:');
@@ -825,6 +836,12 @@ function buildSummary(docs) {
   lines.push('- Fresh pool rows:');
   if (shadowFreshPools.length) {
     shadowFreshPools.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRaydiumShadow(item)}`));
+  } else {
+    lines.push('  - none observed');
+  }
+  lines.push('- Top in-run blocked outcomes:');
+  if (shadowOutcomeRows.length) {
+    shadowOutcomeRows.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRaydiumShadowOutcome(item)}`));
   } else {
     lines.push('  - none observed');
   }
@@ -1143,6 +1160,37 @@ function buildSummary(docs) {
     topArray(entryShape.topNegativeShapes, 3).forEach((item) => {
       lines.push(`  - Negative shape: ${item.shape} | trades=${item.trades ?? 'n/a'} | pnl=${sol(item.pnlSol ?? 0, 6)} | winRate=${pct(item.winRate)}`);
     });
+  }
+  const entryParitySummary = entryParity.summary || {};
+  if (entryParitySummary.simulatedEntries !== undefined) {
+    lines.push('- Same-run sim/actual parity:');
+    lines.push(`  - Sim / actual / matched / sim-only / actual-only: ${entryParitySummary.simulatedEntries ?? 'n/a'} / ${entryParitySummary.actualEntries ?? 'n/a'} / ${entryParitySummary.matchedEntries ?? 'n/a'} / ${entryParitySummary.simOnlyEntries ?? 'n/a'} / ${entryParitySummary.actualOnlyEntries ?? 'n/a'}`);
+    lines.push(`  - Same-mint later runtime entries: ${entryParitySummary.sameMintLaterRuntimeEntries ?? 'n/a'}`);
+    lines.push(`  - Sim-only PnL: ${entryParitySummary.simOnlyPnl?.totalPnlSol === null || entryParitySummary.simOnlyPnl?.totalPnlSol === undefined ? 'n/a' : sol(entryParitySummary.simOnlyPnl.totalPnlSol, 6)} | actual-only PnL: ${entryParitySummary.actualOnlyPnl?.totalPnlSol === null || entryParitySummary.actualOnlyPnl?.totalPnlSol === undefined ? 'n/a' : sol(entryParitySummary.actualOnlyPnl.totalPnlSol, 6)}`);
+    const topSimOnly = topArray(entryParity.simOnlyEntries, 3);
+    if (topSimOnly.length) {
+      topSimOnly.forEach((item) => {
+        lines.push(`  - Sim-only: ${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim()
+          + ` | pnl=${item.simPnlSol === null || item.simPnlSol === undefined ? 'n/a' : sol(item.simPnlSol, 6)}`
+          + ` | reasons=${Array.isArray(item.nearbyDecisionReasons) && item.nearbyDecisionReasons.length ? item.nearbyDecisionReasons.join(',') : 'none'}`);
+      });
+    }
+    const topLaterRuntime = topArray(entryParity.sameMintLaterRuntimeEntries, 3);
+    if (topLaterRuntime.length) {
+      topLaterRuntime.forEach((item) => {
+        lines.push(`  - Same mint later: ${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim()
+          + ` | delay=${item.runtimeDelaySeconds ?? 'n/a'}s`
+          + ` | sim=${item.simPnlSol === null || item.simPnlSol === undefined ? 'n/a' : sol(item.simPnlSol, 6)}`
+          + ` | actual=${item.actualPnlSol === null || item.actualPnlSol === undefined ? 'n/a' : sol(item.actualPnlSol, 6)}`);
+      });
+    }
+  }
+  const simStrategyDeltaSummary = simStrategyDelta.summary || {};
+  if (simStrategyDeltaSummary.simulatedTrades !== undefined) {
+    lines.push('- Rolling sim/runtime strategy delta:');
+    lines.push(`  - Simulated / runtime-comparable / runtime-rejected / no-runtime-decision: ${simStrategyDeltaSummary.simulatedTrades ?? 'n/a'} / ${simStrategyDeltaSummary.runtimeComparableTrades ?? 'n/a'} / ${simStrategyDeltaSummary.runtimeRejectedTrades ?? 'n/a'} / ${simStrategyDeltaSummary.noRuntimeDecisionTrades ?? 'n/a'}`);
+    lines.push(`  - All sim PnL: ${simStrategyDeltaSummary.allSimulatedPnl?.totalPnlSol === null || simStrategyDeltaSummary.allSimulatedPnl?.totalPnlSol === undefined ? 'n/a' : sol(simStrategyDeltaSummary.allSimulatedPnl.totalPnlSol, 6)} | comparable sim PnL: ${simStrategyDeltaSummary.comparableSimulatedPnl?.totalPnlSol === null || simStrategyDeltaSummary.comparableSimulatedPnl?.totalPnlSol === undefined ? 'n/a' : sol(simStrategyDeltaSummary.comparableSimulatedPnl.totalPnlSol, 6)} | rejected sim PnL: ${simStrategyDeltaSummary.runtimeRejectedSimulatedPnl?.totalPnlSol === null || simStrategyDeltaSummary.runtimeRejectedSimulatedPnl?.totalPnlSol === undefined ? 'n/a' : sol(simStrategyDeltaSummary.runtimeRejectedSimulatedPnl.totalPnlSol, 6)}`);
+    objectLines(simStrategyDeltaSummary.rejectReasonCounts, 4).forEach((line) => lines.push(`  - Rejected sim reason: ${line}`));
   }
   lines.push('');
 

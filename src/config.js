@@ -960,7 +960,7 @@ class Config {
   }
 
   static get paperBalanceRefreshIntervalMs() {
-    return parseInt(process.env.PAPER_BALANCE_REFRESH_INTERVAL_MS || '15000', 10);
+    return parseInt(process.env.PAPER_BALANCE_REFRESH_INTERVAL_MS || '60000', 10);
   }
 
   static get rickContextEnabled() {
