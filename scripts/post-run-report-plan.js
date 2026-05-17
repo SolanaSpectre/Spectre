@@ -28,6 +28,7 @@ const POST_RUN_REPORTS = [
   { title: 'Pre-Migration Paper Simulation Report', script: 'pre-migration-paper-sim-report.js' },
   { title: 'Pre-Migration Entry Loss Attribution', script: 'pre-migration-entry-loss-attribution-report.js' },
   { title: 'Pre-Migration Entry Parity', script: 'pre-migration-entry-parity-report.js' },
+  { title: 'Pre-Migration Delayed-Entry Timing', script: 'pre-migration-delayed-entry-timing-report.js' },
   { title: 'Pre-Migration Sim Strategy Delta', script: 'pre-migration-sim-strategy-delta-report.js' },
   { title: 'Pre-Migration Entry Timing Pressure', script: 'pre-migration-entry-timing-pressure-report.js' },
   { title: 'Pre-Migration Rolling Entry Trend', script: 'pre-migration-rolling-entry-trend-report.js' },

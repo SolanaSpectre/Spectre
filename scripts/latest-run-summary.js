@@ -12,6 +12,7 @@ const FILES = {
   preMigrationPaper: 'data/reports/pre-migration-paper-sim-latest.json',
   preMigrationEntryLossAttribution: 'data/reports/pre-migration-entry-loss-attribution-latest.json',
   preMigrationEntryParity: 'data/reports/pre-migration-entry-parity-latest.json',
+  preMigrationDelayedEntryTiming: 'data/reports/pre-migration-delayed-entry-timing-latest.json',
   preMigrationSimStrategyDelta: 'data/reports/pre-migration-sim-strategy-delta-latest.json',
   preMigrationEntryTimingPressure: 'data/reports/pre-migration-entry-timing-pressure-latest.json',
   preMigrationRollingEntryTrend: 'data/reports/pre-migration-rolling-entry-trend-latest.json',
@@ -683,6 +684,7 @@ function buildSummary(docs) {
   const paper = docs.preMigrationPaper.data || {};
   const entryLoss = docs.preMigrationEntryLossAttribution.data || {};
   const entryParity = docs.preMigrationEntryParity.data || {};
+  const delayedEntryTiming = docs.preMigrationDelayedEntryTiming.data || {};
   const simStrategyDelta = docs.preMigrationSimStrategyDelta.data || {};
   const entryTimingPressure = docs.preMigrationEntryTimingPressure.data || {};
   const rollingEntryTrend = docs.preMigrationRollingEntryTrend.data || {};
@@ -1184,6 +1186,21 @@ function buildSummary(docs) {
           + ` | actual=${item.actualPnlSol === null || item.actualPnlSol === undefined ? 'n/a' : sol(item.actualPnlSol, 6)}`);
       });
     }
+  }
+  const delayedEntryTimingSummary = delayedEntryTiming.summary || {};
+  if (delayedEntryTimingSummary.delayedRuntimeEntries !== undefined) {
+    lines.push('- Rolling delayed-entry timing:');
+    lines.push(`  - Delayed runtime entries / sim-win-actual-loss: ${delayedEntryTimingSummary.delayedRuntimeEntries ?? 'n/a'} / ${delayedEntryTimingSummary.simWonActualLost ?? 'n/a'}`);
+    lines.push(`  - Sim PnL / actual PnL / actual-minus-sim: ${delayedEntryTimingSummary.simPnl?.totalPnlSol === null || delayedEntryTimingSummary.simPnl?.totalPnlSol === undefined ? 'n/a' : sol(delayedEntryTimingSummary.simPnl.totalPnlSol, 6)} / ${delayedEntryTimingSummary.actualPnl?.totalPnlSol === null || delayedEntryTimingSummary.actualPnl?.totalPnlSol === undefined ? 'n/a' : sol(delayedEntryTimingSummary.actualPnl.totalPnlSol, 6)} / ${delayedEntryTimingSummary.totalActualMinusSimPnlSol === null || delayedEntryTimingSummary.totalActualMinusSimPnlSol === undefined ? 'n/a' : sol(delayedEntryTimingSummary.totalActualMinusSimPnlSol, 6)}`);
+    objectLines(delayedEntryTimingSummary.delayBucketCounts, 4).forEach((line) => lines.push(`  - Delay bucket: ${line}`));
+    objectLines(delayedEntryTimingSummary.blockingReasonCountsDuringDelay, 4).forEach((line) => lines.push(`  - Blocking reason during delay: ${line}`));
+    topArray(delayedEntryTiming.worstRows, 3).forEach((item) => {
+      lines.push(`  - Worst delay: ${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim()
+        + ` | delay=${item.runtimeDelaySeconds ?? 'n/a'}s`
+        + ` | sim=${item.simPnlSol === null || item.simPnlSol === undefined ? 'n/a' : sol(item.simPnlSol, 6)}`
+        + ` | actual=${item.actualPnlSol === null || item.actualPnlSol === undefined ? 'n/a' : sol(item.actualPnlSol, 6)}`
+        + ` | delta=${item.pnlDeltaSol === null || item.pnlDeltaSol === undefined ? 'n/a' : sol(item.pnlDeltaSol, 6)}`);
+    });
   }
   const simStrategyDeltaSummary = simStrategyDelta.summary || {};
   if (simStrategyDeltaSummary.simulatedTrades !== undefined) {

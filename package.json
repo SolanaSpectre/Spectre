@@ -21,6 +21,7 @@
     "report:pre-migration-paper": "node scripts/pre-migration-paper-sim-report.js",
     "report:pre-migration-entry-loss-attribution": "node scripts/pre-migration-entry-loss-attribution-report.js",
     "report:pre-migration-entry-parity": "node scripts/pre-migration-entry-parity-report.js",
+    "report:pre-migration-delayed-entry-timing": "node scripts/pre-migration-delayed-entry-timing-report.js",
     "report:pre-migration-sim-strategy-delta": "node scripts/pre-migration-sim-strategy-delta-report.js",
     "report:pre-migration-entry-timing-pressure": "node scripts/pre-migration-entry-timing-pressure-report.js",
     "report:pre-migration-rolling-entry-trend": "node scripts/pre-migration-rolling-entry-trend-report.js",
