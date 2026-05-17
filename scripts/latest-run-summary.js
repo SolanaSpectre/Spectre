@@ -26,6 +26,7 @@ const FILES = {
   noPriorFollowThrough: 'data/reports/no-prior-follow-through-latest.json',
   noPriorDelayedEntry: 'data/reports/no-prior-delayed-entry-replay-latest.json',
   runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json',
+  runnerRaydiumShadowOutcomeJoin: 'data/reports/runner-raydium-shadow-outcome-join-latest.json',
   walletFirstTouchOutcomeCorr: 'data/reports/wallet-first-touch-outcome-corr-latest.json',
   walletSniperCrowdedReplay: 'data/reports/wallet-sniper-crowded-replay-latest.json',
   walletPnlEvidence: 'data/reports/wallet-pnl-evidence-latest.json',
@@ -250,6 +251,11 @@ function summarizeRaydiumShadow(item = {}) {
 function summarizeRaydiumShadowOutcome(item = {}) {
   const label = item.symbol || item.mint || 'UNKNOWN';
   return `${label} | obs=${item.observationCount ?? 'n/a'} | window=${fmt(item.observedMinutes, 2)}m | last=${pct(item.lastReturnPct)} | maxRunup=${pct(item.maxRunupPct)} | maxDrawdown=${pct(item.maxDrawdownPct)} | verdict=${item.continuationVerdict || item.continuationRejectReason || 'n/a'}`;
+}
+
+function summarizeRaydiumShadowOutcomeJoin(item = {}) {
+  const label = item.symbol || item.mint || 'UNKNOWN';
+  return `${label} | outcome=${item.outcomeLabel || 'UNKNOWN'} | age=${item.ageBucket || 'UNKNOWN'} | last=${pct(item.lastReturnPct)} | maxRunup=${pct(item.maxRunupPct)} | continuation=${item.continuationVerdict || item.continuationRejectReason || 'n/a'}`;
 }
 
 function summarizeWalletFirstTouchOutcome(item = {}) {
@@ -698,6 +704,7 @@ function buildSummary(docs) {
   const noPriorFollowThrough = docs.noPriorFollowThrough.data || {};
   const noPriorDelayedEntry = docs.noPriorDelayedEntry.data || {};
   const runnerRaydiumShadow = docs.runnerRaydiumShadow.data || {};
+  const runnerRaydiumShadowOutcomeJoin = docs.runnerRaydiumShadowOutcomeJoin.data || {};
   const walletFirstTouchOutcomeCorr = docs.walletFirstTouchOutcomeCorr.data || {};
   const walletSniperCrowdedReplay = docs.walletSniperCrowdedReplay.data || {};
   const walletPnlEvidence = docs.walletPnlEvidence.data || {};
@@ -823,6 +830,8 @@ function buildSummary(docs) {
   const shadowTop = topArray(runnerRaydiumShadow.topByRank, 5);
   const shadowFreshPools = topArray(runnerRaydiumShadow.freshPools, 5);
   const shadowOutcomeRows = topArray(runnerRaydiumShadow.outcomeRows, 5);
+  const shadowOutcomeJoinSummary = runnerRaydiumShadowOutcomeJoin.summary || {};
+  const shadowMigrationOrNearRows = topArray(runnerRaydiumShadowOutcomeJoin.migrationOrNearRows, 5);
   lines.push('3. Runner Raydium Shadow');
   lines.push('------------------------');
   lines.push('- Mode: report-only; blocked candidates did not generate signals, quotes, AI reviews, or entries.');
@@ -846,6 +855,14 @@ function buildSummary(docs) {
     shadowOutcomeRows.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRaydiumShadowOutcome(item)}`));
   } else {
     lines.push('  - none observed');
+  }
+  lines.push('- Outcome-ledger join:');
+  lines.push(`  - Matched / unmatched / migration-or-near: ${shadowOutcomeJoinSummary.matchedOutcomes ?? 'n/a'} / ${shadowOutcomeJoinSummary.unmatchedOutcomes ?? 'n/a'} / ${shadowOutcomeJoinSummary.migrationOrNearCount ?? 'n/a'}`);
+  objectLines(shadowOutcomeJoinSummary.outcomeCounts, 5).forEach((line) => lines.push(`  - Joined outcome: ${line}`));
+  if (shadowMigrationOrNearRows.length) {
+    shadowMigrationOrNearRows.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRaydiumShadowOutcomeJoin(item)}`));
+  } else {
+    lines.push('  - No blocked shadow mint joined to migration-or-near in this run.');
   }
   lines.push('- Top blocked Raydium shadow rows:');
   if (shadowTop.length) {
