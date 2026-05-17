@@ -255,6 +255,13 @@ function getBotSessionTimeoutMs(botArgs) {
     sessionValue = positional[1];
   }
 
+  if (!sessionValue && positional[0]) {
+    const compactPaperMatch = String(positional[0]).match(/^PAPER(\d+)$/i);
+    if (compactPaperMatch) {
+      sessionValue = compactPaperMatch[1];
+    }
+  }
+
   const sessionMinutes = Number(sessionValue || process.env.SESSION_DURATION_MINUTES || 0);
   if (!Number.isFinite(sessionMinutes) || sessionMinutes <= 0) {
     return 0;

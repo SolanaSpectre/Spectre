@@ -60,6 +60,8 @@ The default start command now runs the full paper-run lifecycle: it refreshes Te
 npm start -- PAPER 30
 ```
 
+`PAPER30` is also accepted as a shorthand for `PAPER 30`, but the spaced form is clearer in logs and is the preferred command.
+
 Use `npm run start:core -- PAPER 30` only when you intentionally want the raw bot without automatic context refresh, post-run reports, or lifecycle-injected Simple Runtime AI.
 
 ## Configuration

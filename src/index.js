@@ -25,7 +25,13 @@ function parseArgs(argv) {
   }
 
   if (!parsed.mode && positional[0]) {
-    parsed.mode = positional[0];
+    const compactPaperMatch = String(positional[0]).match(/^PAPER(\d+)$/i);
+    if (compactPaperMatch) {
+      parsed.mode = 'PAPER';
+      parsed.session = parsed.session || compactPaperMatch[1];
+    } else {
+      parsed.mode = positional[0];
+    }
   }
 
   if (!parsed.session && positional[1]) {
