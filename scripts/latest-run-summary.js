@@ -13,6 +13,7 @@ const FILES = {
   preMigrationEntryLossAttribution: 'data/reports/pre-migration-entry-loss-attribution-latest.json',
   preMigrationEntryTimingPressure: 'data/reports/pre-migration-entry-timing-pressure-latest.json',
   preMigrationRollingEntryTrend: 'data/reports/pre-migration-rolling-entry-trend-latest.json',
+  preMigrationEntryShape: 'data/reports/pre-migration-entry-shape-latest.json',
   signalQuality: 'data/reports/pre-migration-signal-quality-latest.json',
   learning: 'data/reports/learning-orchestrator-latest.json',
   continuationPaper: 'data/reports/continuation-paper-latest.json',
@@ -676,6 +677,7 @@ function buildSummary(docs) {
   const entryLoss = docs.preMigrationEntryLossAttribution.data || {};
   const entryTimingPressure = docs.preMigrationEntryTimingPressure.data || {};
   const rollingEntryTrend = docs.preMigrationRollingEntryTrend.data || {};
+  const entryShape = docs.preMigrationEntryShape.data || {};
   const signal = docs.signalQuality.data || {};
   const learning = docs.learning.data || {};
   const continuation = docs.continuationPaper.data || {};
@@ -1130,6 +1132,17 @@ function buildSummary(docs) {
       lines.push('  - Worst rolling entries:');
       worstTrendEntries.forEach((item, index) => lines.push(`    ${index + 1}. ${summarizeRollingEntryRow(item)}`));
     }
+  }
+  const entryShapeSummary = entryShape.summary || {};
+  if (entryShapeSummary.trades !== undefined) {
+    lines.push('- Entry-shape diagnostic:');
+    lines.push(`  - Trades W/L: ${entryShapeSummary.trades ?? 'n/a'} ${entryShapeSummary.winners ?? 'n/a'}/${entryShapeSummary.losers ?? 'n/a'}, recurringShapes=${entryShapeSummary.recurringShapeCount ?? 'n/a'}`);
+    topArray(entryShape.topPositiveShapes, 3).forEach((item) => {
+      lines.push(`  - Positive shape: ${item.shape} | trades=${item.trades ?? 'n/a'} | pnl=${sol(item.pnlSol ?? 0, 6)} | winRate=${pct(item.winRate)}`);
+    });
+    topArray(entryShape.topNegativeShapes, 3).forEach((item) => {
+      lines.push(`  - Negative shape: ${item.shape} | trades=${item.trades ?? 'n/a'} | pnl=${sol(item.pnlSol ?? 0, 6)} | winRate=${pct(item.winRate)}`);
+    });
   }
   lines.push('');
 

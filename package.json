@@ -22,6 +22,7 @@
     "report:pre-migration-entry-loss-attribution": "node scripts/pre-migration-entry-loss-attribution-report.js",
     "report:pre-migration-entry-timing-pressure": "node scripts/pre-migration-entry-timing-pressure-report.js",
     "report:pre-migration-rolling-entry-trend": "node scripts/pre-migration-rolling-entry-trend-report.js",
+    "report:pre-migration-entry-shape": "node scripts/pre-migration-entry-shape-report.js",
     "report:pre-migration-sweep": "node scripts/pre-migration-paper-sweep-report.js",
     "report:pre-migration-presets": "node scripts/pre-migration-preset-replay-report.js",
     "report:pre-migration-signal-quality": "node scripts/pre-migration-signal-quality-report.js",
