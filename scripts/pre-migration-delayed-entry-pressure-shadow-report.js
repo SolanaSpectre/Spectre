@@ -104,6 +104,62 @@ function sampleOf(event) {
   };
 }
 
+function decisionSnapshotForAnchor(events, mint, preset, anchorAt, maxDistanceMs = 5000) {
+  const anchorMs = timeMs(anchorAt);
+  if (!mint || !preset || !Number.isFinite(anchorMs)) return null;
+  return events
+    .filter((event) => eventType(event) === 'pre_migration_paper.decision')
+    .map((event) => ({ event, payload: payloadOf(event) }))
+    .filter(({ payload }) => mintOf(payload) === mint && payload.preset === preset)
+    .map(({ event, payload }) => ({
+      timestamp: event.timestamp || payload.timestamp || null,
+      distanceMs: Math.abs(timeMs(event.timestamp || payload.timestamp) - anchorMs),
+      score: asNumber(payload.score),
+      curveProgress: asNumber(payload.curveProgress),
+      recentVolumeSol: asNumber(payload.recentVolumeSol),
+      tradeVelocityPerMin: asNumber(payload.tradeVelocityPerMin),
+      buyRatio: asNumber(payload.buyRatio)
+    }))
+    .filter((row) => Number.isFinite(row.distanceMs) && row.distanceMs <= maxDistanceMs)
+    .sort((a, b) => a.distanceMs - b.distanceMs)[0] || null;
+}
+
+function evaluateEntryGate(strategy = {}, snapshot = null) {
+  if (!snapshot) {
+    return {
+      passed: false,
+      class: 'GATE_EVIDENCE_UNAVAILABLE',
+      failures: ['NO_NEARBY_RUNTIME_DECISION']
+    };
+  }
+
+  const checks = [
+    ['minScore', 'score'],
+    ['minCurveProgress', 'curveProgress'],
+    ['minRecentVolumeSol', 'recentVolumeSol'],
+    ['minTradeVelocityPerMin', 'tradeVelocityPerMin'],
+    ['minBuyRatio', 'buyRatio']
+  ];
+  const failures = [];
+  for (const [thresholdKey, field] of checks) {
+    const threshold = asNumber(strategy[thresholdKey]);
+    if (!Number.isFinite(threshold)) continue;
+    const value = asNumber(snapshot[field]);
+    if (!Number.isFinite(value)) {
+      failures.push(`${field}:missing<${thresholdKey}`);
+      continue;
+    }
+    if (value < threshold) {
+      failures.push(`${field}:${value}<${threshold}`);
+    }
+  }
+  return {
+    passed: failures.length === 0,
+    class: failures.length === 0 ? 'GATE_PASSED' : 'GATE_FAILED',
+    failures
+  };
+}
+
 function actualEntryForMint(events, mint, actualEntryAt) {
   const targetMs = timeMs(actualEntryAt);
   return events
@@ -120,11 +176,22 @@ function samplesForMint(events, mint) {
     .sort((a, b) => timeMs(a.timestamp) - timeMs(b.timestamp));
 }
 
-function replayExit(samples, anchorAt, strategy = {}, exitProfile = {}) {
+function replayExit(samples, anchorAt, strategy = {}, exitProfile = {}, gateSnapshot = null) {
   const anchorMs = timeMs(anchorAt);
   const entrySample = samples.find((sample) => timeMs(sample.timestamp) >= anchorMs);
   if (!entrySample) {
     return { class: 'PRICE_UNAVAILABLE', entryAt: anchorAt, entryPriceSol: null };
+  }
+  const gate = evaluateEntryGate(strategy, gateSnapshot);
+  if (!gate.passed) {
+    return {
+      class: gate.class,
+      entryAt: anchorAt,
+      entryPriceSol: compact(entrySample.priceSol, 15),
+      entryCurveProgress: compact(entrySample.curveProgress, 6),
+      gateSnapshot,
+      gateFailures: gate.failures
+    };
   }
 
   const entryCurveProgress = asNumber(entrySample.curveProgress);
@@ -274,8 +341,16 @@ function buildRows(delayedReport) {
       firstRecheck: firstRecheckAt,
       actualEntry: row.actualEntryAt
     };
+    const gateSnapshots = {
+      simEntry: decisionSnapshotForAnchor(events, row.mint, actualPayload.preset || null, row.simEntryAt),
+      firstRecheck: decisionSnapshotForAnchor(events, row.mint, actualPayload.preset || null, firstRecheckAt),
+      actualEntry: decisionSnapshotForAnchor(events, row.mint, actualPayload.preset || null, row.actualEntryAt)
+    };
     const replays = Object.fromEntries(
-      Object.entries(anchors).map(([key, timestamp]) => [key, timestamp ? replayExit(samples, timestamp, strategy, exitProfile) : null])
+      Object.entries(anchors).map(([key, timestamp]) => [
+        key,
+        timestamp ? replayExit(samples, timestamp, strategy, exitProfile, gateSnapshots[key]) : null
+      ])
     );
     return {
       telemetryPath: row.telemetryPath,
@@ -289,6 +364,7 @@ function buildRows(delayedReport) {
       strategy,
       exitProfile,
       anchors,
+      gateSnapshots,
       replays,
       actualMinusSimEntryReplayPnlSol: replays.simEntry?.pnlSol !== null && replays.simEntry?.pnlSol !== undefined
         ? compact(Number(row.actualPnlSol || 0) - Number(replays.simEntry.pnlSol || 0), 9)
@@ -327,6 +403,9 @@ function buildReport() {
     },
     summary: {
       delayedRows: rows.length,
+      gatePassedEarlierAnchors: rows.filter((row) => row.replays.simEntry?.class === 'REPLAYED').length,
+      gateFailedEarlierAnchors: rows.filter((row) => row.replays.simEntry?.class === 'GATE_FAILED').length,
+      gateEvidenceUnavailableEarlierAnchors: rows.filter((row) => row.replays.simEntry?.class === 'GATE_EVIDENCE_UNAVAILABLE').length,
       actualPnl: summarizePnl(rows, (row) => row.actualPnlSol),
       simEntryReplayPnl: summarizePnl(rows, (row) => row.replays.simEntry?.pnlSol),
       firstRecheckReplayPnl: summarizePnl(rows, (row) => row.replays.firstRecheck?.pnlSol),
@@ -335,7 +414,7 @@ function buildReport() {
       actualMinusFirstRecheckReplayPnlSol: compact(rows.reduce((sum, row) => sum + Number(row.actualMinusFirstRecheckReplayPnlSol || 0), 0), 9)
     },
     rows,
-    note: 'Report-only delayed-entry pressure shadow. Replays the actual runtime preset strategy and exit profile from earlier anchors on the same telemetry path to separate loose-sim bias from delayed-entry timing. Does not change thresholds, entries, exits, scoring, AI review, or live behavior.'
+    note: 'Report-only delayed-entry pressure shadow. Earlier-anchor replay PnL is only emitted when the actual runtime preset entry gate also passes at that anchor; otherwise the row is classified as GATE_FAILED or GATE_EVIDENCE_UNAVAILABLE. Does not change thresholds, entries, exits, scoring, AI review, or live behavior.'
   };
 }
 
@@ -357,5 +436,7 @@ if (require.main === module) {
 module.exports = {
   buildReport,
   buildRows,
+  decisionSnapshotForAnchor,
+  evaluateEntryGate,
   replayExit
 };

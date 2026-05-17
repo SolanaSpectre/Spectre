@@ -1227,6 +1227,7 @@ function buildSummary(docs) {
   if (delayedEntryPressureShadowSummary.delayedRows !== undefined) {
     lines.push('- Delayed-entry runtime pressure shadow:');
     lines.push(`  - Rows / actual PnL / earlier-anchor replay PnL: ${delayedEntryPressureShadowSummary.delayedRows ?? 'n/a'} / ${delayedEntryPressureShadowSummary.actualPnl?.totalPnlSol === null || delayedEntryPressureShadowSummary.actualPnl?.totalPnlSol === undefined ? 'n/a' : sol(delayedEntryPressureShadowSummary.actualPnl.totalPnlSol, 6)} / ${delayedEntryPressureShadowSummary.simEntryReplayPnl?.totalPnlSol === null || delayedEntryPressureShadowSummary.simEntryReplayPnl?.totalPnlSol === undefined ? 'n/a' : sol(delayedEntryPressureShadowSummary.simEntryReplayPnl.totalPnlSol, 6)}`);
+    lines.push(`  - Earlier-anchor gate passed / failed / unavailable: ${delayedEntryPressureShadowSummary.gatePassedEarlierAnchors ?? 'n/a'} / ${delayedEntryPressureShadowSummary.gateFailedEarlierAnchors ?? 'n/a'} / ${delayedEntryPressureShadowSummary.gateEvidenceUnavailableEarlierAnchors ?? 'n/a'}`);
     lines.push(`  - First-recheck replay PnL / actual-minus-early replay: ${delayedEntryPressureShadowSummary.firstRecheckReplayPnl?.totalPnlSol === null || delayedEntryPressureShadowSummary.firstRecheckReplayPnl?.totalPnlSol === undefined ? 'n/a' : sol(delayedEntryPressureShadowSummary.firstRecheckReplayPnl.totalPnlSol, 6)} / ${delayedEntryPressureShadowSummary.actualMinusSimEntryReplayPnlSol === null || delayedEntryPressureShadowSummary.actualMinusSimEntryReplayPnlSol === undefined ? 'n/a' : sol(delayedEntryPressureShadowSummary.actualMinusSimEntryReplayPnlSol, 6)}`);
     topArray(delayedEntryPressureShadow.rows, 3).forEach((item) => {
       lines.push(`  - Pressure shadow: ${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim()
@@ -1238,7 +1239,7 @@ function buildSummary(docs) {
 
   const delayedEntryRecheckSummary = delayedEntryRecheck.summary || {};
   if (delayedEntryRecheckSummary.delayedRows !== undefined) {
-    lines.push('- Delayed-entry recheck cadence:');
+    lines.push('- Delayed-entry recheck cadence within sim-to-runtime delay window:');
     lines.push(`  - Rows / with scheduled / with executed: ${delayedEntryRecheckSummary.delayedRows ?? 'n/a'} / ${delayedEntryRecheckSummary.rowsWithScheduledRechecks ?? 'n/a'} / ${delayedEntryRecheckSummary.rowsWithExecutedRechecks ?? 'n/a'}`);
     lines.push(`  - Scheduled / executed / cancelled: ${delayedEntryRecheckSummary.scheduledRechecks ?? 'n/a'} / ${delayedEntryRecheckSummary.executedRechecks ?? 'n/a'} / ${delayedEntryRecheckSummary.cancelledRechecks ?? 'n/a'}`);
     lines.push(`  - Avg first execution lag / avg last execution before entry: ${delayedEntryRecheckSummary.averageFirstExecutionLagSeconds ?? 'n/a'}s / ${delayedEntryRecheckSummary.averageLastExecutionBeforeEntrySeconds ?? 'n/a'}s`);

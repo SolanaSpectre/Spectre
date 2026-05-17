@@ -176,7 +176,7 @@ function buildReport() {
       scheduledReasonCounts: countBy(allRechecks.filter((row) => row.type === 'pre_migration_paper.recheck_scheduled'), (row) => row.reason)
     },
     rows,
-    note: 'Report-only diagnostic. Measures recheck cadence for already-observed delayed runtime entries and does not change thresholds, entries, exits, scoring, AI review, or live behavior.'
+    note: 'Report-only diagnostic. Measures explicit recheck cadence only inside each delayed row simEntryAt-to-actualEntryAt window and does not change thresholds, entries, exits, scoring, AI review, or live behavior.'
   };
 }
 
