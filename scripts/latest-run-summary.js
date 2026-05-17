@@ -14,6 +14,7 @@ const FILES = {
   preMigrationEntryParity: 'data/reports/pre-migration-entry-parity-latest.json',
   preMigrationDelayedEntryTiming: 'data/reports/pre-migration-delayed-entry-timing-latest.json',
   preMigrationDelayedEntryPressureShadow: 'data/reports/pre-migration-delayed-entry-pressure-shadow-latest.json',
+  preMigrationDelayedEntryRecheck: 'data/reports/pre-migration-delayed-entry-recheck-latest.json',
   preMigrationSimStrategyDelta: 'data/reports/pre-migration-sim-strategy-delta-latest.json',
   preMigrationEntryTimingPressure: 'data/reports/pre-migration-entry-timing-pressure-latest.json',
   preMigrationRollingEntryTrend: 'data/reports/pre-migration-rolling-entry-trend-latest.json',
@@ -693,6 +694,7 @@ function buildSummary(docs) {
   const entryParity = docs.preMigrationEntryParity.data || {};
   const delayedEntryTiming = docs.preMigrationDelayedEntryTiming.data || {};
   const delayedEntryPressureShadow = docs.preMigrationDelayedEntryPressureShadow.data || {};
+  const delayedEntryRecheck = docs.preMigrationDelayedEntryRecheck.data || {};
   const simStrategyDelta = docs.preMigrationSimStrategyDelta.data || {};
   const entryTimingPressure = docs.preMigrationEntryTimingPressure.data || {};
   const rollingEntryTrend = docs.preMigrationRollingEntryTrend.data || {};
@@ -1232,6 +1234,14 @@ function buildSummary(docs) {
         + ` | early=${item.replays?.simEntry?.pnlSol === null || item.replays?.simEntry?.pnlSol === undefined ? 'n/a' : sol(item.replays.simEntry.pnlSol, 6)}`
         + ` | actual=${item.actualPnlSol === null || item.actualPnlSol === undefined ? 'n/a' : sol(item.actualPnlSol, 6)}`);
     });
+  }
+
+  const delayedEntryRecheckSummary = delayedEntryRecheck.summary || {};
+  if (delayedEntryRecheckSummary.delayedRows !== undefined) {
+    lines.push('- Delayed-entry recheck cadence:');
+    lines.push(`  - Rows / with scheduled / with executed: ${delayedEntryRecheckSummary.delayedRows ?? 'n/a'} / ${delayedEntryRecheckSummary.rowsWithScheduledRechecks ?? 'n/a'} / ${delayedEntryRecheckSummary.rowsWithExecutedRechecks ?? 'n/a'}`);
+    lines.push(`  - Scheduled / executed / cancelled: ${delayedEntryRecheckSummary.scheduledRechecks ?? 'n/a'} / ${delayedEntryRecheckSummary.executedRechecks ?? 'n/a'} / ${delayedEntryRecheckSummary.cancelledRechecks ?? 'n/a'}`);
+    lines.push(`  - Avg first execution lag / avg last execution before entry: ${delayedEntryRecheckSummary.averageFirstExecutionLagSeconds ?? 'n/a'}s / ${delayedEntryRecheckSummary.averageLastExecutionBeforeEntrySeconds ?? 'n/a'}s`);
   }
   const simStrategyDeltaSummary = simStrategyDelta.summary || {};
   if (simStrategyDeltaSummary.simulatedTrades !== undefined) {
