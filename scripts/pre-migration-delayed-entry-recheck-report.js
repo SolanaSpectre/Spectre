@@ -78,13 +78,19 @@ function countBy(rows, keyFn) {
   return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1]));
 }
 
-function collectRechecks(events, row) {
+function collectRechecks(events, row, scope = 'delayWindow') {
   return events
     .filter((event) => {
       const type = eventType(event);
       if (!type || !type.startsWith('pre_migration_paper.recheck_')) return false;
       const payload = payloadOf(event);
-      return mintOf(payload) === row.mint && inWindow(event.timestamp, row.simEntryAt, row.actualEntryAt);
+      if (mintOf(payload) !== row.mint) return false;
+      if (scope === 'beforeActualEntry') {
+        const at = timeMs(event.timestamp);
+        const actualEntry = timeMs(row.actualEntryAt);
+        return Number.isFinite(at) && Number.isFinite(actualEntry) && at <= actualEntry;
+      }
+      return inWindow(event.timestamp, row.simEntryAt, row.actualEntryAt);
     })
     .map((event) => {
       const payload = payloadOf(event);
@@ -106,34 +112,30 @@ function collectRechecks(events, row) {
     .sort((a, b) => timeMs(a.timestamp) - timeMs(b.timestamp));
 }
 
-function summarizeRow(row, rechecks) {
+function summarizeRechecks(rechecks, anchorAt, actualEntryAt) {
   const scheduled = rechecks.filter((item) => item.type === 'pre_migration_paper.recheck_scheduled');
   const executed = rechecks.filter((item) => item.type === 'pre_migration_paper.recheck_executed');
   const cancelled = rechecks.filter((item) => item.type === 'pre_migration_paper.recheck_cancelled');
+  const skipped = rechecks.filter((item) => item.type === 'pre_migration_paper.recheck_skipped');
+  const failed = rechecks.filter((item) => item.type === 'pre_migration_paper.recheck_failed');
   const firstScheduled = scheduled[0] || null;
   const firstExecuted = executed[0] || null;
   const lastExecuted = executed[executed.length - 1] || null;
 
   return {
-    telemetryPath: row.telemetryPath,
-    runId: row.runId,
-    mint: row.mint,
-    symbol: row.symbol,
-    runtimeDelaySeconds: row.runtimeDelaySeconds,
-    actualExitReason: row.actualExitReason,
-    simPnlSol: row.simPnlSol,
-    actualPnlSol: row.actualPnlSol,
     scheduledCount: scheduled.length,
     executedCount: executed.length,
     cancelledCount: cancelled.length,
+    skippedCount: skipped.length,
+    failedCount: failed.length,
     firstScheduledAt: firstScheduled?.timestamp || null,
     firstExecutedAt: firstExecuted?.timestamp || null,
-    firstScheduleLagSeconds: firstScheduled ? secondsBetween(row.simEntryAt, firstScheduled.timestamp) : null,
-    firstExecutionLagSeconds: firstExecuted ? secondsBetween(row.simEntryAt, firstExecuted.timestamp) : null,
+    firstScheduleLagSeconds: firstScheduled ? secondsBetween(anchorAt, firstScheduled.timestamp) : null,
+    firstExecutionLagSeconds: firstExecuted ? secondsBetween(anchorAt, firstExecuted.timestamp) : null,
     scheduledToExecutedSeconds: firstScheduled && firstExecuted
       ? secondsBetween(firstScheduled.timestamp, firstExecuted.timestamp)
       : null,
-    lastExecutionBeforeEntrySeconds: lastExecuted ? secondsBetween(lastExecuted.timestamp, row.actualEntryAt) : null,
+    lastExecutionBeforeEntrySeconds: lastExecuted ? secondsBetween(lastExecuted.timestamp, actualEntryAt) : null,
     scheduledReasonCounts: countBy(scheduled, (item) => item.reason),
     executionRefreshCounts: {
       refreshed: executed.filter((item) => item.refreshed === true).length,
@@ -144,14 +146,38 @@ function summarizeRow(row, rechecks) {
   };
 }
 
+function summarizeRow(row, delayWindowRechecks, beforeEntryRechecks) {
+  const delayWindow = summarizeRechecks(delayWindowRechecks, row.simEntryAt, row.actualEntryAt);
+  const beforeActualEntry = summarizeRechecks(beforeEntryRechecks, row.simEntryAt, row.actualEntryAt);
+
+  return {
+    telemetryPath: row.telemetryPath,
+    runId: row.runId,
+    mint: row.mint,
+    symbol: row.symbol,
+    runtimeDelaySeconds: row.runtimeDelaySeconds,
+    actualExitReason: row.actualExitReason,
+    simPnlSol: row.simPnlSol,
+    actualPnlSol: row.actualPnlSol,
+    ...delayWindow,
+    beforeActualEntry
+  };
+}
+
 function buildReport() {
   const delayedReport = readJson(DELAYED_ENTRY_PATH, {});
   const rows = (delayedReport.rows || []).map((row) => {
     const events = readJsonl(repoPath(row.telemetryPath));
-    return summarizeRow(row, collectRechecks(events, row));
+    return summarizeRow(
+      row,
+      collectRechecks(events, row, 'delayWindow'),
+      collectRechecks(events, row, 'beforeActualEntry')
+    );
   });
   const allRechecks = rows.flatMap((row) => row.rechecks);
+  const allBeforeEntryRechecks = rows.flatMap((row) => row.beforeActualEntry.rechecks);
   const executedRows = rows.filter((row) => row.executedCount > 0);
+  const beforeEntryExecutedRows = rows.filter((row) => row.beforeActualEntry.executedCount > 0);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -173,10 +199,17 @@ function buildReport() {
       averageLastExecutionBeforeEntrySeconds: executedRows.length
         ? Number((executedRows.reduce((sum, row) => sum + Number(row.lastExecutionBeforeEntrySeconds || 0), 0) / executedRows.length).toFixed(3))
         : null,
-      scheduledReasonCounts: countBy(allRechecks.filter((row) => row.type === 'pre_migration_paper.recheck_scheduled'), (row) => row.reason)
+      scheduledReasonCounts: countBy(allRechecks.filter((row) => row.type === 'pre_migration_paper.recheck_scheduled'), (row) => row.reason),
+      rowsWithAnyRechecksBeforeActualEntry: rows.filter((row) => row.beforeActualEntry.rechecks.length > 0).length,
+      rowsWithExecutedRechecksBeforeActualEntry: beforeEntryExecutedRows.length,
+      scheduledRechecksBeforeActualEntry: allBeforeEntryRechecks.filter((row) => row.type === 'pre_migration_paper.recheck_scheduled').length,
+      executedRechecksBeforeActualEntry: allBeforeEntryRechecks.filter((row) => row.type === 'pre_migration_paper.recheck_executed').length,
+      averageLastExecutionBeforeActualEntrySeconds: beforeEntryExecutedRows.length
+        ? Number((beforeEntryExecutedRows.reduce((sum, row) => sum + Number(row.beforeActualEntry.lastExecutionBeforeEntrySeconds || 0), 0) / beforeEntryExecutedRows.length).toFixed(3))
+        : null
     },
     rows,
-    note: 'Report-only diagnostic. Measures explicit recheck cadence only inside each delayed row simEntryAt-to-actualEntryAt window and does not change thresholds, entries, exits, scoring, AI review, or live behavior.'
+    note: 'Report-only diagnostic. Separates explicit rechecks inside each delayed row simEntryAt-to-actualEntryAt window from any rechecks that happened earlier in the mint lifecycle before actual entry. Does not change thresholds, entries, exits, scoring, AI review, or live behavior.'
   };
 }
 

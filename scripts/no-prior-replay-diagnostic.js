@@ -284,7 +284,9 @@ function compactCandidate(candidate, decisions, snapshots, sourceCoverage = {}) 
     uniquePresets: Array.from(new Set(classified.map((decision) => decision.preset).filter(Boolean))).sort(),
     priorSnapshotCount: snapshots.length,
     diagnosis: classified.length === 0
-      ? 'NO_RECONSTRUCTED_DECISIONS'
+      ? sourceCoverage.telemetrySnapshots === 0 && sourceCoverage.sampleSnapshots > 0
+        ? 'NO_RECONSTRUCTED_DECISIONS_OUTSIDE_LATEST_TELEMETRY'
+        : 'NO_RECONSTRUCTED_DECISIONS'
       : Object.keys(classes).length === 1 ? Object.keys(classes)[0] : 'MIXED_REPLAY_CLASSES',
     neededEarlierSnapshot: first?.neededEarlierSnapshot || null,
     decisions: classified.slice(0, 12),
@@ -349,6 +351,12 @@ function buildReport(events, recoveryReport, falseNegativeRows, telemetryPath) {
   });
 
   const decisionRows = candidates.flatMap((candidate) => candidate.decisions);
+  const sourceCoverage = {
+    telemetryBackedCandidates: candidates.filter((candidate) => candidate.sourceCoverage.telemetrySnapshots > 0).length,
+    sampleOnlyCandidates: candidates.filter((candidate) => candidate.sourceCoverage.telemetrySnapshots === 0 && candidate.sourceCoverage.sampleSnapshots > 0).length,
+    candidatesWithSampleNoPriorDecisions: candidates.filter((candidate) => candidate.sourceCoverage.sampleNoPriorDecisions > 0).length,
+    candidatesWithTelemetryNoPriorDecisions: candidates.filter((candidate) => candidate.sourceCoverage.telemetryNoPriorDecisions > 0).length
+  };
 
   return {
     generatedAt: new Date().toISOString(),
@@ -366,10 +374,11 @@ function buildReport(events, recoveryReport, falseNegativeRows, telemetryPath) {
       candidatesWithNoPriorDecisions: candidates.filter((candidate) => candidate.noPriorDecisionCount > 0).length,
       noPriorDecisionCount: decisionRows.length,
       replayClassCounts: countBy(decisionRows, (decision) => decision.replayClass),
-      diagnosisCounts: countBy(candidates, (candidate) => candidate.diagnosis)
+      diagnosisCounts: countBy(candidates, (candidate) => candidate.diagnosis),
+      sourceCoverage
     },
     candidates,
-    note: 'Report-only replay diagnostic. It reconstructs prior curve evidence for NO_PRIOR recovery candidates and does not change thresholds, entries, signals, quotes, or live behavior.'
+    note: 'Report-only replay diagnostic. It reconstructs prior curve evidence for NO_PRIOR recovery candidates and distinguishes candidates backed by the latest telemetry window from historical sample-only candidates outside that window. Does not change thresholds, entries, signals, quotes, or live behavior.'
   };
 }
 

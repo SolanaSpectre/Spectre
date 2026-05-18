@@ -1243,6 +1243,7 @@ function buildSummary(docs) {
     lines.push(`  - Rows / with scheduled / with executed: ${delayedEntryRecheckSummary.delayedRows ?? 'n/a'} / ${delayedEntryRecheckSummary.rowsWithScheduledRechecks ?? 'n/a'} / ${delayedEntryRecheckSummary.rowsWithExecutedRechecks ?? 'n/a'}`);
     lines.push(`  - Scheduled / executed / cancelled: ${delayedEntryRecheckSummary.scheduledRechecks ?? 'n/a'} / ${delayedEntryRecheckSummary.executedRechecks ?? 'n/a'} / ${delayedEntryRecheckSummary.cancelledRechecks ?? 'n/a'}`);
     lines.push(`  - Avg first execution lag / avg last execution before entry: ${delayedEntryRecheckSummary.averageFirstExecutionLagSeconds ?? 'n/a'}s / ${delayedEntryRecheckSummary.averageLastExecutionBeforeEntrySeconds ?? 'n/a'}s`);
+    lines.push(`  - Any rechecks before actual entry / executed before actual entry: ${delayedEntryRecheckSummary.rowsWithAnyRechecksBeforeActualEntry ?? 'n/a'} / ${delayedEntryRecheckSummary.rowsWithExecutedRechecksBeforeActualEntry ?? 'n/a'}`);
   }
   const simStrategyDeltaSummary = simStrategyDelta.summary || {};
   if (simStrategyDeltaSummary.simulatedTrades !== undefined) {
@@ -1283,6 +1284,7 @@ function buildSummary(docs) {
   lines.push('-----------------------------');
   lines.push('- Mode: report-only; reconstructs prior curve evidence and does not affect entries.');
   lines.push(`- Recovery candidates / reconstructed NO_PRIOR decisions: ${replaySummary.recoveryCandidates ?? 'n/a'} / ${replaySummary.noPriorDecisionCount ?? 'n/a'}`);
+  lines.push(`- Latest-telemetry-backed / historical sample-only candidates: ${replaySummary.sourceCoverage?.telemetryBackedCandidates ?? 'n/a'} / ${replaySummary.sourceCoverage?.sampleOnlyCandidates ?? 'n/a'}`);
   lines.push('- Replay classes:');
   objectLines(replaySummary.replayClassCounts, 8).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Candidate diagnoses:');
