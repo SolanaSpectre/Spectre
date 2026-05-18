@@ -44,6 +44,7 @@ const POST_RUN_REPORTS = [
   { title: 'Internal Continuation Specimen Report', script: 'internal-continuation-specimen-report.js' },
   { title: 'Continuation Paper Ledger', script: 'continuation-paper-ledger.js' },
   { title: 'Continuation Exit Replay', script: 'continuation-exit-replay-report.js' },
+  { title: 'Continuation Slippage Decomposition', script: 'continuation-slippage-decomposition-report.js' },
   { title: 'Battlefield Report With Continuation Paper', script: 'run-battlefield-report.js' },
   { title: 'Trade Learning Memory', script: 'trade-learning-memory.js' },
   { title: 'Live Exit Simulation Report', script: 'live-exit-sim-report.js' },

@@ -24,6 +24,7 @@ const FILES = {
   learning: 'data/reports/learning-orchestrator-latest.json',
   continuationPaper: 'data/reports/continuation-paper-latest.json',
   continuationExitReplay: 'data/reports/continuation-exit-replay-latest.json',
+  continuationSlippageDecomposition: 'data/reports/continuation-slippage-decomposition-latest.json',
   noPriorRecovery: 'data/reports/no-prior-curve-recovery-latest.json',
   noPriorReplay: 'data/reports/no-prior-replay-latest.json',
   noPriorHistoricalReplay: 'data/reports/no-prior-historical-replay-latest.json',
@@ -722,6 +723,7 @@ function buildSummary(docs) {
   const learning = docs.learning.data || {};
   const continuation = docs.continuationPaper.data || {};
   const continuationExitReplay = docs.continuationExitReplay.data || {};
+  const continuationSlippageDecomposition = docs.continuationSlippageDecomposition.data || {};
   const noPriorRecovery = docs.noPriorRecovery.data || {};
   const noPriorReplay = docs.noPriorReplay.data || {};
   const noPriorHistoricalReplay = docs.noPriorHistoricalReplay.data || {};
@@ -1623,6 +1625,9 @@ function buildSummary(docs) {
     ['no_slippage_reference', noSlipScenario]
   ].forEach(([name, summary]) => lines.push(`  - ${summarizeContinuationExitScenario(name, summary)}`));
   lines.push(`- Best scenario by total PnL: ${exitReplaySummary.bestScenarioByTotalPnlUsd || 'n/a'}`);
+  const slippageSummary = continuationSlippageDecomposition.summary || {};
+  lines.push(`- Slippage decomposition: total delta ${slippageSummary.totalSlippageDeltaPnlSol === null || slippageSummary.totalSlippageDeltaPnlSol === undefined ? 'n/a' : sol(slippageSummary.totalSlippageDeltaPnlSol, 6)} across ${slippageSummary.positionsCompared ?? 'n/a'} positions; ratio vs absolute current-config loss ${slippageSummary.slippageDeltaVsAbsoluteCurrentConfigLossRatio ?? 'n/a'}.`);
+  lines.push(`- Slippage concentration: top-1 share ${slippageSummary.top1ShareOfTotalDelta ?? 'n/a'}, top-3 share ${slippageSummary.top3ShareOfTotalDelta ?? 'n/a'}, residual after removing top-3 ${slippageSummary.residualAfterTop3DeltaPnlSol === null || slippageSummary.residualAfterTop3DeltaPnlSol === undefined ? 'n/a' : sol(slippageSummary.residualAfterTop3DeltaPnlSol, 6)}.`);
   lines.push('');
 
   const regime = get(learning, ['regime', 'summary.regime'], null);
