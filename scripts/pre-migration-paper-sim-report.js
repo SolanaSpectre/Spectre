@@ -352,7 +352,7 @@ function countPriceEligibleFlags(events) {
 }
 
 function printReport(report) {
-  console.log('Pre-Migration Paper Simulation Report');
+  console.log('Pre-Migration Exploratory Candidate Generator Report');
   console.log(`Telemetry: ${report.telemetryPath}`);
   console.log(`Run duration: ${report.run.runDurationMinutes || 0} min`);
   console.log(`Strategy: score>=${report.strategy.minScore}, curve>=${report.strategy.minCurveProgress}, volume>=${report.strategy.minRecentVolumeSol} SOL, velocity>=${report.strategy.minTradeVelocityPerMin}/min, TP=${report.strategy.takeProfitPct}, SL=${report.strategy.stopLossPct}, maxHold=${report.strategy.maxHoldSeconds}s`);

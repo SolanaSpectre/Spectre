@@ -4,6 +4,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const SIGNAL_QUALITY_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-signal-quality-latest.json');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-sim-strategy-delta-latest.json');
+// Wider than exact entry matching so nearby guard decisions on rechecks still classify the sim trade.
 const DECISION_WINDOW_MS = 60000;
 
 function readJson(filePath, fallback = {}) {

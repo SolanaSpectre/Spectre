@@ -33,6 +33,7 @@ const POST_RUN_REPORTS = [
   { title: 'Pre-Migration Delayed-Entry Pressure Shadow', script: 'pre-migration-delayed-entry-pressure-shadow-report.js' },
   { title: 'Pre-Migration Delayed-Entry Recheck', script: 'pre-migration-delayed-entry-recheck-report.js' },
   { title: 'Pre-Migration Sim Strategy Delta', script: 'pre-migration-sim-strategy-delta-report.js' },
+  { title: 'Pre-Migration Sim Runtime Divergence Trend', script: 'pre-migration-sim-runtime-divergence-trend-report.js' },
   { title: 'Pre-Migration Entry Timing Pressure', script: 'pre-migration-entry-timing-pressure-report.js' },
   { title: 'Pre-Migration Rolling Entry Trend', script: 'pre-migration-rolling-entry-trend-report.js' },
   { title: 'Pre-Migration Entry Shape', script: 'pre-migration-entry-shape-report.js' },

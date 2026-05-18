@@ -11,6 +11,7 @@ const {
 const ROOT = path.join(__dirname, '..');
 const BATTLEFIELD_PATH = path.join(ROOT, 'data', 'reports', 'run-battlefield-latest.json');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-entry-parity-latest.json');
+// Entry matching is intentionally tight; wider same-mint delay analysis is reported separately.
 const NEARBY_DECISION_WINDOW_MS = 5000;
 
 function readJson(filePath, fallback = {}) {

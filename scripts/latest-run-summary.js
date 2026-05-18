@@ -16,6 +16,7 @@ const FILES = {
   preMigrationDelayedEntryPressureShadow: 'data/reports/pre-migration-delayed-entry-pressure-shadow-latest.json',
   preMigrationDelayedEntryRecheck: 'data/reports/pre-migration-delayed-entry-recheck-latest.json',
   preMigrationSimStrategyDelta: 'data/reports/pre-migration-sim-strategy-delta-latest.json',
+  preMigrationSimRuntimeDivergenceTrend: 'data/reports/pre-migration-sim-runtime-divergence-trend-latest.json',
   preMigrationEntryTimingPressure: 'data/reports/pre-migration-entry-timing-pressure-latest.json',
   preMigrationRollingEntryTrend: 'data/reports/pre-migration-rolling-entry-trend-latest.json',
   preMigrationEntryShape: 'data/reports/pre-migration-entry-shape-latest.json',
@@ -713,6 +714,7 @@ function buildSummary(docs) {
   const delayedEntryPressureShadow = docs.preMigrationDelayedEntryPressureShadow.data || {};
   const delayedEntryRecheck = docs.preMigrationDelayedEntryRecheck.data || {};
   const simStrategyDelta = docs.preMigrationSimStrategyDelta.data || {};
+  const simRuntimeDivergenceTrend = docs.preMigrationSimRuntimeDivergenceTrend.data || {};
   const entryTimingPressure = docs.preMigrationEntryTimingPressure.data || {};
   const rollingEntryTrend = docs.preMigrationRollingEntryTrend.data || {};
   const entryShape = docs.preMigrationEntryShape.data || {};
@@ -1277,6 +1279,13 @@ function buildSummary(docs) {
     lines.push(`  - All sim PnL: ${simStrategyDeltaSummary.allSimulatedPnl?.totalPnlSol === null || simStrategyDeltaSummary.allSimulatedPnl?.totalPnlSol === undefined ? 'n/a' : sol(simStrategyDeltaSummary.allSimulatedPnl.totalPnlSol, 6)} | comparable sim PnL: ${simStrategyDeltaSummary.comparableSimulatedPnl?.totalPnlSol === null || simStrategyDeltaSummary.comparableSimulatedPnl?.totalPnlSol === undefined ? 'n/a' : sol(simStrategyDeltaSummary.comparableSimulatedPnl.totalPnlSol, 6)} | rejected sim PnL: ${simStrategyDeltaSummary.runtimeRejectedSimulatedPnl?.totalPnlSol === null || simStrategyDeltaSummary.runtimeRejectedSimulatedPnl?.totalPnlSol === undefined ? 'n/a' : sol(simStrategyDeltaSummary.runtimeRejectedSimulatedPnl.totalPnlSol, 6)}`);
     objectLines(simStrategyDeltaSummary.rejectReasonCounts, 4).forEach((line) => lines.push(`  - Rejected sim reason: ${line}`));
   }
+  const simRuntimeDivergenceTrendSummary = simRuntimeDivergenceTrend.summary || {};
+  if (simRuntimeDivergenceTrendSummary.simulatedTrades !== undefined) {
+    lines.push('- Rolling sim/runtime divergence trend:');
+    lines.push(`  - Runs / simulated / runtime-comparable / runtime-rejected: ${simRuntimeDivergenceTrend.inputs?.telemetryFilesRead ?? 'n/a'} / ${simRuntimeDivergenceTrendSummary.simulatedTrades ?? 'n/a'} / ${simRuntimeDivergenceTrendSummary.runtimeComparableTrades ?? 'n/a'} / ${simRuntimeDivergenceTrendSummary.runtimeRejectedTrades ?? 'n/a'}`);
+    lines.push(`  - Comparable rate: ${pct(simRuntimeDivergenceTrendSummary.comparableRate)}`);
+    objectLines(simRuntimeDivergenceTrendSummary.runComparableClassCounts, 4).forEach((line) => lines.push(`  - Run class: ${line}`));
+  }
   lines.push('');
 
   const recoverySummary = noPriorRecovery.summary || {};
@@ -1534,8 +1543,9 @@ function buildSummary(docs) {
   const topWinners = topArray(get(signal, ['topWinners', 'winners'], []), 3);
   const topLosers = topArray(get(signal, ['topLosers', 'losers'], []), 3);
 
-  lines.push('10. Paper Sim Findings');
-  lines.push('---------------------');
+  lines.push('10. Exploratory Candidate Generator Findings');
+  lines.push('---------------------------------------------');
+  lines.push('- Legacy single-preset exploratory sim; do not read raw sim PnL as runtime-equivalent without the comparable counts above.');
   lines.push(`- Simulated trades: ${simTrades ?? 'n/a'}`);
   lines.push(`- Wins/losses: ${simWins ?? 'n/a'} / ${simLosses ?? 'n/a'}`);
   lines.push(`- Win rate: ${simWinRate === null ? 'n/a' : pct(simWinRate)}`);

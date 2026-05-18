@@ -33,6 +33,7 @@
     "report:pre-migration-delayed-entry-pressure-shadow": "node scripts/pre-migration-delayed-entry-pressure-shadow-report.js",
     "report:pre-migration-delayed-entry-recheck": "node scripts/pre-migration-delayed-entry-recheck-report.js",
     "report:pre-migration-sim-strategy-delta": "node scripts/pre-migration-sim-strategy-delta-report.js",
+    "report:pre-migration-sim-runtime-divergence-trend": "node scripts/pre-migration-sim-runtime-divergence-trend-report.js",
     "report:pre-migration-entry-timing-pressure": "node scripts/pre-migration-entry-timing-pressure-report.js",
     "report:pre-migration-rolling-entry-trend": "node scripts/pre-migration-rolling-entry-trend-report.js",
     "report:pre-migration-entry-shape": "node scripts/pre-migration-entry-shape-report.js",
