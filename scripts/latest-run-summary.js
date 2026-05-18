@@ -39,6 +39,7 @@ const FILES = {
   noPriorDelayedEntry: 'data/reports/no-prior-delayed-entry-replay-latest.json',
   runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json',
   runnerRaydiumShadowFixedHorizon: 'data/reports/runner-raydium-shadow-fixed-horizon-latest.json',
+  runnerRaydiumShadowHistoricalHorizon: 'data/reports/runner-raydium-shadow-historical-horizon-latest.json',
   runnerRaydiumShadowOutcomeJoin: 'data/reports/runner-raydium-shadow-outcome-join-latest.json',
   walletFirstTouchOutcomeCorr: 'data/reports/wallet-first-touch-outcome-corr-latest.json',
   walletSniperCrowdedReplay: 'data/reports/wallet-sniper-crowded-replay-latest.json',
@@ -739,6 +740,7 @@ function buildSummary(docs) {
   const noPriorDelayedEntry = docs.noPriorDelayedEntry.data || {};
   const runnerRaydiumShadow = docs.runnerRaydiumShadow.data || {};
   const runnerRaydiumShadowFixedHorizon = docs.runnerRaydiumShadowFixedHorizon.data || {};
+  const runnerRaydiumShadowHistoricalHorizon = docs.runnerRaydiumShadowHistoricalHorizon.data || {};
   const runnerRaydiumShadowOutcomeJoin = docs.runnerRaydiumShadowOutcomeJoin.data || {};
   const walletFirstTouchOutcomeCorr = docs.walletFirstTouchOutcomeCorr.data || {};
   const walletSniperCrowdedReplay = docs.walletSniperCrowdedReplay.data || {};
@@ -880,6 +882,12 @@ function buildSummary(docs) {
   ['t5m', 't15m', 't30m'].forEach((key) => {
     const summary = fixedHorizonSummary[key] || {};
     lines.push(`  - ${key}: covered=${summary.coveredMints ?? 'n/a'}, avg=${summary.averageReturnPct === null || summary.averageReturnPct === undefined ? 'n/a' : pct(summary.averageReturnPct, 2)}, median=${summary.medianReturnPct === null || summary.medianReturnPct === undefined ? 'n/a' : pct(summary.medianReturnPct, 2)}, medianLag=${summary.medianSampleLagMinutes === null || summary.medianSampleLagMinutes === undefined ? 'n/a' : `${summary.medianSampleLagMinutes}m`}`);
+  });
+  const historicalHorizonSummary = runnerRaydiumShadowHistoricalHorizon.summary || {};
+  lines.push(`- Historical shadow horizon base: ${historicalHorizonSummary.mintRunPairs ?? 'n/a'} mint-run pairs / ${historicalHorizonSummary.uniqueMints ?? 'n/a'} unique mints.`);
+  ['t5m', 't15m', 't30m'].forEach((key) => {
+    const summary = historicalHorizonSummary.horizonSummaries?.[key] || {};
+    lines.push(`  - historical ${key}: covered=${summary.coveredMints ?? 'n/a'}, avg=${summary.averageReturnPct === null || summary.averageReturnPct === undefined ? 'n/a' : pct(summary.averageReturnPct, 2)}, median=${summary.medianReturnPct === null || summary.medianReturnPct === undefined ? 'n/a' : pct(summary.medianReturnPct, 2)}`);
   });
   lines.push('- Age buckets:');
   objectLines(shadowSummary.ageBuckets, 6).forEach((line) => lines.push(`  - ${line}`));

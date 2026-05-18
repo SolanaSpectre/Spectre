@@ -53,6 +53,7 @@
     "report:run": "node scripts/run-battlefield-report.js",
     "report:runner-raydium-shadow": "node scripts/runner-raydium-shadow-report.js",
     "report:runner-raydium-shadow-fixed-horizon": "node scripts/runner-raydium-shadow-fixed-horizon-report.js",
+    "report:runner-raydium-shadow-historical-horizon": "node scripts/runner-raydium-shadow-historical-horizon-report.js",
     "report:runner-raydium-shadow-outcome-join": "node scripts/runner-raydium-shadow-outcome-join-report.js",
     "report:outcomes": "node scripts/outcome-ledger-report.js",
     "report:early-organic-interest": "node scripts/early-organic-interest-report.js",
