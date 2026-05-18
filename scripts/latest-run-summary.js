@@ -38,6 +38,7 @@ const FILES = {
   noPriorFollowThrough: 'data/reports/no-prior-follow-through-latest.json',
   noPriorDelayedEntry: 'data/reports/no-prior-delayed-entry-replay-latest.json',
   runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json',
+  runnerRaydiumShadowFixedHorizon: 'data/reports/runner-raydium-shadow-fixed-horizon-latest.json',
   runnerRaydiumShadowOutcomeJoin: 'data/reports/runner-raydium-shadow-outcome-join-latest.json',
   walletFirstTouchOutcomeCorr: 'data/reports/wallet-first-touch-outcome-corr-latest.json',
   walletSniperCrowdedReplay: 'data/reports/wallet-sniper-crowded-replay-latest.json',
@@ -737,6 +738,7 @@ function buildSummary(docs) {
   const noPriorFollowThrough = docs.noPriorFollowThrough.data || {};
   const noPriorDelayedEntry = docs.noPriorDelayedEntry.data || {};
   const runnerRaydiumShadow = docs.runnerRaydiumShadow.data || {};
+  const runnerRaydiumShadowFixedHorizon = docs.runnerRaydiumShadowFixedHorizon.data || {};
   const runnerRaydiumShadowOutcomeJoin = docs.runnerRaydiumShadowOutcomeJoin.data || {};
   const walletFirstTouchOutcomeCorr = docs.walletFirstTouchOutcomeCorr.data || {};
   const walletSniperCrowdedReplay = docs.walletSniperCrowdedReplay.data || {};
@@ -873,6 +875,12 @@ function buildSummary(docs) {
   lines.push(`- Continuation overlap: ${shadowSummary.continuationOverlapCount ?? 'n/a'}`);
   lines.push(`- Fresh / mature-or-established / age-unknown: ${shadowSummary.freshPoolCount ?? 'n/a'} / ${shadowSummary.matureOrEstablishedCount ?? 'n/a'} / ${shadowSummary.ageUnknownCount ?? 'n/a'}`);
   lines.push(`- Outcome coverage / positive-last / negative-last: ${shadowSummary.outcomeCoverageCount ?? 'n/a'} / ${shadowSummary.positiveLastReturnCount ?? 'n/a'} / ${shadowSummary.negativeLastReturnCount ?? 'n/a'}`);
+  const fixedHorizonSummary = runnerRaydiumShadowFixedHorizon.summary?.horizonSummaries || {};
+  lines.push('- Fixed-horizon blocked outcomes:');
+  ['t5m', 't15m', 't30m'].forEach((key) => {
+    const summary = fixedHorizonSummary[key] || {};
+    lines.push(`  - ${key}: covered=${summary.coveredMints ?? 'n/a'}, avg=${summary.averageReturnPct === null || summary.averageReturnPct === undefined ? 'n/a' : pct(summary.averageReturnPct, 2)}, median=${summary.medianReturnPct === null || summary.medianReturnPct === undefined ? 'n/a' : pct(summary.medianReturnPct, 2)}, medianLag=${summary.medianSampleLagMinutes === null || summary.medianSampleLagMinutes === undefined ? 'n/a' : `${summary.medianSampleLagMinutes}m`}`);
+  });
   lines.push('- Age buckets:');
   objectLines(shadowSummary.ageBuckets, 6).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Source counts:');
