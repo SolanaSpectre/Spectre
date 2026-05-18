@@ -25,6 +25,7 @@ const FILES = {
   continuationExitReplay: 'data/reports/continuation-exit-replay-latest.json',
   noPriorRecovery: 'data/reports/no-prior-curve-recovery-latest.json',
   noPriorReplay: 'data/reports/no-prior-replay-latest.json',
+  noPriorHistoricalReplay: 'data/reports/no-prior-historical-replay-latest.json',
   noPriorFollowThrough: 'data/reports/no-prior-follow-through-latest.json',
   noPriorDelayedEntry: 'data/reports/no-prior-delayed-entry-replay-latest.json',
   runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json',
@@ -705,6 +706,7 @@ function buildSummary(docs) {
   const continuationExitReplay = docs.continuationExitReplay.data || {};
   const noPriorRecovery = docs.noPriorRecovery.data || {};
   const noPriorReplay = docs.noPriorReplay.data || {};
+  const noPriorHistoricalReplay = docs.noPriorHistoricalReplay.data || {};
   const noPriorFollowThrough = docs.noPriorFollowThrough.data || {};
   const noPriorDelayedEntry = docs.noPriorDelayedEntry.data || {};
   const runnerRaydiumShadow = docs.runnerRaydiumShadow.data || {};
@@ -1292,6 +1294,22 @@ function buildSummary(docs) {
   lines.push('- Top replay candidates:');
   if (replayCandidates.length) {
     replayCandidates.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeNoPriorReplay(item)}`));
+  } else {
+    lines.push('  - none');
+  }
+  lines.push('');
+
+  const historicalReplaySummary = noPriorHistoricalReplay.summary || {};
+  const historicalReplayRows = topArray(noPriorHistoricalReplay.topReconstructableRows, 5);
+  lines.push('7b. NO_PRIOR Historical Replay');
+  lines.push('-------------------------------');
+  lines.push('- Mode: report-only; maps false negatives back to their own historical telemetry windows before replaying NO_PRIOR evidence.');
+  lines.push(`- False negatives / with telemetry window / reconstructable NO_PRIOR rows: ${historicalReplaySummary.falseNegativeCandidates ?? 'n/a'} / ${historicalReplaySummary.candidatesWithTelemetryWindow ?? 'n/a'} / ${historicalReplaySummary.candidatesWithNoPriorDecisions ?? 'n/a'}`);
+  lines.push('- Historical diagnoses:');
+  objectLines(historicalReplaySummary.diagnosisCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Top reconstructable historical rows:');
+  if (historicalReplayRows.length) {
+    historicalReplayRows.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeNoPriorReplay(item)}`));
   } else {
     lines.push('  - none');
   }

@@ -408,4 +408,13 @@ function main() {
   console.log(`Wrote JSON report: ${outputPath}`);
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  buildReport,
+  list,
+  readJson,
+  readJsonl
+};
