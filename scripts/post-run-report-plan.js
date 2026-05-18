@@ -1,5 +1,6 @@
 const POST_RUN_REPORTS = [
   { title: 'Macro Posture Report', script: 'macro-posture-report.js' },
+  { title: 'Simple Runtime AI Evidence', script: 'simple-runtime-ai-evidence-report.js' },
   { title: 'Battlefield Report', script: 'run-battlefield-report.js' },
   { title: 'Runner Raydium Shadow Report', script: 'runner-raydium-shadow-report.js' },
   { title: 'Runner Raydium Shadow Fixed Horizon', script: 'runner-raydium-shadow-fixed-horizon-report.js' },

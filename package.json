@@ -9,6 +9,7 @@
     "start:core": "node src/index.js",
     "dev": "node --inspect src/index.js",
     "summary:latest": "node scripts/latest-run-summary.js",
+    "report:simple-runtime-ai-evidence": "node scripts/simple-runtime-ai-evidence-report.js",
     "report:no-prior-recovery": "node scripts/no-prior-curve-recovery-report.js",
     "report:no-prior-replay": "node scripts/no-prior-replay-diagnostic.js",
     "report:no-prior-historical-replay": "node scripts/no-prior-historical-replay-report.js",

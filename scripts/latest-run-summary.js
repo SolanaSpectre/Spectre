@@ -6,6 +6,7 @@ const DEFAULT_OUTPUT = path.join(REPO_ROOT, 'data', 'reports', 'latest-run-summa
 
 const FILES = {
   battlefield: 'data/reports/run-battlefield-latest.json',
+  simpleRuntimeAiEvidence: 'data/reports/simple-runtime-ai-evidence-latest.json',
   outcomeLedger: 'data/reports/outcome-ledger-latest.json',
   falseNegatives: 'data/watchlists/outcome-ledger-false-negative-latest.json',
   preMigrationOutcomes: 'data/reports/pre-migration-outcomes-latest.json',
@@ -707,6 +708,7 @@ function buildBondingCurvePressure(battlefield = {}) {
 
 function buildSummary(docs) {
   const battlefield = docs.battlefield.data || {};
+  const simpleRuntimeAiEvidence = docs.simpleRuntimeAiEvidence.data || {};
   const ledger = docs.outcomeLedger.data || {};
   const falseNeg = docs.falseNegatives.data || {};
   const preOutcomes = docs.preMigrationOutcomes.data || {};
@@ -802,6 +804,7 @@ function buildSummary(docs) {
   ], null);
   const aiEvidence = collectSimpleRuntimeEvidence();
   const aiReachability = buildAiReachability(battlefield);
+  const aiHistoricalSummary = simpleRuntimeAiEvidence.summary || {};
   const pumpPortalHealth = buildPumpPortalHealth(battlefield);
   const bondingCurvePressure = buildBondingCurvePressure(battlefield);
 
@@ -813,6 +816,7 @@ function buildSummary(docs) {
   lines.push(`- Pre-migration paper entries/exits: ${paperEntries ?? 'n/a'} / ${paperExits ?? 'n/a'}`);
   lines.push(`- Pre-migration paper PnL: ${paperPnl === null ? 'n/a' : sol(paperPnl)}`);
   lines.push(`- Simple Runtime AI evidence in logs: ${aiEvidence.length ? `found in ${aiEvidence.join(', ')}` : 'not found in run logs/outcome ledger'}`);
+  lines.push(`- Historical Simple Runtime AI telemetry / positive-confidence / live failures: ${aiHistoricalSummary.telemetryEvidenceRows ?? 'n/a'} / ${aiHistoricalSummary.positiveConfidenceRows ?? 'n/a'} / ${aiHistoricalSummary.liveIssueFailureRows ?? 'n/a'}`);
   lines.push('- AI path reachability:');
   lines.push(`  - runner/scalper signals generated/executed: ${aiReachability.generatedSignals} / ${aiReachability.executedSignals}`);
   lines.push(`  - trade rejects before signal execution: ${aiReachability.rejectedTrades}`);
