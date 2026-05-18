@@ -30,6 +30,9 @@ const FILES = {
   noPriorFirstObservedCurveLatency: 'data/reports/no-prior-first-observed-curve-latency-latest.json',
   noPriorBondingCurveNullStateLatency: 'data/reports/no-prior-bonding-curve-null-state-latency-latest.json',
   noPriorFirstUpdateLatencyDecomposition: 'data/reports/no-prior-first-update-latency-decomposition-latest.json',
+  noPriorPaperDecisionCurveSource: 'data/reports/no-prior-paper-decision-curve-source-latest.json',
+  noPriorDecisionTimeAlternativeState: 'data/reports/no-prior-decision-time-alternative-state-latest.json',
+  noPriorDecisionTimeStateAge: 'data/reports/no-prior-decision-time-state-age-latest.json',
   noPriorFollowThrough: 'data/reports/no-prior-follow-through-latest.json',
   noPriorDelayedEntry: 'data/reports/no-prior-delayed-entry-replay-latest.json',
   runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json',
@@ -724,6 +727,9 @@ function buildSummary(docs) {
   const noPriorFirstObservedCurveLatency = docs.noPriorFirstObservedCurveLatency.data || {};
   const noPriorBondingCurveNullStateLatency = docs.noPriorBondingCurveNullStateLatency.data || {};
   const noPriorFirstUpdateLatencyDecomposition = docs.noPriorFirstUpdateLatencyDecomposition.data || {};
+  const noPriorPaperDecisionCurveSource = docs.noPriorPaperDecisionCurveSource.data || {};
+  const noPriorDecisionTimeAlternativeState = docs.noPriorDecisionTimeAlternativeState.data || {};
+  const noPriorDecisionTimeStateAge = docs.noPriorDecisionTimeStateAge.data || {};
   const noPriorFollowThrough = docs.noPriorFollowThrough.data || {};
   const noPriorDelayedEntry = docs.noPriorDelayedEntry.data || {};
   const runnerRaydiumShadow = docs.runnerRaydiumShadow.data || {};
@@ -1417,6 +1423,44 @@ function buildSummary(docs) {
   lines.push(`- Mid-curve provider->bonding median / finite->decision median: ${midCurveDecomposition.providerNewTokenToFirstBondingUpdateSeconds?.median ?? 'n/a'}s / ${midCurveDecomposition.firstFiniteCurveToFirstPaperDecisionSeconds?.median ?? 'n/a'}s`);
   lines.push(`- Fully bonded firstSeen->bonding median / firstSeen->decision median: ${bondedDecomposition.firstSeenToFirstBondingUpdateSeconds?.median ?? 'n/a'}s / ${bondedDecomposition.firstSeenToFirstPaperDecisionSeconds?.median ?? 'n/a'}s`);
   lines.push(`- Mid-curve firstSeen->bonding median / firstSeen->decision median: ${midCurveDecomposition.firstSeenToFirstBondingUpdateSeconds?.median ?? 'n/a'}s / ${midCurveDecomposition.firstSeenToFirstPaperDecisionSeconds?.median ?? 'n/a'}s`);
+  lines.push('');
+
+  const paperDecisionCurveSourceSummary = noPriorPaperDecisionCurveSource.summary || {};
+  const midCurvePaperDecisionCurveSource = paperDecisionCurveSourceSummary.midCurveAtFirstObservedCurve || {};
+  const bondedPaperDecisionCurveSource = paperDecisionCurveSourceSummary.fullyBondedAtFirstObservedCurve || {};
+  lines.push('7g. NO_PRIOR Paper-Decision Curve State');
+  lines.push('----------------------------------------');
+  lines.push('- Mode: report-only; checks whether the first paper decision itself carried a finite curve value.');
+  lines.push(`- Mid-curve first decision finite / missing curve: ${midCurvePaperDecisionCurveSource.rowsWithFiniteDecisionCurve ?? 'n/a'} / ${midCurvePaperDecisionCurveSource.rowsWithoutFiniteDecisionCurve ?? 'n/a'}`);
+  lines.push(`- Fully bonded first decision finite / missing curve: ${bondedPaperDecisionCurveSource.rowsWithFiniteDecisionCurve ?? 'n/a'} / ${bondedPaperDecisionCurveSource.rowsWithoutFiniteDecisionCurve ?? 'n/a'}`);
+  lines.push('- Mid-curve prior finite curve sources before first decision:');
+  objectLines(midCurvePaperDecisionCurveSource.priorFiniteCurveSourceTypeCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('');
+
+  const decisionTimeAlternativeStateSummary = noPriorDecisionTimeAlternativeState.summary || {};
+  const midCurveAlternativeState = decisionTimeAlternativeStateSummary.midCurveAtFirstObservedCurve || {};
+  const bondedAlternativeState = decisionTimeAlternativeStateSummary.fullyBondedAtFirstObservedCurve || {};
+  lines.push('7h. NO_PRIOR Decision-Time Alternative State');
+  lines.push('---------------------------------------------');
+  lines.push('- Mode: report-only; inspects what non-curve state existed when first paper decision curve was missing.');
+  lines.push(`- Missing-curve rows / with alternative market state: ${decisionTimeAlternativeStateSummary.rows ?? 'n/a'} / ${decisionTimeAlternativeStateSummary.overall?.rowsWithAlternativeMarketState ?? 'n/a'}`);
+  lines.push(`- Mid-curve rows with alternative market state / flagged / new-token / bonding update before decision: ${midCurveAlternativeState.rowsWithAlternativeMarketState ?? 'n/a'} / ${midCurveAlternativeState.rowsWithFlaggedBeforeDecision ?? 'n/a'} / ${midCurveAlternativeState.rowsWithNewTokenBeforeDecision ?? 'n/a'} / ${midCurveAlternativeState.rowsWithBondingUpdateBeforeDecision ?? 'n/a'}`);
+  lines.push(`- Fully bonded rows with alternative market state / flagged / new-token / bonding update before decision: ${bondedAlternativeState.rowsWithAlternativeMarketState ?? 'n/a'} / ${bondedAlternativeState.rowsWithFlaggedBeforeDecision ?? 'n/a'} / ${bondedAlternativeState.rowsWithNewTokenBeforeDecision ?? 'n/a'} / ${bondedAlternativeState.rowsWithBondingUpdateBeforeDecision ?? 'n/a'}`);
+  lines.push('- Mid-curve alternative state shapes:');
+  objectLines(midCurveAlternativeState.alternativeStateShapeCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('');
+
+  const decisionTimeStateAgeSummary = noPriorDecisionTimeStateAge.summary || {};
+  const midCurveStateAge = decisionTimeStateAgeSummary.midCurveAtFirstObservedCurve || {};
+  const bondedStateAge = decisionTimeStateAgeSummary.fullyBondedAtFirstObservedCurve || {};
+  lines.push('7i. NO_PRIOR Decision-Time State Age');
+  lines.push('-------------------------------------');
+  lines.push('- Mode: report-only; splits missing-curve rows by freshness, trade activity, and bonding-lane coverage.');
+  lines.push(`- Mid-curve trade-signal states: ${compactValue(midCurveStateAge.tradeSignalStateCounts)}`);
+  lines.push(`- Mid-curve bonding-lane states: ${compactValue(midCurveStateAge.bondingLaneStateCounts)}`);
+  lines.push(`- Mid-curve observed age median / flagged age median: ${midCurveStateAge.observedAgeSeconds?.median ?? 'n/a'}s / ${midCurveStateAge.flaggedAgeSeconds?.median ?? 'n/a'}s`);
+  lines.push(`- Fully bonded trade-signal states: ${compactValue(bondedStateAge.tradeSignalStateCounts)}`);
+  lines.push(`- Fully bonded bonding-lane states: ${compactValue(bondedStateAge.bondingLaneStateCounts)}`);
   lines.push('');
 
   const followThroughSummary = noPriorFollowThrough.summary || {};
