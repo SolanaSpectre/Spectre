@@ -227,6 +227,8 @@ function sameMintLaterEntries(simOnly, actualOnly) {
         .sort((a, b) => timeMs(a.entryAt) - timeMs(b.entryAt))[0];
       if (!laterActual) return null;
       return {
+        simKey: `${sim.mint || 'unknown'}:${sim.entryAt || 'unknown'}`,
+        actualPositionKey: laterActual.positionKey || null,
         mint: sim.mint,
         symbol: sim.symbol || laterActual.symbol || null,
         simEntryAt: sim.entryAt,
@@ -283,9 +285,13 @@ function buildReport() {
   const actualEntries = collectActualEntries(events);
   const decisionsByMint = collectDecisions(events);
   const matched = matchRows(paperSim.simulatedTrades || [], actualEntries);
-  const simOnly = matched.simOnly.map((row) => compactSimOnly(row, decisionsByMint));
-  const actualOnly = matched.actualOnly.map((row) => compactActualOnly(row, decisionsByMint));
   const laterRuntimeEntries = sameMintLaterEntries(matched.simOnly, matched.actualOnly);
+  const delayedSimKeys = new Set(laterRuntimeEntries.map((row) => row.simKey));
+  const delayedActualKeys = new Set(laterRuntimeEntries.map((row) => row.actualPositionKey).filter(Boolean));
+  const trueSimOnly = matched.simOnly.filter((row) => !delayedSimKeys.has(`${row.mint || 'unknown'}:${row.entryAt || 'unknown'}`));
+  const trueActualOnly = matched.actualOnly.filter((row) => !delayedActualKeys.has(row.positionKey));
+  const simOnly = trueSimOnly.map((row) => compactSimOnly(row, decisionsByMint));
+  const actualOnly = trueActualOnly.map((row) => compactActualOnly(row, decisionsByMint));
 
   return {
     generatedAt: new Date().toISOString(),
@@ -300,6 +306,7 @@ function buildReport() {
       simulatedEntries: paperSim.simulatedTrades?.length || 0,
       actualEntries: actualEntries.length,
       matchedEntries: matched.matched.length,
+      delayedSameMintEntries: laterRuntimeEntries.length,
       simOnlyEntries: simOnly.length,
       actualOnlyEntries: actualOnly.length,
       sameMintLaterRuntimeEntries: laterRuntimeEntries.length,
@@ -307,6 +314,8 @@ function buildReport() {
       actualPnl: summarizePnl(actualEntries),
       matchedActualPnl: summarizePnl(matched.matched, 'actualPnlSol'),
       matchedSimPnl: summarizePnl(matched.matched, 'simPnlSol'),
+      delayedActualPnl: summarizePnl(laterRuntimeEntries, 'actualPnlSol'),
+      delayedSimPnl: summarizePnl(laterRuntimeEntries, 'simPnlSol'),
       simOnlyPnl: summarizePnl(simOnly, 'simPnlSol'),
       actualOnlyPnl: summarizePnl(actualOnly),
       simOnlyDecisionReasonCounts: countBy(
@@ -317,8 +326,8 @@ function buildReport() {
         actualOnly.flatMap((row) => row.nearbyDecisionReasons.map((reason) => ({ reason }))),
         (row) => row.reason
       ),
-      interpretation: simOnly.length || actualOnly.length
-        ? 'same-run simulated and actual pre-migration books diverged; inspect sim-only and actual-only rows before treating rolling sim findings as runtime behavior'
+      interpretation: simOnly.length || actualOnly.length || laterRuntimeEntries.length
+        ? 'same-run simulated and actual pre-migration books diverged; inspect delayed same-mint, sim-only, and actual-only rows before treating rolling sim findings as runtime behavior'
         : 'same-run simulated and actual pre-migration books matched for the latest telemetry'
     },
     matchedEntries: matched.matched,

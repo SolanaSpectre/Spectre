@@ -1187,7 +1187,7 @@ function buildSummary(docs) {
   const entryParitySummary = entryParity.summary || {};
   if (entryParitySummary.simulatedEntries !== undefined) {
     lines.push('- Same-run sim/actual parity:');
-    lines.push(`  - Sim / actual / matched / sim-only / actual-only: ${entryParitySummary.simulatedEntries ?? 'n/a'} / ${entryParitySummary.actualEntries ?? 'n/a'} / ${entryParitySummary.matchedEntries ?? 'n/a'} / ${entryParitySummary.simOnlyEntries ?? 'n/a'} / ${entryParitySummary.actualOnlyEntries ?? 'n/a'}`);
+    lines.push(`  - Sim / actual / matched / delayed / sim-only / actual-only: ${entryParitySummary.simulatedEntries ?? 'n/a'} / ${entryParitySummary.actualEntries ?? 'n/a'} / ${entryParitySummary.matchedEntries ?? 'n/a'} / ${entryParitySummary.delayedSameMintEntries ?? entryParitySummary.sameMintLaterRuntimeEntries ?? 'n/a'} / ${entryParitySummary.simOnlyEntries ?? 'n/a'} / ${entryParitySummary.actualOnlyEntries ?? 'n/a'}`);
     lines.push(`  - Same-mint later runtime entries: ${entryParitySummary.sameMintLaterRuntimeEntries ?? 'n/a'}`);
     lines.push(`  - Sim-only PnL: ${entryParitySummary.simOnlyPnl?.totalPnlSol === null || entryParitySummary.simOnlyPnl?.totalPnlSol === undefined ? 'n/a' : sol(entryParitySummary.simOnlyPnl.totalPnlSol, 6)} | actual-only PnL: ${entryParitySummary.actualOnlyPnl?.totalPnlSol === null || entryParitySummary.actualOnlyPnl?.totalPnlSol === undefined ? 'n/a' : sol(entryParitySummary.actualOnlyPnl.totalPnlSol, 6)}`);
     const topSimOnly = topArray(entryParity.simOnlyEntries, 3);
