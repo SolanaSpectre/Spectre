@@ -416,5 +416,6 @@ module.exports = {
   buildReport,
   list,
   readJson,
-  readJsonl
+  readJsonl,
+  snapshotFromEvent
 };

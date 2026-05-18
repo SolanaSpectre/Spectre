@@ -26,6 +26,10 @@ const FILES = {
   noPriorRecovery: 'data/reports/no-prior-curve-recovery-latest.json',
   noPriorReplay: 'data/reports/no-prior-replay-latest.json',
   noPriorHistoricalReplay: 'data/reports/no-prior-historical-replay-latest.json',
+  noPriorFirstObservedCurve: 'data/reports/no-prior-first-observed-curve-latest.json',
+  noPriorFirstObservedCurveLatency: 'data/reports/no-prior-first-observed-curve-latency-latest.json',
+  noPriorBondingCurveNullStateLatency: 'data/reports/no-prior-bonding-curve-null-state-latency-latest.json',
+  noPriorFirstUpdateLatencyDecomposition: 'data/reports/no-prior-first-update-latency-decomposition-latest.json',
   noPriorFollowThrough: 'data/reports/no-prior-follow-through-latest.json',
   noPriorDelayedEntry: 'data/reports/no-prior-delayed-entry-replay-latest.json',
   runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json',
@@ -214,6 +218,15 @@ function summarizeNoPriorReplay(item = {}) {
   const label = candidateLabel(item);
   const needed = item.neededEarlierSnapshot || {};
   return `${label} | diagnosis=${item.diagnosis || 'n/a'} | decisions=${item.noPriorDecisionCount ?? 'n/a'} | firstCurve=${fmt(item.firstNoPriorCurveProgress, 4)} | neededBaseline<=${fmt(needed.maxBaselineCurveProgressForMinDelta, 4)}`;
+}
+
+function summarizeNoPriorFirstObservedCurve(item = {}) {
+  return `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim()
+    + ` | diagnosis=${item.diagnosis || 'n/a'}`
+    + ` | firstCurve=${fmt(item.firstObservedCurveProgress, 4)}`
+    + ` | bucket=${item.firstObservedCurveBucket || 'n/a'}`
+    + ` | firstSeenToCurve=${item.secondsFirstSeenToFirstObservedCurve ?? 'n/a'}s`
+    + ` | source=${item.firstObservedSource || 'n/a'}`;
 }
 
 function summarizeNoPriorFollowThrough(item = {}) {
@@ -707,6 +720,10 @@ function buildSummary(docs) {
   const noPriorRecovery = docs.noPriorRecovery.data || {};
   const noPriorReplay = docs.noPriorReplay.data || {};
   const noPriorHistoricalReplay = docs.noPriorHistoricalReplay.data || {};
+  const noPriorFirstObservedCurve = docs.noPriorFirstObservedCurve.data || {};
+  const noPriorFirstObservedCurveLatency = docs.noPriorFirstObservedCurveLatency.data || {};
+  const noPriorBondingCurveNullStateLatency = docs.noPriorBondingCurveNullStateLatency.data || {};
+  const noPriorFirstUpdateLatencyDecomposition = docs.noPriorFirstUpdateLatencyDecomposition.data || {};
   const noPriorFollowThrough = docs.noPriorFollowThrough.data || {};
   const noPriorDelayedEntry = docs.noPriorDelayedEntry.data || {};
   const runnerRaydiumShadow = docs.runnerRaydiumShadow.data || {};
@@ -1313,6 +1330,93 @@ function buildSummary(docs) {
   } else {
     lines.push('  - none');
   }
+  lines.push('');
+
+  const firstObservedCurveSummary = noPriorFirstObservedCurve.summary || {};
+  const firstObservedCurveRows = topArray(noPriorFirstObservedCurve.topFullyBondedRows, 3);
+  const firstObservedMidCurveRows = topArray(noPriorFirstObservedCurve.topMidCurveRows, 3);
+  lines.push('7c. NO_PRIOR First-Observed Curve');
+  lines.push('-----------------------------------');
+  lines.push('- Mode: report-only; separates false negatives first seen already fully bonded from those first seen mid-curve.');
+  lines.push(`- False negatives / with first curve / fully bonded at first curve / not fully bonded: ${firstObservedCurveSummary.falseNegativeCandidates ?? 'n/a'} / ${firstObservedCurveSummary.candidatesWithFirstObservedCurve ?? 'n/a'} / ${firstObservedCurveSummary.fullyBondedAtFirstObservedCurve ?? 'n/a'} / ${firstObservedCurveSummary.notFullyBondedAtFirstObservedCurve ?? 'n/a'}`);
+  lines.push('- First-observed curve buckets:');
+  objectLines(firstObservedCurveSummary.firstObservedCurveBucketCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Top fully bonded at first observed curve:');
+  if (firstObservedCurveRows.length) {
+    firstObservedCurveRows.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeNoPriorFirstObservedCurve(item)}`));
+  } else {
+    lines.push('  - none');
+  }
+  lines.push('- Top mid-curve at first observed curve:');
+  if (firstObservedMidCurveRows.length) {
+    firstObservedMidCurveRows.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeNoPriorFirstObservedCurve(item)}`));
+  } else {
+    lines.push('  - none');
+  }
+  lines.push('');
+
+  const firstObservedCurveLatencySummary = noPriorFirstObservedCurveLatency.summary || {};
+  const fullyBondedLatency = firstObservedCurveLatencySummary.fullyBondedAtFirstObservedCurve || {};
+  const midCurveLatency = firstObservedCurveLatencySummary.midCurveAtFirstObservedCurve || {};
+  const slowestFirstCurveRows = topArray(noPriorFirstObservedCurveLatency.slowestFirstCurveRows, 3);
+  lines.push('7d. NO_PRIOR First-Observed Curve Latency');
+  lines.push('-------------------------------------------');
+  lines.push('- Mode: report-only; separates discovery timing from first usable curve-state timing.');
+  lines.push(`- Rows / fully bonded / mid-curve: ${firstObservedCurveLatencySummary.rows ?? 'n/a'} / ${firstObservedCurveLatencySummary.fullyBondedRows ?? 'n/a'} / ${firstObservedCurveLatencySummary.midCurveRows ?? 'n/a'}`);
+  lines.push(`- Fully bonded first-curve delay median / avg / max: ${fullyBondedLatency.firstCurveDelaySeconds?.median ?? 'n/a'}s / ${fullyBondedLatency.firstCurveDelaySeconds?.average ?? 'n/a'}s / ${fullyBondedLatency.firstCurveDelaySeconds?.max ?? 'n/a'}s`);
+  lines.push(`- Mid-curve first-curve delay median / avg / max: ${midCurveLatency.firstCurveDelaySeconds?.median ?? 'n/a'}s / ${midCurveLatency.firstCurveDelaySeconds?.average ?? 'n/a'}s / ${midCurveLatency.firstCurveDelaySeconds?.max ?? 'n/a'}s`);
+  lines.push('- First usable curve source types:');
+  objectLines(firstObservedCurveLatencySummary.firstObservedCurveTypeCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Slowest first usable curve rows:');
+  if (slowestFirstCurveRows.length) {
+    slowestFirstCurveRows.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim()
+        + ` | firstCurve=${fmt(item.firstObservedCurveProgress, 4)}`
+        + ` | bonded=${item.fullyBondedAtFirstObservedCurve ? 'yes' : 'no'}`
+        + ` | firstSeenToCurve=${item.secondsFirstCurveAfterFirstSeen ?? 'n/a'}s`
+        + ` | source=${item.firstObservedCurveType || 'n/a'}`);
+    });
+  } else {
+    lines.push('  - none');
+  }
+  lines.push('');
+
+  const nullStateLatencySummary = noPriorBondingCurveNullStateLatency.summary || {};
+  const midCurveNullState = nullStateLatencySummary.midCurveAtFirstObservedCurve || {};
+  const fullyBondedNullState = nullStateLatencySummary.fullyBondedAtFirstObservedCurve || {};
+  const topMidCurveNullRows = topArray(noPriorBondingCurveNullStateLatency.topMidCurveNullBeforeFiniteRows, 3);
+  lines.push('7e. NO_PRIOR Bonding-Curve Null-State Latency');
+  lines.push('------------------------------------------------');
+  lines.push('- Mode: report-only; separates first bonding-curve lane activation from first finite curve availability.');
+  lines.push(`- Mid-curve null-before-finite / finite-on-first-update: ${midCurveNullState.nullStateClassCounts?.NULL_BEFORE_FINITE ?? 0} / ${midCurveNullState.nullStateClassCounts?.FINITE_ON_FIRST_UPDATE ?? 0}`);
+  lines.push(`- Fully bonded null-before-finite / finite-on-first-update: ${fullyBondedNullState.nullStateClassCounts?.NULL_BEFORE_FINITE ?? 0} / ${fullyBondedNullState.nullStateClassCounts?.FINITE_ON_FIRST_UPDATE ?? 0}`);
+  lines.push(`- Mid-curve null-state gap median / avg / max: ${midCurveNullState.nullStateGapSeconds?.median ?? 'n/a'}s / ${midCurveNullState.nullStateGapSeconds?.average ?? 'n/a'}s / ${midCurveNullState.nullStateGapSeconds?.max ?? 'n/a'}s`);
+  lines.push(`- Mid-curve rows with accountNotFound before first finite curve: ${midCurveNullState.accountNotFoundBeforeFiniteRows ?? 'n/a'}`);
+  lines.push('- Top mid-curve null-before-finite rows:');
+  if (topMidCurveNullRows.length) {
+    topMidCurveNullRows.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim()
+        + ` | firstCurve=${fmt(item.firstObservedCurveProgress, 4)}`
+        + ` | firstUpdateDelay=${item.secondsFirstUpdateAfterFirstSeen ?? 'n/a'}s`
+        + ` | nullGap=${item.nullStateGapSeconds ?? 'n/a'}s`
+        + ` | nullUpdates=${item.nonFiniteUpdateCountBeforeFirstFinite ?? 'n/a'}`
+        + ` | accountNotFound=${item.accountNotFoundCountBeforeFirstFinite ?? 'n/a'}`);
+    });
+  } else {
+    lines.push('  - none');
+  }
+  lines.push('');
+
+  const latencyDecompositionSummary = noPriorFirstUpdateLatencyDecomposition.summary || {};
+  const bondedDecomposition = latencyDecompositionSummary.fullyBondedAtFirstObservedCurve || {};
+  const midCurveDecomposition = latencyDecompositionSummary.midCurveAtFirstObservedCurve || {};
+  lines.push('7f. NO_PRIOR First-Update Latency Decomposition');
+  lines.push('-------------------------------------------------');
+  lines.push('- Mode: report-only; splits first-seen -> provider new-token -> first bonding update -> first finite curve -> first paper decision.');
+  lines.push(`- Fully bonded provider->bonding median / finite->decision median: ${bondedDecomposition.providerNewTokenToFirstBondingUpdateSeconds?.median ?? 'n/a'}s / ${bondedDecomposition.firstFiniteCurveToFirstPaperDecisionSeconds?.median ?? 'n/a'}s`);
+  lines.push(`- Mid-curve provider->bonding median / finite->decision median: ${midCurveDecomposition.providerNewTokenToFirstBondingUpdateSeconds?.median ?? 'n/a'}s / ${midCurveDecomposition.firstFiniteCurveToFirstPaperDecisionSeconds?.median ?? 'n/a'}s`);
+  lines.push(`- Fully bonded firstSeen->bonding median / firstSeen->decision median: ${bondedDecomposition.firstSeenToFirstBondingUpdateSeconds?.median ?? 'n/a'}s / ${bondedDecomposition.firstSeenToFirstPaperDecisionSeconds?.median ?? 'n/a'}s`);
+  lines.push(`- Mid-curve firstSeen->bonding median / firstSeen->decision median: ${midCurveDecomposition.firstSeenToFirstBondingUpdateSeconds?.median ?? 'n/a'}s / ${midCurveDecomposition.firstSeenToFirstPaperDecisionSeconds?.median ?? 'n/a'}s`);
   lines.push('');
 
   const followThroughSummary = noPriorFollowThrough.summary || {};

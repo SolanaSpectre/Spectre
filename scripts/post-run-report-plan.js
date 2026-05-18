@@ -50,6 +50,10 @@ const POST_RUN_REPORTS = [
   { title: 'NO_PRIOR Recovery Diagnostic', script: 'no-prior-curve-recovery-report.js' },
   { title: 'NO_PRIOR Replay Diagnostic', script: 'no-prior-replay-diagnostic.js' },
   { title: 'NO_PRIOR Historical Replay', script: 'no-prior-historical-replay-report.js' },
+  { title: 'NO_PRIOR First-Observed Curve', script: 'no-prior-first-observed-curve-report.js' },
+  { title: 'NO_PRIOR First-Observed Curve Latency', script: 'no-prior-first-observed-curve-latency-report.js' },
+  { title: 'NO_PRIOR Bonding-Curve Null-State Latency', script: 'no-prior-bonding-curve-null-state-latency-report.js' },
+  { title: 'NO_PRIOR First-Update Latency Decomposition', script: 'no-prior-first-update-latency-decomposition-report.js' },
   { title: 'NO_PRIOR Follow-through Diagnostic', script: 'no-prior-follow-through-report.js' },
   { title: 'NO_PRIOR Delayed-Entry Replay', script: 'no-prior-delayed-entry-replay.js' },
   { title: 'Latest Run Summary', script: 'latest-run-summary.js' }
