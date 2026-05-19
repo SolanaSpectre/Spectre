@@ -89,14 +89,17 @@ function timestampMs(value) {
 }
 
 function telemetryWindow(events = []) {
-  const timestamps = events
-    .map((event) => timestampMs(payloadOf(event).timestamp || event.timestamp))
-    .filter(Number.isFinite);
-  if (!timestamps.length) {
+  let startMs = Infinity;
+  let endMs = -Infinity;
+  for (const event of events) {
+    const timestamp = timestampMs(payloadOf(event).timestamp || event.timestamp);
+    if (!Number.isFinite(timestamp)) continue;
+    startMs = Math.min(startMs, timestamp);
+    endMs = Math.max(endMs, timestamp);
+  }
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
     return { startMs: null, endMs: null, startAt: null, endAt: null };
   }
-  const startMs = Math.min(...timestamps);
-  const endMs = Math.max(...timestamps);
   return {
     startMs,
     endMs,

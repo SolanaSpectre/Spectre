@@ -40,15 +40,22 @@ function telemetryFiles() {
 
 function telemetryWindow(filePath) {
   const events = readJsonl(filePath);
-  const timestamps = events.map((event) => timestampMs(eventTimestamp(event))).filter(Number.isFinite);
-  if (!timestamps.length) return null;
+  let startMs = Infinity;
+  let endMs = -Infinity;
+  for (const event of events) {
+    const timestamp = timestampMs(eventTimestamp(event));
+    if (!Number.isFinite(timestamp)) continue;
+    startMs = Math.min(startMs, timestamp);
+    endMs = Math.max(endMs, timestamp);
+  }
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
   return {
     path: filePath,
     relativePath: rel(filePath),
-    startMs: Math.min(...timestamps),
-    endMs: Math.max(...timestamps),
-    startAt: new Date(Math.min(...timestamps)).toISOString(),
-    endAt: new Date(Math.max(...timestamps)).toISOString(),
+    startMs,
+    endMs,
+    startAt: new Date(startMs).toISOString(),
+    endAt: new Date(endMs).toISOString(),
     events
   };
 }
