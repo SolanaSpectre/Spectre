@@ -147,6 +147,21 @@ function collectAiDecisionRows() {
   return rows;
 }
 
+function timestampMs(value) {
+  const parsed = new Date(value || 0).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function hadConsumerObservedOuterTimeout(started, timeoutRows) {
+  const startedMs = timestampMs(started.timestamp);
+  if (!started.signalId || !Number.isFinite(startedMs)) return false;
+  return timeoutRows.some((row) => {
+    if (row.signalId !== started.signalId) return false;
+    const timeoutMs = timestampMs(row.timestamp);
+    return Number.isFinite(timeoutMs) && startedMs <= timeoutMs;
+  });
+}
+
 function collectLiveIssueRows() {
   return readJsonl(LIVE_ISSUES_PATH)
     .filter((row) => row.message === 'Simple runtime AI review failed')
@@ -170,10 +185,8 @@ function buildReport() {
   const failedByAttemptId = new Map(lifecycleRows
     .filter((row) => row.type === 'simple_runtime_ai.review_failed' && row.attemptId)
     .map((row) => [row.attemptId, row]));
-  const outerTimeoutSignalIds = new Set(aiDecisionRows
-    .filter((row) => row.reason === 'OLLAMA_TIMEOUT' || row.timeout === true)
-    .map((row) => row.signalId)
-    .filter(Boolean));
+  const outerTimeoutRows = aiDecisionRows
+    .filter((row) => (row.reason === 'OLLAMA_TIMEOUT' || row.timeout === true) && row.signalId);
   const attempts = startedRows.map((started) => {
     const completed = completedByAttemptId.get(started.attemptId);
     const failed = failedByAttemptId.get(started.attemptId);
@@ -194,7 +207,7 @@ function buildReport() {
       exceededOuterTimeout: Number.isFinite(num(terminal.latencyMs)) && Number.isFinite(num(started.outerTimeoutMs))
         ? num(terminal.latencyMs) > num(started.outerTimeoutMs)
         : false,
-      consumerObservedOuterTimeout: started.signalId ? outerTimeoutSignalIds.has(started.signalId) : false
+      consumerObservedOuterTimeout: hadConsumerObservedOuterTimeout(started, outerTimeoutRows)
     };
   });
   const completedAttempts = attempts.filter((row) => row.outcome === 'completed');
@@ -253,7 +266,7 @@ function buildReport() {
     aiDecisionRows,
     telemetryRows,
     liveIssueRows,
-    note: 'Report-only Simple Runtime AI evidence audit across historical telemetry and live-terminal issue logs. Telemetry rows show emitted AI outcomes; live issue rows show runtime review failures that may not be represented as structured telemetry failure types. It does not invoke AI, alter decisions, or change runtime behavior.'
+    note: 'Report-only Simple Runtime AI evidence audit across historical telemetry and live-terminal issue logs. Lifecycle attempts are counted from simple_runtime_ai.review_started. consumerObservedOuterTimeout is only set when the attempt started before a matching OLLAMA_TIMEOUT decision for the same signalId, so lightweight retries caused by that timeout are not mislabeled as pre-timeout attempts. Legacy telemetry rows show emitted AI outcomes; live issue rows show runtime review failures that may not be represented as structured telemetry failure types. It does not invoke AI, alter decisions, or change runtime behavior.'
   };
 }
 

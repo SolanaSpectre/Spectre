@@ -816,7 +816,7 @@ function buildSummary(docs) {
   lines.push(`- Pre-migration paper entries/exits: ${paperEntries ?? 'n/a'} / ${paperExits ?? 'n/a'}`);
   lines.push(`- Pre-migration paper PnL: ${paperPnl === null ? 'n/a' : sol(paperPnl)}`);
   lines.push(`- Simple Runtime AI evidence in logs: ${aiEvidence.length ? `found in ${aiEvidence.join(', ')}` : 'not found in run logs/outcome ledger'}`);
-  lines.push(`- Simple Runtime AI lifecycle attempts/completed/failed/dangling: ${aiHistoricalSummary.reviewAttempts ?? 'n/a'} / ${aiHistoricalSummary.completedAttempts ?? 'n/a'} / ${aiHistoricalSummary.failedAttempts ?? 'n/a'} / ${aiHistoricalSummary.danglingAttempts ?? 'n/a'}`);
+  lines.push(`- Historical Simple Runtime AI lifecycle attempts/completed/failed/dangling: ${aiHistoricalSummary.reviewAttempts ?? 'n/a'} / ${aiHistoricalSummary.completedAttempts ?? 'n/a'} / ${aiHistoricalSummary.failedAttempts ?? 'n/a'} / ${aiHistoricalSummary.danglingAttempts ?? 'n/a'}`);
   lines.push(`- Historical Simple Runtime AI legacy telemetry / positive-confidence / live failures: ${aiHistoricalSummary.telemetryEvidenceRows ?? 'n/a'} / ${aiHistoricalSummary.positiveConfidenceRows ?? 'n/a'} / ${aiHistoricalSummary.liveIssueFailureRows ?? 'n/a'}`);
   lines.push('- AI path reachability:');
   lines.push(`  - runner/scalper signals generated/executed: ${aiReachability.generatedSignals} / ${aiReachability.executedSignals}`);
