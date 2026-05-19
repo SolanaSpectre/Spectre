@@ -50,6 +50,13 @@ class TradingEngine {
     this.accounting = new AccountingService();
     this.treasurySweeper = new TreasurySweeper(config, logger);
     this.telemetry = new Telemetry(config, logger);
+    this.aiAgent.telemetryHook = (type, payload) => {
+      try {
+        this.telemetry.record(type, payload);
+      } catch {
+        // AI telemetry is observability-only and must never affect decisions.
+      }
+    };
     this.strategyLedger = new StrategyLedger(config, logger);
     this.qualityScorer = new QualityScorer(config);
     this.walletContext = new WalletContext(config, logger);

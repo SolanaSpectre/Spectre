@@ -1,5 +1,6 @@
 const Module = require('module');
 const axios = require('axios');
+const crypto = require('crypto');
 
 const ORIGINAL_LOAD = Module._load;
 const ENABLED = process.env.SIMPLE_RUNTIME_AI_ENABLED !== 'false';
@@ -100,6 +101,25 @@ function classifyRuntimeError(error) {
     failureType: 'unknown',
     reason: 'SIMPLE_RUNTIME_AI_FAILED'
   };
+}
+
+function mintOf(tokenInfo = {}, signal = {}) {
+  return tokenInfo.mintAddress || tokenInfo.mint || signal.token || signal.mint || null;
+}
+
+function emitSimpleRuntimeTelemetry(instance, type, payload) {
+  try {
+    if (typeof instance.telemetryHook === 'function') {
+      instance.telemetryHook(type, payload);
+    }
+  } catch {
+    // Observability must never alter AI review behavior.
+  }
+}
+
+function attemptId() {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return `simple_runtime_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
 function simpleSystemPrompt() {
@@ -267,13 +287,48 @@ function patchAIAgent(AIAgent) {
         return super.callTradeReviewer(tokenInfo, signal, options);
       }
 
+      const id = attemptId();
+      const startedAt = Date.now();
+      const attemptType = options.lightweight ? 'lightweight_retry' : 'primary';
+      const baseTelemetry = {
+        attemptId: id,
+        signalId: signal?.id || signal?.signalId || null,
+        mint: mintOf(tokenInfo, signal),
+        symbol: tokenInfo?.symbol || null,
+        source: tokenInfo?.source || signal?.source || 'unknown',
+        attemptType,
+        model: RUNTIME_MODEL,
+        timeoutMs: RUNTIME_TIMEOUT_MS,
+        outerTimeoutMs: Number(this.config?.aiTimeoutMs || 0) || null
+      };
+      emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_started', baseTelemetry);
+
       try {
-        const startedAt = Date.now();
         const result = await callSimpleRuntimeReview(this, tokenInfo, signal);
+        const latencyMs = Date.now() - startedAt;
+        emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_completed', {
+          ...baseTelemetry,
+          latencyMs,
+          action: result.action || null,
+          approved: result.approved === true,
+          confidence: result.confidence ?? null,
+          risk: result.simpleRuntime?.risk || null,
+          reason: result.reason || null,
+          convergenceScore: result.convergenceScore ?? null
+        });
         this.logger.info(`Simple runtime AI review ${result.action} ${result.confidence}% ${result.simpleRuntime.risk} (${Date.now() - startedAt}ms)`);
         return result;
       } catch (error) {
         const failure = classifyRuntimeError(error);
+        emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_failed', {
+          ...baseTelemetry,
+          latencyMs: Date.now() - startedAt,
+          failureType: failure.failureType,
+          reason: failure.reason,
+          errorMessage: error.message,
+          errorCode: error.code || null,
+          httpStatus: Number(error?.response?.status || 0) || null
+        });
         this.logger.warn('Simple runtime AI review failed', {
           failureType: failure.failureType,
           reason: failure.reason,

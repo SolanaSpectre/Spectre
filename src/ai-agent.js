@@ -8,6 +8,7 @@ class AIAgent {
       this.model = config.ollamaModel || 'llama3.2:3b';
       this.logger = logger;
       this.apiEndpoint = `${config.ollamaHost}/api/chat`;
+    this.telemetryHook = config.telemetryHook || null;
     this.conversationHistory = [];
     this.knowledgeDir = path.join(process.cwd(), 'knowledge');
     this.knowledgeCache = new Map();

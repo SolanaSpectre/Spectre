@@ -41,6 +41,21 @@ function num(value, fallback = null) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function compact(value, digits = 4) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Number(parsed.toFixed(digits)) : null;
+}
+
+function percentile(values, p) {
+  const sorted = values
+    .map(Number)
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
+  return compact(sorted[index], 2);
+}
+
 function countBy(rows, keyFn) {
   const counts = {};
   for (const row of rows) {
@@ -75,6 +90,63 @@ function collectTelemetryRows() {
   return rows;
 }
 
+function collectReviewLifecycleRows() {
+  const rows = [];
+  for (const filePath of telemetryFiles()) {
+    for (const event of readJsonl(filePath)) {
+      const type = event.type || event.event || event.name || 'unknown';
+      if (!type.startsWith('simple_runtime_ai.review_')) continue;
+      const payload = event.payload || {};
+      rows.push({
+        telemetryPath: rel(filePath),
+        timestamp: event.timestamp || null,
+        type,
+        attemptId: payload.attemptId || null,
+        signalId: payload.signalId || null,
+        mint: payload.mint || null,
+        symbol: payload.symbol || null,
+        source: payload.source || null,
+        attemptType: payload.attemptType || null,
+        model: payload.model || null,
+        timeoutMs: num(payload.timeoutMs),
+        outerTimeoutMs: num(payload.outerTimeoutMs),
+        latencyMs: num(payload.latencyMs),
+        action: payload.action || null,
+        approved: payload.approved === true,
+        confidence: num(payload.confidence),
+        risk: payload.risk || null,
+        reason: payload.reason || null,
+        failureType: payload.failureType || null,
+        errorMessage: payload.errorMessage || null
+      });
+    }
+  }
+  return rows;
+}
+
+function collectAiDecisionRows() {
+  const rows = [];
+  for (const filePath of telemetryFiles()) {
+    for (const event of readJsonl(filePath)) {
+      const type = event.type || event.event || event.name || 'unknown';
+      if (!['ai.veto', 'ai.caution'].includes(type)) continue;
+      const payload = event.payload || {};
+      rows.push({
+        telemetryPath: rel(filePath),
+        timestamp: event.timestamp || null,
+        type,
+        signalId: payload.signalId || null,
+        token: payload.token || payload.mint || null,
+        reason: payload.reason || payload.rejectionReason || null,
+        confidence: num(payload.confidence),
+        simpleRuntime: payload.simpleRuntime || null,
+        timeout: payload.timeout === true
+      });
+    }
+  }
+  return rows;
+}
+
 function collectLiveIssueRows() {
   return readJsonl(LIVE_ISSUES_PATH)
     .filter((row) => row.message === 'Simple runtime AI review failed')
@@ -88,7 +160,48 @@ function collectLiveIssueRows() {
 
 function buildReport() {
   const telemetryRows = collectTelemetryRows();
+  const lifecycleRows = collectReviewLifecycleRows();
+  const aiDecisionRows = collectAiDecisionRows();
   const liveIssueRows = collectLiveIssueRows();
+  const startedRows = lifecycleRows.filter((row) => row.type === 'simple_runtime_ai.review_started');
+  const completedByAttemptId = new Map(lifecycleRows
+    .filter((row) => row.type === 'simple_runtime_ai.review_completed' && row.attemptId)
+    .map((row) => [row.attemptId, row]));
+  const failedByAttemptId = new Map(lifecycleRows
+    .filter((row) => row.type === 'simple_runtime_ai.review_failed' && row.attemptId)
+    .map((row) => [row.attemptId, row]));
+  const outerTimeoutSignalIds = new Set(aiDecisionRows
+    .filter((row) => row.reason === 'OLLAMA_TIMEOUT' || row.timeout === true)
+    .map((row) => row.signalId)
+    .filter(Boolean));
+  const attempts = startedRows.map((started) => {
+    const completed = completedByAttemptId.get(started.attemptId);
+    const failed = failedByAttemptId.get(started.attemptId);
+    const outcome = completed ? 'completed' : failed ? 'failed' : 'dangling';
+    const terminal = completed || failed || {};
+    return {
+      ...started,
+      outcome,
+      completedAt: completed?.timestamp || null,
+      failedAt: failed?.timestamp || null,
+      latencyMs: terminal.latencyMs ?? null,
+      action: terminal.action || null,
+      approved: terminal.approved === true,
+      confidence: terminal.confidence ?? null,
+      risk: terminal.risk || null,
+      reason: terminal.reason || null,
+      failureType: terminal.failureType || null,
+      exceededOuterTimeout: Number.isFinite(num(terminal.latencyMs)) && Number.isFinite(num(started.outerTimeoutMs))
+        ? num(terminal.latencyMs) > num(started.outerTimeoutMs)
+        : false,
+      consumerObservedOuterTimeout: started.signalId ? outerTimeoutSignalIds.has(started.signalId) : false
+    };
+  });
+  const completedAttempts = attempts.filter((row) => row.outcome === 'completed');
+  const failedAttempts = attempts.filter((row) => row.outcome === 'failed');
+  const danglingAttempts = attempts.filter((row) => row.outcome === 'dangling');
+  const completedLatencies = completedAttempts.map((row) => row.latencyMs).filter(Number.isFinite);
+  const failedLatencies = failedAttempts.map((row) => row.latencyMs).filter(Number.isFinite);
   const zeroConfidenceHighRiskRows = telemetryRows.filter((row) => row.confidence === 0 && row.risk === 'HIGH');
   const positiveConfidenceRows = telemetryRows.filter((row) => num(row.confidence, 0) > 0);
   const uniqueTokens = new Set(telemetryRows.map((row) => row.token).filter(Boolean));
@@ -103,6 +216,27 @@ function buildReport() {
       liveIssuesPath: rel(LIVE_ISSUES_PATH)
     },
     summary: {
+      reviewAttempts: attempts.length,
+      completedAttempts: completedAttempts.length,
+      failedAttempts: failedAttempts.length,
+      danglingAttempts: danglingAttempts.length,
+      consumerObservedOuterTimeoutAttempts: attempts.filter((row) => row.consumerObservedOuterTimeout).length,
+      attemptsExceedingOuterTimeout: attempts.filter((row) => row.exceededOuterTimeout).length,
+      completedLatencyMs: {
+        median: percentile(completedLatencies, 50),
+        p90: percentile(completedLatencies, 90),
+        max: completedLatencies.length ? compact(Math.max(...completedLatencies), 2) : null
+      },
+      failedLatencyMs: {
+        median: percentile(failedLatencies, 50),
+        p90: percentile(failedLatencies, 90),
+        max: failedLatencies.length ? compact(Math.max(...failedLatencies), 2) : null
+      },
+      attemptTypeCounts: countBy(attempts, (row) => row.attemptType),
+      attemptOutcomeCounts: countBy(attempts, (row) => row.outcome),
+      completedActionCounts: countBy(completedAttempts, (row) => row.action),
+      completedRiskCounts: countBy(completedAttempts, (row) => row.risk),
+      failedFailureTypeCounts: countBy(failedAttempts, (row) => row.failureType),
       telemetryEvidenceRows: telemetryRows.length,
       telemetryFilesWithEvidence: filesWithTelemetryEvidence.size,
       uniqueTokensWithTelemetryEvidence: uniqueTokens.size,
@@ -114,6 +248,9 @@ function buildReport() {
       telemetryRiskCounts: countBy(telemetryRows, (row) => row.risk),
       liveIssueFailureTypeCounts: countBy(liveIssueRows, (row) => row.failureType || row.message)
     },
+    reviewAttempts: attempts,
+    reviewLifecycleRows: lifecycleRows,
+    aiDecisionRows,
     telemetryRows,
     liveIssueRows,
     note: 'Report-only Simple Runtime AI evidence audit across historical telemetry and live-terminal issue logs. Telemetry rows show emitted AI outcomes; live issue rows show runtime review failures that may not be represented as structured telemetry failure types. It does not invoke AI, alter decisions, or change runtime behavior.'
