@@ -480,6 +480,9 @@ function buildAiReachability(battlefield = {}) {
   const rejectedTrades = number(runner.rejectedTrades, 0);
   const quoteRejects = number(diag.quoteRejects, 0);
   const aiRejects = number(diag.aiRejects, 0);
+  const lifecycleAttempts = number(eventCounts['simple_runtime_ai.review_started'], 0);
+  const lifecycleCompleted = number(eventCounts['simple_runtime_ai.review_completed'], 0);
+  const lifecycleFailed = number(eventCounts['simple_runtime_ai.review_failed'], 0);
   const aiDecisionEvents = number(eventCounts['signal.ai_decision'], 0)
     + number(eventCounts['ai.veto'], 0)
     + number(eventCounts['ai.caution'], 0);
@@ -491,6 +494,8 @@ function buildAiReachability(battlefield = {}) {
   let interpretation = 'AI path status is inconclusive from the available report fields.';
   if (generatedSignals === 0) {
     interpretation = 'No runner/scalper signals were generated, so no real candidate reached runtime AI review.';
+  } else if (lifecycleAttempts > 0) {
+    interpretation = 'At least one real candidate reached Simple Runtime AI review lifecycle instrumentation.';
   } else if (aiDecisionEvents === 0 && quoteRejects > 0) {
     interpretation = 'Signals were generated but stopped at quote/quality handling before AI review.';
   } else if (aiDecisionEvents > 0) {
@@ -502,6 +507,9 @@ function buildAiReachability(battlefield = {}) {
     executedSignals,
     rejectedTrades,
     quoteRejects,
+    lifecycleAttempts,
+    lifecycleCompleted,
+    lifecycleFailed,
     aiRejects,
     aiDecisionEvents,
     aiTimeoutFallbacks,
@@ -815,12 +823,13 @@ function buildSummary(docs) {
   lines.push(`- Dossiers: ${dossiers ?? 'n/a'}`);
   lines.push(`- Pre-migration paper entries/exits: ${paperEntries ?? 'n/a'} / ${paperExits ?? 'n/a'}`);
   lines.push(`- Pre-migration paper PnL: ${paperPnl === null ? 'n/a' : sol(paperPnl)}`);
-  lines.push(`- Simple Runtime AI evidence in logs: ${aiEvidence.length ? `found in ${aiEvidence.join(', ')}` : 'not found in run logs/outcome ledger'}`);
+  lines.push(`- Simple Runtime AI string evidence in logs (legacy/warmup included): ${aiEvidence.length ? `found in ${aiEvidence.join(', ')}` : 'not found in run logs/outcome ledger'}`);
   lines.push(`- Historical Simple Runtime AI lifecycle attempts/completed/failed/dangling: ${aiHistoricalSummary.reviewAttempts ?? 'n/a'} / ${aiHistoricalSummary.completedAttempts ?? 'n/a'} / ${aiHistoricalSummary.failedAttempts ?? 'n/a'} / ${aiHistoricalSummary.danglingAttempts ?? 'n/a'}`);
   lines.push(`- Historical Simple Runtime AI legacy telemetry / positive-confidence / live failures: ${aiHistoricalSummary.telemetryEvidenceRows ?? 'n/a'} / ${aiHistoricalSummary.positiveConfidenceRows ?? 'n/a'} / ${aiHistoricalSummary.liveIssueFailureRows ?? 'n/a'}`);
   lines.push('- AI path reachability:');
   lines.push(`  - runner/scalper signals generated/executed: ${aiReachability.generatedSignals} / ${aiReachability.executedSignals}`);
   lines.push(`  - trade rejects before signal execution: ${aiReachability.rejectedTrades}`);
+  lines.push(`  - Simple Runtime lifecycle attempts/completed/failed this run: ${aiReachability.lifecycleAttempts} / ${aiReachability.lifecycleCompleted} / ${aiReachability.lifecycleFailed}`);
   lines.push(`  - AI decision events / AI rejects / timeout fallbacks: ${aiReachability.aiDecisionEvents} / ${aiReachability.aiRejects} / ${aiReachability.aiTimeoutFallbacks}`);
   const aiFailureTypeSummary = Object.entries(aiReachability.aiFailureTypes || {})
     .map(([key, value]) => `${key}=${value}`)
@@ -1693,7 +1702,7 @@ function buildSummary(docs) {
   const hasFalseNegatives = falseNegatives.length > 0;
   const continuationOpenNegative = openPnlSol !== null && number(openPnlSol) < 0;
   const simNegative = simPnl !== null && number(simPnl) < 0;
-  const simpleRuntimeFired = aiEvidence.length > 0 || aiReachability.aiDecisionEvents > 0;
+  const simpleRuntimeFired = aiReachability.lifecycleAttempts > 0 || aiReachability.aiDecisionEvents > 0;
 
   lines.push('14. Evidence-backed Recommendations');
   lines.push('------------------------------------');
@@ -1716,7 +1725,7 @@ function buildSummary(docs) {
   lines.push('');
 
   lines.push('4. Validate Simple Runtime AI in real candidate flow, not only synthetic smoke.');
-  lines.push(`   Evidence: Simple Runtime AI evidence in latest run logs=${simpleRuntimeFired ? 'present' : 'absent'}; ${aiReachability.interpretation}`);
+  lines.push(`   Evidence: real Simple Runtime AI review path=${simpleRuntimeFired ? 'reached' : 'not reached'}; lifecycle attempts=${aiReachability.lifecycleAttempts}; AI decision events=${aiReachability.aiDecisionEvents}; ${aiReachability.interpretation}`);
   lines.push('   Risk of changing now: treating AI as validated for live decisions before enough real review samples.');
   lines.push('   Status: keep paper-only and monitor for real Simple runtime AI review lines.');
   lines.push('');
