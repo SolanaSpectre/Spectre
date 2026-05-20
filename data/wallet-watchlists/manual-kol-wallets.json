@@ -1,6 +1,6 @@
 {
   "source": "manual_kol_research",
-  "updatedAt": "2026-04-23T05:35:27.327Z",
+  "updatedAt": "2026-05-20T02:51:51.976Z",
   "wallets": [
     {
       "walletAddress": "4Be9CvxqHW6BYiRAxW9Q3xu1ycTMWaL5z8NX4HR3ha7t",
@@ -44,7 +44,9 @@
       "flags": [
         "MANUAL_RESEARCH",
         "SUSPECTED_KOL_LINK",
-        "PUMPFUN_PROFILE_LINK"
+        "PUMPFUN_PROFILE_LINK",
+        "DAUMEN_WALLET_TRACKER",
+        "TRACKER_ALERTS_ON"
       ]
     },
     {
