@@ -567,7 +567,9 @@ function readPumpPortalStatsFromTelemetry(battlefield = {}) {
     websocketErrors: 0,
     staleReconnects: 0,
     closeConnectionAgeMs: [],
-    closeSubscribedMints: []
+    closeSubscribedMints: [],
+    lastCloseCode: null,
+    lastCloseReason: null
   };
   try {
     const lines = fs.readFileSync(resolvedPath, 'utf8').split(/\r?\n/);
@@ -582,6 +584,8 @@ function readPumpPortalStatsFromTelemetry(battlefield = {}) {
           const payload = event.payload || event.data || {};
           lifecycle.closeConnectionAgeMs.push(payload.connectionAgeMs);
           lifecycle.closeSubscribedMints.push(payload.subscribedMints);
+          lifecycle.lastCloseCode = payload.code ?? lifecycle.lastCloseCode;
+          lifecycle.lastCloseReason = payload.reason || lifecycle.lastCloseReason;
         } else if (event.type === 'provider.pumpportal.websocket_error') {
           lifecycle.websocketErrors += 1;
         } else if (event.type === 'provider.pumpportal.stale_reconnect') {
@@ -704,8 +708,8 @@ function buildPumpPortalHealth(battlefield = {}) {
   const lastConnectionAgeMs = number(stats.lastConnectionAgeMs, null);
   const connected = stats.connected === true;
   const paidTradeStreamsEnabled = stats.paidTradeStreamsEnabled === true;
-  const lastCloseCode = stats.lastCloseCode ?? null;
-  const lastCloseReason = stats.lastCloseReason || 'none';
+  const lastCloseCode = stats.lastCloseCode ?? lifecycle.lastCloseCode ?? null;
+  const lastCloseReason = stats.lastCloseReason || lifecycle.lastCloseReason || 'none';
   const lastErrorMessage = stats.lastErrorMessage || null;
   const tradeEventCount = number(eventCounts['provider.pumpportal.trade'], trades);
   const newTokenEventCount = number(eventCounts['provider.pumpportal.new_token'], newTokens);
@@ -732,6 +736,10 @@ function buildPumpPortalHealth(battlefield = {}) {
       status = connected || messages > 0 ? 'healthy' : 'quiet';
       interpretation = 'PumpPortal feed health looked acceptable for this run.';
     }
+  }
+
+  if (telemetry.ok && migrationSubscriptionAcks > 0 && migrations === 0) {
+    interpretation += ' Migration subscription was acknowledged, but no migration events were delivered in this window.';
   }
 
   return {
