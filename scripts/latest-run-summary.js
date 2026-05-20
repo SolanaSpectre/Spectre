@@ -633,6 +633,13 @@ function buildPumpPortalHealth(battlefield = {}) {
   const skippedPaidStreamMints = number(stats.skippedPaidStreamMints, 0);
   const tradeSubscriptionsSkippedNoApiKey = number(stats.tradeSubscriptionsSkippedNoApiKey, 0);
   const accountSubscriptionsSkippedNoApiKey = number(stats.accountSubscriptionsSkippedNoApiKey, 0);
+  const maxSubscribedMints = number(stats.maxSubscribedMints, 0);
+  const tokenTradeSubscriptionTtlMs = number(stats.tokenTradeSubscriptionTtlMs, 0);
+  const tokenTradeUnsubscriptions = number(stats.tokenTradeUnsubscriptions, 0);
+  const tokenTradeSubscriptionPrunes = number(stats.tokenTradeSubscriptionPrunes, 0);
+  const tokenTradeTtlPrunes = number(stats.tokenTradeTtlPrunes, 0);
+  const tokenTradeMaxActivePrunes = number(stats.tokenTradeMaxActivePrunes, 0);
+  const tradeSubscriptionsSkippedMaxActive = number(stats.tradeSubscriptionsSkippedMaxActive, 0);
   const reconnectDelayMs = number(stats.reconnectDelayMs, 0);
   const reconnectDelayStableResets = number(stats.reconnectDelayStableResets, 0);
   const reconnectDelayResetAfterStableMs = number(stats.reconnectDelayResetAfterStableMs, 0);
@@ -684,6 +691,13 @@ function buildPumpPortalHealth(battlefield = {}) {
     skippedPaidStreamMints,
     tradeSubscriptionsSkippedNoApiKey,
     accountSubscriptionsSkippedNoApiKey,
+    maxSubscribedMints,
+    tokenTradeSubscriptionTtlMs,
+    tokenTradeUnsubscriptions,
+    tokenTradeSubscriptionPrunes,
+    tokenTradeTtlPrunes,
+    tokenTradeMaxActivePrunes,
+    tradeSubscriptionsSkippedMaxActive,
     reconnectDelayMs,
     reconnectDelayStableResets,
     reconnectDelayResetAfterStableMs,
@@ -851,9 +865,10 @@ function buildSummary(docs) {
   lines.push(`  - messages / new tokens / trades / migrations: ${pumpPortalHealth.messages} / ${pumpPortalHealth.newTokens} / ${pumpPortalHealth.trades} / ${pumpPortalHealth.migrations}`);
   lines.push(`  - reconnects / closes / stale reconnects: ${pumpPortalHealth.reconnectAttempts} / ${pumpPortalHealth.closeEvents} / ${pumpPortalHealth.staleReconnects}`);
   lines.push(`  - paid trade streams enabled / skipped mints / skipped accounts: ${pumpPortalHealth.paidTradeStreamsEnabled} / ${pumpPortalHealth.tradeSubscriptionsSkippedNoApiKey || pumpPortalHealth.skippedPaidStreamMints} / ${pumpPortalHealth.accountSubscriptionsSkippedNoApiKey}`);
+  lines.push(`  - token trade subscription load: active=${pumpPortalHealth.subscribedMints}, max=${pumpPortalHealth.maxSubscribedMints || 'n/a'}, ttl=${pumpPortalHealth.tokenTradeSubscriptionTtlMs ? `${pumpPortalHealth.tokenTradeSubscriptionTtlMs}ms` : 'n/a'}, pruned=${pumpPortalHealth.tokenTradeSubscriptionPrunes || 0} (ttl=${pumpPortalHealth.tokenTradeTtlPrunes || 0}, max=${pumpPortalHealth.tokenTradeMaxActivePrunes || 0}), skippedMax=${pumpPortalHealth.tradeSubscriptionsSkippedMaxActive || 0}`);
   lines.push(`  - current reconnect backoff delay: ${pumpPortalHealth.reconnectDelayMs ? `${pumpPortalHealth.reconnectDelayMs}ms` : 'n/a'}`);
   lines.push(`  - stable reconnect resets / reset window: ${pumpPortalHealth.reconnectDelayStableResets} / ${pumpPortalHealth.reconnectDelayResetAfterStableMs ? `${pumpPortalHealth.reconnectDelayResetAfterStableMs}ms` : 'n/a'}`);
-  lines.push(`  - subscribed mints / connected at stop: ${pumpPortalHealth.subscribedMints} / ${pumpPortalHealth.connected}`);
+  lines.push(`  - connected at stop: ${pumpPortalHealth.connected}`);
   lines.push(`  - last close: code=${pumpPortalHealth.lastCloseCode ?? 'n/a'} reason=${pumpPortalHealth.lastCloseReason || 'none'}`);
   lines.push(`  - last websocket error: ${pumpPortalHealth.lastErrorMessage || 'none'}`);
   lines.push(`  - event counts new_token/trade/migration: ${pumpPortalHealth.eventCounts.newTokens} / ${pumpPortalHealth.eventCounts.trades} / ${pumpPortalHealth.eventCounts.migrations}`);

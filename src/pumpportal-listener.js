@@ -13,11 +13,14 @@ class PumpPortalListener {
     this.staleConnectionMs = Number(config.pumpPortalStaleConnectionMs || 90000);
     this.healthCheckIntervalMs = Number(config.pumpPortalHealthCheckIntervalMs || 15000);
     this.maxReconnectDelayMs = Number(config.pumpPortalMaxReconnectDelayMs || 60000);
+    this.maxSubscribedMints = Number(config.pumpPortalMaxSubscribedMints || 750);
+    this.tokenTradeSubscriptionTtlMs = Number(config.pumpPortalTokenTradeSubscriptionTtlMs || 30 * 60 * 1000);
     this.reconnectTimer = null;
     this.reconnectDelayResetTimer = null;
     this.reconnectDelayResetAfterStableMs = 30000;
     this.healthCheckTimer = null;
     this.subscribedMints = new Set();
+    this.subscribedMintMeta = new Map();
     this.skippedPaidStreamMints = new Set();
     this.subscribedAccounts = new Set();
     this.currentReconnectDelayMs = this.reconnectDelayMs;
@@ -54,6 +57,13 @@ class PumpPortalListener {
       paidTradeStreamsEnabled: Boolean(config.pumpPortalApiKey),
       tradeSubscriptionsSkippedNoApiKey: 0,
       accountSubscriptionsSkippedNoApiKey: 0,
+      tradeSubscriptionsSkippedMaxActive: 0,
+      tokenTradeUnsubscriptions: 0,
+      tokenTradeSubscriptionPrunes: 0,
+      tokenTradeTtlPrunes: 0,
+      tokenTradeMaxActivePrunes: 0,
+      maxSubscribedMints: this.maxSubscribedMints,
+      tokenTradeSubscriptionTtlMs: this.tokenTradeSubscriptionTtlMs,
       reconnectDelayMs: this.currentReconnectDelayMs
     };
   }
@@ -191,20 +201,17 @@ class PumpPortalListener {
       this.stats.newTokens += 1;
       this.captureSample('newToken', payload);
 
+      if (mint) {
+        this.touchSubscribedMint(mint);
+      }
+
       if (mint && !this.subscribedMints.has(mint)) {
-        if (this.canUsePaidTradeStreams()) {
-          this.subscribedMints.add(mint);
-          this.skippedPaidStreamMints.delete(mint);
-          this.send({
-            method: 'subscribeTokenTrade',
-            keys: [mint]
-          });
-        } else if (!this.skippedPaidStreamMints.has(mint)) {
+        if (this.canUsePaidTradeStreams() && this.reserveMintSubscriptionSlot(mint)) {
+          this.subscribeTokenTrade(mint);
+        } else if (!this.canUsePaidTradeStreams() && !this.skippedPaidStreamMints.has(mint)) {
           this.skippedPaidStreamMints.add(mint);
           this.subscribedMints.add(mint);
           this.stats.tradeSubscriptionsSkippedNoApiKey = this.skippedPaidStreamMints.size;
-        } else {
-          this.subscribedMints.add(mint);
         }
       }
 
@@ -235,6 +242,7 @@ class PumpPortalListener {
     }
 
     if (mint) {
+      this.touchSubscribedMint(mint);
       this.stats.trades += 1;
       this.captureSample('trade', payload);
       if (this.handlers.onTrade) {
@@ -257,6 +265,88 @@ class PumpPortalListener {
 
   canUsePaidTradeStreams() {
     return Boolean(this.config.pumpPortalApiKey);
+  }
+
+  activeMintLimit() {
+    return Number.isFinite(this.maxSubscribedMints) && this.maxSubscribedMints > 0
+      ? this.maxSubscribedMints
+      : Infinity;
+  }
+
+  reserveMintSubscriptionSlot(mint) {
+    this.pruneMintSubscriptions();
+    const limit = this.activeMintLimit();
+    if (this.subscribedMints.size >= limit) {
+      this.pruneOldestMintSubscriptions(this.subscribedMints.size - limit + 1);
+    }
+    if (this.subscribedMints.size >= limit) {
+      this.stats.tradeSubscriptionsSkippedMaxActive += 1;
+      return false;
+    }
+    const now = Date.now();
+    this.subscribedMints.add(mint);
+    this.skippedPaidStreamMints.delete(mint);
+    this.subscribedMintMeta.set(mint, {
+      subscribedAt: now,
+      lastSeenAt: now
+    });
+    return true;
+  }
+
+  touchSubscribedMint(mint) {
+    const meta = this.subscribedMintMeta.get(mint);
+    if (!meta) return;
+    meta.lastSeenAt = Date.now();
+  }
+
+  pruneMintSubscriptions() {
+    if (!this.canUsePaidTradeStreams()) return;
+    if (!Number.isFinite(this.tokenTradeSubscriptionTtlMs) || this.tokenTradeSubscriptionTtlMs <= 0) return;
+    const now = Date.now();
+    for (const [mint, meta] of this.subscribedMintMeta.entries()) {
+      const subscribedAt = Number(meta.subscribedAt || 0);
+      if (subscribedAt > 0 && now - subscribedAt >= this.tokenTradeSubscriptionTtlMs) {
+        this.unsubscribeTokenTrade(mint, 'ttl');
+      }
+    }
+  }
+
+  pruneOldestMintSubscriptions(count) {
+    if (!Number.isFinite(count) || count <= 0) return;
+    const oldest = Array.from(this.subscribedMintMeta.entries())
+      .sort((a, b) => Number(a[1]?.subscribedAt || 0) - Number(b[1]?.subscribedAt || 0))
+      .slice(0, count);
+    for (const [mint] of oldest) {
+      this.unsubscribeTokenTrade(mint, 'max_active');
+    }
+  }
+
+  subscribeTokenTrade(mint) {
+    this.send({
+      method: 'subscribeTokenTrade',
+      keys: [mint]
+    });
+  }
+
+  unsubscribeTokenTrade(mint, reason = 'unknown') {
+    if (!this.subscribedMints.has(mint)) return;
+    this.subscribedMints.delete(mint);
+    this.subscribedMintMeta.delete(mint);
+    this.skippedPaidStreamMints.delete(mint);
+    this.stats.tokenTradeUnsubscriptions += 1;
+    this.stats.tokenTradeSubscriptionPrunes += 1;
+    if (reason === 'ttl') {
+      this.stats.tokenTradeTtlPrunes += 1;
+    }
+    if (reason === 'max_active') {
+      this.stats.tokenTradeMaxActivePrunes += 1;
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.send({
+        method: 'unsubscribeTokenTrade',
+        keys: [mint]
+      });
+    }
   }
 
   resetReconnectDelay() {
@@ -330,16 +420,14 @@ class PumpPortalListener {
       return;
     }
 
+    this.pruneMintSubscriptions();
     const mints = Array.from(this.subscribedMints);
     if (mints.length === 0) {
       return;
     }
 
     for (const mint of mints) {
-      this.send({
-        method: 'subscribeTokenTrade',
-        keys: [mint]
-      });
+      this.subscribeTokenTrade(mint);
     }
 
     this.logger.info(`Re-subscribed PumpPortal trade streams for ${mints.length} tracked mint(s)`);
@@ -384,6 +472,7 @@ class PumpPortalListener {
 
     const ageMs = Date.now() - baselineAt;
     if (ageMs < this.staleConnectionMs) {
+      this.pruneMintSubscriptions();
       return;
     }
 
@@ -450,7 +539,9 @@ class PumpPortalListener {
       ...this.stats,
       subscribedMints: this.subscribedMints.size,
       subscribedAccounts: this.subscribedAccounts.size,
-      skippedPaidStreamMints: this.skippedPaidStreamMints.size
+      skippedPaidStreamMints: this.skippedPaidStreamMints.size,
+      maxSubscribedMints: this.maxSubscribedMints,
+      tokenTradeSubscriptionTtlMs: this.tokenTradeSubscriptionTtlMs
     };
   }
 }

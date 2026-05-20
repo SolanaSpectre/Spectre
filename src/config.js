@@ -805,6 +805,14 @@ class Config {
     return parseInt(process.env.PUMPPORTAL_HEALTH_CHECK_INTERVAL_MS || '15000', 10);
   }
 
+  static get pumpPortalMaxSubscribedMints() {
+    return parseInt(process.env.PUMPPORTAL_MAX_SUBSCRIBED_MINTS || '750', 10);
+  }
+
+  static get pumpPortalTokenTradeSubscriptionTtlMs() {
+    return parseInt(process.env.PUMPPORTAL_TOKEN_TRADE_SUBSCRIPTION_TTL_MS || '1800000', 10);
+  }
+
   static get gmgnApiBaseUrl() {
     return process.env.GMGN_API_BASE_URL || 'https://gmgn.ai';
   }
