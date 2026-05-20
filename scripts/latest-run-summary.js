@@ -125,6 +125,28 @@ function number(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function numericStats(values = []) {
+  const sorted = values
+    .map((value) => Number(value))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  if (!sorted.length) {
+    return { count: 0, min: null, median: null, p90: null, max: null };
+  }
+  const pick = (p) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1))];
+  const mid = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2
+    ? sorted[mid]
+    : (sorted[mid - 1] + sorted[mid]) / 2;
+  return {
+    count: sorted.length,
+    min: sorted[0],
+    median,
+    p90: pick(0.9),
+    max: sorted[sorted.length - 1]
+  };
+}
+
 function fmt(value, digits = 2) {
   if (value === null || value === undefined || value === '') return 'n/a';
   const n = Number(value);
@@ -539,12 +561,32 @@ function readPumpPortalStatsFromTelemetry(battlefield = {}) {
   }
 
   let stats = null;
+  const lifecycle = {
+    connected: 0,
+    closed: 0,
+    websocketErrors: 0,
+    staleReconnects: 0,
+    closeConnectionAgeMs: [],
+    closeSubscribedMints: []
+  };
   try {
     const lines = fs.readFileSync(resolvedPath, 'utf8').split(/\r?\n/);
     for (const line of lines) {
       if (!line.trim()) continue;
       try {
         const event = JSON.parse(line);
+        if (event.type === 'provider.pumpportal.connected') {
+          lifecycle.connected += 1;
+        } else if (event.type === 'provider.pumpportal.closed') {
+          lifecycle.closed += 1;
+          const payload = event.payload || event.data || {};
+          lifecycle.closeConnectionAgeMs.push(payload.connectionAgeMs);
+          lifecycle.closeSubscribedMints.push(payload.subscribedMints);
+        } else if (event.type === 'provider.pumpportal.websocket_error') {
+          lifecycle.websocketErrors += 1;
+        } else if (event.type === 'provider.pumpportal.stale_reconnect') {
+          lifecycle.staleReconnects += 1;
+        }
         const pumpPortal = get(event, [
           'payload.stats.pumpPortal',
           'data.stats.pumpPortal',
@@ -569,7 +611,8 @@ function readPumpPortalStatsFromTelemetry(battlefield = {}) {
     ok: Boolean(stats),
     telemetryPath,
     error: stats ? null : 'pumpPortal stats not found',
-    stats
+    stats,
+    lifecycle
   };
 }
 
@@ -622,6 +665,9 @@ function buildPumpPortalHealth(battlefield = {}) {
   const eventCounts = battlefield.eventCounts || {};
   const telemetry = readPumpPortalStatsFromTelemetry(battlefield);
   const stats = telemetry.stats || {};
+  const lifecycle = telemetry.lifecycle || {};
+  const closeAgeStats = numericStats(lifecycle.closeConnectionAgeMs || []);
+  const closeSubscribedMintStats = numericStats(lifecycle.closeSubscribedMints || []);
   const messages = number(stats.messages, 0);
   const newTokens = number(stats.newTokens, number(eventCounts['provider.pumpportal.new_token'], 0));
   const trades = number(stats.trades, number(eventCounts['provider.pumpportal.trade'], 0));
@@ -709,6 +755,14 @@ function buildPumpPortalHealth(battlefield = {}) {
     pingsSent,
     pongsReceived,
     lastConnectionAgeMs,
+    lifecycle: {
+      connected: number(lifecycle.connected, 0),
+      closed: number(lifecycle.closed, 0),
+      websocketErrors: number(lifecycle.websocketErrors, 0),
+      staleReconnects: number(lifecycle.staleReconnects, 0),
+      closeAgeStats,
+      closeSubscribedMintStats
+    },
     connected,
     paidTradeStreamsEnabled,
     lastCloseCode,
@@ -875,6 +929,11 @@ function buildSummary(docs) {
   lines.push(`  - paid trade streams enabled / skipped mints / skipped accounts: ${pumpPortalHealth.paidTradeStreamsEnabled} / ${pumpPortalHealth.tradeSubscriptionsSkippedNoApiKey || pumpPortalHealth.skippedPaidStreamMints} / ${pumpPortalHealth.accountSubscriptionsSkippedNoApiKey}`);
   lines.push(`  - token trade subscription load: active=${pumpPortalHealth.subscribedMints}, max=${pumpPortalHealth.maxSubscribedMints || 'n/a'}, ttl=${pumpPortalHealth.tokenTradeSubscriptionTtlMs ? `${pumpPortalHealth.tokenTradeSubscriptionTtlMs}ms` : 'n/a'}, pruned=${pumpPortalHealth.tokenTradeSubscriptionPrunes || 0} (ttl=${pumpPortalHealth.tokenTradeTtlPrunes || 0}, max=${pumpPortalHealth.tokenTradeMaxActivePrunes || 0}), skippedMax=${pumpPortalHealth.tradeSubscriptionsSkippedMaxActive || 0}`);
   lines.push(`  - websocket heartbeat: pingInterval=${pumpPortalHealth.pingIntervalMs ? `${pumpPortalHealth.pingIntervalMs}ms` : 'off'}, pings/pongs=${pumpPortalHealth.pingsSent || 0} / ${pumpPortalHealth.pongsReceived || 0}, lastConnectionAge=${pumpPortalHealth.lastConnectionAgeMs === null ? 'n/a' : `${pumpPortalHealth.lastConnectionAgeMs}ms`}`);
+  if ((pumpPortalHealth.lifecycle?.closed || 0) > 0) {
+    const age = pumpPortalHealth.lifecycle.closeAgeStats || {};
+    const subs = pumpPortalHealth.lifecycle.closeSubscribedMintStats || {};
+    lines.push(`  - structured close lifecycle: connected/closed/errors=${pumpPortalHealth.lifecycle.connected} / ${pumpPortalHealth.lifecycle.closed} / ${pumpPortalHealth.lifecycle.websocketErrors}, closeAge median/p90/max=${age.median === null ? 'n/a' : `${fmt(age.median, 0)}ms`} / ${age.p90 === null ? 'n/a' : `${fmt(age.p90, 0)}ms`} / ${age.max === null ? 'n/a' : `${fmt(age.max, 0)}ms`}, close subscribedMints median/max=${subs.median === null ? 'n/a' : fmt(subs.median, 0)} / ${subs.max === null ? 'n/a' : fmt(subs.max, 0)}`);
+  }
   lines.push(`  - current reconnect backoff delay: ${pumpPortalHealth.reconnectDelayMs ? `${pumpPortalHealth.reconnectDelayMs}ms` : 'n/a'}`);
   lines.push(`  - stable reconnect resets / reset window: ${pumpPortalHealth.reconnectDelayStableResets} / ${pumpPortalHealth.reconnectDelayResetAfterStableMs ? `${pumpPortalHealth.reconnectDelayResetAfterStableMs}ms` : 'n/a'}`);
   lines.push(`  - connected at stop: ${pumpPortalHealth.connected}`);

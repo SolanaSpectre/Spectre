@@ -149,6 +149,11 @@ class PumpPortalListener {
       this.subscribeTrackedMints();
       this.startHealthCheck();
       this.startHeartbeat(socket);
+      this.emitLifecycle('provider.pumpportal.connected', {
+        subscribedMints: this.subscribedMints.size,
+        subscribedAccounts: this.subscribedAccounts.size,
+        pingIntervalMs: this.pingIntervalMs
+      });
     });
 
     socket.on('message', async (raw) => {
@@ -188,6 +193,18 @@ class PumpPortalListener {
         connectionAgeMs: this.stats.lastConnectionAgeMs,
         reconnectDelayMs: this.currentReconnectDelayMs
       });
+      this.emitLifecycle('provider.pumpportal.closed', {
+        code: this.stats.lastCloseCode,
+        reason: this.stats.lastCloseReason || 'none',
+        connectionAgeMs: this.stats.lastConnectionAgeMs,
+        reconnectDelayMs: this.currentReconnectDelayMs,
+        subscribedMints: this.subscribedMints.size,
+        subscribedAccounts: this.subscribedAccounts.size,
+        pingsSent: this.stats.pingsSent,
+        pongsReceived: this.stats.pongsReceived,
+        lastPingAt: this.stats.lastPingAt ? new Date(this.stats.lastPingAt).toISOString() : null,
+        lastPongAt: this.stats.lastPongAt ? new Date(this.stats.lastPongAt).toISOString() : null
+      });
       if (this.ws === socket) {
         this.ws = null;
       }
@@ -205,6 +222,11 @@ class PumpPortalListener {
       this.stats.lastErrorAt = Date.now();
       this.stats.lastErrorMessage = error.message;
       this.logger.warn('PumpPortal websocket error', error.message);
+      this.emitLifecycle('provider.pumpportal.websocket_error', {
+        errorMessage: error.message,
+        subscribedMints: this.subscribedMints.size,
+        subscribedAccounts: this.subscribedAccounts.size
+      });
     });
 
     socket.on('pong', () => {
@@ -538,6 +560,12 @@ class PumpPortalListener {
       staleConnectionMs: this.staleConnectionMs,
       subscribedMints: this.subscribedMints.size
     });
+    this.emitLifecycle('provider.pumpportal.stale_reconnect', {
+      ageMs,
+      staleConnectionMs: this.staleConnectionMs,
+      subscribedMints: this.subscribedMints.size,
+      subscribedAccounts: this.subscribedAccounts.size
+    });
 
     const socket = this.ws;
     this.ws = null;
@@ -568,6 +596,17 @@ class PumpPortalListener {
     }
 
     this.ws.send(JSON.stringify(message));
+  }
+
+  emitLifecycle(type, payload = {}) {
+    if (typeof this.handlers.onLifecycle !== 'function') {
+      return;
+    }
+    try {
+      this.handlers.onLifecycle(type, payload);
+    } catch {
+      // Provider lifecycle telemetry is best-effort.
+    }
   }
 
   captureSample(kind, payload) {

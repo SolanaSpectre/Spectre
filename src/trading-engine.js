@@ -41,7 +41,14 @@ class TradingEngine {
     this.pumpPortalListener = new PumpPortalListener(config, logger, {
       onNewToken: async (event) => this.handlePumpPortalNewToken(event),
       onTrade: async (event) => this.handlePumpPortalTrade(event),
-      onMigration: async (event) => this.handlePumpPortalMigration(event)
+      onMigration: async (event) => this.handlePumpPortalMigration(event),
+      onLifecycle: (type, payload) => {
+        try {
+          this.telemetry.record(type, payload);
+        } catch {
+          // Provider lifecycle telemetry is report-only and must not affect intake.
+        }
+      }
     });
 
     this.safetyGate = new SafetyGate(config);
