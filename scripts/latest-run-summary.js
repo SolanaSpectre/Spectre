@@ -687,6 +687,7 @@ function buildPumpPortalHealth(battlefield = {}) {
   const tokenTradeMaxActivePrunes = number(stats.tokenTradeMaxActivePrunes, 0);
   const tradeSubscriptionsSkippedMaxActive = number(stats.tradeSubscriptionsSkippedMaxActive, 0);
   const reconnectDelayMs = number(stats.reconnectDelayMs, 0);
+  const maxReconnectDelayMs = number(stats.maxReconnectDelayMs, 0);
   const reconnectDelayStableResets = number(stats.reconnectDelayStableResets, 0);
   const reconnectDelayResetAfterStableMs = number(stats.reconnectDelayResetAfterStableMs, 0);
   const pingIntervalMs = number(stats.pingIntervalMs, 0);
@@ -749,6 +750,7 @@ function buildPumpPortalHealth(battlefield = {}) {
     tokenTradeMaxActivePrunes,
     tradeSubscriptionsSkippedMaxActive,
     reconnectDelayMs,
+    maxReconnectDelayMs,
     reconnectDelayStableResets,
     reconnectDelayResetAfterStableMs,
     pingIntervalMs,
@@ -934,7 +936,7 @@ function buildSummary(docs) {
     const subs = pumpPortalHealth.lifecycle.closeSubscribedMintStats || {};
     lines.push(`  - structured close lifecycle: connected/closed/errors=${pumpPortalHealth.lifecycle.connected} / ${pumpPortalHealth.lifecycle.closed} / ${pumpPortalHealth.lifecycle.websocketErrors}, closeAge median/p90/max=${age.median === null ? 'n/a' : `${fmt(age.median, 0)}ms`} / ${age.p90 === null ? 'n/a' : `${fmt(age.p90, 0)}ms`} / ${age.max === null ? 'n/a' : `${fmt(age.max, 0)}ms`}, close subscribedMints median/max=${subs.median === null ? 'n/a' : fmt(subs.median, 0)} / ${subs.max === null ? 'n/a' : fmt(subs.max, 0)}`);
   }
-  lines.push(`  - current reconnect backoff delay: ${pumpPortalHealth.reconnectDelayMs ? `${pumpPortalHealth.reconnectDelayMs}ms` : 'n/a'}`);
+  lines.push(`  - current/max reconnect backoff delay: ${pumpPortalHealth.reconnectDelayMs ? `${pumpPortalHealth.reconnectDelayMs}ms` : 'n/a'} / ${pumpPortalHealth.maxReconnectDelayMs ? `${pumpPortalHealth.maxReconnectDelayMs}ms` : 'n/a'}`);
   lines.push(`  - stable reconnect resets / reset window: ${pumpPortalHealth.reconnectDelayStableResets} / ${pumpPortalHealth.reconnectDelayResetAfterStableMs ? `${pumpPortalHealth.reconnectDelayResetAfterStableMs}ms` : 'n/a'}`);
   lines.push(`  - connected at stop: ${pumpPortalHealth.connected}`);
   lines.push(`  - last close: code=${pumpPortalHealth.lastCloseCode ?? 'n/a'} reason=${pumpPortalHealth.lastCloseReason || 'none'}`);

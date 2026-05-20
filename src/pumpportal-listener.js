@@ -57,6 +57,7 @@ class PumpPortalListener {
       staleReconnects: 0,
       reconnectDelayStableResets: 0,
       reconnectDelayResetAfterStableMs: this.reconnectDelayResetAfterStableMs,
+      maxReconnectDelayMs: this.maxReconnectDelayMs,
       pingIntervalMs: this.pingIntervalMs,
       pingsSent: 0,
       pongsReceived: 0,
@@ -640,6 +641,7 @@ class PumpPortalListener {
       subscribedAccounts: this.subscribedAccounts.size,
       skippedPaidStreamMints: this.skippedPaidStreamMints.size,
       maxSubscribedMints: this.maxSubscribedMints,
+      maxReconnectDelayMs: this.maxReconnectDelayMs,
       tokenTradeSubscriptionTtlMs: this.tokenTradeSubscriptionTtlMs
     };
   }
