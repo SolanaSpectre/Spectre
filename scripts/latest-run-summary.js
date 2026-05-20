@@ -48,6 +48,7 @@ const FILES = {
   walletPromotionReview: 'data/reports/wallet-promotion-review-latest.json',
   walletReviewOutcomeLift: 'data/reports/wallet-review-outcome-lift-latest.json',
   walletPerWalletLift: 'data/reports/wallet-per-wallet-lift-latest.json',
+  walletDaumenCohort: 'data/reports/wallet-daumen-cohort-latest.json',
   walletHistoricalRetrospective: 'data/reports/wallet-historical-run-retrospective-latest.json',
   walletCoalition: 'data/reports/wallet-coalition-latest.json',
   walletTimeblockedStability: 'data/reports/wallet-timeblocked-stability-latest.json',
@@ -318,6 +319,10 @@ function summarizeWalletPnlEvidence(item = {}) {
 
 function summarizeWalletLift(item = {}) {
   return `${item.name || 'UNKNOWN'} | mints=${item.uniqueMintCount ?? 'n/a'} | positive=${pct(item.positiveRate)} | interesting=${pct(item.interestingRate)} | buys=${pct(item.firstBuyRate)}${item.tinyDenominatorWarning ? ' | tiny denominator' : ''}`;
+}
+
+function summarizeDaumenWallet(item = {}) {
+  return `${item.name || 'UNKNOWN'} | ${item.daumenCohortClass || 'n/a'} | tier=${item.reviewTier || 'n/a'} | mints=${item.uniqueMintCount ?? 'n/a'} | priority=${item.priorityClusterCount ?? 'n/a'} | positive=${pct(item.positiveRate)} | pnl=${sol(item.realizedPnlSol ?? 0, 4)}${item.tinyDenominatorWarning ? ' | tiny denominator' : ''}`;
 }
 
 function summarizeWalletTimeblocked(item = {}) {
@@ -760,6 +765,7 @@ function buildSummary(docs) {
   const walletPromotionReview = docs.walletPromotionReview.data || {};
   const walletReviewOutcomeLift = docs.walletReviewOutcomeLift.data || {};
   const walletPerWalletLift = docs.walletPerWalletLift.data || {};
+  const walletDaumenCohort = docs.walletDaumenCohort.data || {};
   const walletHistoricalRetrospective = docs.walletHistoricalRetrospective.data || {};
   const walletCoalition = docs.walletCoalition.data || {};
   const walletTimeblockedStability = docs.walletTimeblockedStability.data || {};
@@ -1003,8 +1009,11 @@ function buildSummary(docs) {
   const walletPnlSummary = walletPnlEvidence.summary || {};
   const walletPromotionSummary = walletPromotionReview.summary || {};
   const walletLiftSummary = walletPerWalletLift.summary || {};
+  const daumenSummary = walletDaumenCohort.summary || {};
   const stableTrustCandidates = topArray(walletPerWalletLift.stableTrustCandidates, 6);
   const stableAvoidCandidates = topArray(walletPerWalletLift.stableAvoidCandidates, 6);
+  const topDaumenWallets = topArray(walletDaumenCohort.topDaumenWallets, 8);
+  const daumenUseful = topArray(walletDaumenCohort.usefulFirstTouchCandidates, 5);
   const topWalletPnl = topArray(walletPnlEvidence.topPositiveWallets, 5);
 
   lines.push('4b. Wallet PnL / Promotion Evidence');
@@ -1028,6 +1037,20 @@ function buildSummary(docs) {
     stableAvoidCandidates.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeWalletLift(item)}`));
   } else {
     lines.push('  - none yet');
+  }
+  lines.push('- Daumen tracker cohort:');
+  lines.push(`  - Wallets / first-touch evidence / no local evidence: ${daumenSummary.daumenWallets ?? 'n/a'} / ${daumenSummary.walletsWithFirstTouchEvidence ?? 'n/a'} / ${daumenSummary.walletsWithoutFirstTouchEvidence ?? 'n/a'}`);
+  lines.push(`  - Trust-review / useful-first-touch / watch-review / avoid-review: ${daumenSummary.trustReviewWallets ?? 'n/a'} / ${daumenSummary.usefulFirstTouchCandidates ?? 'n/a'} / ${daumenSummary.watchReviewWallets ?? 'n/a'} / ${daumenSummary.avoidReviewWallets ?? 'n/a'}`);
+  lines.push(`  - Touched mints positive / interesting: ${daumenSummary.positiveTouchedMints ?? 'n/a'} of ${daumenSummary.daumenTouchedMints ?? 'n/a'} (${pct(daumenSummary.positiveTouchedMintRate)}) / ${daumenSummary.interestingTouchedMints ?? 'n/a'} of ${daumenSummary.daumenTouchedMints ?? 'n/a'} (${pct(daumenSummary.interestingTouchedMintRate)})`);
+  lines.push('  - Cohort classes:');
+  objectLines(daumenSummary.byCohortClass, 8).forEach((line) => lines.push(`    - ${line}`));
+  if (topDaumenWallets.length) {
+    lines.push('  - Top Daumen evidence rows:');
+    topDaumenWallets.forEach((item, index) => lines.push(`    ${index + 1}. ${summarizeDaumenWallet(item)}`));
+  }
+  if (daumenUseful.length) {
+    lines.push('  - Useful first-touch candidates needing more review:');
+    daumenUseful.forEach((item, index) => lines.push(`    ${index + 1}. ${summarizeDaumenWallet(item)}`));
   }
   lines.push('');
 

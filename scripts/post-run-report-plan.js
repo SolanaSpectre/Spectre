@@ -18,6 +18,7 @@ const POST_RUN_REPORTS = [
   { title: 'Wallet Promotion Review Report', script: 'wallet-promotion-review-report.js' },
   { title: 'Wallet Review Outcome Lift', script: 'wallet-review-outcome-lift-report.js' },
   { title: 'Wallet Per-Wallet Lift', script: 'wallet-per-wallet-lift-report.js' },
+  { title: 'Wallet Daumen Cohort Report', script: 'wallet-daumen-cohort-report.js' },
   { title: 'Wallet Historical Run Retrospective', script: 'wallet-historical-run-retrospective-report.js' },
   { title: 'Wallet Coalition Report', script: 'wallet-coalition-report.js' },
   { title: 'Wallet Timeblocked Stability', script: 'wallet-timeblocked-stability-report.js' },
