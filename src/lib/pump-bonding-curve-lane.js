@@ -35,6 +35,7 @@ class PumpBondingCurveLane {
     this.programId = new PublicKey(config.pumpBondingCurveProgramId || DEFAULT_PUMP_FUN_PROGRAM_ID);
     this.states = new Map();
     this.inFlight = new Set();
+    this.completeMints = new Set();
     this.recentFailureTimestamps = [];
     this.globalBackoffUntil = 0;
     this.stats = {
@@ -54,6 +55,9 @@ class PumpBondingCurveLane {
       lastGlobalBackoffErrorsInWindow: 0,
       lastGlobalBackoffWindowMs: null,
       errors: 0,
+      completeMintsObserved: 0,
+      lastCompleteMint: null,
+      lastCompleteAt: null,
       lastUpdateAt: null
     };
   }
@@ -157,6 +161,12 @@ class PumpBondingCurveLane {
       this.stats.decoded += 1;
       this.stats.updates += 1;
       this.stats.lastUpdateAt = next.lastFetchAtIso;
+      if (next.complete && !this.completeMints.has(mint)) {
+        this.completeMints.add(mint);
+        this.stats.completeMintsObserved = this.completeMints.size;
+        this.stats.lastCompleteMint = mint;
+        this.stats.lastCompleteAt = next.lastFetchAtIso;
+      }
       this.compactIfNeeded();
       this.stats.trackedMints = this.states.size;
       return {
