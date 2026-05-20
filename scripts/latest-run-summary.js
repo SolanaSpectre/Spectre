@@ -713,6 +713,7 @@ function buildPumpPortalHealth(battlefield = {}) {
   const lastErrorMessage = stats.lastErrorMessage || null;
   const tradeEventCount = number(eventCounts['provider.pumpportal.trade'], trades);
   const newTokenEventCount = number(eventCounts['provider.pumpportal.new_token'], newTokens);
+  const syntheticMigrationEventCount = number(eventCounts['pump_bonding_curve.synthetic_migration'], 0);
 
   let status = 'unknown';
   let interpretation = telemetry.ok
@@ -797,7 +798,8 @@ function buildPumpPortalHealth(battlefield = {}) {
     eventCounts: {
       newTokens: newTokenEventCount,
       trades: tradeEventCount,
-      migrations: number(eventCounts['provider.pumpportal.migration'], migrations)
+      migrations: number(eventCounts['provider.pumpportal.migration'], migrations),
+      syntheticMigrations: syntheticMigrationEventCount
     }
   };
 }
@@ -972,7 +974,7 @@ function buildSummary(docs) {
   lines.push(`  - connected at stop: ${pumpPortalHealth.connected}`);
   lines.push(`  - last close: code=${pumpPortalHealth.lastCloseCode ?? 'n/a'} reason=${pumpPortalHealth.lastCloseReason || 'none'}`);
   lines.push(`  - last websocket error: ${pumpPortalHealth.lastErrorMessage || 'none'}`);
-  lines.push(`  - event counts new_token/trade/migration: ${pumpPortalHealth.eventCounts.newTokens} / ${pumpPortalHealth.eventCounts.trades} / ${pumpPortalHealth.eventCounts.migrations}`);
+  lines.push(`  - event counts new_token/trade/migration/synthetic_migration: ${pumpPortalHealth.eventCounts.newTokens} / ${pumpPortalHealth.eventCounts.trades} / ${pumpPortalHealth.eventCounts.migrations} / ${pumpPortalHealth.eventCounts.syntheticMigrations}`);
   lines.push(`  - interpretation: ${pumpPortalHealth.interpretation}`);
   lines.push('- Bonding curve pressure:');
   lines.push(`  - fetches / updates / errors: ${bondingCurvePressure.fetches} / ${bondingCurvePressure.updates} / ${bondingCurvePressure.errors}`);

@@ -88,6 +88,7 @@ class TradingEngine {
     this.tokenSignalCooldowns = new Map();
     this.preMigrationPaperRechecks = new Map();
     this.preMigrationPaperExpiredRechecks = new Set();
+    this.syntheticBondingCurveMigrations = new Set();
     this.lastTelegramSightingSyncAt = null;
 
     this.dailyPnL = 0;
@@ -3222,6 +3223,8 @@ class TradingEngine {
         virtualTokenReservesTokens: summary.virtualTokenReservesTokens,
         bondingCurvePriceSol: summary.priceSol
       });
+
+      await this.handleBondingCurveCompletionMigration(mint, current, summary);
     }
 
     if (options.observeAfterSync && summary.refreshed) {
@@ -3412,12 +3415,51 @@ class TradingEngine {
   }
 
   async handlePumpPortalMigration(event) {
+    return this.handleMigrationEvent(event, {
+      telemetryType: 'provider.pumpportal.migration',
+      source: 'pumpportal_migration'
+    });
+  }
+
+  async handleBondingCurveCompletionMigration(mint, token = {}, summary = {}) {
+    if (!this.executionModeManager?.isPaper?.()) {
+      return null;
+    }
+
+    if (!mint || !summary?.complete || this.syntheticBondingCurveMigrations.has(mint)) {
+      return null;
+    }
+
+    this.syntheticBondingCurveMigrations.add(mint);
+    return this.handleMigrationEvent({
+      mint,
+      token: mint,
+      symbol: token.symbol || summary.symbol || null,
+      name: token.name || summary.name || null,
+      source: 'pump_bonding_curve_complete',
+      synthetic: true,
+      complete: true,
+      curveProgress: summary.curveProgress ?? 1,
+      bondingCurveAddress: summary.bondingCurveAddress || null,
+      bondingStage: summary.bondingStage || 'recently_bonded',
+      observedAt: summary.lastFetchAt || new Date().toISOString()
+    }, {
+      telemetryType: 'pump_bonding_curve.synthetic_migration',
+      source: 'pump_bonding_curve_complete',
+      synthetic: true
+    });
+  }
+
+  async handleMigrationEvent(event, options = {}) {
     this.executeDuePreMigrationPaperRechecks();
     const mint = event.mint || event.token || event.mintAddress;
     if (!mint) {
       return;
     }
 
+    const source = options.source || event.source || 'pumpportal_migration';
+    const telemetryType = options.telemetryType || 'provider.pumpportal.migration';
+    const synthetic = Boolean(options.synthetic || event.synthetic);
     const current = this.latestPumpPortalTokens.get(mint) || {
       mint,
       createdAt: Date.now()
@@ -3425,7 +3467,11 @@ class TradingEngine {
 
     current.migratedAt = Date.now();
     current.bondingStage = 'recently_bonded';
-    current.rawMigration = event;
+    if (synthetic) {
+      current.rawSyntheticMigration = event;
+    } else {
+      current.rawMigration = event;
+    }
     const launchIntelSummary = this.launchIntelStore.registerMigration(event);
     if (launchIntelSummary) {
       current.launchIntelSummary = launchIntelSummary;
@@ -3437,9 +3483,16 @@ class TradingEngine {
       this.launchIntelStore.registerPreMigrationState(preMigrationSummary);
     }
     this.outcomeLedger.recordMigration(mint, preMigrationSummary || current, event, {
-      sessionId: this.sessionId
+      sessionId: this.sessionId,
+      source
     });
-    this.telemetry.record('provider.pumpportal.migration', { mint });
+    this.telemetry.record(telemetryType, {
+      mint,
+      source,
+      synthetic,
+      curveProgress: event.curveProgress ?? null,
+      bondingCurveAddress: event.bondingCurveAddress || null
+    });
   }
 
   syncTelegramSightings({ bootstrap = false } = {}) {

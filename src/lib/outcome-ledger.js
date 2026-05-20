@@ -284,7 +284,7 @@ class OutcomeLedger {
 
     return this.record({
       kind: 'candidate.migrated',
-      source: 'pumpportal_migration',
+      source: meta.source || event.source || 'pumpportal_migration',
       stage: 'migration',
       sessionId: meta.sessionId || null,
       mint,
