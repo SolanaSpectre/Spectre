@@ -805,6 +805,10 @@ class Config {
     return parseInt(process.env.PUMPPORTAL_HEALTH_CHECK_INTERVAL_MS || '15000', 10);
   }
 
+  static get pumpPortalPingIntervalMs() {
+    return parseInt(process.env.PUMPPORTAL_PING_INTERVAL_MS || '25000', 10);
+  }
+
   static get pumpPortalMaxSubscribedMints() {
     return parseInt(process.env.PUMPPORTAL_MAX_SUBSCRIBED_MINTS || '750', 10);
   }

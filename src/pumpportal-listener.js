@@ -12,6 +12,7 @@ class PumpPortalListener {
     this.reconnectDelayMs = Number(config.pumpPortalReconnectDelayMs || 5000);
     this.staleConnectionMs = Number(config.pumpPortalStaleConnectionMs || 90000);
     this.healthCheckIntervalMs = Number(config.pumpPortalHealthCheckIntervalMs || 15000);
+    this.pingIntervalMs = Number(config.pumpPortalPingIntervalMs || 25000);
     this.maxReconnectDelayMs = Number(config.pumpPortalMaxReconnectDelayMs || 60000);
     this.maxSubscribedMints = Number(config.pumpPortalMaxSubscribedMints || 750);
     this.tokenTradeSubscriptionTtlMs = Number(config.pumpPortalTokenTradeSubscriptionTtlMs || 30 * 60 * 1000);
@@ -19,6 +20,7 @@ class PumpPortalListener {
     this.reconnectDelayResetTimer = null;
     this.reconnectDelayResetAfterStableMs = 30000;
     this.healthCheckTimer = null;
+    this.pingTimer = null;
     this.subscribedMints = new Set();
     this.subscribedMintMeta = new Map();
     this.skippedPaidStreamMints = new Set();
@@ -49,11 +51,17 @@ class PumpPortalListener {
       closeEvents: 0,
       lastCloseCode: null,
       lastCloseReason: null,
+      lastConnectionAgeMs: null,
       lastErrorAt: null,
       lastErrorMessage: null,
       staleReconnects: 0,
       reconnectDelayStableResets: 0,
       reconnectDelayResetAfterStableMs: this.reconnectDelayResetAfterStableMs,
+      pingIntervalMs: this.pingIntervalMs,
+      pingsSent: 0,
+      pongsReceived: 0,
+      lastPingAt: null,
+      lastPongAt: null,
       paidTradeStreamsEnabled: Boolean(config.pumpPortalApiKey),
       tradeSubscriptionsSkippedNoApiKey: 0,
       accountSubscriptionsSkippedNoApiKey: 0,
@@ -97,6 +105,8 @@ class PumpPortalListener {
       this.healthCheckTimer = null;
     }
 
+    this.stopHeartbeat();
+
     if (this.ws) {
       const socket = this.ws;
       this.ws = null;
@@ -138,6 +148,7 @@ class PumpPortalListener {
       this.subscribeTrackedAccounts();
       this.subscribeTrackedMints();
       this.startHealthCheck();
+      this.startHeartbeat(socket);
     });
 
     socket.on('message', async (raw) => {
@@ -163,13 +174,18 @@ class PumpPortalListener {
       this.stats.connected = false;
       this.stats.lastDisconnectedAt = Date.now();
       this.stats.closeEvents += 1;
+      this.stats.lastConnectionAgeMs = this.stats.lastConnectedAt
+        ? this.stats.lastDisconnectedAt - this.stats.lastConnectedAt
+        : null;
       this.stats.lastCloseCode = Number(code || 0) || 0;
       this.stats.lastCloseReason = reasonBuffer ? reasonBuffer.toString() : '';
       this.stopHealthCheck();
+      this.stopHeartbeat();
       this.clearReconnectDelayResetTimer();
       this.logger.warn('PumpPortal websocket closed', {
         code: this.stats.lastCloseCode,
         reason: this.stats.lastCloseReason || 'none',
+        connectionAgeMs: this.stats.lastConnectionAgeMs,
         reconnectDelayMs: this.currentReconnectDelayMs
       });
       if (this.ws === socket) {
@@ -189,6 +205,12 @@ class PumpPortalListener {
       this.stats.lastErrorAt = Date.now();
       this.stats.lastErrorMessage = error.message;
       this.logger.warn('PumpPortal websocket error', error.message);
+    });
+
+    socket.on('pong', () => {
+      if (this.ws !== socket) return;
+      this.stats.pongsReceived += 1;
+      this.stats.lastPongAt = Date.now();
     });
   }
 
@@ -456,6 +478,40 @@ class PumpPortalListener {
     }
   }
 
+  startHeartbeat(socket) {
+    this.stopHeartbeat();
+
+    if (!Number.isFinite(this.pingIntervalMs) || this.pingIntervalMs <= 0) {
+      return;
+    }
+
+    this.pingTimer = setInterval(() => {
+      if (!this.running || this.ws !== socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      try {
+        socket.ping();
+        this.stats.pingsSent += 1;
+        this.stats.lastPingAt = Date.now();
+      } catch (error) {
+        this.stats.lastErrorAt = Date.now();
+        this.stats.lastErrorMessage = error.message;
+        this.logger.warn('PumpPortal websocket ping failed', error.message);
+      }
+    }, this.pingIntervalMs);
+
+    if (typeof this.pingTimer.unref === 'function') {
+      this.pingTimer.unref();
+    }
+  }
+
+  stopHeartbeat() {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+  }
+
   checkConnectionHealth() {
     if (!this.running || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return;
@@ -490,7 +546,11 @@ class PumpPortalListener {
     socket.terminate();
     this.stats.connected = false;
     this.stats.lastDisconnectedAt = Date.now();
+    this.stats.lastConnectionAgeMs = this.stats.lastConnectedAt
+      ? this.stats.lastDisconnectedAt - this.stats.lastConnectedAt
+      : null;
     this.stopHealthCheck();
+    this.stopHeartbeat();
 
     if (this.running && !this.reconnectTimer) {
       this.stats.reconnectAttempts += 1;

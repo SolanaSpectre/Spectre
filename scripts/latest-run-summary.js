@@ -643,6 +643,10 @@ function buildPumpPortalHealth(battlefield = {}) {
   const reconnectDelayMs = number(stats.reconnectDelayMs, 0);
   const reconnectDelayStableResets = number(stats.reconnectDelayStableResets, 0);
   const reconnectDelayResetAfterStableMs = number(stats.reconnectDelayResetAfterStableMs, 0);
+  const pingIntervalMs = number(stats.pingIntervalMs, 0);
+  const pingsSent = number(stats.pingsSent, 0);
+  const pongsReceived = number(stats.pongsReceived, 0);
+  const lastConnectionAgeMs = number(stats.lastConnectionAgeMs, null);
   const connected = stats.connected === true;
   const paidTradeStreamsEnabled = stats.paidTradeStreamsEnabled === true;
   const lastCloseCode = stats.lastCloseCode ?? null;
@@ -701,6 +705,10 @@ function buildPumpPortalHealth(battlefield = {}) {
     reconnectDelayMs,
     reconnectDelayStableResets,
     reconnectDelayResetAfterStableMs,
+    pingIntervalMs,
+    pingsSent,
+    pongsReceived,
+    lastConnectionAgeMs,
     connected,
     paidTradeStreamsEnabled,
     lastCloseCode,
@@ -866,6 +874,7 @@ function buildSummary(docs) {
   lines.push(`  - reconnects / closes / stale reconnects: ${pumpPortalHealth.reconnectAttempts} / ${pumpPortalHealth.closeEvents} / ${pumpPortalHealth.staleReconnects}`);
   lines.push(`  - paid trade streams enabled / skipped mints / skipped accounts: ${pumpPortalHealth.paidTradeStreamsEnabled} / ${pumpPortalHealth.tradeSubscriptionsSkippedNoApiKey || pumpPortalHealth.skippedPaidStreamMints} / ${pumpPortalHealth.accountSubscriptionsSkippedNoApiKey}`);
   lines.push(`  - token trade subscription load: active=${pumpPortalHealth.subscribedMints}, max=${pumpPortalHealth.maxSubscribedMints || 'n/a'}, ttl=${pumpPortalHealth.tokenTradeSubscriptionTtlMs ? `${pumpPortalHealth.tokenTradeSubscriptionTtlMs}ms` : 'n/a'}, pruned=${pumpPortalHealth.tokenTradeSubscriptionPrunes || 0} (ttl=${pumpPortalHealth.tokenTradeTtlPrunes || 0}, max=${pumpPortalHealth.tokenTradeMaxActivePrunes || 0}), skippedMax=${pumpPortalHealth.tradeSubscriptionsSkippedMaxActive || 0}`);
+  lines.push(`  - websocket heartbeat: pingInterval=${pumpPortalHealth.pingIntervalMs ? `${pumpPortalHealth.pingIntervalMs}ms` : 'off'}, pings/pongs=${pumpPortalHealth.pingsSent || 0} / ${pumpPortalHealth.pongsReceived || 0}, lastConnectionAge=${pumpPortalHealth.lastConnectionAgeMs === null ? 'n/a' : `${pumpPortalHealth.lastConnectionAgeMs}ms`}`);
   lines.push(`  - current reconnect backoff delay: ${pumpPortalHealth.reconnectDelayMs ? `${pumpPortalHealth.reconnectDelayMs}ms` : 'n/a'}`);
   lines.push(`  - stable reconnect resets / reset window: ${pumpPortalHealth.reconnectDelayStableResets} / ${pumpPortalHealth.reconnectDelayResetAfterStableMs ? `${pumpPortalHealth.reconnectDelayResetAfterStableMs}ms` : 'n/a'}`);
   lines.push(`  - connected at stop: ${pumpPortalHealth.connected}`);

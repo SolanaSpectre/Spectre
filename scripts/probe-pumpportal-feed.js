@@ -76,13 +76,14 @@ function send(socket, message) {
   socket.send(JSON.stringify(message));
 }
 
-function buildEmptyStats(mode, url, durationMs, sampleTokenTrades) {
+function buildEmptyStats(mode, url, durationMs, sampleTokenTrades, pingIntervalMs) {
   const paidSamplingEnabled = mode === 'configured' && Boolean(Config.pumpPortalApiKey) && sampleTokenTrades > 0;
   return {
     mode,
     sanitizedUrl: sanitizeUrl(url),
     durationMs,
     sampleTokenTrades,
+    pingIntervalMs,
     paidSamplingEnabled,
     startedAt: nowIso(),
     stoppedAt: null,
@@ -99,6 +100,11 @@ function buildEmptyStats(mode, url, durationMs, sampleTokenTrades) {
     unknownMessages: 0,
     subscribedTokenTrades: 0,
     lastMessageAt: null,
+    lastPingAt: null,
+    lastPongAt: null,
+    pingsSent: 0,
+    pongsReceived: 0,
+    connectionAgeMs: null,
     lastCloseCode: null,
     lastCloseReason: null,
     lastErrorMessage: null,
@@ -118,19 +124,27 @@ function recordSample(stats, type, payload) {
   };
 }
 
-function runProbe({ mode, durationMs, sampleTokenTrades }) {
+function runProbe({ mode, durationMs, sampleTokenTrades, pingIntervalMs }) {
   return new Promise((resolve) => {
     const url = urlForMode(mode);
-    const stats = buildEmptyStats(mode, url, durationMs, sampleTokenTrades);
+    const stats = buildEmptyStats(mode, url, durationMs, sampleTokenTrades, pingIntervalMs);
     const subscribedMints = new Set();
     let settled = false;
+    let pingTimer = null;
     const socket = new WebSocket(url);
 
     const finish = () => {
       if (settled) return;
       settled = true;
+      if (pingTimer) {
+        clearInterval(pingTimer);
+        pingTimer = null;
+      }
       stats.stoppedAt = nowIso();
       stats.connectedAtStop = socket.readyState === WebSocket.OPEN;
+      if (stats.openedAt) {
+        stats.connectionAgeMs = new Date(stats.stoppedAt).getTime() - new Date(stats.openedAt).getTime();
+      }
       stats.subscribedMints = Array.from(subscribedMints);
       try {
         socket.removeAllListeners();
@@ -149,6 +163,20 @@ function runProbe({ mode, durationMs, sampleTokenTrades }) {
       stats.openedAt = nowIso();
       send(socket, { method: 'subscribeNewToken' });
       send(socket, { method: 'subscribeMigration' });
+      if (Number.isFinite(pingIntervalMs) && pingIntervalMs > 0) {
+        pingTimer = setInterval(() => {
+          if (socket.readyState !== WebSocket.OPEN) return;
+          try {
+            socket.ping();
+            stats.pingsSent += 1;
+            stats.lastPingAt = nowIso();
+          } catch (error) {
+            stats.errorEvents += 1;
+            stats.lastErrorMessage = error.message;
+          }
+        }, pingIntervalMs);
+        if (typeof pingTimer.unref === 'function') pingTimer.unref();
+      }
     });
 
     socket.on('message', (raw) => {
@@ -198,6 +226,11 @@ function runProbe({ mode, durationMs, sampleTokenTrades }) {
     socket.on('error', (error) => {
       stats.errorEvents += 1;
       stats.lastErrorMessage = error.message;
+    });
+
+    socket.on('pong', () => {
+      stats.pongsReceived += 1;
+      stats.lastPongAt = nowIso();
     });
   });
 }
@@ -254,15 +287,21 @@ async function main() {
     .map((mode) => mode.trim())
     .filter(Boolean);
   const sampleTokenTrades = Number(args.sampleTokenTrades || 0);
+  const pingIntervalMs = Number(args.pingIntervalMs || Config.pumpPortalPingIntervalMs || 0);
   const reportDir = resolveRepoPath(args.reportDir, DEFAULT_REPORT_DIR);
   const latestPath = resolveRepoPath(args.latestPath, DEFAULT_LATEST_PATH);
   const generatedAt = nowIso();
 
-  console.log(`Starting PumpPortal feed probe: modes=${modes.join(',')} durationMs=${durationMs} sampleTokenTrades=${sampleTokenTrades}`);
-  const probes = await Promise.all(modes.map((mode) => runProbe({ mode, durationMs, sampleTokenTrades })));
+  console.log(`Starting PumpPortal feed probe: modes=${modes.join(',')} durationMs=${durationMs} sampleTokenTrades=${sampleTokenTrades} pingIntervalMs=${pingIntervalMs}`);
+  const probes = await Promise.all(modes.map((mode) => runProbe({
+    mode,
+    durationMs,
+    sampleTokenTrades,
+    pingIntervalMs
+  })));
   for (const probe of probes) {
     probe.interpretation = interpretProbe(probe);
-    console.log(`${probe.mode}: opened=${probe.openEvents} messages=${probe.messages} newTokens=${probe.newTokens} migrations=${probe.migrations} errors=${probe.errorEvents} closes=${probe.closeEvents} lastError=${probe.lastErrorMessage || 'none'}`);
+    console.log(`${probe.mode}: opened=${probe.openEvents} messages=${probe.messages} newTokens=${probe.newTokens} migrations=${probe.migrations} pings=${probe.pingsSent}/${probe.pongsReceived} errors=${probe.errorEvents} closes=${probe.closeEvents} lastError=${probe.lastErrorMessage || 'none'}`);
   }
 
   const payload = {
@@ -273,7 +312,8 @@ async function main() {
       configuredUrl: sanitizeUrl(urlForMode('configured')),
       noKeyUrl: sanitizeUrl(urlForMode('no-key')),
       hasApiKey: Boolean(Config.pumpPortalApiKey),
-      useApiKeyQuery: Boolean(Config.pumpPortalUseApiKeyQuery)
+      useApiKeyQuery: Boolean(Config.pumpPortalUseApiKeyQuery),
+      pingIntervalMs
     },
     summary: buildSummary(probes),
     probes
