@@ -261,12 +261,22 @@ function countBy(items, keyFn) {
   return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1]));
 }
 
+function maxFinite(items, keyFn, fallback = null) {
+  let max = -Infinity;
+  for (const item of items) {
+    const value = Number(keyFn(item));
+    if (!Number.isFinite(value)) continue;
+    max = Math.max(max, value);
+  }
+  return Number.isFinite(max) ? max : fallback;
+}
+
 function compactCandidate(candidate, decisions, snapshots, sourceCoverage = {}) {
   const classified = decisions.map((decision) => classifyDecision(decision, snapshots));
   const classes = countBy(classified, (decision) => decision.replayClass);
   const first = classified.slice().sort((a, b) => timestampMs(a.timestamp) - timestampMs(b.timestamp))[0] || null;
-  const maxCurveAtSkip = Math.max(...classified.map((decision) => Number(decision.curveProgress)).filter(Number.isFinite), 0);
-  const maxScoreAtSkip = Math.max(...classified.map((decision) => Number(decision.score)).filter(Number.isFinite), 0);
+  const maxCurveAtSkip = maxFinite(classified, (decision) => decision.curveProgress, 0);
+  const maxScoreAtSkip = maxFinite(classified, (decision) => decision.score, 0);
 
   return {
     symbol: candidate.symbol || first?.symbol || null,

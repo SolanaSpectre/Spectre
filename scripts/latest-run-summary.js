@@ -496,6 +496,8 @@ function buildAiReachability(battlefield = {}) {
     interpretation = 'No runner/scalper signals were generated, so no real candidate reached runtime AI review.';
   } else if (lifecycleAttempts > 0) {
     interpretation = 'At least one real candidate reached Simple Runtime AI review lifecycle instrumentation.';
+  } else if (generatedSignals > 0 && rejectedTrades >= generatedSignals && aiDecisionEvents === 0) {
+    interpretation = 'Signals were generated but rejected before AI review, likely by momentum or quality gates.';
   } else if (aiDecisionEvents === 0 && quoteRejects > 0) {
     interpretation = 'Signals were generated but stopped at quote/quality handling before AI review.';
   } else if (aiDecisionEvents > 0) {

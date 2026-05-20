@@ -212,9 +212,14 @@ function mergeUniqueBy(items, keyFn) {
 }
 
 function maxMetric(items, key) {
-  const values = items.map((item) => Number(item[key])).filter(Number.isFinite);
-  if (!values.length) return null;
-  return numberOrNull(Math.max(...values), key === 'curveProgress' ? 6 : 2);
+  let max = -Infinity;
+  for (const item of items) {
+    const value = Number(item[key]);
+    if (!Number.isFinite(value)) continue;
+    max = Math.max(max, value);
+  }
+  if (!Number.isFinite(max)) return null;
+  return numberOrNull(max, key === 'curveProgress' ? 6 : 2);
 }
 
 function firstReach(items, threshold) {
