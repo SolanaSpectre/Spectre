@@ -71,6 +71,15 @@ class PumpPortalListener {
       tokenTradeSubscriptionPrunes: 0,
       tokenTradeTtlPrunes: 0,
       tokenTradeMaxActivePrunes: 0,
+      subscriptionAckMessages: 0,
+      newTokenSubscriptionAcks: 0,
+      migrationSubscriptionAcks: 0,
+      tokenTradeSubscriptionAcks: 0,
+      accountTradeSubscriptionAcks: 0,
+      unknownSubscriptionAcks: 0,
+      lastSubscriptionAckAt: null,
+      lastSubscriptionAckMessage: null,
+      lastSubscriptionAckKind: null,
       maxSubscribedMints: this.maxSubscribedMints,
       tokenTradeSubscriptionTtlMs: this.tokenTradeSubscriptionTtlMs,
       reconnectDelayMs: this.currentReconnectDelayMs
@@ -238,6 +247,8 @@ class PumpPortalListener {
   }
 
   async handleMessage(payload) {
+    this.recordSubscriptionAck(payload);
+
     const method = payload.method || payload.type || payload.txType || '';
     const mint = payload.mint || payload.token || payload.mintAddress;
     const account = payload.traderPublicKey || payload.wallet || payload.account;
@@ -297,6 +308,59 @@ class PumpPortalListener {
         });
       }
     }
+  }
+
+  recordSubscriptionAck(payload) {
+    const message = typeof payload?.message === 'string' ? payload.message : '';
+    if (!message) return;
+
+    const normalized = message.toLowerCase();
+    if (!normalized.includes('subscribed') && !normalized.includes('unsubscribed')) {
+      return;
+    }
+
+    const kind = this.classifySubscriptionAck(message, payload);
+    this.stats.subscriptionAckMessages += 1;
+    this.stats.lastSubscriptionAckAt = Date.now();
+    this.stats.lastSubscriptionAckMessage = message;
+    this.stats.lastSubscriptionAckKind = kind;
+
+    if (kind === 'new_token') {
+      this.stats.newTokenSubscriptionAcks += 1;
+    } else if (kind === 'migration') {
+      this.stats.migrationSubscriptionAcks += 1;
+    } else if (kind === 'token_trade') {
+      this.stats.tokenTradeSubscriptionAcks += 1;
+    } else if (kind === 'account_trade') {
+      this.stats.accountTradeSubscriptionAcks += 1;
+    } else {
+      this.stats.unknownSubscriptionAcks += 1;
+    }
+  }
+
+  classifySubscriptionAck(message, payload = {}) {
+    const normalized = String(message || '').toLowerCase();
+    const method = String(payload.method || payload.type || '').toLowerCase();
+
+    if (method.includes('migration') || normalized.includes('migration')) {
+      return 'migration';
+    }
+    if (
+      method.includes('newtoken')
+      || method.includes('new_token')
+      || normalized.includes('token creation')
+      || normalized.includes('new token')
+    ) {
+      return 'new_token';
+    }
+    if (method.includes('account') || normalized.includes('account') || normalized.includes('wallet')) {
+      return 'account_trade';
+    }
+    if (method.includes('tokentrade') || normalized.includes('token trade') || normalized.includes('keys')) {
+      return 'token_trade';
+    }
+
+    return 'unknown';
   }
 
   getWebsocketUrl() {

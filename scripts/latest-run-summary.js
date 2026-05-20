@@ -686,6 +686,14 @@ function buildPumpPortalHealth(battlefield = {}) {
   const tokenTradeTtlPrunes = number(stats.tokenTradeTtlPrunes, 0);
   const tokenTradeMaxActivePrunes = number(stats.tokenTradeMaxActivePrunes, 0);
   const tradeSubscriptionsSkippedMaxActive = number(stats.tradeSubscriptionsSkippedMaxActive, 0);
+  const subscriptionAckMessages = number(stats.subscriptionAckMessages, 0);
+  const newTokenSubscriptionAcks = number(stats.newTokenSubscriptionAcks, 0);
+  const migrationSubscriptionAcks = number(stats.migrationSubscriptionAcks, 0);
+  const tokenTradeSubscriptionAcks = number(stats.tokenTradeSubscriptionAcks, 0);
+  const accountTradeSubscriptionAcks = number(stats.accountTradeSubscriptionAcks, 0);
+  const unknownSubscriptionAcks = number(stats.unknownSubscriptionAcks, 0);
+  const lastSubscriptionAckMessage = stats.lastSubscriptionAckMessage || null;
+  const lastSubscriptionAckKind = stats.lastSubscriptionAckKind || null;
   const reconnectDelayMs = number(stats.reconnectDelayMs, 0);
   const maxReconnectDelayMs = number(stats.maxReconnectDelayMs, 0);
   const reconnectDelayStableResets = number(stats.reconnectDelayStableResets, 0);
@@ -749,6 +757,14 @@ function buildPumpPortalHealth(battlefield = {}) {
     tokenTradeTtlPrunes,
     tokenTradeMaxActivePrunes,
     tradeSubscriptionsSkippedMaxActive,
+    subscriptionAckMessages,
+    newTokenSubscriptionAcks,
+    migrationSubscriptionAcks,
+    tokenTradeSubscriptionAcks,
+    accountTradeSubscriptionAcks,
+    unknownSubscriptionAcks,
+    lastSubscriptionAckMessage,
+    lastSubscriptionAckKind,
     reconnectDelayMs,
     maxReconnectDelayMs,
     reconnectDelayStableResets,
@@ -930,6 +946,10 @@ function buildSummary(docs) {
   lines.push(`  - reconnects / closes / stale reconnects: ${pumpPortalHealth.reconnectAttempts} / ${pumpPortalHealth.closeEvents} / ${pumpPortalHealth.staleReconnects}`);
   lines.push(`  - paid trade streams enabled / skipped mints / skipped accounts: ${pumpPortalHealth.paidTradeStreamsEnabled} / ${pumpPortalHealth.tradeSubscriptionsSkippedNoApiKey || pumpPortalHealth.skippedPaidStreamMints} / ${pumpPortalHealth.accountSubscriptionsSkippedNoApiKey}`);
   lines.push(`  - token trade subscription load: active=${pumpPortalHealth.subscribedMints}, max=${pumpPortalHealth.maxSubscribedMints || 'n/a'}, ttl=${pumpPortalHealth.tokenTradeSubscriptionTtlMs ? `${pumpPortalHealth.tokenTradeSubscriptionTtlMs}ms` : 'n/a'}, pruned=${pumpPortalHealth.tokenTradeSubscriptionPrunes || 0} (ttl=${pumpPortalHealth.tokenTradeTtlPrunes || 0}, max=${pumpPortalHealth.tokenTradeMaxActivePrunes || 0}), skippedMax=${pumpPortalHealth.tradeSubscriptionsSkippedMaxActive || 0}`);
+  lines.push(`  - subscription ACKs total/new/migration/token/account/unknown: ${pumpPortalHealth.subscriptionAckMessages || 0} / ${pumpPortalHealth.newTokenSubscriptionAcks || 0} / ${pumpPortalHealth.migrationSubscriptionAcks || 0} / ${pumpPortalHealth.tokenTradeSubscriptionAcks || 0} / ${pumpPortalHealth.accountTradeSubscriptionAcks || 0} / ${pumpPortalHealth.unknownSubscriptionAcks || 0}`);
+  if (pumpPortalHealth.lastSubscriptionAckMessage) {
+    lines.push(`  - last subscription ACK: kind=${pumpPortalHealth.lastSubscriptionAckKind || 'unknown'} message="${pumpPortalHealth.lastSubscriptionAckMessage}"`);
+  }
   lines.push(`  - websocket heartbeat: pingInterval=${pumpPortalHealth.pingIntervalMs ? `${pumpPortalHealth.pingIntervalMs}ms` : 'off'}, pings/pongs=${pumpPortalHealth.pingsSent || 0} / ${pumpPortalHealth.pongsReceived || 0}, lastConnectionAge=${pumpPortalHealth.lastConnectionAgeMs === null ? 'n/a' : `${pumpPortalHealth.lastConnectionAgeMs}ms`}`);
   if ((pumpPortalHealth.lifecycle?.closed || 0) > 0) {
     const age = pumpPortalHealth.lifecycle.closeAgeStats || {};
