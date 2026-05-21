@@ -11,7 +11,15 @@ class Config {
   }
 
   static get solanaRpcFallback() {
-    return process.env.SOLANA_RPC_FALLBACK || 'https://api.mainnet-beta.solana.com';
+    const publicMainnet = 'https://api.mainnet-beta.solana.com';
+    const primary = String(process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com').trim();
+    const configuredFallback = String(process.env.SOLANA_RPC_FALLBACK || '').trim();
+
+    if (configuredFallback && configuredFallback !== primary) {
+      return configuredFallback;
+    }
+
+    return primary === publicMainnet ? null : publicMainnet;
   }
 
   static get solanaRpcWebsocketUrl() {
@@ -19,7 +27,14 @@ class Config {
   }
 
   static get solanaRpcFallbackWebsocketUrl() {
-    return process.env.SOLANA_RPC_FALLBACK_WEBSOCKET_URL || null;
+    const configuredFallbackWs = String(process.env.SOLANA_RPC_FALLBACK_WEBSOCKET_URL || '').trim();
+    const primaryWs = String(this.solanaRpcWebsocketUrl || '').trim();
+
+    if (!configuredFallbackWs || configuredFallbackWs === primaryWs) {
+      return null;
+    }
+
+    return configuredFallbackWs;
   }
 
   static get solanaRpcPrimaryDowngradeMs() {
