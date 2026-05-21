@@ -14,11 +14,11 @@ class PumpPortalListener {
     this.healthCheckIntervalMs = Number(config.pumpPortalHealthCheckIntervalMs || 15000);
     this.pingIntervalMs = Number(config.pumpPortalPingIntervalMs || 25000);
     this.maxReconnectDelayMs = Number(config.pumpPortalMaxReconnectDelayMs || 60000);
-    this.maxSubscribedMints = Number(config.pumpPortalMaxSubscribedMints || 750);
-    this.tokenTradeSubscriptionTtlMs = Number(config.pumpPortalTokenTradeSubscriptionTtlMs || 30 * 60 * 1000);
-    this.reconnectResubscribeMaxMints = Number(config.pumpPortalReconnectResubscribeMaxMints || 150);
-    this.reconnectResubscribeBatchSize = Number(config.pumpPortalReconnectResubscribeBatchSize || 25);
-    this.reconnectResubscribeBatchDelayMs = Number(config.pumpPortalReconnectResubscribeBatchDelayMs || 500);
+    this.maxSubscribedMints = Number(config.pumpPortalMaxSubscribedMints || 100);
+    this.tokenTradeSubscriptionTtlMs = Number(config.pumpPortalTokenTradeSubscriptionTtlMs || 5 * 60 * 1000);
+    this.reconnectResubscribeMaxMints = Number(config.pumpPortalReconnectResubscribeMaxMints || 25);
+    this.reconnectResubscribeBatchSize = Number(config.pumpPortalReconnectResubscribeBatchSize || 10);
+    this.reconnectResubscribeBatchDelayMs = Number(config.pumpPortalReconnectResubscribeBatchDelayMs || 1000);
     this.reconnectTimer = null;
     this.reconnectDelayResetTimer = null;
     this.resubscribeTimer = null;
