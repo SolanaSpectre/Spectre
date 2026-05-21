@@ -107,11 +107,11 @@ class Config {
   }
 
   static get raydiumPoolCacheTtlMs() {
-    return parseInt(process.env.RAYDIUM_POOL_CACHE_TTL_MS || '60000', 10);
+    return parseInt(process.env.RAYDIUM_POOL_CACHE_TTL_MS || '180000', 10);
   }
 
   static get raydiumPoolStaleTtlMs() {
-    return parseInt(process.env.RAYDIUM_POOL_STALE_TTL_MS || '300000', 10);
+    return parseInt(process.env.RAYDIUM_POOL_STALE_TTL_MS || '900000', 10);
   }
 
   static get meteoraApiBaseUrl() {
@@ -123,11 +123,11 @@ class Config {
   }
 
   static get meteoraPoolCacheTtlMs() {
-    return parseInt(process.env.METEORA_POOL_CACHE_TTL_MS || '60000', 10);
+    return parseInt(process.env.METEORA_POOL_CACHE_TTL_MS || '180000', 10);
   }
 
   static get meteoraPoolStaleTtlMs() {
-    return parseInt(process.env.METEORA_POOL_STALE_TTL_MS || '300000', 10);
+    return parseInt(process.env.METEORA_POOL_STALE_TTL_MS || '900000', 10);
   }
 
   static get moonshotApiBaseUrl() {
@@ -319,7 +319,7 @@ class Config {
   }
 
   static get postMigrationContinuationMaxDexScreenerFetchesPerCycle() {
-    return parseInt(process.env.POST_MIGRATION_CONTINUATION_MAX_DEXSCREENER_FETCHES_PER_CYCLE || '6', 10);
+    return parseInt(process.env.POST_MIGRATION_CONTINUATION_MAX_DEXSCREENER_FETCHES_PER_CYCLE || '3', 10);
   }
 
   static get dexScreenerApiBaseUrl() {
@@ -327,7 +327,7 @@ class Config {
   }
 
   static get dexScreenerCacheTtlMs() {
-    return parseInt(process.env.DEXSCREENER_CACHE_TTL_MS || '120000', 10);
+    return parseInt(process.env.DEXSCREENER_CACHE_TTL_MS || '300000', 10);
   }
 
   static get preMigrationPaperEnabled() {
@@ -747,16 +747,16 @@ class Config {
   }
 
   static get birdeyeTargetRpm() {
-    const configured = parseInt(process.env.BIRDEYE_TARGET_RPM || '45', 10);
+    const configured = parseInt(process.env.BIRDEYE_TARGET_RPM || '20', 10);
     return Math.min(configured, this.birdeyeRateLimitRpm);
   }
 
   static get birdeyeCacheTtlMs() {
-    return parseInt(process.env.BIRDEYE_CACHE_TTL_MS || '60000', 10);
+    return parseInt(process.env.BIRDEYE_CACHE_TTL_MS || '300000', 10);
   }
 
   static get birdeyeErrorCacheTtlMs() {
-    return parseInt(process.env.BIRDEYE_ERROR_CACHE_TTL_MS || '15000', 10);
+    return parseInt(process.env.BIRDEYE_ERROR_CACHE_TTL_MS || '60000', 10);
   }
 
   static get birdeyeInvalidTokenCooldownMs() {
@@ -772,7 +772,7 @@ class Config {
   }
 
   static get birdeyeMaxRetries() {
-    return parseInt(process.env.BIRDEYE_MAX_RETRIES || '3', 10);
+    return parseInt(process.env.BIRDEYE_MAX_RETRIES || '1', 10);
   }
 
   static get birdeyeSecurityEnabled() {
@@ -1150,7 +1150,7 @@ class Config {
   }
 
   static get tokenPriceCacheTtlMs() {
-    return parseInt(process.env.TOKEN_PRICE_CACHE_TTL_MS || '30000', 10);
+    return parseInt(process.env.TOKEN_PRICE_CACHE_TTL_MS || '120000', 10);
   }
 
   static get entryWarmupMs() {
@@ -1444,19 +1444,19 @@ class Config {
   }
 
   static get solPriceCacheTtlMs() {
-    return parseInt(process.env.SOL_PRICE_CACHE_TTL_MS || '30000', 10);
+    return parseInt(process.env.SOL_PRICE_CACHE_TTL_MS || '120000', 10);
   }
 
   static get solPriceStaleTtlMs() {
-    return parseInt(process.env.SOL_PRICE_STALE_TTL_MS || '300000', 10);
+    return parseInt(process.env.SOL_PRICE_STALE_TTL_MS || '900000', 10);
   }
 
   static get solPriceFailureCooldownMs() {
-    return parseInt(process.env.SOL_PRICE_FAILURE_COOLDOWN_MS || '60000', 10);
+    return parseInt(process.env.SOL_PRICE_FAILURE_COOLDOWN_MS || '120000', 10);
   }
 
   static get jupiterMinRequestIntervalMs() {
-    return parseInt(process.env.JUPITER_MIN_REQUEST_INTERVAL_MS || '500', 10);
+    return parseInt(process.env.JUPITER_MIN_REQUEST_INTERVAL_MS || '1000', 10);
   }
 
   // Copy Trading Configuration
