@@ -696,6 +696,12 @@ function buildPumpPortalHealth(battlefield = {}) {
   const tokenTradeTtlPrunes = number(stats.tokenTradeTtlPrunes, 0);
   const tokenTradeMaxActivePrunes = number(stats.tokenTradeMaxActivePrunes, 0);
   const tradeSubscriptionsSkippedMaxActive = number(stats.tradeSubscriptionsSkippedMaxActive, 0);
+  const tokenTradeReconnectResubscribeScheduled = number(stats.tokenTradeReconnectResubscribeScheduled, 0);
+  const tokenTradeReconnectResubscribeSent = number(stats.tokenTradeReconnectResubscribeSent, 0);
+  const tokenTradeReconnectResubscribeDropped = number(stats.tokenTradeReconnectResubscribeDropped, 0);
+  const reconnectResubscribeMaxMints = number(stats.reconnectResubscribeMaxMints, 0);
+  const reconnectResubscribeBatchSize = number(stats.reconnectResubscribeBatchSize, 0);
+  const reconnectResubscribeBatchDelayMs = number(stats.reconnectResubscribeBatchDelayMs, 0);
   const subscriptionAckMessages = number(stats.subscriptionAckMessages, 0);
   const newTokenSubscriptionAcks = number(stats.newTokenSubscriptionAcks, 0);
   const migrationSubscriptionAcks = number(stats.migrationSubscriptionAcks, 0);
@@ -772,6 +778,12 @@ function buildPumpPortalHealth(battlefield = {}) {
     tokenTradeTtlPrunes,
     tokenTradeMaxActivePrunes,
     tradeSubscriptionsSkippedMaxActive,
+    tokenTradeReconnectResubscribeScheduled,
+    tokenTradeReconnectResubscribeSent,
+    tokenTradeReconnectResubscribeDropped,
+    reconnectResubscribeMaxMints,
+    reconnectResubscribeBatchSize,
+    reconnectResubscribeBatchDelayMs,
     subscriptionAckMessages,
     newTokenSubscriptionAcks,
     migrationSubscriptionAcks,

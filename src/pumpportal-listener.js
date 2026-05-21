@@ -573,13 +573,14 @@ class PumpPortalListener {
       return;
     }
 
+    const scheduledMints = mints.length;
     this.pendingResubscribeMints = mints;
-    this.stats.tokenTradeReconnectResubscribeScheduled += mints.length;
+    this.stats.tokenTradeReconnectResubscribeScheduled += scheduledMints;
     this.flushResubscribeBatch();
 
     this.logger.info('Scheduled PumpPortal trade stream re-subscriptions', {
       trackedMints: ranked.length,
-      scheduledMints: mints.length,
+      scheduledMints,
       droppedMints: dropped.length,
       batchSize: this.reconnectResubscribeBatchSize,
       batchDelayMs: this.reconnectResubscribeBatchDelayMs
