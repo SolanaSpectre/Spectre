@@ -122,6 +122,44 @@ function attemptId() {
   return `simple_runtime_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+function timeoutError(timeoutMs) {
+  const error = new Error(`timeout of ${timeoutMs}ms exceeded`);
+  error.code = 'ECONNABORTED';
+  error.isHardTimeout = true;
+  return error;
+}
+
+function postWithHardTimeout(url, body, config = {}, timeoutMs = RUNTIME_TIMEOUT_MS) {
+  const controller = new AbortController();
+  let timeout = null;
+
+  const request = axios.post(url, body, {
+    ...config,
+    timeout: timeoutMs,
+    signal: controller.signal
+  });
+  request.catch(() => {
+    // The race below may reject first; keep late axios rejections handled.
+  });
+
+  const hardTimeout = new Promise((_, reject) => {
+    timeout = setTimeout(() => {
+      try {
+        controller.abort();
+      } catch {
+        // Ignore abort failures; the hard timeout still controls the caller.
+      }
+      reject(timeoutError(timeoutMs));
+    }, timeoutMs);
+  });
+
+  return Promise.race([request, hardTimeout]).finally(() => {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  });
+}
+
 function simpleSystemPrompt() {
   return `You are a fast JSON-only Solana memecoin runtime guard.
 Return exactly one compact JSON object. Do not use markdown. Do not include text before or after JSON.
@@ -229,7 +267,7 @@ function normalizeSimpleReview(parsed = {}) {
 
 async function callSimpleRuntimeReview(instance, tokenInfo, signal) {
   const packet = buildSimplePacket(instance, tokenInfo, signal);
-  const response = await axios.post(instance.apiEndpoint, {
+  const response = await postWithHardTimeout(instance.apiEndpoint, {
     model: RUNTIME_MODEL,
     stream: false,
     format: 'json',
@@ -243,7 +281,7 @@ async function callSimpleRuntimeReview(instance, tokenInfo, signal) {
     }
   }, {
     timeout: RUNTIME_TIMEOUT_MS
-  });
+  }, RUNTIME_TIMEOUT_MS);
 
   const text = response.data?.message?.content || response.data?.response || '';
   return normalizeSimpleReview(extractJsonObject(text));
@@ -264,7 +302,7 @@ function patchAIAgent(AIAgent) {
       if (!ENABLED) return super.warmup();
       const startedAt = Date.now();
       try {
-        await axios.post(this.apiEndpoint, {
+        await postWithHardTimeout(this.apiEndpoint, {
           model: RUNTIME_MODEL,
           stream: false,
           format: 'json',
@@ -273,13 +311,23 @@ function patchAIAgent(AIAgent) {
             { role: 'user', content: 'Return {"action":"WATCH","confidence":10,"risk":"MEDIUM","reason":"warm"}' }
           ],
           options: { temperature: 0, num_predict: 48 }
-        }, { timeout: Number(process.env.SIMPLE_RUNTIME_AI_WARMUP_TIMEOUT_MS || 20000) });
+        }, {
+          timeout: Number(process.env.SIMPLE_RUNTIME_AI_WARMUP_TIMEOUT_MS || 20000)
+        }, Number(process.env.SIMPLE_RUNTIME_AI_WARMUP_TIMEOUT_MS || 20000));
         this.logger.info(`Simple runtime AI warmed: ${RUNTIME_MODEL} (${Date.now() - startedAt}ms)`);
         return true;
       } catch (error) {
         this.logger.warn('Simple runtime AI warmup failed', error.message);
         return false;
       }
+    }
+
+    async reviewTrade(tokenInfo, signal) {
+      if (process.env.SIMPLE_RUNTIME_AI_ENABLED === 'false') {
+        return super.reviewTrade(tokenInfo, signal);
+      }
+
+      return this.callTradeReviewer(tokenInfo, signal);
     }
 
     async callTradeReviewer(tokenInfo, signal, options = {}) {
@@ -341,6 +389,7 @@ function patchAIAgent(AIAgent) {
           primaryStrategy: 'NONE',
           convergenceScore: 0,
           action: 'WATCH',
+          timeout: failure.failureType === 'timeout',
           strategyScores: this.buildEmptyStrategyScores(),
           contradictions: [`simple runtime AI ${failure.failureType}`],
           executionProfile: this.buildDefaultExecutionProfile(),

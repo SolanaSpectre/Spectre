@@ -669,6 +669,10 @@ class TradingEngine {
     });
 
     if (executionResult.success) {
+      const executedAtMs = Date.now();
+      const signalAgeMs = Number.isFinite(Number(signal.generatedAtMs))
+        ? Math.max(0, executedAtMs - Number(signal.generatedAtMs))
+        : null;
       this.totalTrades += 1;
       this.eventFlow.record('signal.executed', {
         signalId: signal.id,
@@ -681,6 +685,10 @@ class TradingEngine {
         token: signal.token,
         mode: executionResult.mode,
         amountSol: signal.amount,
+        signalGeneratedAt: signal.generatedAt || null,
+        executedAt: new Date(executedAtMs).toISOString(),
+        signalAgeMs,
+        signalAgeSeconds: Number.isFinite(signalAgeMs) ? Number((signalAgeMs / 1000).toFixed(3)) : null,
         qualityScore: signal.qualityScore,
         aiConfidence: aiDecision.confidence,
         aiPrimaryStrategy: aiDecision.primaryStrategy,
@@ -694,6 +702,7 @@ class TradingEngine {
         token: signal.token,
         mode: executionResult.mode,
         amountSol: signal.amount,
+        signalAgeMs,
         qualityScore: signal.qualityScore,
         momentumScore: signal.momentumScore,
         strategy: aiDecision.primaryStrategy,
@@ -1732,19 +1741,24 @@ class TradingEngine {
         continue;
       }
 
-      signals.push({
-        id: `sig_${token.mintAddress}_${Date.now()}`,
+      const signalGeneratedAtMs = Date.now();
+      const signalId = `sig_${token.mintAddress}_${signalGeneratedAtMs}`;
+      const signal = {
+        id: signalId,
         token: token.mintAddress,
         action: 'buy',
         amount: tradeAmount,
         reasoning: 'Deterministic volume/liquidity/risk filter passed',
+        generatedAt: new Date(signalGeneratedAtMs).toISOString(),
+        generatedAtMs: signalGeneratedAtMs,
         qualityScore: quality.score,
         qualityFactors: quality.factors,
         momentumScore: momentum.score,
         momentumFactors: momentum.factors,
         rankScore: Number(rankScore.toFixed(4)),
         tokenInfo: token
-      });
+      };
+      signals.push(signal);
       this.applySignalCooldown(token.mintAddress, this.config.tokenSignalCooldownMs);
 
       this.logger.decision(`SIGNAL READY: ${token.mintAddress}`, {
@@ -1756,7 +1770,10 @@ class TradingEngine {
       });
 
       this.telemetry.record('signal.generated', {
+        signalId,
         token: token.mintAddress,
+        generatedAt: signal.generatedAt,
+        generatedAtMs: signalGeneratedAtMs,
         amountSol: tradeAmount,
         source: token.source,
         qualityScore: quality.score,

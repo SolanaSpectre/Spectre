@@ -154,6 +154,12 @@ function fmt(value, digits = 2) {
   return Number(n.toFixed(digits)).toString();
 }
 
+function ms(value, digits = 0) {
+  if (value === null || value === undefined || value === '') return 'n/a';
+  const n = Number(value);
+  return Number.isFinite(n) ? `${fmt(n, digits)}ms` : 'n/a';
+}
+
 function pct(value, digits = 1) {
   if (value === null || value === undefined || value === '') return 'n/a';
   const n = Number(value);
@@ -930,6 +936,8 @@ function buildSummary(docs) {
   const aiHistoricalSummary = simpleRuntimeAiEvidence.summary || {};
   const pumpPortalHealth = buildPumpPortalHealth(battlefield);
   const bondingCurvePressure = buildBondingCurvePressure(battlefield);
+  const runnerLifecycle = battlefield.runnerLane?.simpleRuntimeAiLifecycle || {};
+  const signalExecutionLatency = battlefield.runnerLane?.signalExecutionLatencyMs || {};
 
   lines.push('1. Run Summary');
   lines.push('--------------');
@@ -945,7 +953,17 @@ function buildSummary(docs) {
   lines.push(`  - runner/scalper signals generated/executed: ${aiReachability.generatedSignals} / ${aiReachability.executedSignals}`);
   lines.push(`  - trade rejects before signal execution: ${aiReachability.rejectedTrades}`);
   lines.push(`  - Simple Runtime lifecycle attempts/completed/failed this run: ${aiReachability.lifecycleAttempts} / ${aiReachability.lifecycleCompleted} / ${aiReachability.lifecycleFailed}`);
+  if (runnerLifecycle.attempts !== undefined) {
+    const completedLatency = runnerLifecycle.completedLatencyMs || {};
+    const failedLatency = runnerLifecycle.failedLatencyMs || {};
+    lines.push(`  - Simple Runtime latency completed median/p90/max: ${ms(completedLatency.median)} / ${ms(completedLatency.p90)} / ${ms(completedLatency.max)}`);
+    lines.push(`  - Simple Runtime latency failed median/p90/max: ${ms(failedLatency.median)} / ${ms(failedLatency.p90)} / ${ms(failedLatency.max)}`);
+    lines.push(`  - Simple Runtime attempts exceeding outer timeout: ${runnerLifecycle.attemptsExceedingOuterTimeout ?? 'n/a'}`);
+  }
   lines.push(`  - AI decision events / AI rejects / timeout fallbacks: ${aiReachability.aiDecisionEvents} / ${aiReachability.aiRejects} / ${aiReachability.aiTimeoutFallbacks}`);
+  if (signalExecutionLatency.count) {
+    lines.push(`  - signal->execution latency median/p90/max: ${ms(signalExecutionLatency.median)} / ${ms(signalExecutionLatency.p90)} / ${ms(signalExecutionLatency.max)}`);
+  }
   const aiFailureTypeSummary = Object.entries(aiReachability.aiFailureTypes || {})
     .map(([key, value]) => `${key}=${value}`)
     .join(', ');

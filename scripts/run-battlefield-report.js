@@ -155,6 +155,30 @@ function compact(value, decimals = 4) {
   return Number.isFinite(numeric) ? Number(numeric.toFixed(decimals)) : null;
 }
 
+function numericStats(values, decimals = 2) {
+  const finite = values
+    .map((value) => Number(value))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+
+  if (!finite.length) {
+    return { count: 0, min: null, median: null, p90: null, max: null };
+  }
+
+  const median = finite.length % 2
+    ? finite[Math.floor(finite.length / 2)]
+    : (finite[(finite.length / 2) - 1] + finite[finite.length / 2]) / 2;
+  const p90 = finite[Math.min(finite.length - 1, Math.ceil(finite.length * 0.9) - 1)];
+
+  return {
+    count: finite.length,
+    min: compact(finite[0], decimals),
+    median: compact(median, decimals),
+    p90: compact(p90, decimals),
+    max: compact(finite[finite.length - 1], decimals)
+  };
+}
+
 function pct(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? `${(numeric * 100).toFixed(1)}%` : 'n/a';
@@ -539,6 +563,27 @@ function buildReport(events, dossiers, options = {}) {
   const pumpFailures = events.filter((event) => eventType(event) === 'pump.momentum_gate_failed');
   const signalGenerated = events.filter((event) => eventType(event) === 'signal.generated');
   const signalExecuted = events.filter((event) => eventType(event) === 'signal.executed' || eventType(event) === 'trade.executed');
+  const simpleRuntimeStarted = events.filter((event) => eventType(event) === 'simple_runtime_ai.review_started');
+  const simpleRuntimeCompleted = events.filter((event) => eventType(event) === 'simple_runtime_ai.review_completed');
+  const simpleRuntimeFailed = events.filter((event) => eventType(event) === 'simple_runtime_ai.review_failed');
+  const tradeExecuted = events.filter((event) => eventType(event) === 'trade.executed');
+  const signalExecutionLatencyMs = tradeExecuted
+    .map((event) => payloadOf(event).signalAgeMs)
+    .filter((value) => Number.isFinite(Number(value)));
+  const aiFailureLatencyMs = simpleRuntimeFailed
+    .map((event) => payloadOf(event).latencyMs)
+    .filter((value) => Number.isFinite(Number(value)));
+  const aiCompletedLatencyMs = simpleRuntimeCompleted
+    .map((event) => payloadOf(event).latencyMs)
+    .filter((value) => Number.isFinite(Number(value)));
+  const aiAttemptsExceedingOuterTimeout = [...simpleRuntimeCompleted, ...simpleRuntimeFailed]
+    .filter((event) => {
+      const payload = payloadOf(event);
+      const latencyMs = Number(payload.latencyMs);
+      const outerTimeoutMs = Number(payload.outerTimeoutMs);
+      return Number.isFinite(latencyMs) && Number.isFinite(outerTimeoutMs) && outerTimeoutMs > 0 && latencyMs > outerTimeoutMs;
+    })
+    .length;
   const runnerPaperClosed = events.filter((event) => eventType(event) === 'paper.position.closed');
   const runnerLiveClosed = events.filter((event) => eventType(event) === 'live.position.closed');
   const aiEvents = events.filter((event) => {
@@ -617,6 +662,17 @@ function buildReport(events, dossiers, options = {}) {
         aiEvents,
         limit
       }),
+      signalExecutionLatencyMs: numericStats(signalExecutionLatencyMs, 0),
+      simpleRuntimeAiLifecycle: {
+        attempts: simpleRuntimeStarted.length,
+        completed: simpleRuntimeCompleted.length,
+        failed: simpleRuntimeFailed.length,
+        attemptsExceedingOuterTimeout: aiAttemptsExceedingOuterTimeout,
+        completedLatencyMs: numericStats(aiCompletedLatencyMs, 0),
+        failedLatencyMs: numericStats(aiFailureLatencyMs, 0),
+        failureTypes: countBy(simpleRuntimeFailed, (event) => payloadOf(event).failureType),
+        attemptTypes: countBy(simpleRuntimeStarted, (event) => payloadOf(event).attemptType)
+      },
       paperExitReasons: countBy(runnerPaperClosed, (event) => payloadOf(event).reason),
       paperExitProfiles: countBy(runnerPaperClosed, (event) => payloadOf(event).paperExitProfile?.profileName || 'unknown'),
       liveExitReasons: countBy(runnerLiveClosed, (event) => payloadOf(event).reason),
