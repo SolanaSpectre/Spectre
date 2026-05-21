@@ -825,11 +825,23 @@ class Config {
   }
 
   static get pumpPortalMaxSubscribedMints() {
-    return parseInt(process.env.PUMPPORTAL_MAX_SUBSCRIBED_MINTS || '750', 10);
+    return parseInt(process.env.PUMPPORTAL_MAX_SUBSCRIBED_MINTS || '300', 10);
   }
 
   static get pumpPortalTokenTradeSubscriptionTtlMs() {
-    return parseInt(process.env.PUMPPORTAL_TOKEN_TRADE_SUBSCRIPTION_TTL_MS || '1800000', 10);
+    return parseInt(process.env.PUMPPORTAL_TOKEN_TRADE_SUBSCRIPTION_TTL_MS || '900000', 10);
+  }
+
+  static get pumpPortalReconnectResubscribeMaxMints() {
+    return parseInt(process.env.PUMPPORTAL_RECONNECT_RESUBSCRIBE_MAX_MINTS || '150', 10);
+  }
+
+  static get pumpPortalReconnectResubscribeBatchSize() {
+    return parseInt(process.env.PUMPPORTAL_RECONNECT_RESUBSCRIBE_BATCH_SIZE || '25', 10);
+  }
+
+  static get pumpPortalReconnectResubscribeBatchDelayMs() {
+    return parseInt(process.env.PUMPPORTAL_RECONNECT_RESUBSCRIBE_BATCH_DELAY_MS || '500', 10);
   }
 
   static get gmgnApiBaseUrl() {

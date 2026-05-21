@@ -16,8 +16,13 @@ class PumpPortalListener {
     this.maxReconnectDelayMs = Number(config.pumpPortalMaxReconnectDelayMs || 60000);
     this.maxSubscribedMints = Number(config.pumpPortalMaxSubscribedMints || 750);
     this.tokenTradeSubscriptionTtlMs = Number(config.pumpPortalTokenTradeSubscriptionTtlMs || 30 * 60 * 1000);
+    this.reconnectResubscribeMaxMints = Number(config.pumpPortalReconnectResubscribeMaxMints || 150);
+    this.reconnectResubscribeBatchSize = Number(config.pumpPortalReconnectResubscribeBatchSize || 25);
+    this.reconnectResubscribeBatchDelayMs = Number(config.pumpPortalReconnectResubscribeBatchDelayMs || 500);
     this.reconnectTimer = null;
     this.reconnectDelayResetTimer = null;
+    this.resubscribeTimer = null;
+    this.pendingResubscribeMints = [];
     this.reconnectDelayResetAfterStableMs = 30000;
     this.healthCheckTimer = null;
     this.pingTimer = null;
@@ -71,6 +76,12 @@ class PumpPortalListener {
       tokenTradeSubscriptionPrunes: 0,
       tokenTradeTtlPrunes: 0,
       tokenTradeMaxActivePrunes: 0,
+      tokenTradeReconnectResubscribeScheduled: 0,
+      tokenTradeReconnectResubscribeSent: 0,
+      tokenTradeReconnectResubscribeDropped: 0,
+      reconnectResubscribeMaxMints: this.reconnectResubscribeMaxMints,
+      reconnectResubscribeBatchSize: this.reconnectResubscribeBatchSize,
+      reconnectResubscribeBatchDelayMs: this.reconnectResubscribeBatchDelayMs,
       subscriptionAckMessages: 0,
       newTokenSubscriptionAcks: 0,
       migrationSubscriptionAcks: 0,
@@ -109,6 +120,7 @@ class PumpPortalListener {
     }
 
     this.clearReconnectDelayResetTimer();
+    this.clearResubscribeTimer();
 
     if (this.healthCheckTimer) {
       clearInterval(this.healthCheckTimer);
@@ -197,6 +209,7 @@ class PumpPortalListener {
       this.stopHealthCheck();
       this.stopHeartbeat();
       this.clearReconnectDelayResetTimer();
+      this.clearResubscribeTimer();
       this.logger.warn('PumpPortal websocket closed', {
         code: this.stats.lastCloseCode,
         reason: this.stats.lastCloseReason || 'none',
@@ -439,9 +452,7 @@ class PumpPortalListener {
 
   unsubscribeTokenTrade(mint, reason = 'unknown') {
     if (!this.subscribedMints.has(mint)) return;
-    this.subscribedMints.delete(mint);
-    this.subscribedMintMeta.delete(mint);
-    this.skippedPaidStreamMints.delete(mint);
+    this.dropMintSubscription(mint);
     this.stats.tokenTradeUnsubscriptions += 1;
     this.stats.tokenTradeSubscriptionPrunes += 1;
     if (reason === 'ttl') {
@@ -456,6 +467,12 @@ class PumpPortalListener {
         keys: [mint]
       });
     }
+  }
+
+  dropMintSubscription(mint) {
+    this.subscribedMints.delete(mint);
+    this.subscribedMintMeta.delete(mint);
+    this.skippedPaidStreamMints.delete(mint);
   }
 
   resetReconnectDelay() {
@@ -530,16 +547,83 @@ class PumpPortalListener {
     }
 
     this.pruneMintSubscriptions();
-    const mints = Array.from(this.subscribedMints);
+    const ranked = Array.from(this.subscribedMints)
+      .map((mint) => ({
+        mint,
+        lastSeenAt: Number(this.subscribedMintMeta.get(mint)?.lastSeenAt || 0),
+        subscribedAt: Number(this.subscribedMintMeta.get(mint)?.subscribedAt || 0)
+      }))
+      .sort((a, b) => (b.lastSeenAt || b.subscribedAt) - (a.lastSeenAt || a.subscribedAt));
+    const limit = Number.isFinite(this.reconnectResubscribeMaxMints) && this.reconnectResubscribeMaxMints > 0
+      ? this.reconnectResubscribeMaxMints
+      : ranked.length;
+    const selected = ranked.slice(0, limit).map((item) => item.mint);
+    const dropped = ranked.slice(limit).map((item) => item.mint);
+
+    for (const mint of dropped) {
+      this.dropMintSubscription(mint);
+    }
+
+    if (dropped.length > 0) {
+      this.stats.tokenTradeReconnectResubscribeDropped += dropped.length;
+    }
+
+    const mints = selected.filter((mint) => this.subscribedMints.has(mint));
     if (mints.length === 0) {
       return;
     }
 
-    for (const mint of mints) {
-      this.subscribeTokenTrade(mint);
+    this.pendingResubscribeMints = mints;
+    this.stats.tokenTradeReconnectResubscribeScheduled += mints.length;
+    this.flushResubscribeBatch();
+
+    this.logger.info('Scheduled PumpPortal trade stream re-subscriptions', {
+      trackedMints: ranked.length,
+      scheduledMints: mints.length,
+      droppedMints: dropped.length,
+      batchSize: this.reconnectResubscribeBatchSize,
+      batchDelayMs: this.reconnectResubscribeBatchDelayMs
+    });
+  }
+
+  clearResubscribeTimer() {
+    if (this.resubscribeTimer) {
+      clearTimeout(this.resubscribeTimer);
+      this.resubscribeTimer = null;
+    }
+    this.pendingResubscribeMints = [];
+  }
+
+  flushResubscribeBatch() {
+    this.resubscribeTimer = null;
+
+    if (!this.running || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.pendingResubscribeMints = [];
+      return;
     }
 
-    this.logger.info(`Re-subscribed PumpPortal trade streams for ${mints.length} tracked mint(s)`);
+    const batchSize = Number.isFinite(this.reconnectResubscribeBatchSize) && this.reconnectResubscribeBatchSize > 0
+      ? this.reconnectResubscribeBatchSize
+      : this.pendingResubscribeMints.length;
+    const batch = this.pendingResubscribeMints.splice(0, batchSize);
+
+    for (const mint of batch) {
+      if (!this.subscribedMints.has(mint)) continue;
+      this.subscribeTokenTrade(mint);
+      this.stats.tokenTradeReconnectResubscribeSent += 1;
+    }
+
+    if (this.pendingResubscribeMints.length === 0) {
+      return;
+    }
+
+    const delayMs = Number.isFinite(this.reconnectResubscribeBatchDelayMs) && this.reconnectResubscribeBatchDelayMs >= 0
+      ? this.reconnectResubscribeBatchDelayMs
+      : 0;
+    this.resubscribeTimer = setTimeout(() => this.flushResubscribeBatch(), delayMs);
+    if (typeof this.resubscribeTimer.unref === 'function') {
+      this.resubscribeTimer.unref();
+    }
   }
 
   startHealthCheck() {
