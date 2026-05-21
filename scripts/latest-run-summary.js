@@ -846,6 +846,32 @@ function buildBondingCurvePressure(battlefield = {}) {
   };
 }
 
+function buildSolanaRpcPressure(battlefield = {}) {
+  const telemetry = readRuntimeStatsFromTelemetry(battlefield);
+  const stats = telemetry.stats?.solanaRpc || {};
+  const queue = stats.queue || {};
+  const callStats = stats.stats || {};
+  return {
+    ok: telemetry.ok && Boolean(telemetry.stats?.solanaRpc),
+    error: telemetry.ok ? null : telemetry.error,
+    primaryProvider: stats.primary?.httpUrl?.provider || null,
+    fallbackProvider: stats.fallback?.httpUrl?.provider || null,
+    primaryDegraded: stats.primaryDegraded === true,
+    primaryDegradedUntil: stats.primaryDegradedUntil || null,
+    active: number(queue.active, 0),
+    pending: number(queue.pending, 0),
+    maxConcurrentRequests: number(queue.maxConcurrentRequests, 0),
+    minRequestIntervalMs: number(queue.minRequestIntervalMs, 0),
+    primaryCalls: number(callStats.primaryCalls, 0),
+    fallbackCalls: number(callStats.fallbackCalls, 0),
+    primaryFailures: number(callStats.primaryFailures, 0),
+    fallbackSuccesses: number(callStats.fallbackSuccesses, 0),
+    fallbackFailures: number(callStats.fallbackFailures, 0),
+    queuedCalls: number(callStats.queuedCalls, 0),
+    maxQueueDepth: number(callStats.maxQueueDepth, 0)
+  };
+}
+
 function buildSummary(docs) {
   const battlefield = docs.battlefield.data || {};
   const simpleRuntimeAiEvidence = docs.simpleRuntimeAiEvidence.data || {};
@@ -948,6 +974,7 @@ function buildSummary(docs) {
   const aiHistoricalSummary = simpleRuntimeAiEvidence.summary || {};
   const pumpPortalHealth = buildPumpPortalHealth(battlefield);
   const bondingCurvePressure = buildBondingCurvePressure(battlefield);
+  const solanaRpcPressure = buildSolanaRpcPressure(battlefield);
   const runnerLifecycle = battlefield.runnerLane?.simpleRuntimeAiLifecycle || {};
   const signalExecutionLatency = battlefield.runnerLane?.signalExecutionLatencyMs || {};
 
@@ -1016,6 +1043,10 @@ function buildSummary(docs) {
   lines.push(`  - global backoff activations / skipped / high-curve bypasses: ${bondingCurvePressure.globalBackoffActivations} / ${bondingCurvePressure.skippedGlobalBackoff} / ${bondingCurvePressure.skippedGlobalBackoffHighCurveBypass}`);
   lines.push(`  - active / remaining: ${bondingCurvePressure.globalBackoffActive} / ${bondingCurvePressure.globalBackoffRemainingMs}ms`);
   lines.push(`  - last activation: ${bondingCurvePressure.lastGlobalBackoffActivatedAt || 'none'} (${bondingCurvePressure.lastGlobalBackoffErrorsInWindow} errors in window)`);
+  lines.push('- Solana RPC pressure:');
+  lines.push(`  - primary/fallback providers: ${solanaRpcPressure.primaryProvider || 'n/a'} / ${solanaRpcPressure.fallbackProvider || 'none'}`);
+  lines.push(`  - calls primary/fallback: ${solanaRpcPressure.primaryCalls} / ${solanaRpcPressure.fallbackCalls}; failures primary/fallback: ${solanaRpcPressure.primaryFailures} / ${solanaRpcPressure.fallbackFailures}`);
+  lines.push(`  - queue active/pending/maxDepth: ${solanaRpcPressure.active} / ${solanaRpcPressure.pending} / ${solanaRpcPressure.maxQueueDepth}; limits maxConcurrent=${solanaRpcPressure.maxConcurrentRequests || 'n/a'}, minInterval=${solanaRpcPressure.minRequestIntervalMs || 0}ms`);
   lines.push('');
 
   const runnerNearMiss = battlefield.runnerLane?.nearMissDiagnostic || {};

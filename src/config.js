@@ -41,6 +41,14 @@ class Config {
     return parseInt(process.env.SOLANA_RPC_PRIMARY_DOWNGRADE_MS || '300000', 10);
   }
 
+  static get solanaRpcMaxConcurrentRequests() {
+    return parseInt(process.env.SOLANA_RPC_MAX_CONCURRENT_REQUESTS || '2', 10);
+  }
+
+  static get solanaRpcMinRequestIntervalMs() {
+    return parseInt(process.env.SOLANA_RPC_MIN_REQUEST_INTERVAL_MS || '150', 10);
+  }
+
   static get heliusEnhancedWebsocketUrl() {
     return process.env.HELIUS_ENHANCED_WEBSOCKET_URL || null;
   }
@@ -1681,6 +1689,8 @@ class Config {
       { key: 'pumpBondingCurveGlobalBackoffHighCurveBypassProgress', value: this.pumpBondingCurveGlobalBackoffHighCurveBypassProgress, min: 0, max: 1 },
       { key: 'pumpBondingCurveMaxTrackedMints', value: this.pumpBondingCurveMaxTrackedMints, min: 1 },
       { key: 'pumpBondingCurveMaxFetchesPerCycle', value: this.pumpBondingCurveMaxFetchesPerCycle, min: 1 },
+      { key: 'solanaRpcMaxConcurrentRequests', value: this.solanaRpcMaxConcurrentRequests, min: 1 },
+      { key: 'solanaRpcMinRequestIntervalMs', value: this.solanaRpcMinRequestIntervalMs, min: 0 },
       { key: 'walletIntelRefreshIntervalMs', value: this.walletIntelRefreshIntervalMs, min: 1000 },
       { key: 'walletEventLedgerMaxRecentEvents', value: this.walletEventLedgerMaxRecentEvents, min: 1 },
       { key: 'telegramContextRefreshIntervalMs', value: this.telegramContextRefreshIntervalMs, min: 1000 },

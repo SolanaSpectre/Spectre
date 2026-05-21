@@ -7,18 +7,30 @@ class SolanaRpcRouter {
     this.primaryDowngradeMs = Number.isFinite(config.solanaRpcPrimaryDowngradeMs)
       ? Math.max(config.solanaRpcPrimaryDowngradeMs, 30000)
       : 300000;
+    this.maxConcurrentRequests = Number.isFinite(config.solanaRpcMaxConcurrentRequests)
+      ? Math.max(1, Math.floor(config.solanaRpcMaxConcurrentRequests))
+      : 2;
+    this.minRequestIntervalMs = Number.isFinite(config.solanaRpcMinRequestIntervalMs)
+      ? Math.max(0, Math.floor(config.solanaRpcMinRequestIntervalMs))
+      : 150;
     this.primaryDegradedUntil = 0;
     this.lastPrimaryFailureAt = null;
     this.lastPrimaryFailureReason = null;
     this.lastFallbackSuccessAt = null;
     this.lastRecoveryAt = null;
+    this.activeRequests = 0;
+    this.queue = [];
+    this.lastRequestStartedAt = 0;
+    this.queueTimer = null;
     this.stats = {
       primaryCalls: 0,
       fallbackCalls: 0,
       primaryFailures: 0,
       fallbackSuccesses: 0,
       fallbackFailures: 0,
-      recoveries: 0
+      recoveries: 0,
+      queuedCalls: 0,
+      maxQueueDepth: 0
     };
 
     this.primary = this.createTarget('primary', config.solanaRpcUrl, config.solanaRpcWebsocketUrl);
@@ -103,6 +115,12 @@ class SolanaRpcRouter {
       lastPrimaryFailureReason: this.lastPrimaryFailureReason,
       lastFallbackSuccessAt: this.lastFallbackSuccessAt,
       lastRecoveryAt: this.lastRecoveryAt,
+      queue: {
+        active: this.activeRequests,
+        pending: this.queue.length,
+        maxConcurrentRequests: this.maxConcurrentRequests,
+        minRequestIntervalMs: this.minRequestIntervalMs
+      },
       stats: { ...this.stats }
     };
   }
@@ -142,7 +160,58 @@ class SolanaRpcRouter {
     this.primaryDegradedUntil = 0;
   }
 
-  async call(methodName, args = []) {
+  enqueue(work) {
+    return new Promise((resolve, reject) => {
+      this.queue.push({ work, resolve, reject });
+      this.stats.queuedCalls += 1;
+      this.stats.maxQueueDepth = Math.max(this.stats.maxQueueDepth, this.queue.length);
+      this.processQueue();
+    });
+  }
+
+  processQueue() {
+    if (this.queueTimer) {
+      return;
+    }
+
+    if (!this.queue.length || this.activeRequests >= this.maxConcurrentRequests) {
+      return;
+    }
+
+    const now = Date.now();
+    const elapsed = now - this.lastRequestStartedAt;
+    const waitMs = this.minRequestIntervalMs > 0
+      ? Math.max(0, this.minRequestIntervalMs - elapsed)
+      : 0;
+
+    if (waitMs > 0) {
+      this.queueTimer = setTimeout(() => {
+        this.queueTimer = null;
+        this.processQueue();
+      }, waitMs);
+      return;
+    }
+
+    while (this.queue.length && this.activeRequests < this.maxConcurrentRequests) {
+      const item = this.queue.shift();
+      this.activeRequests += 1;
+      this.lastRequestStartedAt = Date.now();
+
+      Promise.resolve()
+        .then(item.work)
+        .then(item.resolve, item.reject)
+        .finally(() => {
+          this.activeRequests -= 1;
+          this.processQueue();
+        });
+
+      if (this.minRequestIntervalMs > 0) {
+        break;
+      }
+    }
+  }
+
+  async executeCall(methodName, args = []) {
     const targets = this.getPreferredTargets();
     const failures = [];
 
@@ -179,6 +248,10 @@ class SolanaRpcRouter {
     }
 
     throw new Error(`Solana RPC ${methodName} failed across all configured endpoints: ${failures.join(' | ')}`);
+  }
+
+  async call(methodName, args = []) {
+    return this.enqueue(() => this.executeCall(methodName, args));
   }
 
   getVersion() {

@@ -3847,6 +3847,7 @@ class TradingEngine {
       profitAllocation: this.capitalAllocation.getProfitAllocationByEquity(this.totalEquitySol),
       riskSizing: this.capitalAllocation.getRiskSizeByHotEquity(this.getAvailableTradingCapitalSol()),
       accounting: this.accounting.getStats(),
+      solanaRpc: this.connection.getStatus(),
       pumpPortal: this.pumpPortalListener.getStats(),
       poolStateLane: this.poolStateLane.getStats(),
       pumpBondingCurveLane: this.pumpBondingCurveLane.getStats(),
