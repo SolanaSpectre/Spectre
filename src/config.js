@@ -841,15 +841,15 @@ class Config {
   }
 
   static get pumpPortalReconnectResubscribeMaxMints() {
-    return parseInt(process.env.PUMPPORTAL_RECONNECT_RESUBSCRIBE_MAX_MINTS || '25', 10);
+    return parseInt(process.env.PUMPPORTAL_RECONNECT_RESUBSCRIBE_MAX_MINTS || '10', 10);
   }
 
   static get pumpPortalReconnectResubscribeBatchSize() {
-    return parseInt(process.env.PUMPPORTAL_RECONNECT_RESUBSCRIBE_BATCH_SIZE || '10', 10);
+    return parseInt(process.env.PUMPPORTAL_RECONNECT_RESUBSCRIBE_BATCH_SIZE || '2', 10);
   }
 
   static get pumpPortalReconnectResubscribeBatchDelayMs() {
-    return parseInt(process.env.PUMPPORTAL_RECONNECT_RESUBSCRIBE_BATCH_DELAY_MS || '1000', 10);
+    return parseInt(process.env.PUMPPORTAL_RECONNECT_RESUBSCRIBE_BATCH_DELAY_MS || '2500', 10);
   }
 
   static get pumpPortalEventHandlerConcurrency() {
