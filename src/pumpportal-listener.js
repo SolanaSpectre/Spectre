@@ -19,7 +19,7 @@ class PumpPortalListener {
     this.reconnectResubscribeMaxMints = Number(config.pumpPortalReconnectResubscribeMaxMints || 25);
     this.reconnectResubscribeBatchSize = Number(config.pumpPortalReconnectResubscribeBatchSize || 10);
     this.reconnectResubscribeBatchDelayMs = Number(config.pumpPortalReconnectResubscribeBatchDelayMs || 1000);
-    this.eventHandlerConcurrency = Math.max(1, Number(config.pumpPortalEventHandlerConcurrency || 8));
+    this.eventHandlerConcurrency = Math.max(1, Number(config.pumpPortalEventHandlerConcurrency || 6));
     this.eventQueueMaxSize = Math.max(1, Number(config.pumpPortalEventQueueMaxSize || 10000));
     this.eventQueue = [];
     this.processingEvents = 0;
@@ -176,6 +176,12 @@ class PumpPortalListener {
 
     this.logger.info('Connecting to PumpPortal websocket...');
     const socket = new WebSocket(this.getWebsocketUrl());
+    socket.pumpPortalHeartbeat = {
+      pingsSent: 0,
+      pongsReceived: 0,
+      lastPingAt: null,
+      lastPongAt: null
+    };
     this.ws = socket;
 
     socket.on('open', async () => {
@@ -230,7 +236,9 @@ class PumpPortalListener {
         code: this.stats.lastCloseCode,
         reason: this.stats.lastCloseReason || 'none',
         connectionAgeMs: this.stats.lastConnectionAgeMs,
-        reconnectDelayMs: this.currentReconnectDelayMs
+        reconnectDelayMs: this.currentReconnectDelayMs,
+        connectionPingsSent: socket.pumpPortalHeartbeat?.pingsSent || 0,
+        connectionPongsReceived: socket.pumpPortalHeartbeat?.pongsReceived || 0
       });
       this.emitLifecycle('provider.pumpportal.closed', {
         code: this.stats.lastCloseCode,
@@ -239,6 +247,14 @@ class PumpPortalListener {
         reconnectDelayMs: this.currentReconnectDelayMs,
         subscribedMints: this.subscribedMints.size,
         subscribedAccounts: this.subscribedAccounts.size,
+        connectionPingsSent: socket.pumpPortalHeartbeat?.pingsSent || 0,
+        connectionPongsReceived: socket.pumpPortalHeartbeat?.pongsReceived || 0,
+        connectionLastPingAt: socket.pumpPortalHeartbeat?.lastPingAt
+          ? new Date(socket.pumpPortalHeartbeat.lastPingAt).toISOString()
+          : null,
+        connectionLastPongAt: socket.pumpPortalHeartbeat?.lastPongAt
+          ? new Date(socket.pumpPortalHeartbeat.lastPongAt).toISOString()
+          : null,
         pingsSent: this.stats.pingsSent,
         pongsReceived: this.stats.pongsReceived,
         lastPingAt: this.stats.lastPingAt ? new Date(this.stats.lastPingAt).toISOString() : null,
@@ -272,6 +288,10 @@ class PumpPortalListener {
       if (this.ws !== socket) return;
       this.stats.pongsReceived += 1;
       this.stats.lastPongAt = Date.now();
+      if (socket.pumpPortalHeartbeat) {
+        socket.pumpPortalHeartbeat.pongsReceived += 1;
+        socket.pumpPortalHeartbeat.lastPongAt = this.stats.lastPongAt;
+      }
     });
   }
 
@@ -731,6 +751,10 @@ class PumpPortalListener {
         socket.ping();
         this.stats.pingsSent += 1;
         this.stats.lastPingAt = Date.now();
+        if (socket.pumpPortalHeartbeat) {
+          socket.pumpPortalHeartbeat.pingsSent += 1;
+          socket.pumpPortalHeartbeat.lastPingAt = this.stats.lastPingAt;
+        }
       } catch (error) {
         this.stats.lastErrorAt = Date.now();
         this.stats.lastErrorMessage = error.message;
@@ -759,7 +783,11 @@ class PumpPortalListener {
       return;
     }
 
-    const baselineAt = this.stats.lastMessageAt || this.stats.lastConnectedAt;
+    const baselineAt = Math.max(
+      Number(this.stats.lastMessageAt || 0),
+      Number(this.stats.lastPongAt || 0),
+      Number(this.stats.lastConnectedAt || 0)
+    );
     if (!baselineAt) {
       return;
     }

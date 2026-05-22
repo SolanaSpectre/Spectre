@@ -853,7 +853,7 @@ class Config {
   }
 
   static get pumpPortalEventHandlerConcurrency() {
-    return parseInt(process.env.PUMPPORTAL_EVENT_HANDLER_CONCURRENCY || '8', 10);
+    return parseInt(process.env.PUMPPORTAL_EVENT_HANDLER_CONCURRENCY || '6', 10);
   }
 
   static get pumpPortalEventQueueMaxSize() {

@@ -581,6 +581,8 @@ function readPumpPortalStatsFromTelemetry(battlefield = {}) {
     staleReconnects: 0,
     closeConnectionAgeMs: [],
     closeSubscribedMints: [],
+    closeConnectionPingsSent: [],
+    closeConnectionPongsReceived: [],
     lastCloseCode: null,
     lastCloseReason: null
   };
@@ -597,6 +599,8 @@ function readPumpPortalStatsFromTelemetry(battlefield = {}) {
           const payload = event.payload || event.data || {};
           lifecycle.closeConnectionAgeMs.push(payload.connectionAgeMs);
           lifecycle.closeSubscribedMints.push(payload.subscribedMints);
+          lifecycle.closeConnectionPingsSent.push(payload.connectionPingsSent);
+          lifecycle.closeConnectionPongsReceived.push(payload.connectionPongsReceived);
           lifecycle.lastCloseCode = payload.code ?? lifecycle.lastCloseCode;
           lifecycle.lastCloseReason = payload.reason || lifecycle.lastCloseReason;
         } else if (event.type === 'provider.pumpportal.websocket_error') {
@@ -685,6 +689,8 @@ function buildPumpPortalHealth(battlefield = {}) {
   const lifecycle = telemetry.lifecycle || {};
   const closeAgeStats = numericStats(lifecycle.closeConnectionAgeMs || []);
   const closeSubscribedMintStats = numericStats(lifecycle.closeSubscribedMints || []);
+  const closeConnectionPingStats = numericStats(lifecycle.closeConnectionPingsSent || []);
+  const closeConnectionPongStats = numericStats(lifecycle.closeConnectionPongsReceived || []);
   const messages = number(stats.messages, 0);
   const newTokens = number(stats.newTokens, number(eventCounts['provider.pumpportal.new_token'], 0));
   const trades = number(stats.trades, number(eventCounts['provider.pumpportal.trade'], 0));
@@ -842,7 +848,9 @@ function buildPumpPortalHealth(battlefield = {}) {
       websocketErrors: number(lifecycle.websocketErrors, 0),
       staleReconnects: number(lifecycle.staleReconnects, 0),
       closeAgeStats,
-      closeSubscribedMintStats
+      closeSubscribedMintStats,
+      closeConnectionPingStats,
+      closeConnectionPongStats
     },
     connected,
     paidTradeStreamsEnabled,
@@ -1067,7 +1075,9 @@ function buildSummary(docs) {
   if ((pumpPortalHealth.lifecycle?.closed || 0) > 0) {
     const age = pumpPortalHealth.lifecycle.closeAgeStats || {};
     const subs = pumpPortalHealth.lifecycle.closeSubscribedMintStats || {};
-    lines.push(`  - structured close lifecycle: connected/closed/errors=${pumpPortalHealth.lifecycle.connected} / ${pumpPortalHealth.lifecycle.closed} / ${pumpPortalHealth.lifecycle.websocketErrors}, closeAge median/p90/max=${age.median === null ? 'n/a' : `${fmt(age.median, 0)}ms`} / ${age.p90 === null ? 'n/a' : `${fmt(age.p90, 0)}ms`} / ${age.max === null ? 'n/a' : `${fmt(age.max, 0)}ms`}, close subscribedMints median/max=${subs.median === null ? 'n/a' : fmt(subs.median, 0)} / ${subs.max === null ? 'n/a' : fmt(subs.max, 0)}`);
+    const closePings = pumpPortalHealth.lifecycle.closeConnectionPingStats || {};
+    const closePongs = pumpPortalHealth.lifecycle.closeConnectionPongStats || {};
+    lines.push(`  - structured close lifecycle: connected/closed/errors=${pumpPortalHealth.lifecycle.connected} / ${pumpPortalHealth.lifecycle.closed} / ${pumpPortalHealth.lifecycle.websocketErrors}, closeAge median/p90/max=${age.median === null ? 'n/a' : `${fmt(age.median, 0)}ms`} / ${age.p90 === null ? 'n/a' : `${fmt(age.p90, 0)}ms`} / ${age.max === null ? 'n/a' : `${fmt(age.max, 0)}ms`}, close subscribedMints median/max=${subs.median === null ? 'n/a' : fmt(subs.median, 0)} / ${subs.max === null ? 'n/a' : fmt(subs.max, 0)}, close pings/pongs median=${closePings.median === null ? 'n/a' : fmt(closePings.median, 0)} / ${closePongs.median === null ? 'n/a' : fmt(closePongs.median, 0)}`);
   }
   lines.push(`  - current/max reconnect backoff delay: ${pumpPortalHealth.reconnectDelayMs ? `${pumpPortalHealth.reconnectDelayMs}ms` : 'n/a'} / ${pumpPortalHealth.maxReconnectDelayMs ? `${pumpPortalHealth.maxReconnectDelayMs}ms` : 'n/a'}`);
   lines.push(`  - stable reconnect resets / reset window: ${pumpPortalHealth.reconnectDelayStableResets} / ${pumpPortalHealth.reconnectDelayResetAfterStableMs ? `${pumpPortalHealth.reconnectDelayResetAfterStableMs}ms` : 'n/a'}`);
