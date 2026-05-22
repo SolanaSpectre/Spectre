@@ -13,6 +13,8 @@ class MarketData {
     this.jupiterApiBaseUrl = config.jupiterApiBaseUrl;
     this.lastQuoteTime = new Map();
     this.solPriceCache = null;
+    this.solPriceInFlight = null;
+    this.solPriceFailureUntil = 0;
     this.tokenPriceCache = new Map();
     this.lastJupiterRequestAt = 0;
     this.birdeyeCache = new Map();
@@ -86,15 +88,39 @@ class MarketData {
       return cached;
     }
 
+    if (this.solPriceInFlight) {
+      return this.solPriceInFlight;
+    }
+
     const stale = this.getStaleCache(this.solPriceCache, this.config.solPriceStaleTtlMs);
+    const now = Date.now();
     if (
       stale &&
       this.solPriceCache.lastErrorAt &&
-      Date.now() - this.solPriceCache.lastErrorAt <= this.config.solPriceFailureCooldownMs
+      now - this.solPriceCache.lastErrorAt <= this.config.solPriceFailureCooldownMs
     ) {
       return stale.value;
     }
 
+    if (now < this.solPriceFailureUntil) {
+      if (stale) {
+        return stale.value;
+      }
+
+      if (this.config.executionMode !== 'LIVE') {
+        return 0;
+      }
+    }
+
+    this.solPriceInFlight = this.fetchSolanaPrice(stale);
+    try {
+      return await this.solPriceInFlight;
+    } finally {
+      this.solPriceInFlight = null;
+    }
+  }
+
+  async fetchSolanaPrice(stale = null) {
     try {
       await this.waitForJupiterSlot();
       const response = await this.http.get(
@@ -114,7 +140,8 @@ class MarketData {
       };
       return value;
     } catch (error) {
-      const fallback = this.getStaleCache(this.solPriceCache, this.config.solPriceStaleTtlMs);
+      const fallback = stale || this.getStaleCache(this.solPriceCache, this.config.solPriceStaleTtlMs);
+      this.solPriceFailureUntil = Date.now() + Math.max(Number(this.config.solPriceFailureCooldownMs || 0), 1000);
       if (this.solPriceCache) {
         this.solPriceCache.lastErrorAt = Date.now();
         this.solPriceCache.lastErrorMessage = error.message;
@@ -128,7 +155,15 @@ class MarketData {
         return fallback.value;
       }
 
-      this.logger.error('Failed to fetch SOL price', error.message);
+      this.warnOnce(
+        'sol-price:no-cache',
+        Math.max(Number(this.config.solPriceFailureCooldownMs || 0), 1000),
+        'Failed to fetch SOL price',
+        error.message
+      );
+      if (this.config.executionMode !== 'LIVE') {
+        return 0;
+      }
       throw error;
     }
   }
