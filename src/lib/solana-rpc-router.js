@@ -236,9 +236,12 @@ class SolanaRpcRouter {
       } catch (error) {
         failures.push(`${target.label}:${error?.message || String(error || 'unknown error')}`);
 
-        if (target.label === 'primary' && this.fallback) {
-          this.markPrimaryFailure(error);
-          continue;
+        if (target.label === 'primary') {
+          if (this.fallback) {
+            this.markPrimaryFailure(error);
+            continue;
+          }
+          this.stats.primaryFailures += 1;
         }
 
         if (target.label === 'fallback') {

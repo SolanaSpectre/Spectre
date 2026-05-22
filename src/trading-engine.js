@@ -3647,6 +3647,12 @@ class TradingEngine {
 
   async refreshCapitalState() {
     const now = Date.now();
+    if (this.executionModeManager.isPaper() && this.currentPositions.size === 0) {
+      this.lastCapitalBalanceLookupAt = now;
+      this.recomputeCapitalState();
+      return;
+    }
+
     const paperRefreshIntervalMs = Number(this.config.paperBalanceRefreshIntervalMs || 15000);
     const shouldReusePaperBalances = this.executionModeManager.isPaper()
       && this.lastCapitalBalanceLookupAt > 0
