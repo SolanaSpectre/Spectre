@@ -294,7 +294,7 @@ class PumpPortalListener {
       return;
     }
 
-    if (method === 'migration' || method === 'subscribeMigration') {
+    if (this.isMigrationPayload(payload, method)) {
       this.stats.migrations += 1;
       this.captureSample('migration', payload);
       if (this.handlers.onMigration) {
@@ -321,6 +321,15 @@ class PumpPortalListener {
         });
       }
     }
+  }
+
+  isMigrationPayload(payload = {}, method = '') {
+    const normalizedMethod = String(method || payload.method || payload.type || '').toLowerCase();
+    const txType = String(payload.txType || '').toLowerCase();
+    return normalizedMethod === 'migration'
+      || normalizedMethod === 'subscribemigration'
+      || txType === 'migrate'
+      || txType === 'migration';
   }
 
   recordSubscriptionAck(payload) {

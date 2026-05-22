@@ -62,9 +62,18 @@ function sanitizeUrl(url) {
 function classifyMessage(payload = {}) {
   const method = payload.method || payload.type || payload.txType || '';
   if (method === 'newToken' || method === 'subscribeNewToken' || payload.txType === 'create') return 'newToken';
-  if (method === 'migration' || method === 'subscribeMigration') return 'migration';
+  if (isMigrationPayload(payload, method)) return 'migration';
   if (payload.mint || payload.token || payload.mintAddress) return 'tradeOrMintEvent';
   return method || 'unknown';
+}
+
+function isMigrationPayload(payload = {}, method = '') {
+  const normalizedMethod = String(method || payload.method || payload.type || '').toLowerCase();
+  const txType = String(payload.txType || '').toLowerCase();
+  return normalizedMethod === 'migration'
+    || normalizedMethod === 'subscribemigration'
+    || txType === 'migrate'
+    || txType === 'migration';
 }
 
 function mintOf(payload = {}) {
