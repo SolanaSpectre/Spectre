@@ -709,6 +709,15 @@ function buildPumpPortalHealth(battlefield = {}) {
   const reconnectResubscribeMaxMints = number(stats.reconnectResubscribeMaxMints, 0);
   const reconnectResubscribeBatchSize = number(stats.reconnectResubscribeBatchSize, 0);
   const reconnectResubscribeBatchDelayMs = number(stats.reconnectResubscribeBatchDelayMs, 0);
+  const eventHandlerConcurrency = number(stats.eventHandlerConcurrency, 0);
+  const eventQueueMaxSize = number(stats.eventQueueMaxSize, 0);
+  const eventQueueDepth = number(stats.eventQueueDepth, 0);
+  const eventQueueMaxDepth = number(stats.eventQueueMaxDepth, 0);
+  const eventQueueDropped = number(stats.eventQueueDropped, 0);
+  const eventQueueDiscardedOnStop = number(stats.eventQueueDiscardedOnStop, 0);
+  const eventQueueProcessed = number(stats.eventQueueProcessed, 0);
+  const eventQueueHandlerErrors = number(stats.eventQueueHandlerErrors, 0);
+  const eventQueueProcessingActive = number(stats.eventQueueProcessingActive, 0);
   const subscriptionAckMessages = number(stats.subscriptionAckMessages, 0);
   const newTokenSubscriptionAcks = number(stats.newTokenSubscriptionAcks, 0);
   const migrationSubscriptionAcks = number(stats.migrationSubscriptionAcks, 0);
@@ -791,6 +800,15 @@ function buildPumpPortalHealth(battlefield = {}) {
     reconnectResubscribeMaxMints,
     reconnectResubscribeBatchSize,
     reconnectResubscribeBatchDelayMs,
+    eventHandlerConcurrency,
+    eventQueueMaxSize,
+    eventQueueDepth,
+    eventQueueMaxDepth,
+    eventQueueDropped,
+    eventQueueDiscardedOnStop,
+    eventQueueProcessed,
+    eventQueueHandlerErrors,
+    eventQueueProcessingActive,
     subscriptionAckMessages,
     newTokenSubscriptionAcks,
     migrationSubscriptionAcks,
@@ -1029,6 +1047,7 @@ function buildSummary(docs) {
     ? 'n/a'
     : `${pumpPortalHealth.reconnectResubscribeBatchDelayMs}ms`;
   lines.push(`  - reconnect resubscribe pressure: max=${pumpPortalHealth.reconnectResubscribeMaxMints || 'n/a'}, batch=${pumpPortalHealth.reconnectResubscribeBatchSize || 'n/a'}, delay=${reconnectDelay}, scheduled/sent/dropped=${pumpPortalHealth.tokenTradeReconnectResubscribeScheduled || 0} / ${pumpPortalHealth.tokenTradeReconnectResubscribeSent || 0} / ${pumpPortalHealth.tokenTradeReconnectResubscribeDropped || 0}`);
+  lines.push(`  - message handler queue: active=${pumpPortalHealth.eventQueueProcessingActive || 0}, depth/max=${pumpPortalHealth.eventQueueDepth || 0} / ${pumpPortalHealth.eventQueueMaxDepth || 0}, processed/dropped/stop-discarded/errors=${pumpPortalHealth.eventQueueProcessed || 0} / ${pumpPortalHealth.eventQueueDropped || 0} / ${pumpPortalHealth.eventQueueDiscardedOnStop || 0} / ${pumpPortalHealth.eventQueueHandlerErrors || 0}, concurrency=${pumpPortalHealth.eventHandlerConcurrency || 'n/a'}, max=${pumpPortalHealth.eventQueueMaxSize || 'n/a'}`);
   lines.push(`  - subscription ACKs total/new/migration/token/account/unknown: ${pumpPortalHealth.subscriptionAckMessages || 0} / ${pumpPortalHealth.newTokenSubscriptionAcks || 0} / ${pumpPortalHealth.migrationSubscriptionAcks || 0} / ${pumpPortalHealth.tokenTradeSubscriptionAcks || 0} / ${pumpPortalHealth.accountTradeSubscriptionAcks || 0} / ${pumpPortalHealth.unknownSubscriptionAcks || 0}`);
   if (pumpPortalHealth.lastSubscriptionAckMessage) {
     lines.push(`  - last subscription ACK: kind=${pumpPortalHealth.lastSubscriptionAckKind || 'unknown'} message="${pumpPortalHealth.lastSubscriptionAckMessage}"`);

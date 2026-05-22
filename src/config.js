@@ -852,6 +852,14 @@ class Config {
     return parseInt(process.env.PUMPPORTAL_RECONNECT_RESUBSCRIBE_BATCH_DELAY_MS || '1000', 10);
   }
 
+  static get pumpPortalEventHandlerConcurrency() {
+    return parseInt(process.env.PUMPPORTAL_EVENT_HANDLER_CONCURRENCY || '4', 10);
+  }
+
+  static get pumpPortalEventQueueMaxSize() {
+    return parseInt(process.env.PUMPPORTAL_EVENT_QUEUE_MAX_SIZE || '5000', 10);
+  }
+
   static get gmgnApiBaseUrl() {
     return process.env.GMGN_API_BASE_URL || 'https://gmgn.ai';
   }
@@ -1691,6 +1699,8 @@ class Config {
       { key: 'pumpBondingCurveMaxFetchesPerCycle', value: this.pumpBondingCurveMaxFetchesPerCycle, min: 1 },
       { key: 'solanaRpcMaxConcurrentRequests', value: this.solanaRpcMaxConcurrentRequests, min: 1 },
       { key: 'solanaRpcMinRequestIntervalMs', value: this.solanaRpcMinRequestIntervalMs, min: 0 },
+      { key: 'pumpPortalEventHandlerConcurrency', value: this.pumpPortalEventHandlerConcurrency, min: 1 },
+      { key: 'pumpPortalEventQueueMaxSize', value: this.pumpPortalEventQueueMaxSize, min: 1 },
       { key: 'walletIntelRefreshIntervalMs', value: this.walletIntelRefreshIntervalMs, min: 1000 },
       { key: 'walletEventLedgerMaxRecentEvents', value: this.walletEventLedgerMaxRecentEvents, min: 1 },
       { key: 'telegramContextRefreshIntervalMs', value: this.telegramContextRefreshIntervalMs, min: 1000 },

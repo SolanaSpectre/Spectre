@@ -19,6 +19,10 @@ class PumpPortalListener {
     this.reconnectResubscribeMaxMints = Number(config.pumpPortalReconnectResubscribeMaxMints || 25);
     this.reconnectResubscribeBatchSize = Number(config.pumpPortalReconnectResubscribeBatchSize || 10);
     this.reconnectResubscribeBatchDelayMs = Number(config.pumpPortalReconnectResubscribeBatchDelayMs || 1000);
+    this.eventHandlerConcurrency = Math.max(1, Number(config.pumpPortalEventHandlerConcurrency || 4));
+    this.eventQueueMaxSize = Math.max(1, Number(config.pumpPortalEventQueueMaxSize || 5000));
+    this.eventQueue = [];
+    this.processingEvents = 0;
     this.reconnectTimer = null;
     this.reconnectDelayResetTimer = null;
     this.resubscribeTimer = null;
@@ -82,6 +86,17 @@ class PumpPortalListener {
       reconnectResubscribeMaxMints: this.reconnectResubscribeMaxMints,
       reconnectResubscribeBatchSize: this.reconnectResubscribeBatchSize,
       reconnectResubscribeBatchDelayMs: this.reconnectResubscribeBatchDelayMs,
+      eventHandlerConcurrency: this.eventHandlerConcurrency,
+      eventQueueMaxSize: this.eventQueueMaxSize,
+      eventQueueDepth: 0,
+      eventQueueMaxDepth: 0,
+      eventQueueDropped: 0,
+      eventQueueDiscardedOnStop: 0,
+      eventQueueProcessed: 0,
+      eventQueueHandlerErrors: 0,
+      eventQueueProcessingActive: 0,
+      eventQueueLastDroppedAt: null,
+      eventQueueLastProcessedAt: null,
       subscriptionAckMessages: 0,
       newTokenSubscriptionAcks: 0,
       migrationSubscriptionAcks: 0,
@@ -128,6 +143,11 @@ class PumpPortalListener {
     }
 
     this.stopHeartbeat();
+    if (this.eventQueue.length > 0) {
+      this.stats.eventQueueDiscardedOnStop += this.eventQueue.length;
+    }
+    this.eventQueue = [];
+    this.stats.eventQueueDepth = 0;
 
     if (this.ws) {
       const socket = this.ws;
@@ -178,7 +198,7 @@ class PumpPortalListener {
       });
     });
 
-    socket.on('message', async (raw) => {
+    socket.on('message', (raw) => {
       this.stats.messages += 1;
       this.stats.lastMessageAt = Date.now();
 
@@ -190,11 +210,7 @@ class PumpPortalListener {
         return;
       }
 
-      try {
-        await this.handleMessage(payload);
-      } catch (error) {
-        this.logger.warn('PumpPortal message handler failed', error.message);
-      }
+      this.enqueueMessage(payload);
     });
 
     socket.on('close', (code, reasonBuffer) => {
@@ -257,6 +273,47 @@ class PumpPortalListener {
       this.stats.pongsReceived += 1;
       this.stats.lastPongAt = Date.now();
     });
+  }
+
+  enqueueMessage(payload) {
+    if (this.eventQueue.length >= this.eventQueueMaxSize) {
+      this.eventQueue.shift();
+      this.stats.eventQueueDropped += 1;
+      this.stats.eventQueueLastDroppedAt = Date.now();
+    }
+
+    this.eventQueue.push(payload);
+    this.stats.eventQueueDepth = this.eventQueue.length;
+    this.stats.eventQueueMaxDepth = Math.max(this.stats.eventQueueMaxDepth || 0, this.eventQueue.length);
+    this.drainEventQueue();
+  }
+
+  drainEventQueue() {
+    while (this.processingEvents < this.eventHandlerConcurrency && this.eventQueue.length > 0) {
+      const payload = this.eventQueue.shift();
+      this.stats.eventQueueDepth = this.eventQueue.length;
+      this.processingEvents += 1;
+      this.stats.eventQueueProcessingActive = this.processingEvents;
+
+      Promise.resolve()
+        .then(() => this.handleMessage(payload))
+        .then(() => {
+          this.stats.eventQueueProcessed += 1;
+          this.stats.eventQueueLastProcessedAt = Date.now();
+        })
+        .catch((error) => {
+          this.stats.eventQueueHandlerErrors += 1;
+          this.logger.warn('PumpPortal message handler failed', error.message);
+        })
+        .finally(() => {
+          this.processingEvents -= 1;
+          this.stats.eventQueueProcessingActive = this.processingEvents;
+          this.stats.eventQueueDepth = this.eventQueue.length;
+          if (this.eventQueue.length > 0) {
+            setImmediate(() => this.drainEventQueue());
+          }
+        });
+    }
   }
 
   async handleMessage(payload) {
@@ -800,7 +857,9 @@ class PumpPortalListener {
       skippedPaidStreamMints: this.skippedPaidStreamMints.size,
       maxSubscribedMints: this.maxSubscribedMints,
       maxReconnectDelayMs: this.maxReconnectDelayMs,
-      tokenTradeSubscriptionTtlMs: this.tokenTradeSubscriptionTtlMs
+      tokenTradeSubscriptionTtlMs: this.tokenTradeSubscriptionTtlMs,
+      eventQueueDepth: this.eventQueue.length,
+      eventQueueProcessingActive: this.processingEvents
     };
   }
 }
