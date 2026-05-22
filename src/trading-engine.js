@@ -85,6 +85,7 @@ class TradingEngine {
     this.paperPositions = new Map();
     this.rejectedTrades = [];
     this.latestPumpPortalTokens = new Map();
+    this.pendingPumpBondingCurveSyncs = new Set();
     this.tokenSignalCooldowns = new Map();
     this.preMigrationPaperRechecks = new Map();
     this.preMigrationPaperExpiredRechecks = new Set();
@@ -3277,6 +3278,11 @@ class TradingEngine {
       return;
     }
 
+    if (this.pendingPumpBondingCurveSyncs.has(mint)) {
+      return;
+    }
+
+    this.pendingPumpBondingCurveSyncs.add(mint);
     this.syncPumpBondingCurveState(mint, token, {
       observeAfterSync: true,
       launchIntelSummary
@@ -3285,6 +3291,8 @@ class TradingEngine {
         mint,
         error: error.message
       });
+    }).finally(() => {
+      this.pendingPumpBondingCurveSyncs.delete(mint);
     });
   }
 
@@ -3370,9 +3378,12 @@ class TradingEngine {
     }
     this.latestPumpPortalTokens.set(mint, current);
     const walletLedgerRecord = this.recordWatchedWalletTrade(event, current, launchIntelSummary);
-    await this.syncPumpBondingCurveBeforePreMigrationObservation(mint, current, launchIntelSummary);
-    this.observePreMigrationToken(current, launchIntelSummary);
+    const curveRefreshDue = Boolean(this.pumpBondingCurveLane?.isRefreshDue?.(mint));
+    const hasUsableCurveState = Number.isFinite(Number(current.curveProgress));
     this.schedulePumpBondingCurveSync(mint, current, launchIntelSummary);
+    if (!curveRefreshDue || hasUsableCurveState) {
+      this.observePreMigrationToken(current, launchIntelSummary);
+    }
     this.telemetry.record('provider.pumpportal.trade', {
       mint,
       tradeCount: current.tradeCount,
