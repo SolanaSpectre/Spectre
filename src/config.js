@@ -837,7 +837,7 @@ class Config {
   }
 
   static get pumpPortalTokenTradeSubscriptionTtlMs() {
-    return parseInt(process.env.PUMPPORTAL_TOKEN_TRADE_SUBSCRIPTION_TTL_MS || '300000', 10);
+    return parseInt(process.env.PUMPPORTAL_TOKEN_TRADE_SUBSCRIPTION_TTL_MS || '1800000', 10);
   }
 
   static get pumpPortalReconnectResubscribeMaxMints() {
