@@ -271,6 +271,8 @@ async function callSimpleRuntimeReview(instance, tokenInfo, signal) {
     model: RUNTIME_MODEL,
     stream: false,
     format: 'json',
+    think: false,
+    keep_alive: instance.config?.ollamaKeepAlive || '30m',
     messages: [
       { role: 'system', content: simpleSystemPrompt() },
       { role: 'user', content: `Review this Spectre runtime candidate. Return JSON only.\n\nCandidate JSON:\n${JSON.stringify(packet)}` }
@@ -306,6 +308,8 @@ function patchAIAgent(AIAgent) {
           model: RUNTIME_MODEL,
           stream: false,
           format: 'json',
+          think: false,
+          keep_alive: this.config?.ollamaKeepAlive || '30m',
           messages: [
             { role: 'system', content: simpleSystemPrompt() },
             { role: 'user', content: 'Return {"action":"WATCH","confidence":10,"risk":"MEDIUM","reason":"warm"}' }

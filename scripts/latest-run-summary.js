@@ -508,14 +508,18 @@ function buildAiReachability(battlefield = {}) {
   const runner = battlefield.runnerLane || {};
   const eventCounts = battlefield.eventCounts || {};
   const diag = runner.scalperDiagnostics || {};
+  const lifecycle = runner.simpleRuntimeAiLifecycle || {};
   const generatedSignals = number(runner.generatedSignals ?? diag.generatedSignals, 0);
   const executedSignals = number(runner.executedSignals ?? diag.executedSignals, 0);
   const rejectedTrades = number(runner.rejectedTrades, 0);
   const quoteRejects = number(diag.quoteRejects, 0);
   const aiRejects = number(diag.aiRejects, 0);
-  const lifecycleAttempts = number(eventCounts['simple_runtime_ai.review_started'], 0);
-  const lifecycleCompleted = number(eventCounts['simple_runtime_ai.review_completed'], 0);
-  const lifecycleFailed = number(eventCounts['simple_runtime_ai.review_failed'], 0);
+  const lifecycleAttempts = number(lifecycle.attempts, number(eventCounts['simple_runtime_ai.review_started'], 0));
+  const lifecycleCompleted = number(lifecycle.completed, number(eventCounts['simple_runtime_ai.review_completed'], 0));
+  const lifecycleFailed = number(lifecycle.failed, number(eventCounts['simple_runtime_ai.review_failed'], 0));
+  const lifecycleAttemptsExceedingOuterTimeout = number(lifecycle.attemptsExceedingOuterTimeout, 0);
+  const lifecycleCompletedLatencyMs = lifecycle.completedLatencyMs || {};
+  const lifecycleFailedLatencyMs = lifecycle.failedLatencyMs || {};
   const aiDecisionEvents = number(eventCounts['signal.ai_decision'], 0)
     + number(eventCounts['ai.veto'], 0)
     + number(eventCounts['ai.caution'], 0);
@@ -545,6 +549,9 @@ function buildAiReachability(battlefield = {}) {
     lifecycleAttempts,
     lifecycleCompleted,
     lifecycleFailed,
+    lifecycleAttemptsExceedingOuterTimeout,
+    lifecycleCompletedLatencyMs,
+    lifecycleFailedLatencyMs,
     aiRejects,
     aiDecisionEvents,
     aiTimeoutFallbacks,
