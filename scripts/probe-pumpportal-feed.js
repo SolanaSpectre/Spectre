@@ -80,11 +80,6 @@ function mintOf(payload = {}) {
   return payload.mint || payload.token || payload.mintAddress || null;
 }
 
-function send(socket, message) {
-  if (socket.readyState !== WebSocket.OPEN) return;
-  socket.send(JSON.stringify(message));
-}
-
 function buildEmptyStats(mode, url, durationMs, sampleTokenTrades, pingIntervalMs) {
   const paidSamplingEnabled = mode === 'configured' && Boolean(Config.pumpPortalApiKey) && sampleTokenTrades > 0;
   return {
@@ -93,6 +88,11 @@ function buildEmptyStats(mode, url, durationMs, sampleTokenTrades, pingIntervalM
     durationMs,
     sampleTokenTrades,
     pingIntervalMs,
+    mimicRuntimeChurn: false,
+    churnIntervalMs: null,
+    churnUnsubscribeCount: null,
+    churnBurstIntervalMs: null,
+    churnBurstSize: null,
     paidSamplingEnabled,
     startedAt: nowIso(),
     stoppedAt: null,
@@ -108,6 +108,14 @@ function buildEmptyStats(mode, url, durationMs, sampleTokenTrades, pingIntervalM
     tradeOrMintEvents: 0,
     unknownMessages: 0,
     subscribedTokenTrades: 0,
+    knownMints: 0,
+    queuedMints: 0,
+    tokenTradeSubscribeFrames: 0,
+    tokenTradeUnsubscribeFrames: 0,
+    tokenTradeResubscribeFrames: 0,
+    controlFramesSent: 0,
+    churnRotations: 0,
+    churnBurstEvents: 0,
     lastMessageAt: null,
     lastPingAt: null,
     lastPongAt: null,
@@ -133,14 +141,90 @@ function recordSample(stats, type, payload) {
   };
 }
 
-function runProbe({ mode, durationMs, sampleTokenTrades, pingIntervalMs }) {
+function runProbe({
+  mode,
+  durationMs,
+  sampleTokenTrades,
+  pingIntervalMs,
+  mimicRuntimeChurn,
+  churnIntervalMs,
+  churnUnsubscribeCount,
+  churnBurstIntervalMs,
+  churnBurstSize
+}) {
   return new Promise((resolve) => {
     const url = urlForMode(mode);
     const stats = buildEmptyStats(mode, url, durationMs, sampleTokenTrades, pingIntervalMs);
+    stats.mimicRuntimeChurn = Boolean(mimicRuntimeChurn);
+    stats.churnIntervalMs = Number.isFinite(churnIntervalMs) && churnIntervalMs > 0 ? churnIntervalMs : null;
+    stats.churnUnsubscribeCount = Number.isFinite(churnUnsubscribeCount) && churnUnsubscribeCount > 0 ? churnUnsubscribeCount : null;
+    stats.churnBurstIntervalMs = Number.isFinite(churnBurstIntervalMs) && churnBurstIntervalMs > 0 ? churnBurstIntervalMs : null;
+    stats.churnBurstSize = Number.isFinite(churnBurstSize) && churnBurstSize > 0 ? churnBurstSize : null;
     const subscribedMints = new Set();
+    const knownMints = new Set();
+    const queuedMints = [];
+    const subscriptionOrder = [];
     let settled = false;
     let pingTimer = null;
+    let churnTimer = null;
+    let burstTimer = null;
     const socket = new WebSocket(url);
+
+    const sendControlFrame = (message, counterName) => {
+      if (socket.readyState !== WebSocket.OPEN) return false;
+      socket.send(JSON.stringify(message));
+      stats.controlFramesSent += 1;
+      if (counterName) stats[counterName] += 1;
+      return true;
+    };
+
+    const subscribeMint = (mint, counterName = 'tokenTradeSubscribeFrames') => {
+      if (!mint || subscribedMints.has(mint)) return false;
+      subscribedMints.add(mint);
+      subscriptionOrder.push(mint);
+      stats.subscribedTokenTrades = subscribedMints.size;
+      return sendControlFrame({ method: 'subscribeTokenTrade', keys: [mint] }, counterName);
+    };
+
+    const unsubscribeMint = (mint) => {
+      if (!mint || !subscribedMints.has(mint)) return false;
+      subscribedMints.delete(mint);
+      stats.subscribedTokenTrades = subscribedMints.size;
+      return sendControlFrame({ method: 'unsubscribeTokenTrade', keys: [mint] }, 'tokenTradeUnsubscribeFrames');
+    };
+
+    const nextQueuedMint = () => {
+      while (queuedMints.length > 0) {
+        const mint = queuedMints.shift();
+        if (mint && !subscribedMints.has(mint)) return mint;
+      }
+      return null;
+    };
+
+    const rotateChurnMints = () => {
+      if (!stats.mimicRuntimeChurn || socket.readyState !== WebSocket.OPEN) return;
+      let rotated = 0;
+      const maxRotations = stats.churnUnsubscribeCount || 1;
+      while (rotated < maxRotations && subscriptionOrder.length > 0) {
+        const mint = subscriptionOrder.shift();
+        if (!mint || !subscribedMints.has(mint)) continue;
+        unsubscribeMint(mint);
+        const replacement = nextQueuedMint();
+        if (replacement) subscribeMint(replacement);
+        rotated += 1;
+      }
+      stats.queuedMints = queuedMints.length;
+      if (rotated > 0) stats.churnRotations += 1;
+    };
+
+    const sendResubscribeBurst = () => {
+      if (!stats.mimicRuntimeChurn || socket.readyState !== WebSocket.OPEN) return;
+      const mints = Array.from(subscribedMints).slice(-1 * (stats.churnBurstSize || 10));
+      for (const mint of mints) {
+        sendControlFrame({ method: 'subscribeTokenTrade', keys: [mint] }, 'tokenTradeResubscribeFrames');
+      }
+      if (mints.length > 0) stats.churnBurstEvents += 1;
+    };
 
     const finish = () => {
       if (settled) return;
@@ -149,12 +233,22 @@ function runProbe({ mode, durationMs, sampleTokenTrades, pingIntervalMs }) {
         clearInterval(pingTimer);
         pingTimer = null;
       }
+      if (churnTimer) {
+        clearInterval(churnTimer);
+        churnTimer = null;
+      }
+      if (burstTimer) {
+        clearInterval(burstTimer);
+        burstTimer = null;
+      }
       stats.stoppedAt = nowIso();
       stats.connectedAtStop = socket.readyState === WebSocket.OPEN;
       if (stats.openedAt) {
         stats.connectionAgeMs = new Date(stats.stoppedAt).getTime() - new Date(stats.openedAt).getTime();
       }
       stats.subscribedMints = Array.from(subscribedMints);
+      stats.knownMints = knownMints.size;
+      stats.queuedMints = queuedMints.length;
       try {
         socket.removeAllListeners();
         socket.on('error', () => {});
@@ -170,8 +264,8 @@ function runProbe({ mode, durationMs, sampleTokenTrades, pingIntervalMs }) {
     socket.on('open', () => {
       stats.openEvents += 1;
       stats.openedAt = nowIso();
-      send(socket, { method: 'subscribeNewToken' });
-      send(socket, { method: 'subscribeMigration' });
+      sendControlFrame({ method: 'subscribeNewToken' });
+      sendControlFrame({ method: 'subscribeMigration' });
       if (Number.isFinite(pingIntervalMs) && pingIntervalMs > 0) {
         pingTimer = setInterval(() => {
           if (socket.readyState !== WebSocket.OPEN) return;
@@ -185,6 +279,14 @@ function runProbe({ mode, durationMs, sampleTokenTrades, pingIntervalMs }) {
           }
         }, pingIntervalMs);
         if (typeof pingTimer.unref === 'function') pingTimer.unref();
+      }
+      if (stats.mimicRuntimeChurn && stats.churnIntervalMs) {
+        churnTimer = setInterval(rotateChurnMints, stats.churnIntervalMs);
+        if (typeof churnTimer.unref === 'function') churnTimer.unref();
+      }
+      if (stats.mimicRuntimeChurn && stats.churnBurstIntervalMs) {
+        burstTimer = setInterval(sendResubscribeBurst, stats.churnBurstIntervalMs);
+        if (typeof burstTimer.unref === 'function') burstTimer.unref();
       }
     });
 
@@ -210,10 +312,17 @@ function runProbe({ mode, durationMs, sampleTokenTrades, pingIntervalMs }) {
       if (type === 'newToken') {
         stats.newTokens += 1;
         const mint = mintOf(payload);
-        if (mint && stats.paidSamplingEnabled && subscribedMints.size < sampleTokenTrades && !subscribedMints.has(mint)) {
-          subscribedMints.add(mint);
-          stats.subscribedTokenTrades = subscribedMints.size;
-          send(socket, { method: 'subscribeTokenTrade', keys: [mint] });
+        if (mint && !knownMints.has(mint)) {
+          knownMints.add(mint);
+          stats.knownMints = knownMints.size;
+        }
+        if (mint && stats.paidSamplingEnabled && !subscribedMints.has(mint)) {
+          if (subscribedMints.size < sampleTokenTrades) {
+            subscribeMint(mint);
+          } else if (stats.mimicRuntimeChurn) {
+            queuedMints.push(mint);
+            stats.queuedMints = queuedMints.length;
+          }
         }
       } else if (type === 'migration') {
         stats.migrations += 1;
@@ -297,20 +406,30 @@ async function main() {
     .filter(Boolean);
   const sampleTokenTrades = Number(args.sampleTokenTrades || 0);
   const pingIntervalMs = Number(args.pingIntervalMs || Config.pumpPortalPingIntervalMs || 0);
+  const mimicRuntimeChurn = Boolean(args.mimicRuntimeChurn || args.churn);
+  const churnIntervalMs = Number(args.churnIntervalMs || 60000);
+  const churnUnsubscribeCount = Number(args.churnUnsubscribeCount || 1);
+  const churnBurstIntervalMs = Number(args.churnBurstIntervalMs || 300000);
+  const churnBurstSize = Number(args.churnBurstSize || 10);
   const reportDir = resolveRepoPath(args.reportDir, DEFAULT_REPORT_DIR);
   const latestPath = resolveRepoPath(args.latestPath, DEFAULT_LATEST_PATH);
   const generatedAt = nowIso();
 
-  console.log(`Starting PumpPortal feed probe: modes=${modes.join(',')} durationMs=${durationMs} sampleTokenTrades=${sampleTokenTrades} pingIntervalMs=${pingIntervalMs}`);
+  console.log(`Starting PumpPortal feed probe: modes=${modes.join(',')} durationMs=${durationMs} sampleTokenTrades=${sampleTokenTrades} pingIntervalMs=${pingIntervalMs} mimicRuntimeChurn=${mimicRuntimeChurn}`);
   const probes = await Promise.all(modes.map((mode) => runProbe({
     mode,
     durationMs,
     sampleTokenTrades,
-    pingIntervalMs
+    pingIntervalMs,
+    mimicRuntimeChurn,
+    churnIntervalMs,
+    churnUnsubscribeCount,
+    churnBurstIntervalMs,
+    churnBurstSize
   })));
   for (const probe of probes) {
     probe.interpretation = interpretProbe(probe);
-    console.log(`${probe.mode}: opened=${probe.openEvents} messages=${probe.messages} newTokens=${probe.newTokens} migrations=${probe.migrations} pings=${probe.pingsSent}/${probe.pongsReceived} errors=${probe.errorEvents} closes=${probe.closeEvents} lastError=${probe.lastErrorMessage || 'none'}`);
+    console.log(`${probe.mode}: opened=${probe.openEvents} messages=${probe.messages} newTokens=${probe.newTokens} migrations=${probe.migrations} tokenSubFrames=${probe.tokenTradeSubscribeFrames} tokenUnsubFrames=${probe.tokenTradeUnsubscribeFrames} tokenResubFrames=${probe.tokenTradeResubscribeFrames} pings=${probe.pingsSent}/${probe.pongsReceived} errors=${probe.errorEvents} closes=${probe.closeEvents} lastError=${probe.lastErrorMessage || 'none'}`);
   }
 
   const payload = {
@@ -322,7 +441,12 @@ async function main() {
       noKeyUrl: sanitizeUrl(urlForMode('no-key')),
       hasApiKey: Boolean(Config.pumpPortalApiKey),
       useApiKeyQuery: Boolean(Config.pumpPortalUseApiKeyQuery),
-      pingIntervalMs
+      pingIntervalMs,
+      mimicRuntimeChurn,
+      churnIntervalMs: mimicRuntimeChurn ? churnIntervalMs : null,
+      churnUnsubscribeCount: mimicRuntimeChurn ? churnUnsubscribeCount : null,
+      churnBurstIntervalMs: mimicRuntimeChurn ? churnBurstIntervalMs : null,
+      churnBurstSize: mimicRuntimeChurn ? churnBurstSize : null
     },
     summary: buildSummary(probes),
     probes

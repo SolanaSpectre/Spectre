@@ -147,6 +147,21 @@ function numericStats(values = []) {
   };
 }
 
+function bucketCounts(values = [], buckets = []) {
+  const counts = {};
+  for (const bucket of buckets) counts[bucket.label] = 0;
+  for (const value of values) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) continue;
+    const bucket = buckets.find((candidate) => (
+      (candidate.min === null || parsed >= candidate.min)
+      && (candidate.max === null || parsed < candidate.max)
+    ));
+    if (bucket) counts[bucket.label] += 1;
+  }
+  return counts;
+}
+
 function fmt(value, digits = 2) {
   if (value === null || value === undefined || value === '') return 'n/a';
   const n = Number(value);
@@ -688,6 +703,13 @@ function buildPumpPortalHealth(battlefield = {}) {
   const stats = telemetry.stats || {};
   const lifecycle = telemetry.lifecycle || {};
   const closeAgeStats = numericStats(lifecycle.closeConnectionAgeMs || []);
+  const closeAgeBuckets = bucketCounts(lifecycle.closeConnectionAgeMs || [], [
+    { label: '<30s', min: null, max: 30_000 },
+    { label: '30-90s', min: 30_000, max: 90_000 },
+    { label: '90-180s', min: 90_000, max: 180_000 },
+    { label: '180-300s', min: 180_000, max: 300_000 },
+    { label: '>300s', min: 300_000, max: null }
+  ]);
   const closeSubscribedMintStats = numericStats(lifecycle.closeSubscribedMints || []);
   const closeConnectionPingStats = numericStats(lifecycle.closeConnectionPingsSent || []);
   const closeConnectionPongStats = numericStats(lifecycle.closeConnectionPongsReceived || []);
@@ -848,6 +870,7 @@ function buildPumpPortalHealth(battlefield = {}) {
       websocketErrors: number(lifecycle.websocketErrors, 0),
       staleReconnects: number(lifecycle.staleReconnects, 0),
       closeAgeStats,
+      closeAgeBuckets,
       closeSubscribedMintStats,
       closeConnectionPingStats,
       closeConnectionPongStats
@@ -1074,10 +1097,12 @@ function buildSummary(docs) {
   lines.push(`  - websocket heartbeat: pingInterval=${pumpPortalHealth.pingIntervalMs ? `${pumpPortalHealth.pingIntervalMs}ms` : 'off'}, pings/pongs=${pumpPortalHealth.pingsSent || 0} / ${pumpPortalHealth.pongsReceived || 0}, lastConnectionAge=${pumpPortalHealth.lastConnectionAgeMs === null ? 'n/a' : `${pumpPortalHealth.lastConnectionAgeMs}ms`}`);
   if ((pumpPortalHealth.lifecycle?.closed || 0) > 0) {
     const age = pumpPortalHealth.lifecycle.closeAgeStats || {};
+    const ageBuckets = pumpPortalHealth.lifecycle.closeAgeBuckets || {};
     const subs = pumpPortalHealth.lifecycle.closeSubscribedMintStats || {};
     const closePings = pumpPortalHealth.lifecycle.closeConnectionPingStats || {};
     const closePongs = pumpPortalHealth.lifecycle.closeConnectionPongStats || {};
     lines.push(`  - structured close lifecycle: connected/closed/errors=${pumpPortalHealth.lifecycle.connected} / ${pumpPortalHealth.lifecycle.closed} / ${pumpPortalHealth.lifecycle.websocketErrors}, closeAge median/p90/max=${age.median === null ? 'n/a' : `${fmt(age.median, 0)}ms`} / ${age.p90 === null ? 'n/a' : `${fmt(age.p90, 0)}ms`} / ${age.max === null ? 'n/a' : `${fmt(age.max, 0)}ms`}, close subscribedMints median/max=${subs.median === null ? 'n/a' : fmt(subs.median, 0)} / ${subs.max === null ? 'n/a' : fmt(subs.max, 0)}, close pings/pongs median=${closePings.median === null ? 'n/a' : fmt(closePings.median, 0)} / ${closePongs.median === null ? 'n/a' : fmt(closePongs.median, 0)}`);
+    lines.push(`  - closeAge buckets <30s/30-90s/90-180s/180-300s/>300s: ${ageBuckets['<30s'] || 0} / ${ageBuckets['30-90s'] || 0} / ${ageBuckets['90-180s'] || 0} / ${ageBuckets['180-300s'] || 0} / ${ageBuckets['>300s'] || 0}`);
   }
   lines.push(`  - current/max reconnect backoff delay: ${pumpPortalHealth.reconnectDelayMs ? `${pumpPortalHealth.reconnectDelayMs}ms` : 'n/a'} / ${pumpPortalHealth.maxReconnectDelayMs ? `${pumpPortalHealth.maxReconnectDelayMs}ms` : 'n/a'}`);
   lines.push(`  - stable reconnect resets / reset window: ${pumpPortalHealth.reconnectDelayStableResets} / ${pumpPortalHealth.reconnectDelayResetAfterStableMs ? `${pumpPortalHealth.reconnectDelayResetAfterStableMs}ms` : 'n/a'}`);
