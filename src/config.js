@@ -1104,7 +1104,7 @@ class Config {
   }
 
   static get ollamaKeepAlive() {
-    return process.env.OLLAMA_KEEP_ALIVE || '30m';
+    return process.env.OLLAMA_KEEP_ALIVE || '2h';
   }
 
   static get aiTimeoutDefaultsToVeto() {
