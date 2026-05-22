@@ -3231,6 +3231,8 @@ class TradingEngine {
       this.telemetry.record('pump_bonding_curve.updated', {
         mint,
         accountFound: summary.accountFound,
+        invalidAccountData: Boolean(summary.invalidAccountData),
+        invalidAccountReason: summary.invalidAccountReason || null,
         bondingCurveAddress: summary.bondingCurveAddress,
         complete: summary.complete,
         curveProgress: summary.curveProgress,

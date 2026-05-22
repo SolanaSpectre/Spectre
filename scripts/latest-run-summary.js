@@ -831,6 +831,8 @@ function buildBondingCurvePressure(battlefield = {}) {
     fetches: number(stats.fetches, 0),
     updates: number(stats.updates, 0),
     errors: number(stats.errors, 0),
+    missingAccounts: number(stats.missingAccounts, 0),
+    invalidAccounts: number(stats.invalidAccounts, 0),
     completeMintsObserved: number(stats.completeMintsObserved, 0),
     lastCompleteMint: stats.lastCompleteMint || null,
     lastCompleteAt: stats.lastCompleteAt || null,
@@ -1039,6 +1041,7 @@ function buildSummary(docs) {
   lines.push(`  - interpretation: ${pumpPortalHealth.interpretation}`);
   lines.push('- Bonding curve pressure:');
   lines.push(`  - fetches / updates / errors: ${bondingCurvePressure.fetches} / ${bondingCurvePressure.updates} / ${bondingCurvePressure.errors}`);
+  lines.push(`  - missing / invalid accounts: ${bondingCurvePressure.missingAccounts} / ${bondingCurvePressure.invalidAccounts}`);
   lines.push(`  - unique complete mints observed / last complete: ${bondingCurvePressure.completeMintsObserved || 0} / ${bondingCurvePressure.lastCompleteMint || 'none'}${bondingCurvePressure.lastCompleteAt ? ` at ${bondingCurvePressure.lastCompleteAt}` : ''}`);
   lines.push(`  - global backoff activations / skipped / high-curve bypasses: ${bondingCurvePressure.globalBackoffActivations} / ${bondingCurvePressure.skippedGlobalBackoff} / ${bondingCurvePressure.skippedGlobalBackoffHighCurveBypass}`);
   lines.push(`  - active / remaining: ${bondingCurvePressure.globalBackoffActive} / ${bondingCurvePressure.globalBackoffRemainingMs}ms`);

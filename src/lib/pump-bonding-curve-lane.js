@@ -45,6 +45,7 @@ class PumpBondingCurveLane {
       updates: 0,
       decoded: 0,
       missingAccounts: 0,
+      invalidAccounts: 0,
       skipped: 0,
       skippedFailureCooldown: 0,
       skippedGlobalBackoff: 0,
@@ -148,7 +149,29 @@ class PumpBondingCurveLane {
         };
       }
 
-      const decoded = this.decodeBondingCurveAccount(accountInfo.data);
+      let decoded;
+      try {
+        decoded = this.decodeBondingCurveAccount(accountInfo.data);
+      } catch (error) {
+        if (!this.isInvalidBondingCurveAccountError(error)) {
+          throw error;
+        }
+
+        const invalid = this.mergeState(mint, tokenMeta, {
+          bondingCurveAddress: bondingCurveAddress.toBase58(),
+          accountFound: false,
+          invalidAccountData: true,
+          invalidAccountReason: error.message,
+          lastFetchAt: now,
+          lastFetchAtIso: new Date(now).toISOString()
+        });
+        this.stats.invalidAccounts += 1;
+        return {
+          ...this.toSummary(invalid),
+          refreshed: true
+        };
+      }
+
       const next = this.mergeState(mint, tokenMeta, {
         ...decoded,
         bondingCurveAddress: bondingCurveAddress.toBase58(),
@@ -300,6 +323,12 @@ class PumpBondingCurveLane {
     }
   }
 
+  isInvalidBondingCurveAccountError(error) {
+    const message = String(error?.message || '');
+    return message.startsWith('Bonding curve account too short:')
+      || message.startsWith('Unexpected bonding curve discriminator:');
+  }
+
   decodeBondingCurveAccount(data) {
     if (!Buffer.isBuffer(data)) {
       data = Buffer.from(data);
@@ -429,6 +458,8 @@ class PumpBondingCurveLane {
       complete: Boolean(state.complete),
       bondingStage: state.bondingStage || null,
       curveProgress: state.curveProgress ?? null,
+      invalidAccountData: Boolean(state.invalidAccountData),
+      invalidAccountReason: state.invalidAccountReason || null,
       virtualSolReservesSol: state.virtualSolReservesSol ?? null,
       realSolReservesSol: state.realSolReservesSol ?? null,
       virtualTokenReservesTokens: state.virtualTokenReservesTokens ?? null,
