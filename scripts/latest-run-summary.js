@@ -771,6 +771,17 @@ function buildPumpPortalHealth(battlefield = {}) {
     interpretation += ' Migration subscription was acknowledged, but no migration events were delivered in this window.';
   }
 
+  if (telemetry.ok) {
+    const queueSaturation = eventQueueMaxSize > 0 ? eventQueueMaxDepth / eventQueueMaxSize : 0;
+    if (eventQueueDropped > 0) {
+      interpretation += ` PumpPortal message handler queue overflowed (${eventQueueDropped} dropped); intake throughput is a bottleneck.`;
+    } else if (eventQueueDiscardedOnStop > 0) {
+      interpretation += ` PumpPortal message handler queue still had ${eventQueueDiscardedOnStop} queued events at stop; intake throughput is lagging live feed volume.`;
+    } else if (queueSaturation >= 0.8) {
+      interpretation += ` PumpPortal message handler queue reached ${Math.round(queueSaturation * 100)}% capacity; monitor intake throughput.`;
+    }
+  }
+
   return {
     status,
     interpretation,

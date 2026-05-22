@@ -853,11 +853,11 @@ class Config {
   }
 
   static get pumpPortalEventHandlerConcurrency() {
-    return parseInt(process.env.PUMPPORTAL_EVENT_HANDLER_CONCURRENCY || '4', 10);
+    return parseInt(process.env.PUMPPORTAL_EVENT_HANDLER_CONCURRENCY || '8', 10);
   }
 
   static get pumpPortalEventQueueMaxSize() {
-    return parseInt(process.env.PUMPPORTAL_EVENT_QUEUE_MAX_SIZE || '5000', 10);
+    return parseInt(process.env.PUMPPORTAL_EVENT_QUEUE_MAX_SIZE || '10000', 10);
   }
 
   static get gmgnApiBaseUrl() {

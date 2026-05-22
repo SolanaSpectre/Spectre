@@ -19,8 +19,8 @@ class PumpPortalListener {
     this.reconnectResubscribeMaxMints = Number(config.pumpPortalReconnectResubscribeMaxMints || 25);
     this.reconnectResubscribeBatchSize = Number(config.pumpPortalReconnectResubscribeBatchSize || 10);
     this.reconnectResubscribeBatchDelayMs = Number(config.pumpPortalReconnectResubscribeBatchDelayMs || 1000);
-    this.eventHandlerConcurrency = Math.max(1, Number(config.pumpPortalEventHandlerConcurrency || 4));
-    this.eventQueueMaxSize = Math.max(1, Number(config.pumpPortalEventQueueMaxSize || 5000));
+    this.eventHandlerConcurrency = Math.max(1, Number(config.pumpPortalEventHandlerConcurrency || 8));
+    this.eventQueueMaxSize = Math.max(1, Number(config.pumpPortalEventQueueMaxSize || 10000));
     this.eventQueue = [];
     this.processingEvents = 0;
     this.reconnectTimer = null;
