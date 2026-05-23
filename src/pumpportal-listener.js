@@ -2,6 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
 
+const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'.toUpperCase();
+const SOL_MINT = 'So11111111111111111111111111111111111111112'.toUpperCase();
+
 class PumpPortalListener {
   constructor(config, logger, handlers = {}) {
     this.config = config;
@@ -39,12 +42,16 @@ class PumpPortalListener {
     this.sampleFiles = {
       newToken: path.join(this.debugDir, 'latest-new-token-sample.json'),
       migration: path.join(this.debugDir, 'latest-migration-sample.json'),
-      trade: path.join(this.debugDir, 'latest-trade-sample.json')
+      trade: path.join(this.debugDir, 'latest-trade-sample.json'),
+      usdcPair: path.join(this.debugDir, 'latest-usdc-pair-sample.json'),
+      unknownPair: path.join(this.debugDir, 'latest-unknown-pair-sample.json')
     };
     this.hasCapturedSamples = {
       newToken: false,
       migration: false,
-      trade: false
+      trade: false,
+      usdcPair: false,
+      unknownPair: false
     };
     this.stats = {
       connected: false,
@@ -80,6 +87,23 @@ class PumpPortalListener {
       tokenTradeSubscriptionPrunes: 0,
       tokenTradeTtlPrunes: 0,
       tokenTradeMaxActivePrunes: 0,
+      controlFramesSent: 0,
+      tokenTradeSubscribeFrames: 0,
+      tokenTradeUnsubscribeFrames: 0,
+      pairSolEvents: 0,
+      pairUsdcEvents: 0,
+      pairUnknownEvents: 0,
+      newTokenPairSolEvents: 0,
+      newTokenPairUsdcEvents: 0,
+      newTokenPairUnknownEvents: 0,
+      tradePairSolEvents: 0,
+      tradePairUsdcEvents: 0,
+      tradePairUnknownEvents: 0,
+      migrationPairSolEvents: 0,
+      migrationPairUsdcEvents: 0,
+      migrationPairUnknownEvents: 0,
+      lastDetectedPairBase: null,
+      lastDetectedPairAt: null,
       tokenTradeReconnectResubscribeScheduled: 0,
       tokenTradeReconnectResubscribeSent: 0,
       tokenTradeReconnectResubscribeDropped: 0,
@@ -182,6 +206,7 @@ class PumpPortalListener {
       lastPingAt: null,
       lastPongAt: null
     };
+    socket.pumpPortalConnection = this.buildConnectionStats();
     this.ws = socket;
 
     socket.on('open', async () => {
@@ -207,6 +232,10 @@ class PumpPortalListener {
     socket.on('message', (raw) => {
       this.stats.messages += 1;
       this.stats.lastMessageAt = Date.now();
+      if (socket.pumpPortalConnection) {
+        socket.pumpPortalConnection.messages += 1;
+        socket.pumpPortalConnection.lastMessageAt = this.stats.lastMessageAt;
+      }
 
       let payload;
       try {
@@ -216,6 +245,7 @@ class PumpPortalListener {
         return;
       }
 
+      this.recordConnectionMessage(socket, payload);
       this.enqueueMessage(payload);
     });
 
@@ -228,6 +258,7 @@ class PumpPortalListener {
         : null;
       this.stats.lastCloseCode = Number(code || 0) || 0;
       this.stats.lastCloseReason = reasonBuffer ? reasonBuffer.toString() : '';
+      const connectionStats = this.finalizeConnectionStats(socket);
       this.stopHealthCheck();
       this.stopHeartbeat();
       this.clearReconnectDelayResetTimer();
@@ -238,7 +269,10 @@ class PumpPortalListener {
         connectionAgeMs: this.stats.lastConnectionAgeMs,
         reconnectDelayMs: this.currentReconnectDelayMs,
         connectionPingsSent: socket.pumpPortalHeartbeat?.pingsSent || 0,
-        connectionPongsReceived: socket.pumpPortalHeartbeat?.pongsReceived || 0
+        connectionPongsReceived: socket.pumpPortalHeartbeat?.pongsReceived || 0,
+        connectionMessages: connectionStats.messages,
+        connectionMessagesPerMinute: connectionStats.messagesPerMinute,
+        lastMessageAgeMsAtClose: connectionStats.lastMessageAgeMsAtClose
       });
       this.emitLifecycle('provider.pumpportal.closed', {
         code: this.stats.lastCloseCode,
@@ -247,6 +281,17 @@ class PumpPortalListener {
         reconnectDelayMs: this.currentReconnectDelayMs,
         subscribedMints: this.subscribedMints.size,
         subscribedAccounts: this.subscribedAccounts.size,
+        connectionMessages: connectionStats.messages,
+        connectionNewTokens: connectionStats.newTokens,
+        connectionTrades: connectionStats.trades,
+        connectionMigrations: connectionStats.migrations,
+        connectionSubscriptionAcks: connectionStats.subscriptionAcks,
+        connectionControlFramesSent: connectionStats.controlFramesSent,
+        connectionMessagesPerMinute: connectionStats.messagesPerMinute,
+        lastMessageAgeMsAtClose: connectionStats.lastMessageAgeMsAtClose,
+        connectionPairSolEvents: connectionStats.pairSolEvents,
+        connectionPairUsdcEvents: connectionStats.pairUsdcEvents,
+        connectionPairUnknownEvents: connectionStats.pairUnknownEvents,
         connectionPingsSent: socket.pumpPortalHeartbeat?.pingsSent || 0,
         connectionPongsReceived: socket.pumpPortalHeartbeat?.pongsReceived || 0,
         connectionLastPingAt: socket.pumpPortalHeartbeat?.lastPingAt
@@ -345,6 +390,7 @@ class PumpPortalListener {
 
     if (method === 'newToken' || method === 'subscribeNewToken' || payload.txType === 'create') {
       this.stats.newTokens += 1;
+      this.recordPairShape('newToken', payload);
       this.captureSample('newToken', payload);
 
       if (mint) {
@@ -373,6 +419,7 @@ class PumpPortalListener {
 
     if (this.isMigrationPayload(payload, method)) {
       this.stats.migrations += 1;
+      this.recordPairShape('migration', payload);
       this.captureSample('migration', payload);
       if (this.handlers.onMigration) {
         await this.handlers.onMigration({
@@ -390,6 +437,7 @@ class PumpPortalListener {
     if (mint) {
       this.touchSubscribedMint(mint);
       this.stats.trades += 1;
+      this.recordPairShape('trade', payload);
       this.captureSample('trade', payload);
       if (this.handlers.onTrade) {
         await this.handlers.onTrade({
@@ -435,6 +483,145 @@ class PumpPortalListener {
     } else {
       this.stats.unknownSubscriptionAcks += 1;
     }
+  }
+
+  buildConnectionStats() {
+    return {
+      openedAt: Date.now(),
+      messages: 0,
+      newTokens: 0,
+      trades: 0,
+      migrations: 0,
+      subscriptionAcks: 0,
+      controlFramesSent: 0,
+      pairSolEvents: 0,
+      pairUsdcEvents: 0,
+      pairUnknownEvents: 0,
+      lastMessageAt: null
+    };
+  }
+
+  recordConnectionMessage(socket, payload = {}) {
+    const connection = socket?.pumpPortalConnection;
+    if (!connection) return;
+
+    const message = typeof payload?.message === 'string' ? payload.message : '';
+    if (message && (message.toLowerCase().includes('subscribed') || message.toLowerCase().includes('unsubscribed'))) {
+      connection.subscriptionAcks += 1;
+      return;
+    }
+
+    const method = payload.method || payload.type || payload.txType || '';
+    if (method === 'newToken' || method === 'subscribeNewToken' || payload.txType === 'create') {
+      connection.newTokens += 1;
+    } else if (this.isMigrationPayload(payload, method)) {
+      connection.migrations += 1;
+    } else if (payload.mint || payload.token || payload.mintAddress) {
+      connection.trades += 1;
+    }
+
+    const pairBase = this.detectPairBase(payload);
+    if (pairBase === 'USDC') {
+      connection.pairUsdcEvents += 1;
+    } else if (pairBase === 'SOL') {
+      connection.pairSolEvents += 1;
+    } else {
+      connection.pairUnknownEvents += 1;
+    }
+  }
+
+  finalizeConnectionStats(socket) {
+    const connection = socket?.pumpPortalConnection || this.buildConnectionStats();
+    const closedAt = Date.now();
+    const ageMs = Number.isFinite(this.stats.lastConnectionAgeMs)
+      ? this.stats.lastConnectionAgeMs
+      : closedAt - Number(connection.openedAt || closedAt);
+    const minutes = ageMs > 0 ? ageMs / 60000 : 0;
+    return {
+      ...connection,
+      messagesPerMinute: minutes > 0 ? Number((Number(connection.messages || 0) / minutes).toFixed(4)) : null,
+      lastMessageAgeMsAtClose: connection.lastMessageAt ? closedAt - connection.lastMessageAt : null
+    };
+  }
+
+  recordPairShape(kind, payload = {}) {
+    const pairBase = this.detectPairBase(payload);
+    if (pairBase === 'USDC') {
+      this.stats.pairUsdcEvents += 1;
+      this.stats[`${kind}PairUsdcEvents`] += 1;
+      this.stats.lastDetectedPairBase = 'USDC';
+      this.stats.lastDetectedPairAt = Date.now();
+      this.captureSample('usdcPair', {
+        kind,
+        detectedPairBase: pairBase,
+        payload
+      });
+      return;
+    }
+
+    if (pairBase === 'SOL') {
+      this.stats.pairSolEvents += 1;
+      this.stats[`${kind}PairSolEvents`] += 1;
+      this.stats.lastDetectedPairBase = 'SOL';
+      this.stats.lastDetectedPairAt = Date.now();
+      return;
+    }
+
+    this.stats.pairUnknownEvents += 1;
+    this.stats[`${kind}PairUnknownEvents`] += 1;
+    this.captureSample('unknownPair', {
+      kind,
+      detectedPairBase: pairBase,
+      payload
+    });
+  }
+
+  detectPairBase(payload = {}) {
+    const flattened = this.flattenPayloadTokens(payload);
+    const hasUsdc = flattened.some((value) => (
+      value === USDC_MINT
+      || value === 'USDC'
+      || value.includes('USDC')
+      || value.includes('USD COIN')
+    ));
+    if (hasUsdc) return 'USDC';
+
+    const hasSol = flattened.some((value) => (
+      value === SOL_MINT
+      || value === 'SOL'
+      || value === 'WSOL'
+      || value.includes('SOLANA')
+    ));
+    if (hasSol) return 'SOL';
+
+    const keys = Object.keys(payload || {}).map((key) => key.toLowerCase());
+    const hasSolCurveShape = keys.includes('solamount')
+      || keys.includes('vsolinbondingcurve')
+      || keys.includes('marketcapsol');
+    if (hasSolCurveShape) return 'SOL';
+
+    return 'UNKNOWN';
+  }
+
+  flattenPayloadTokens(value, depth = 0, output = []) {
+    if (depth > 4 || value === null || value === undefined) return output;
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      output.push(String(value).trim().toUpperCase());
+      return output;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value.slice(0, 50)) {
+        this.flattenPayloadTokens(item, depth + 1, output);
+      }
+      return output;
+    }
+    if (typeof value === 'object') {
+      for (const [key, item] of Object.entries(value).slice(0, 100)) {
+        output.push(String(key).trim().toUpperCase());
+        this.flattenPayloadTokens(item, depth + 1, output);
+      }
+    }
+    return output;
   }
 
   classifySubscriptionAck(message, payload = {}) {
@@ -530,10 +717,11 @@ class PumpPortalListener {
   }
 
   subscribeTokenTrade(mint) {
-    this.send({
+    const sent = this.send({
       method: 'subscribeTokenTrade',
       keys: [mint]
     });
+    if (sent) this.stats.tokenTradeSubscribeFrames += 1;
   }
 
   unsubscribeTokenTrade(mint, reason = 'unknown') {
@@ -548,10 +736,11 @@ class PumpPortalListener {
       this.stats.tokenTradeMaxActivePrunes += 1;
     }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.send({
+      const sent = this.send({
         method: 'unsubscribeTokenTrade',
         keys: [mint]
       });
+      if (sent) this.stats.tokenTradeUnsubscribeFrames += 1;
     }
   }
 
@@ -836,10 +1025,15 @@ class PumpPortalListener {
 
   send(message) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return;
+      return false;
     }
 
     this.ws.send(JSON.stringify(message));
+    this.stats.controlFramesSent += 1;
+    if (this.ws.pumpPortalConnection) {
+      this.ws.pumpPortalConnection.controlFramesSent += 1;
+    }
+    return true;
   }
 
   emitLifecycle(type, payload = {}) {

@@ -598,6 +598,16 @@ function readPumpPortalStatsFromTelemetry(battlefield = {}) {
     closeSubscribedMints: [],
     closeConnectionPingsSent: [],
     closeConnectionPongsReceived: [],
+    closeConnectionMessages: [],
+    closeConnectionNewTokens: [],
+    closeConnectionTrades: [],
+    closeConnectionMigrations: [],
+    closeConnectionControlFrames: [],
+    closeConnectionMessagesPerMinute: [],
+    closeLastMessageAgeMs: [],
+    closeConnectionPairSolEvents: [],
+    closeConnectionPairUsdcEvents: [],
+    closeConnectionPairUnknownEvents: [],
     lastCloseCode: null,
     lastCloseReason: null
   };
@@ -616,6 +626,16 @@ function readPumpPortalStatsFromTelemetry(battlefield = {}) {
           lifecycle.closeSubscribedMints.push(payload.subscribedMints);
           lifecycle.closeConnectionPingsSent.push(payload.connectionPingsSent);
           lifecycle.closeConnectionPongsReceived.push(payload.connectionPongsReceived);
+          lifecycle.closeConnectionMessages.push(payload.connectionMessages);
+          lifecycle.closeConnectionNewTokens.push(payload.connectionNewTokens);
+          lifecycle.closeConnectionTrades.push(payload.connectionTrades);
+          lifecycle.closeConnectionMigrations.push(payload.connectionMigrations);
+          lifecycle.closeConnectionControlFrames.push(payload.connectionControlFramesSent);
+          lifecycle.closeConnectionMessagesPerMinute.push(payload.connectionMessagesPerMinute);
+          lifecycle.closeLastMessageAgeMs.push(payload.lastMessageAgeMsAtClose);
+          lifecycle.closeConnectionPairSolEvents.push(payload.connectionPairSolEvents);
+          lifecycle.closeConnectionPairUsdcEvents.push(payload.connectionPairUsdcEvents);
+          lifecycle.closeConnectionPairUnknownEvents.push(payload.connectionPairUnknownEvents);
           lifecycle.lastCloseCode = payload.code ?? lifecycle.lastCloseCode;
           lifecycle.lastCloseReason = payload.reason || lifecycle.lastCloseReason;
         } else if (event.type === 'provider.pumpportal.websocket_error') {
@@ -713,6 +733,16 @@ function buildPumpPortalHealth(battlefield = {}) {
   const closeSubscribedMintStats = numericStats(lifecycle.closeSubscribedMints || []);
   const closeConnectionPingStats = numericStats(lifecycle.closeConnectionPingsSent || []);
   const closeConnectionPongStats = numericStats(lifecycle.closeConnectionPongsReceived || []);
+  const closeConnectionMessageStats = numericStats(lifecycle.closeConnectionMessages || []);
+  const closeConnectionNewTokenStats = numericStats(lifecycle.closeConnectionNewTokens || []);
+  const closeConnectionTradeStats = numericStats(lifecycle.closeConnectionTrades || []);
+  const closeConnectionMigrationStats = numericStats(lifecycle.closeConnectionMigrations || []);
+  const closeConnectionControlFrameStats = numericStats(lifecycle.closeConnectionControlFrames || []);
+  const closeConnectionMessagesPerMinuteStats = numericStats(lifecycle.closeConnectionMessagesPerMinute || []);
+  const closeLastMessageAgeStats = numericStats(lifecycle.closeLastMessageAgeMs || []);
+  const closeConnectionPairSolStats = numericStats(lifecycle.closeConnectionPairSolEvents || []);
+  const closeConnectionPairUsdcStats = numericStats(lifecycle.closeConnectionPairUsdcEvents || []);
+  const closeConnectionPairUnknownStats = numericStats(lifecycle.closeConnectionPairUnknownEvents || []);
   const messages = number(stats.messages, 0);
   const newTokens = number(stats.newTokens, number(eventCounts['provider.pumpportal.new_token'], 0));
   const trades = number(stats.trades, number(eventCounts['provider.pumpportal.trade'], 0));
@@ -730,6 +760,25 @@ function buildPumpPortalHealth(battlefield = {}) {
   const tokenTradeSubscriptionPrunes = number(stats.tokenTradeSubscriptionPrunes, 0);
   const tokenTradeTtlPrunes = number(stats.tokenTradeTtlPrunes, 0);
   const tokenTradeMaxActivePrunes = number(stats.tokenTradeMaxActivePrunes, 0);
+  const controlFramesSent = number(stats.controlFramesSent, 0);
+  const tokenTradeSubscribeFrames = number(stats.tokenTradeSubscribeFrames, 0);
+  const tokenTradeUnsubscribeFrames = number(stats.tokenTradeUnsubscribeFrames, 0);
+  const pairSolEvents = number(stats.pairSolEvents, 0);
+  const pairUsdcEvents = number(stats.pairUsdcEvents, 0);
+  const pairUnknownEvents = number(stats.pairUnknownEvents, 0);
+  const newTokenPairSolEvents = number(stats.newTokenPairSolEvents, 0);
+  const newTokenPairUsdcEvents = number(stats.newTokenPairUsdcEvents, 0);
+  const newTokenPairUnknownEvents = number(stats.newTokenPairUnknownEvents, 0);
+  const tradePairSolEvents = number(stats.tradePairSolEvents, 0);
+  const tradePairUsdcEvents = number(stats.tradePairUsdcEvents, 0);
+  const tradePairUnknownEvents = number(stats.tradePairUnknownEvents, 0);
+  const migrationPairSolEvents = number(stats.migrationPairSolEvents, 0);
+  const migrationPairUsdcEvents = number(stats.migrationPairUsdcEvents, 0);
+  const migrationPairUnknownEvents = number(stats.migrationPairUnknownEvents, 0);
+  const lastDetectedPairBase = stats.lastDetectedPairBase || null;
+  const lastDetectedPairAt = stats.lastDetectedPairAt
+    ? new Date(stats.lastDetectedPairAt).toISOString()
+    : null;
   const tradeSubscriptionsSkippedMaxActive = number(stats.tradeSubscriptionsSkippedMaxActive, 0);
   const tokenTradeReconnectResubscribeScheduled = number(stats.tokenTradeReconnectResubscribeScheduled, 0);
   const tokenTradeReconnectResubscribeSent = number(stats.tokenTradeReconnectResubscribeSent, 0);
@@ -832,6 +881,23 @@ function buildPumpPortalHealth(battlefield = {}) {
     tokenTradeSubscriptionPrunes,
     tokenTradeTtlPrunes,
     tokenTradeMaxActivePrunes,
+    controlFramesSent,
+    tokenTradeSubscribeFrames,
+    tokenTradeUnsubscribeFrames,
+    pairSolEvents,
+    pairUsdcEvents,
+    pairUnknownEvents,
+    newTokenPairSolEvents,
+    newTokenPairUsdcEvents,
+    newTokenPairUnknownEvents,
+    tradePairSolEvents,
+    tradePairUsdcEvents,
+    tradePairUnknownEvents,
+    migrationPairSolEvents,
+    migrationPairUsdcEvents,
+    migrationPairUnknownEvents,
+    lastDetectedPairBase,
+    lastDetectedPairAt,
     tradeSubscriptionsSkippedMaxActive,
     tokenTradeReconnectResubscribeScheduled,
     tokenTradeReconnectResubscribeSent,
@@ -873,7 +939,17 @@ function buildPumpPortalHealth(battlefield = {}) {
       closeAgeBuckets,
       closeSubscribedMintStats,
       closeConnectionPingStats,
-      closeConnectionPongStats
+      closeConnectionPongStats,
+      closeConnectionMessageStats,
+      closeConnectionNewTokenStats,
+      closeConnectionTradeStats,
+      closeConnectionMigrationStats,
+      closeConnectionControlFrameStats,
+      closeConnectionMessagesPerMinuteStats,
+      closeLastMessageAgeStats,
+      closeConnectionPairSolStats,
+      closeConnectionPairUsdcStats,
+      closeConnectionPairUnknownStats
     },
     connected,
     paidTradeStreamsEnabled,
@@ -1085,6 +1161,10 @@ function buildSummary(docs) {
   lines.push(`  - reconnects / closes / stale reconnects: ${pumpPortalHealth.reconnectAttempts} / ${pumpPortalHealth.closeEvents} / ${pumpPortalHealth.staleReconnects}`);
   lines.push(`  - paid trade streams enabled / skipped mints / skipped accounts: ${pumpPortalHealth.paidTradeStreamsEnabled} / ${pumpPortalHealth.tradeSubscriptionsSkippedNoApiKey || pumpPortalHealth.skippedPaidStreamMints} / ${pumpPortalHealth.accountSubscriptionsSkippedNoApiKey}`);
   lines.push(`  - token trade subscription load: active=${pumpPortalHealth.subscribedMints}, max=${pumpPortalHealth.maxSubscribedMints || 'n/a'}, ttl=${pumpPortalHealth.tokenTradeSubscriptionTtlMs ? `${pumpPortalHealth.tokenTradeSubscriptionTtlMs}ms` : 'n/a'}, pruned=${pumpPortalHealth.tokenTradeSubscriptionPrunes || 0} (ttl=${pumpPortalHealth.tokenTradeTtlPrunes || 0}, max=${pumpPortalHealth.tokenTradeMaxActivePrunes || 0}), skippedMax=${pumpPortalHealth.tradeSubscriptionsSkippedMaxActive || 0}`);
+  lines.push(`  - control frames sent / token subscribe / token unsubscribe: ${pumpPortalHealth.controlFramesSent || 0} / ${pumpPortalHealth.tokenTradeSubscribeFrames || 0} / ${pumpPortalHealth.tokenTradeUnsubscribeFrames || 0}`);
+  lines.push(`  - pair-base detection total SOL/USDC/unknown: ${pumpPortalHealth.pairSolEvents || 0} / ${pumpPortalHealth.pairUsdcEvents || 0} / ${pumpPortalHealth.pairUnknownEvents || 0}${pumpPortalHealth.lastDetectedPairBase ? ` (last=${pumpPortalHealth.lastDetectedPairBase}${pumpPortalHealth.lastDetectedPairAt ? ` at ${pumpPortalHealth.lastDetectedPairAt}` : ''})` : ''}`);
+  lines.push(`  - pair-base by event newToken SOL/USDC/unknown: ${pumpPortalHealth.newTokenPairSolEvents || 0} / ${pumpPortalHealth.newTokenPairUsdcEvents || 0} / ${pumpPortalHealth.newTokenPairUnknownEvents || 0}`);
+  lines.push(`  - pair-base by event trade SOL/USDC/unknown: ${pumpPortalHealth.tradePairSolEvents || 0} / ${pumpPortalHealth.tradePairUsdcEvents || 0} / ${pumpPortalHealth.tradePairUnknownEvents || 0}; migration SOL/USDC/unknown: ${pumpPortalHealth.migrationPairSolEvents || 0} / ${pumpPortalHealth.migrationPairUsdcEvents || 0} / ${pumpPortalHealth.migrationPairUnknownEvents || 0}`);
   const reconnectDelay = pumpPortalHealth.reconnectResubscribeBatchDelayMs === undefined
     ? 'n/a'
     : `${pumpPortalHealth.reconnectResubscribeBatchDelayMs}ms`;
@@ -1101,8 +1181,17 @@ function buildSummary(docs) {
     const subs = pumpPortalHealth.lifecycle.closeSubscribedMintStats || {};
     const closePings = pumpPortalHealth.lifecycle.closeConnectionPingStats || {};
     const closePongs = pumpPortalHealth.lifecycle.closeConnectionPongStats || {};
+    const closeMessages = pumpPortalHealth.lifecycle.closeConnectionMessageStats || {};
+    const closeTrades = pumpPortalHealth.lifecycle.closeConnectionTradeStats || {};
+    const closeControlFrames = pumpPortalHealth.lifecycle.closeConnectionControlFrameStats || {};
+    const closeMessagesPerMinute = pumpPortalHealth.lifecycle.closeConnectionMessagesPerMinuteStats || {};
+    const closeLastMessageAge = pumpPortalHealth.lifecycle.closeLastMessageAgeStats || {};
+    const closeUsdc = pumpPortalHealth.lifecycle.closeConnectionPairUsdcStats || {};
+    const closeUnknownPair = pumpPortalHealth.lifecycle.closeConnectionPairUnknownStats || {};
     lines.push(`  - structured close lifecycle: connected/closed/errors=${pumpPortalHealth.lifecycle.connected} / ${pumpPortalHealth.lifecycle.closed} / ${pumpPortalHealth.lifecycle.websocketErrors}, closeAge median/p90/max=${age.median === null ? 'n/a' : `${fmt(age.median, 0)}ms`} / ${age.p90 === null ? 'n/a' : `${fmt(age.p90, 0)}ms`} / ${age.max === null ? 'n/a' : `${fmt(age.max, 0)}ms`}, close subscribedMints median/max=${subs.median === null ? 'n/a' : fmt(subs.median, 0)} / ${subs.max === null ? 'n/a' : fmt(subs.max, 0)}, close pings/pongs median=${closePings.median === null ? 'n/a' : fmt(closePings.median, 0)} / ${closePongs.median === null ? 'n/a' : fmt(closePongs.median, 0)}`);
     lines.push(`  - closeAge buckets <30s/30-90s/90-180s/180-300s/>300s: ${ageBuckets['<30s'] || 0} / ${ageBuckets['30-90s'] || 0} / ${ageBuckets['90-180s'] || 0} / ${ageBuckets['180-300s'] || 0} / ${ageBuckets['>300s'] || 0}`);
+    lines.push(`  - close connection traffic median messages/trades/controlFrames/msgPerMin/lastMsgAge: ${closeMessages.median === null ? 'n/a' : fmt(closeMessages.median, 0)} / ${closeTrades.median === null ? 'n/a' : fmt(closeTrades.median, 0)} / ${closeControlFrames.median === null ? 'n/a' : fmt(closeControlFrames.median, 0)} / ${closeMessagesPerMinute.median === null ? 'n/a' : fmt(closeMessagesPerMinute.median, 2)} / ${closeLastMessageAge.median === null ? 'n/a' : `${fmt(closeLastMessageAge.median, 0)}ms`}`);
+    lines.push(`  - close pair-base median USDC/unknown events: ${closeUsdc.median === null ? 'n/a' : fmt(closeUsdc.median, 0)} / ${closeUnknownPair.median === null ? 'n/a' : fmt(closeUnknownPair.median, 0)}`);
   }
   lines.push(`  - current/max reconnect backoff delay: ${pumpPortalHealth.reconnectDelayMs ? `${pumpPortalHealth.reconnectDelayMs}ms` : 'n/a'} / ${pumpPortalHealth.maxReconnectDelayMs ? `${pumpPortalHealth.maxReconnectDelayMs}ms` : 'n/a'}`);
   lines.push(`  - stable reconnect resets / reset window: ${pumpPortalHealth.reconnectDelayStableResets} / ${pumpPortalHealth.reconnectDelayResetAfterStableMs ? `${pumpPortalHealth.reconnectDelayResetAfterStableMs}ms` : 'n/a'}`);
