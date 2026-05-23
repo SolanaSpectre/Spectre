@@ -577,8 +577,8 @@ class PumpPortalListener {
   }
 
   detectPairBase(payload = {}) {
-    const flattened = this.flattenPayloadTokens(payload);
-    const hasUsdc = flattened.some((value) => (
+    const pairHints = this.flattenPairHintTokens(payload);
+    const hasUsdc = pairHints.some((value) => (
       value === USDC_MINT
       || value === 'USDC'
       || value.includes('USDC')
@@ -586,7 +586,7 @@ class PumpPortalListener {
     ));
     if (hasUsdc) return 'USDC';
 
-    const hasSol = flattened.some((value) => (
+    const hasSol = pairHints.some((value) => (
       value === SOL_MINT
       || value === 'SOL'
       || value === 'WSOL'
@@ -603,22 +603,33 @@ class PumpPortalListener {
     return 'UNKNOWN';
   }
 
-  flattenPayloadTokens(value, depth = 0, output = []) {
+  flattenPairHintTokens(value, depth = 0, output = [], parentKey = '') {
     if (depth > 4 || value === null || value === undefined) return output;
+    const key = String(parentKey || '').toLowerCase();
+    const isPairHintKey = key.includes('quote')
+      || key.includes('pair')
+      || key.includes('base')
+      || key.includes('currency')
+      || key.includes('denom')
+      || key.includes('asset')
+      || key.includes('tokena')
+      || key.includes('tokenb')
+      || key.includes('minta')
+      || key.includes('mintb');
+
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-      output.push(String(value).trim().toUpperCase());
+      if (isPairHintKey) output.push(String(value).trim().toUpperCase());
       return output;
     }
     if (Array.isArray(value)) {
       for (const item of value.slice(0, 50)) {
-        this.flattenPayloadTokens(item, depth + 1, output);
+        this.flattenPairHintTokens(item, depth + 1, output, parentKey);
       }
       return output;
     }
     if (typeof value === 'object') {
       for (const [key, item] of Object.entries(value).slice(0, 100)) {
-        output.push(String(key).trim().toUpperCase());
-        this.flattenPayloadTokens(item, depth + 1, output);
+        this.flattenPairHintTokens(item, depth + 1, output, key);
       }
     }
     return output;
