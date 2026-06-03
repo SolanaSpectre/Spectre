@@ -367,7 +367,7 @@ function summarizeRunnerRejectWakeup(item = {}) {
 
 function summarizeRunnerRejectReplayProfile(name, item = {}) {
   const winRatePct = item.winRate === null || item.winRate === undefined ? 'n/a' : `${fmt(Number(item.winRate) * 100, 1)}%`;
-  return `${name}: trades=${item.trades ?? 'n/a'} wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'} winRate=${winRatePct} totalPnlSol=${fmt(item.totalPnlSol, 9)} returnMed/p90=${fmt(item.returnPct?.median, 2)}%/${fmt(item.returnPct?.p90, 2)}% exits=${JSON.stringify(item.exitReasons || {})}`;
+  return `${name}: trades=${item.trades ?? 'n/a'} wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'} winRate=${winRatePct} totalPnlSol=${fmt(item.totalPnlSol, 9)} exTop3Sol=${fmt(item.pnlAfterRemovingTop3WinnersSol, 9)} top3Sol=${fmt(item.top3WinnerPnlSol, 9)} returnMed/p90=${fmt(item.returnPct?.median, 2)}%/${fmt(item.returnPct?.p90, 2)}% rawReturnMed=${fmt(item.rawReturnPct?.median, 2)}% exits=${JSON.stringify(item.exitReasons || {})}`;
 }
 
 function summarizeRaydiumShadow(item = {}) {
@@ -2476,11 +2476,11 @@ function buildSummary(docs) {
   lines.push('2c. Runner Reject Entry Replay');
   lines.push('------------------------------');
   lines.push('- Mode: report-only; simulates rejected pre-90 runner entries from later telemetry snapshots.');
-  lines.push(`- Candidates: ${runnerRejectEntryReplay.inputs?.candidates ?? 'n/a'} | size SOL: ${fmt(runnerRejectEntryReplay.assumptions?.sizeSol, 4)} | fee SOL: ${fmt(runnerRejectEntryReplay.assumptions?.feeSol, 6)}`);
+  lines.push(`- Candidates: ${runnerRejectEntryReplay.inputs?.candidates ?? 'n/a'} | size SOL: ${fmt(runnerRejectEntryReplay.assumptions?.sizeSol, 4)} | fee SOL: ${fmt(runnerRejectEntryReplay.assumptions?.feeSol, 6)} | default slippage entry/exit: ${fmt(runnerRejectEntryReplay.assumptions?.defaultEntrySlippagePct, 2)}%/${fmt(runnerRejectEntryReplay.assumptions?.defaultExitSlippagePct, 2)}%`);
   const replayLines = Object.entries(runnerRejectReplayProfiles).map(([name, item]) => summarizeRunnerRejectReplayProfile(name, item));
   if (replayLines.length) replayLines.forEach((line) => lines.push(`- ${line}`));
   else lines.push('- Profiles: none');
-  lines.push('- Caveat: replay does not model quote fill, slippage, MEV, liquidity, or broadcast latency.');
+  lines.push('- Caveat: replay applies configured slippage stress but still does not model quote fill, MEV, liquidity, or broadcast latency.');
   lines.push('');
 
   const shadowSummary = runnerRaydiumShadow.summary || {};
