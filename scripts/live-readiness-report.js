@@ -15,6 +15,7 @@ const REPORT_DIR = path.join(ROOT, 'data', 'reports');
 const JSON_REPORT = path.join(REPORT_DIR, 'live-readiness-latest.json');
 const TEXT_REPORT = path.join(REPORT_DIR, 'live-readiness-latest.txt');
 const RUNNER_REJECT_ENTRY_REPLAY_REPORT = path.join(REPORT_DIR, 'runner-reject-entry-replay-latest.json');
+const WALLET_FALSE_NEGATIVE_ENTRY_REPLAY_REPORT = path.join(REPORT_DIR, 'wallet-false-negative-entry-replay-latest.json');
 
 function number(value, fallback = 0) {
   const parsed = Number(value);
@@ -92,6 +93,31 @@ function selectRunnerShadowProfiles(report) {
       exitReasons: summary.exitReasons || {}
     }))
     .sort((a, b) => number(b.totalPnlSol, Number.NEGATIVE_INFINITY) - number(a.totalPnlSol, Number.NEGATIVE_INFINITY));
+}
+
+function selectWalletFalseNegativeReplay(report) {
+  if (!report) return null;
+  const summary = report.summary || {};
+  return {
+    generatedAt: report.generatedAt || null,
+    mode: report.mode || null,
+    strategy: report.strategy || null,
+    criteria: report.criteria || null,
+    strongWalletLedMisses: summary.strongWalletLedMisses ?? null,
+    wouldEnter: summary.wouldEnter ?? null,
+    noGateConfirmAfterTouch: summary.noGateConfirmAfterTouch ?? null,
+    totalPnlSol: summary.totalPnlSol ?? null,
+    stressedPnlSol: summary.stressedPnlSol ?? null,
+    winRate: summary.winRate ?? null,
+    firstHalfPnlSol: summary.firstHalfPnlSol ?? null,
+    secondHalfPnlSol: summary.secondHalfPnlSol ?? null,
+    pnlAfterTopWinnerSol: summary.pnlAfterTopWinnerSol ?? null,
+    pnlAfterTop3WinnersSol: summary.pnlAfterTop3WinnersSol ?? null,
+    topWinnerShareOfGrossProfit: summary.topWinnerShareOfGrossProfit ?? null,
+    verdict: summary.verdict || null,
+    shadowLaneEligible: summary.shadowLaneEligible === true,
+    verdictReason: summary.verdictReason || null
+  };
 }
 
 async function readTelemetry(filePath) {
@@ -557,7 +583,9 @@ function buildVerdict(stats) {
 function buildReport(stats) {
   const verdict = buildVerdict(stats);
   const runnerRejectEntryReplay = readOptionalJson(RUNNER_REJECT_ENTRY_REPLAY_REPORT);
+  const walletFalseNegativeEntryReplay = readOptionalJson(WALLET_FALSE_NEGATIVE_ENTRY_REPLAY_REPORT);
   const runnerShadowProfiles = selectRunnerShadowProfiles(runnerRejectEntryReplay);
+  const walletShadowReplay = selectWalletFalseNegativeReplay(walletFalseNegativeEntryReplay);
   return {
     generatedAt: new Date().toISOString(),
     telemetryPath: path.relative(ROOT, stats.filePath),
@@ -626,7 +654,8 @@ function buildReport(stats) {
           defaultEntrySlippagePct: runnerRejectEntryReplay.assumptions?.defaultEntrySlippagePct ?? null,
           defaultExitSlippagePct: runnerRejectEntryReplay.assumptions?.defaultExitSlippagePct ?? null,
           profiles: runnerShadowProfiles
-        } : null
+        } : null,
+        walletFalseNegativeEntryReplay: walletShadowReplay
       }
     }
   };
@@ -708,6 +737,17 @@ function writeText(report) {
     }
   } else {
     lines.push('- No runner reject entry replay report found.');
+  }
+  const walletReplay = m.shadowEvidence?.walletFalseNegativeEntryReplay || null;
+  if (walletReplay) {
+    lines.push('- Wallet false-negative entry replay is report-only and does not satisfy live launch paper-entry requirements.');
+    lines.push(`- Wallet replay verdict / eligible: ${walletReplay.verdict || 'n/a'} / ${walletReplay.shadowLaneEligible === true ? 'yes' : 'no'}`);
+    lines.push(`- Wallet replay sample: strongMisses=${walletReplay.strongWalletLedMisses ?? 'n/a'}, wouldEnter=${walletReplay.wouldEnter ?? 'n/a'}, noGateConfirm=${walletReplay.noGateConfirmAfterTouch ?? 'n/a'}, winRate=${walletReplay.winRate === null || walletReplay.winRate === undefined ? 'n/a' : `${fmt(Number(walletReplay.winRate) * 100, 1)}%`}`);
+    lines.push(`- Wallet replay PnL: raw=${fmt(walletReplay.totalPnlSol, 9)} SOL, stressed=${fmt(walletReplay.stressedPnlSol, 9)} SOL, firstHalf=${fmt(walletReplay.firstHalfPnlSol, 9)} SOL, secondHalf=${fmt(walletReplay.secondHalfPnlSol, 9)} SOL`);
+    lines.push(`- Wallet replay concentration: exTop1=${fmt(walletReplay.pnlAfterTopWinnerSol, 9)} SOL, exTop3=${fmt(walletReplay.pnlAfterTop3WinnersSol, 9)} SOL, top1GrossShare=${walletReplay.topWinnerShareOfGrossProfit === null || walletReplay.topWinnerShareOfGrossProfit === undefined ? 'n/a' : `${fmt(Number(walletReplay.topWinnerShareOfGrossProfit) * 100, 1)}%`}`);
+    if (walletReplay.verdictReason) lines.push(`- Wallet replay verdict reason: ${walletReplay.verdictReason}`);
+  } else {
+    lines.push('- No wallet false-negative entry replay report found.');
   }
   lines.push('');
 
