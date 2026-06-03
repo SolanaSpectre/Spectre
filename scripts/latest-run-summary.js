@@ -1863,6 +1863,20 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
     const label = key === true || key === false ? String(key) : (key || 'unknown');
     target[label] = (target[label] || 0) + 1;
   };
+  const classifySimulationFailure = (payload = {}) => {
+    const text = [
+      payload.simulationErrorClass,
+      payload.simulationError,
+      payload.reason,
+      ...(Array.isArray(payload.simulationLogs) ? payload.simulationLogs : [])
+    ].filter(Boolean).join('\n');
+    if (/MintDoesNotMatchBondingCurve/i.test(text) || /Error Number:\s*6004/i.test(text) || /custom program error:\s*0x1774/i.test(text)) {
+      return 'BONDING_CURVE_MINT_MISMATCH';
+    }
+    if (/Slippage/i.test(text)) return 'SIMULATION_SLIPPAGE';
+    if (/insufficient funds|custom program error:\s*0x1/i.test(text)) return 'SIMULATION_INSUFFICIENT_FUNDS';
+    return payload.simulationErrorClass || payload.simulationError || payload.reason || 'SIMULATION_FAILED';
+  };
   const pushLimited = (target, item, limit = 8) => {
     target.push(item);
     if (target.length > limit) target.shift();
@@ -1905,7 +1919,7 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
       }
       if (payload.simulationOk === true || payload.simulationOk === false) {
         bump(summary.simulationOk, payload.simulationOk);
-        if (payload.simulationOk === false) bump(summary.simulationErrors, payload.simulationError || payload.reason || 'SIMULATION_FAILED');
+        if (payload.simulationOk === false) bump(summary.simulationErrors, classifySimulationFailure(payload));
       } else if (type === 'live_dry_run.would_send' || type === 'live_dry_run.would_block') {
         bump(summary.simulationOk, 'null');
       }
@@ -1944,7 +1958,7 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
           blockhashOk: payload.blockhashOk ?? null,
           blockhashLatencyMs: payload.blockhashLatencyMs ?? null,
           simulationOk: payload.simulationOk ?? null,
-          simulationError: payload.simulationError || null,
+          simulationError: payload.simulationOk === false ? classifySimulationFailure(payload) : (payload.simulationError || null),
           signatureMode: payload.signatureMode || null,
           signedOk: payload.signedOk ?? null,
           broadcastEnabled: payload.broadcastEnabled ?? null,

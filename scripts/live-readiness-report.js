@@ -151,6 +151,7 @@ async function readTelemetry(filePath) {
       txBuildStatus: {},
       simulationOk: { true: 0, false: 0, null: 0 },
       simulationErrors: {},
+      simulationFailureMintsByClass: {},
       simulationMissingAccounts: {},
       simulationPassedWithPreflightMissingAccounts: {},
       signedOk: { true: 0, false: 0, null: 0 },
@@ -263,7 +264,7 @@ async function readTelemetry(filePath) {
         increment(stats.dryRun.signatureModes, payload.signatureMode || 'unknown');
         if (payload.simulationOk === true || payload.simulationOk === false) {
           increment(stats.dryRun.simulationOk, String(payload.simulationOk));
-          if (payload.simulationOk === false) increment(stats.dryRun.simulationErrors, payload.simulationErrorClass || payload.simulationError || 'SIMULATION_FAILED');
+          if (payload.simulationOk === false) recordSimulationFailure(stats, payload);
         } else {
           increment(stats.dryRun.simulationOk, 'null');
         }
@@ -274,7 +275,7 @@ async function readTelemetry(filePath) {
         pushNumber(stats.dryRun.accountAgeMs, payload.accountAgeMs);
         pushNumber(stats.dryRun.priceImpactPct, payload.quote && payload.quote.priceImpactPct);
         pushNumber(stats.dryRun.blockhashLatencyMs, payload.blockhashLatencyMs);
-        increment(stats.dryRun.blockReasons, payload.reason || 'unknown');
+        increment(stats.dryRun.blockReasons, classifyDryRunBlockReason(payload));
         increment(stats.dryRun.txBuildStatus, payload.txBuildStatus || 'unknown');
         if (payload.signedOk === true || payload.signedOk === false) {
           increment(stats.dryRun.signedOk, String(payload.signedOk));
@@ -289,7 +290,7 @@ async function readTelemetry(filePath) {
         increment(stats.dryRun.signatureModes, payload.signatureMode || 'unknown');
         if (payload.simulationOk === true || payload.simulationOk === false) {
           increment(stats.dryRun.simulationOk, String(payload.simulationOk));
-          if (payload.simulationOk === false) increment(stats.dryRun.simulationErrors, payload.simulationErrorClass || payload.simulationError || payload.reason || 'SIMULATION_FAILED');
+          if (payload.simulationOk === false) recordSimulationFailure(stats, payload);
         } else {
           increment(stats.dryRun.simulationOk, 'null');
         }
@@ -332,6 +333,36 @@ function recordSimulationAccountDiagnostic(stats, payload = {}) {
   for (const account of missingAccounts) {
     increment(target, (account && (account.name || account.pubkey)) || 'unknown');
   }
+}
+
+function recordSimulationFailure(stats, payload = {}) {
+  const failureClass = classifySimulationFailure(payload);
+  increment(stats.dryRun.simulationErrors, failureClass);
+  if (!stats.dryRun.simulationFailureMintsByClass[failureClass]) {
+    stats.dryRun.simulationFailureMintsByClass[failureClass] = {};
+  }
+  increment(stats.dryRun.simulationFailureMintsByClass[failureClass], payload.mint || payload.symbol || 'unknown');
+}
+
+function classifyDryRunBlockReason(payload = {}) {
+  if (payload.simulationOk === false || payload.reason === 'SIMULATION_FAILED') {
+    return classifySimulationFailure(payload);
+  }
+  return payload.reason || 'unknown';
+}
+
+function classifySimulationFailure(payload = {}) {
+  const text = [
+    payload.simulationErrorClass,
+    payload.simulationError,
+    ...(Array.isArray(payload.simulationLogs) ? payload.simulationLogs : [])
+  ].filter(Boolean).join('\n');
+  if (/MintDoesNotMatchBondingCurve/i.test(text) || /Error Number:\s*6004/i.test(text) || /custom program error:\s*0x1774/i.test(text)) {
+    return 'BONDING_CURVE_MINT_MISMATCH';
+  }
+  if (/Slippage/i.test(text)) return 'SIMULATION_SLIPPAGE';
+  if (/insufficient funds|custom program error:\s*0x1/i.test(text)) return 'SIMULATION_INSUFFICIENT_FUNDS';
+  return payload.simulationErrorClass || payload.simulationError || payload.reason || 'SIMULATION_FAILED';
 }
 
 async function readCurrentHotWalletBalanceSol() {
@@ -559,6 +590,7 @@ function buildReport(stats) {
         txBuildStatus: stats.dryRun.txBuildStatus,
         simulationOk: stats.dryRun.simulationOk,
         simulationErrors: stats.dryRun.simulationErrors,
+        simulationFailureMintsByClass: stats.dryRun.simulationFailureMintsByClass,
         simulationMissingAccounts: stats.dryRun.simulationMissingAccounts,
         simulationPassedWithPreflightMissingAccounts: stats.dryRun.simulationPassedWithPreflightMissingAccounts,
         signedOk: stats.dryRun.signedOk,
@@ -646,6 +678,14 @@ function writeText(report) {
   for (const [name, count] of signatureModes) lines.push(`- Dry-run signature mode: ${name}: ${count}`);
   const blockReasons = Object.entries(m.dryRun.blockReasons || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
   for (const [name, count] of blockReasons) lines.push(`- Dry-run block reason: ${name}: ${count}`);
+  const failureClasses = Object.entries(m.dryRun.simulationErrors || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  for (const [name, count] of failureClasses) {
+    lines.push(`- Dry-run simulation failure class: ${name}: ${count}`);
+    const mintCounts = Object.entries(m.dryRun.simulationFailureMintsByClass?.[name] || {})
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    for (const [mint, mintCount] of mintCounts) lines.push(`  - ${mint}: ${mintCount}`);
+  }
   const missing = Object.entries(m.dryRun.simulationMissingAccounts || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
   for (const [name, count] of missing) lines.push(`- Dry-run missing account: ${name}: ${count}`);
   const preflightMissing = Object.entries(m.dryRun.simulationPassedWithPreflightMissingAccounts || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);

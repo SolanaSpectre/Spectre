@@ -110,7 +110,9 @@ class LiveExecutionDryRunLane {
     const text = [error, ...(Array.isArray(logs) ? logs : [])]
       .filter(Boolean)
       .join('\n');
-    if (/MintDoesNotMatchBondingCurve/i.test(text)) return 'BONDING_CURVE_MINT_MISMATCH';
+    if (/MintDoesNotMatchBondingCurve/i.test(text) || /Error Number:\s*6004/i.test(text) || /custom program error:\s*0x1774/i.test(text)) {
+      return 'BONDING_CURVE_MINT_MISMATCH';
+    }
     if (/Slippage/i.test(text)) return 'SIMULATION_SLIPPAGE';
     if (/insufficient funds|custom program error: 0x1/i.test(text)) return 'SIMULATION_INSUFFICIENT_FUNDS';
     return error || 'SIMULATION_FAILED';

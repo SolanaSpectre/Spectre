@@ -182,6 +182,20 @@ function analyzeTelemetry(filePath) {
       ? 'FIFTEEN_SECOND_STATUS_CADENCE_CORRELATION'
       : 'MIXED_OR_BURSTY_EVENT_LOOP_LAG';
   }
+  const interpretation = diagnosis === 'NO_LAG_EVENTS'
+    ? [
+      'No runtime.event_loop_lag events were observed in this telemetry file.',
+      'No event-loop mitigation is indicated from this run.'
+    ]
+    : diagnosis === 'FIFTEEN_SECOND_STATUS_CADENCE_CORRELATION'
+      ? [
+        'Lag timing is strongly correlated with the 15s status/monitoring cadence.',
+        'Reduce status console/report work or make the status loop less frequent before treating provider/RPC infrastructure as the cause.'
+      ]
+      : [
+        'Lag timing is mixed or bursty rather than aligned with the 15s status cadence.',
+        'Inspect topPrecedingEventTypes5s and topLagMinutes for concentrated provider/runtime event volume, then reduce synchronous per-event telemetry/logging or report-only lane work around those bursts.'
+      ];
 
   return {
     generatedAt: new Date().toISOString(),
@@ -210,10 +224,7 @@ function analyzeTelemetry(filePath) {
       topPrecedingEventTypes5s: topEntries(precedingEventTypes5s, 20),
       topLagMinutes
     },
-    interpretation: [
-      'A high fifteenSecondCadenceShare points at the 15s status/monitoring loop as the likely lag source.',
-      'If this remains high, reduce status console work or make the status loop less frequent before treating provider/RPC infrastructure as the cause.'
-    ]
+    interpretation
   };
 }
 
