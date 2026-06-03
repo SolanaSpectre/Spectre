@@ -54,6 +54,7 @@ const FILES = {
   noPriorFollowThrough: 'data/reports/no-prior-follow-through-latest.json',
   noPriorDelayedEntry: 'data/reports/no-prior-delayed-entry-replay-latest.json',
   runnerRejectFollowThrough: 'data/reports/runner-reject-follow-through-latest.json',
+  runnerRejectEntryReplay: 'data/reports/runner-reject-entry-replay-latest.json',
   runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json',
   runnerRaydiumShadowFixedHorizon: 'data/reports/runner-raydium-shadow-fixed-horizon-latest.json',
   runnerRaydiumShadowHistoricalHorizon: 'data/reports/runner-raydium-shadow-historical-horizon-latest.json',
@@ -362,6 +363,11 @@ function summarizeRunnerRejectWakeup(item = {}) {
   const w120 = item.windows?.['120s'] || {};
   const w300 = item.windows?.['300s'] || {};
   return `${label} | reason=${item.reason || 'n/a'} | pump=${item.pumpFailureReason || 'n/a'} | momentum=${fmt(item.momentumScore, 4)} | startCurve=${fmt(item.curveProgress, 4)} | max120=${fmt(w120.maxCurveProgress, 4)} | cross85/90_120=${w120.crossed85 === true}/${w120.crossed90 === true} | price120=${w120.maxPriceDeltaPct === null || w120.maxPriceDeltaPct === undefined ? 'n/a' : `${fmt(w120.maxPriceDeltaPct, 2)}%`} | max300=${fmt(w300.maxCurveProgress, 4)}`;
+}
+
+function summarizeRunnerRejectReplayProfile(name, item = {}) {
+  const winRatePct = item.winRate === null || item.winRate === undefined ? 'n/a' : `${fmt(Number(item.winRate) * 100, 1)}%`;
+  return `${name}: trades=${item.trades ?? 'n/a'} wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'} winRate=${winRatePct} totalPnlSol=${fmt(item.totalPnlSol, 9)} returnMed/p90=${fmt(item.returnPct?.median, 2)}%/${fmt(item.returnPct?.p90, 2)}% exits=${JSON.stringify(item.exitReasons || {})}`;
 }
 
 function summarizeRaydiumShadow(item = {}) {
@@ -2058,6 +2064,7 @@ function buildSummary(docs) {
   const noPriorFollowThrough = docs.noPriorFollowThrough.data || {};
   const noPriorDelayedEntry = docs.noPriorDelayedEntry.data || {};
   const runnerRejectFollowThrough = docs.runnerRejectFollowThrough.data || {};
+  const runnerRejectEntryReplay = docs.runnerRejectEntryReplay.data || {};
   const runnerRaydiumShadow = docs.runnerRaydiumShadow.data || {};
   const runnerRaydiumShadowFixedHorizon = docs.runnerRaydiumShadowFixedHorizon.data || {};
   const runnerRaydiumShadowHistoricalHorizon = docs.runnerRaydiumShadowHistoricalHorizon.data || {};
@@ -2442,6 +2449,8 @@ function buildSummary(docs) {
 
   const runnerRejectSummary = runnerRejectFollowThrough.summary || {};
   const runnerRejectTop = topArray(runnerRejectFollowThrough.topPre90Wakeups || runnerRejectFollowThrough.topWakeups, 8);
+  const runnerRejectReplay = runnerRejectFollowThrough.pre90MigrationRequiredReplay || {};
+  const runnerRejectReplaySummary = runnerRejectReplay.summary || {};
   lines.push('2b. Runner Reject Follow-through');
   lines.push('---------------------------------');
   lines.push('- Mode: report-only; joins trade.rejected rows to later PumpDev curve/price snapshots.');
@@ -2450,6 +2459,7 @@ function buildSummary(docs) {
   lines.push(`- Actionable pre-90 rejects / unique / crossed85/90 within 120s: ${runnerRejectSummary.pre90Rejects ?? 'n/a'} / ${runnerRejectSummary.pre90UniqueMints ?? 'n/a'} / ${runnerRejectSummary.pre90Crossed85Within120s ?? 'n/a'} / ${runnerRejectSummary.pre90Crossed90Within120s ?? 'n/a'}`);
   lines.push(`- Max curve 120s median/p90/max: ${fmt(runnerRejectSummary.maxCurve120s?.median, 4)} / ${fmt(runnerRejectSummary.maxCurve120s?.p90, 4)} / ${fmt(runnerRejectSummary.maxCurve120s?.max, 4)}`);
   lines.push(`- Pre-90 price delta 120s median/p90/max: ${fmt(runnerRejectSummary.pre90MaxPriceDeltaPct120s?.median, 2)}% / ${fmt(runnerRejectSummary.pre90MaxPriceDeltaPct120s?.p90, 2)}% / ${fmt(runnerRejectSummary.pre90MaxPriceDeltaPct120s?.max, 2)}%`);
+  lines.push(`- Pre-90 migration-required replay: trades=${runnerRejectReplaySummary.trades ?? 'n/a'}, wins/losses=${runnerRejectReplaySummary.wins ?? 'n/a'}/${runnerRejectReplaySummary.losses ?? 'n/a'}, winRate=${pct(runnerRejectReplaySummary.winRate, 1)}, pnl=${sol(runnerRejectReplaySummary.totalPnlSol, 6)}, exits=${compactValue(runnerRejectReplaySummary.exitReasonCounts)}`);
   lines.push('- Reject reason counts:');
   objectLines(runnerRejectSummary.reasonCounts, 6).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Pump failure reason counts:');
@@ -2460,6 +2470,17 @@ function buildSummary(docs) {
   } else {
     lines.push('- Top pre-90 rejected wakeups: none');
   }
+  lines.push('');
+
+  const runnerRejectReplayProfiles = runnerRejectEntryReplay.summaryByProfile || {};
+  lines.push('2c. Runner Reject Entry Replay');
+  lines.push('------------------------------');
+  lines.push('- Mode: report-only; simulates rejected pre-90 runner entries from later telemetry snapshots.');
+  lines.push(`- Candidates: ${runnerRejectEntryReplay.inputs?.candidates ?? 'n/a'} | size SOL: ${fmt(runnerRejectEntryReplay.assumptions?.sizeSol, 4)} | fee SOL: ${fmt(runnerRejectEntryReplay.assumptions?.feeSol, 6)}`);
+  const replayLines = Object.entries(runnerRejectReplayProfiles).map(([name, item]) => summarizeRunnerRejectReplayProfile(name, item));
+  if (replayLines.length) replayLines.forEach((line) => lines.push(`- ${line}`));
+  else lines.push('- Profiles: none');
+  lines.push('- Caveat: replay does not model quote fill, slippage, MEV, liquidity, or broadcast latency.');
   lines.push('');
 
   const shadowSummary = runnerRaydiumShadow.summary || {};

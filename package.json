@@ -72,6 +72,7 @@
     "report:run": "node scripts/run-battlefield-report.js",
     "report:runner-raydium-shadow": "node scripts/runner-raydium-shadow-report.js",
     "report:runner-reject-follow-through": "node scripts/runner-reject-follow-through-report.js",
+    "report:runner-reject-entry-replay": "node scripts/runner-reject-entry-replay-report.js",
     "report:runner-raydium-shadow-fixed-horizon": "node scripts/runner-raydium-shadow-fixed-horizon-report.js",
     "report:runner-raydium-shadow-historical-horizon": "node scripts/runner-raydium-shadow-historical-horizon-report.js",
     "report:runner-raydium-shadow-outcome-join": "node scripts/runner-raydium-shadow-outcome-join-report.js",

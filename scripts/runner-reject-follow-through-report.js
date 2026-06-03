@@ -10,6 +10,14 @@ const LOG_DIR = path.join(ROOT, 'run-logs');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'runner-reject-follow-through-latest.json');
 const WINDOWS_SECONDS = [30, 60, 120, 300];
 const DEFAULT_LIMIT = 8;
+const REPLAY_PROFILE = {
+  amountSol: 0.02,
+  takeProfitPct: 0.35,
+  stopLossPct: 0.15,
+  maxHoldSeconds: 180,
+  entrySlippagePct: 1.5,
+  exitSlippagePct: 1.5
+};
 
 function parseArgs(argv) {
   const args = {};
@@ -222,6 +230,74 @@ function analyzeReject(run, reject) {
   };
 }
 
+function closeTrade(reject, snapshot, reason, netReturnPct) {
+  return {
+    telemetryPath: reject.telemetryPath,
+    mint: reject.mint,
+    symbol: reject.symbol,
+    entryAt: reject.at,
+    exitAt: snapshot?.at || null,
+    reasonAtEntry: reject.reason,
+    pumpFailureReason: reject.pumpFailureReason,
+    entryCurveProgress: reject.curveProgress,
+    exitCurveProgress: snapshot?.curveProgress ?? null,
+    entryPriceSol: reject.priceSol,
+    exitPriceSol: snapshot?.priceSol ?? null,
+    momentumScore: reject.momentumScore,
+    qualityScore: reject.qualityScore,
+    rankScore: reject.rankScore,
+    holdSeconds: snapshot ? numberOrNull((snapshot.atMs - reject.atMs) / 1000, 2) : null,
+    exitReason: reason,
+    grossReturnPct: snapshot && Number(reject.priceSol) > 0
+      ? numberOrNull(((Number(snapshot.priceSol) / Number(reject.priceSol)) - 1) * 100, 4)
+      : null,
+    netReturnPct: numberOrNull(netReturnPct * 100, 4),
+    pnlSol: numberOrNull(REPLAY_PROFILE.amountSol * netReturnPct, 9)
+  };
+}
+
+function simulateRejectTrade(run, reject) {
+  if (!Number.isFinite(Number(reject.priceSol)) || Number(reject.priceSol) <= 0) {
+    return closeTrade(reject, null, 'PRICE_UNAVAILABLE', 0);
+  }
+  const snapshots = (run.snapshotsByMint.get(reject.mint) || [])
+    .filter((row) => row.atMs > reject.atMs && row.atMs <= reject.atMs + REPLAY_PROFILE.maxHoldSeconds * 1000);
+  if (!snapshots.length) return closeTrade(reject, null, 'NO_FUTURE_SNAPSHOTS', 0);
+
+  const entryFill = Number(reject.priceSol) * (1 + REPLAY_PROFILE.entrySlippagePct / 100);
+  let last = snapshots[snapshots.length - 1];
+  for (const snapshot of snapshots) {
+    if (!Number.isFinite(Number(snapshot.priceSol)) || Number(snapshot.priceSol) <= 0) continue;
+    const exitFill = Number(snapshot.priceSol) * (1 - REPLAY_PROFILE.exitSlippagePct / 100);
+    const netReturn = (exitFill / entryFill) - 1;
+    if (netReturn >= REPLAY_PROFILE.takeProfitPct) return closeTrade(reject, snapshot, 'TAKE_PROFIT', netReturn);
+    if (netReturn <= -REPLAY_PROFILE.stopLossPct) return closeTrade(reject, snapshot, 'STOP_LOSS', netReturn);
+    last = snapshot;
+  }
+  const exitFill = Number(last.priceSol) * (1 - REPLAY_PROFILE.exitSlippagePct / 100);
+  const netReturn = Number.isFinite(exitFill) && exitFill > 0 ? (exitFill / entryFill) - 1 : 0;
+  return closeTrade(reject, last, 'MAX_HOLD', netReturn);
+}
+
+function summarizeReplay(trades) {
+  const closed = trades.filter((trade) => !['NO_FUTURE_SNAPSHOTS', 'PRICE_UNAVAILABLE'].includes(trade.exitReason));
+  const wins = closed.filter((trade) => Number(trade.pnlSol) > 0);
+  const losses = closed.filter((trade) => Number(trade.pnlSol) < 0);
+  const totalPnlSol = closed.reduce((sum, trade) => sum + Number(trade.pnlSol || 0), 0);
+  return {
+    trades: trades.length,
+    closed: closed.length,
+    wins: wins.length,
+    losses: losses.length,
+    winRate: closed.length ? numberOrNull(wins.length / closed.length, 4) : null,
+    totalPnlSol: numberOrNull(totalPnlSol, 9),
+    averagePnlSol: closed.length ? numberOrNull(totalPnlSol / closed.length, 9) : null,
+    exitReasonCounts: countBy(trades, (trade) => trade.exitReason),
+    pnlStats: stat(closed.map((trade) => trade.pnlSol), 9),
+    netReturnPctStats: stat(closed.map((trade) => trade.netReturnPct), 4)
+  };
+}
+
 function attachStartState(run, reject) {
   const snapshots = run.snapshotsByMint.get(reject.mint) || [];
   const prior = snapshots
@@ -285,6 +361,17 @@ function buildReport(runs) {
       return Number(b.windows['120s']?.maxCurveProgress || 0) - Number(a.windows['120s']?.maxCurveProgress || 0);
     })
     .slice(0, 20);
+  const replayCandidates = [];
+  for (const run of runs) {
+    const runRows = analyzed.filter((row) => row.telemetryPath === run.telemetryPath);
+    for (const row of runRows) {
+      if (Number(row.curveProgress) >= 0.9) continue;
+      if (row.pumpFailureReason !== 'RUNNER_SCALPER_REQUIRES_MIGRATION') continue;
+      replayCandidates.push({ run, reject: row });
+    }
+  }
+  const replayTrades = replayCandidates.map(({ run, reject }) => simulateRejectTrade(run, reject));
+  const sortedReplay = replayTrades.slice().sort((a, b) => Number(b.pnlSol || 0) - Number(a.pnlSol || 0));
   return {
     generatedAt: new Date().toISOString(),
     mode: 'report_only',
@@ -311,6 +398,14 @@ function buildReport(runs) {
     ),
     topWakeups,
     topPre90Wakeups,
+    pre90MigrationRequiredReplay: {
+      profile: REPLAY_PROFILE,
+      summary: summarizeReplay(replayTrades),
+      topWinners: sortedReplay.slice(0, 10),
+      topLosers: sortedReplay.slice(-10).reverse(),
+      trades: replayTrades,
+      note: 'Report-only replay for pre-90 RUNNER_SCALPER_REQUIRES_MIGRATION rejects. Entry is modeled at reject time using later provider snapshots. It does not alter runtime gates.'
+    },
     note: 'Report-only follow-through for runner/scalper trade.rejected telemetry. It does not change gates, entries, AI review, quotes, execution, or live broadcast.'
   };
 }
