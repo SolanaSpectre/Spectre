@@ -31,6 +31,10 @@ class LiveExecutionDryRunLane {
     this.maxPriceImpactPct = Math.max(0, finiteNumber(config.liveDryRunMaxPriceImpactPct, 3));
     this.maxPerRun = Math.max(0, finiteNumber(config.liveDryRunMaxPerRun, 50));
     this.mintCooldownMs = Math.max(0, finiteNumber(config.liveDryRunMintCooldownMs, 15000));
+    this.simulationFailureCooldownMs = Math.max(
+      this.mintCooldownMs,
+      finiteNumber(config.liveDryRunSimulationFailureCooldownMs, 300000)
+    );
     this.fetchBlockhash = config.liveDryRunFetchBlockhash !== false;
     this.requireTransactionBuilder = config.liveDryRunRequireTransactionBuilder !== false;
     this.simulateTransaction = config.liveDryRunSimulateTransaction === true;
@@ -52,6 +56,7 @@ class LiveExecutionDryRunLane {
       maxPriceImpactPct: this.maxPriceImpactPct,
       maxPerRun: this.maxPerRun,
       mintCooldownMs: this.mintCooldownMs,
+      simulationFailureCooldownMs: this.simulationFailureCooldownMs,
       fetchBlockhash: this.fetchBlockhash,
       requireTransactionBuilder: this.requireTransactionBuilder,
       pumpBuyV2BuilderEnabled: this.pumpBuyV2BuilderEnabled,
@@ -63,6 +68,7 @@ class LiveExecutionDryRunLane {
       simulationFailed: 0,
       simulationErrors: {}
     };
+    this.simulationFailureByMint = new Map();
   }
 
   emit(type, payload = {}) {
@@ -89,7 +95,25 @@ class LiveExecutionDryRunLane {
     if (this.mintCooldownMs > 0 && lastAt > 0 && now - lastAt < this.mintCooldownMs) {
       return { ok: false, reason: 'MINT_COOLDOWN' };
     }
+    const lastSimulationFailureAt = Number(this.simulationFailureByMint.get(mint) || 0);
+    if (
+      this.simulationFailureCooldownMs > 0
+      && lastSimulationFailureAt > 0
+      && now - lastSimulationFailureAt < this.simulationFailureCooldownMs
+    ) {
+      return { ok: false, reason: 'SIMULATION_FAILURE_COOLDOWN' };
+    }
     return { ok: true };
+  }
+
+  classifySimulationError(error, logs = []) {
+    const text = [error, ...(Array.isArray(logs) ? logs : [])]
+      .filter(Boolean)
+      .join('\n');
+    if (/MintDoesNotMatchBondingCurve/i.test(text)) return 'BONDING_CURVE_MINT_MISMATCH';
+    if (/Slippage/i.test(text)) return 'SIMULATION_SLIPPAGE';
+    if (/insufficient funds|custom program error: 0x1/i.test(text)) return 'SIMULATION_INSUFFICIENT_FUNDS';
+    return error || 'SIMULATION_FAILED';
   }
 
   async evaluate(state = {}, meta = {}) {
@@ -238,8 +262,11 @@ class LiveExecutionDryRunLane {
             this.stats.simulationOk += 1;
           } else {
             this.stats.simulationFailed += 1;
-            this.bump(this.stats.simulationErrors, simulation.error || 'SIMULATION_FAILED');
-            return this.block('SIMULATION_FAILED', payload);
+            const classifiedSimulationError = this.classifySimulationError(simulation.error, simulation.logs);
+            payload.simulationErrorClass = classifiedSimulationError;
+            this.bump(this.stats.simulationErrors, classifiedSimulationError);
+            if (mint) this.simulationFailureByMint.set(mint, Date.now());
+            return this.block(classifiedSimulationError, payload);
           }
         }
       }

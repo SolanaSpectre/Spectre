@@ -312,6 +312,10 @@ class Config {
     return parseInt(process.env.LIVE_DRY_RUN_MINT_COOLDOWN_MS || '15000', 10);
   }
 
+  static get liveDryRunSimulationFailureCooldownMs() {
+    return parseInt(process.env.LIVE_DRY_RUN_SIMULATION_FAILURE_COOLDOWN_MS || '300000', 10);
+  }
+
   static get liveDryRunFetchBlockhash() {
     return process.env.LIVE_DRY_RUN_FETCH_BLOCKHASH !== 'false';
   }

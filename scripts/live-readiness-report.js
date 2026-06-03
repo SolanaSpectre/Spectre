@@ -14,6 +14,7 @@ const TELEMETRY_DIR = path.join(ROOT, 'run-logs');
 const REPORT_DIR = path.join(ROOT, 'data', 'reports');
 const JSON_REPORT = path.join(REPORT_DIR, 'live-readiness-latest.json');
 const TEXT_REPORT = path.join(REPORT_DIR, 'live-readiness-latest.txt');
+const RUNNER_REJECT_ENTRY_REPLAY_REPORT = path.join(REPORT_DIR, 'runner-reject-entry-replay-latest.json');
 
 function number(value, fallback = 0) {
   const parsed = Number(value);
@@ -65,6 +66,32 @@ function pushNumber(list, value) {
 
 function countOnly(counts = {}, allowed = []) {
   return allowed.reduce((total, key) => total + number(counts[key], 0), 0);
+}
+
+function readOptionalJson(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (_error) {
+    return null;
+  }
+}
+
+function selectRunnerShadowProfiles(report) {
+  const profiles = report?.summaryByProfile || {};
+  return Object.entries(profiles)
+    .map(([name, summary]) => ({
+      name,
+      trades: number(summary.trades, 0),
+      wins: number(summary.wins, 0),
+      losses: number(summary.losses, 0),
+      winRate: summary.winRate ?? null,
+      totalPnlSol: summary.totalPnlSol ?? null,
+      pnlAfterRemovingTop3WinnersSol: summary.pnlAfterRemovingTop3WinnersSol ?? null,
+      top3WinnerPnlSol: summary.top3WinnerPnlSol ?? null,
+      exitReasons: summary.exitReasons || {}
+    }))
+    .sort((a, b) => number(b.totalPnlSol, Number.NEGATIVE_INFINITY) - number(a.totalPnlSol, Number.NEGATIVE_INFINITY));
 }
 
 async function readTelemetry(filePath) {
@@ -236,7 +263,7 @@ async function readTelemetry(filePath) {
         increment(stats.dryRun.signatureModes, payload.signatureMode || 'unknown');
         if (payload.simulationOk === true || payload.simulationOk === false) {
           increment(stats.dryRun.simulationOk, String(payload.simulationOk));
-          if (payload.simulationOk === false) increment(stats.dryRun.simulationErrors, payload.simulationError || 'SIMULATION_FAILED');
+          if (payload.simulationOk === false) increment(stats.dryRun.simulationErrors, payload.simulationErrorClass || payload.simulationError || 'SIMULATION_FAILED');
         } else {
           increment(stats.dryRun.simulationOk, 'null');
         }
@@ -262,7 +289,7 @@ async function readTelemetry(filePath) {
         increment(stats.dryRun.signatureModes, payload.signatureMode || 'unknown');
         if (payload.simulationOk === true || payload.simulationOk === false) {
           increment(stats.dryRun.simulationOk, String(payload.simulationOk));
-          if (payload.simulationOk === false) increment(stats.dryRun.simulationErrors, payload.simulationError || payload.reason || 'SIMULATION_FAILED');
+          if (payload.simulationOk === false) increment(stats.dryRun.simulationErrors, payload.simulationErrorClass || payload.simulationError || payload.reason || 'SIMULATION_FAILED');
         } else {
           increment(stats.dryRun.simulationOk, 'null');
         }
@@ -498,6 +525,8 @@ function buildVerdict(stats) {
 
 function buildReport(stats) {
   const verdict = buildVerdict(stats);
+  const runnerRejectEntryReplay = readOptionalJson(RUNNER_REJECT_ENTRY_REPLAY_REPORT);
+  const runnerShadowProfiles = selectRunnerShadowProfiles(runnerRejectEntryReplay);
   return {
     generatedAt: new Date().toISOString(),
     telemetryPath: path.relative(ROOT, stats.filePath),
@@ -554,6 +583,18 @@ function buildReport(stats) {
       paper: {
         uniqueEntryMints: stats.paper.uniqueEntryMints,
         exitReasons: stats.paper.exitReasons
+      },
+      shadowEvidence: {
+        runnerRejectEntryReplay: runnerRejectEntryReplay ? {
+          generatedAt: runnerRejectEntryReplay.generatedAt || null,
+          mode: runnerRejectEntryReplay.mode || null,
+          candidates: runnerRejectEntryReplay.inputs?.candidates ?? null,
+          sizeSol: runnerRejectEntryReplay.assumptions?.sizeSol ?? null,
+          feeSol: runnerRejectEntryReplay.assumptions?.feeSol ?? null,
+          defaultEntrySlippagePct: runnerRejectEntryReplay.assumptions?.defaultEntrySlippagePct ?? null,
+          defaultExitSlippagePct: runnerRejectEntryReplay.assumptions?.defaultExitSlippagePct ?? null,
+          profiles: runnerShadowProfiles
+        } : null
       }
     }
   };
@@ -614,6 +655,20 @@ function writeText(report) {
   }
   lines.push(`- Hot wallet balance / target: ${fmt(m.hotWalletBalanceSol, 6)} / ${fmt(m.requiredLiveBalanceSol, 3)} SOL`);
   lines.push(`- Paper entries/exits/PnL: ${m.paperEntries} / ${m.paperExits} / ${fmt(m.paperPnl, 6)} SOL`);
+  lines.push('');
+
+  lines.push('Shadow Strategy Evidence');
+  const runnerReplay = m.shadowEvidence?.runnerRejectEntryReplay || null;
+  if (runnerReplay) {
+    lines.push('- Runner reject entry replay is report-only and does not satisfy live launch paper-entry requirements.');
+    lines.push(`- Candidates / size / fee / default slippage: ${runnerReplay.candidates ?? 'n/a'} / ${fmt(runnerReplay.sizeSol, 4)} SOL / ${fmt(runnerReplay.feeSol, 6)} SOL / ${fmt(runnerReplay.defaultEntrySlippagePct, 2)}%+${fmt(runnerReplay.defaultExitSlippagePct, 2)}%`);
+    for (const profile of (runnerReplay.profiles || []).slice(0, 5)) {
+      const winRate = profile.winRate === null || profile.winRate === undefined ? 'n/a' : `${fmt(Number(profile.winRate) * 100, 1)}%`;
+      lines.push(`- ${profile.name}: trades=${profile.trades}, wins/losses=${profile.wins}/${profile.losses}, winRate=${winRate}, pnl=${fmt(profile.totalPnlSol, 9)} SOL, exTop3=${fmt(profile.pnlAfterRemovingTop3WinnersSol, 9)} SOL`);
+    }
+  } else {
+    lines.push('- No runner reject entry replay report found.');
+  }
   lines.push('');
 
   lines.push('Interpretation');
