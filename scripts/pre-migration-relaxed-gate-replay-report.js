@@ -67,6 +67,19 @@ const PROFILES = {
     takeProfitPct: 0.35,
     stopLossPct: 0.15,
     maxHoldSeconds: 180
+  },
+  near_score84_high_curve: {
+    description: 'Near-threshold LOW_SCORE miss: within 1 score point of logged score threshold, curve>=80%, volume>=50 SOL, velocity>=50/min.',
+    allowedReasons: ['LOW_SCORE'],
+    minCurveProgress: 0.8,
+    minScore: 80,
+    minScoreThreshold: 84,
+    maxScoreGap: 1,
+    minRecentVolumeSol: 50,
+    minTradeVelocityPerMin: 50,
+    takeProfitPct: 0.35,
+    stopLossPct: 0.15,
+    maxHoldSeconds: 180
   }
 };
 
@@ -204,6 +217,7 @@ function decisionFromEvent(event, targetReasons) {
     symbol: payload.symbol || null,
     reason: payload.reason,
     preset: payload.preset || null,
+    scoreThreshold: numberOrNull(Number(payload.threshold) >= 1 ? payload.threshold : null, 2),
     curveProgress: numberOrNull(curveProgress, 6),
     priceSol: numberOrNull(priceSol, 15),
     score: numberOrNull(payload.score, 2),
@@ -261,8 +275,13 @@ async function readTelemetry(filePath, targetReasons) {
 }
 
 function matchesProfile(decision, profile) {
-  return Number(decision.curveProgress) >= profile.minCurveProgress
+  const allowedReasons = Array.isArray(profile.allowedReasons) ? new Set(profile.allowedReasons) : null;
+  const scoreGap = Number(decision.scoreThreshold) - Number(decision.score);
+  return (!allowedReasons || allowedReasons.has(decision.reason))
     && Number(decision.score) >= profile.minScore
+    && (!Number.isFinite(Number(profile.minScoreThreshold)) || Number(decision.scoreThreshold) >= Number(profile.minScoreThreshold))
+    && (!Number.isFinite(Number(profile.maxScoreGap)) || (Number.isFinite(scoreGap) && scoreGap >= 0 && scoreGap <= Number(profile.maxScoreGap)))
+    && Number(decision.curveProgress) >= profile.minCurveProgress
     && Number(decision.recentVolumeSol || 0) >= profile.minRecentVolumeSol
     && Number(decision.tradeVelocityPerMin || 0) >= profile.minTradeVelocityPerMin;
 }
@@ -294,6 +313,10 @@ function closeTrade(decision, snapshot, reason, profile, netReturnPct) {
     entryPriceSol: decision.priceSol,
     exitPriceSol: snapshot?.priceSol ?? null,
     score: decision.score,
+    scoreThreshold: decision.scoreThreshold,
+    scoreGap: Number.isFinite(Number(decision.scoreThreshold) - Number(decision.score))
+      ? numberOrNull(Number(decision.scoreThreshold) - Number(decision.score), 4)
+      : null,
     recentVolumeSol: decision.recentVolumeSol,
     tradeVelocityPerMin: decision.tradeVelocityPerMin,
     buyRatio: decision.buyRatio,
@@ -357,6 +380,10 @@ function buildReport(runs, options = {}) {
   const targetReasons = Array.from(options.targetReasons || DEFAULT_TARGET_REASONS).sort();
   const profiles = {};
   for (const [name, rawProfile] of Object.entries(PROFILES)) {
+    if (Array.isArray(rawProfile.allowedReasons)) {
+      const hasTargetOverlap = rawProfile.allowedReasons.some((reason) => targetReasons.includes(reason));
+      if (!hasTargetOverlap) continue;
+    }
     const profile = profileWithBase(rawProfile);
     const candidates = firstDecisionPerRunMint(runs, profile);
     const trades = candidates.map(({ run, decision }) => simulateTrade(run, decision, profile));
