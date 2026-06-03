@@ -5,6 +5,7 @@ const POST_RUN_REPORTS = [
   { title: 'PumpDev Curve Parity Report', script: 'pumpdev-curve-parity-report.js' },
   { title: 'PumpDev Targeted Curve Parity Report', script: 'pumpdev-targeted-curve-parity-report.js' },
   { title: 'Event Loop Lag Diagnostic', script: 'event-loop-lag-diagnostic-report.js' },
+  { title: 'Runner Reject Follow-through', script: 'runner-reject-follow-through-report.js' },
   { title: 'Runner Raydium Shadow Report', script: 'runner-raydium-shadow-report.js' },
   { title: 'Runner Raydium Shadow Fixed Horizon', script: 'runner-raydium-shadow-fixed-horizon-report.js' },
   { title: 'Runner Raydium Shadow Historical Horizon', script: 'runner-raydium-shadow-historical-horizon-report.js' },

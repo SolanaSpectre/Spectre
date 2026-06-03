@@ -53,6 +53,7 @@ const FILES = {
   noPriorDecisionTimeStateAge: 'data/reports/no-prior-decision-time-state-age-latest.json',
   noPriorFollowThrough: 'data/reports/no-prior-follow-through-latest.json',
   noPriorDelayedEntry: 'data/reports/no-prior-delayed-entry-replay-latest.json',
+  runnerRejectFollowThrough: 'data/reports/runner-reject-follow-through-latest.json',
   runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json',
   runnerRaydiumShadowFixedHorizon: 'data/reports/runner-raydium-shadow-fixed-horizon-latest.json',
   runnerRaydiumShadowHistoricalHorizon: 'data/reports/runner-raydium-shadow-historical-horizon-latest.json',
@@ -354,6 +355,13 @@ function summarizeRunnerReject(item = {}) {
     item.pumpFailureReason ? `pumpFailure=${item.pumpFailureReason}` : null
   ].filter(Boolean);
   return `${label}${details.length ? ` | ${details.join(' | ')}` : ''}`;
+}
+
+function summarizeRunnerRejectWakeup(item = {}) {
+  const label = item.symbol || item.mint || 'UNKNOWN';
+  const w120 = item.windows?.['120s'] || {};
+  const w300 = item.windows?.['300s'] || {};
+  return `${label} | reason=${item.reason || 'n/a'} | pump=${item.pumpFailureReason || 'n/a'} | momentum=${fmt(item.momentumScore, 4)} | startCurve=${fmt(item.curveProgress, 4)} | max120=${fmt(w120.maxCurveProgress, 4)} | cross85/90_120=${w120.crossed85 === true}/${w120.crossed90 === true} | price120=${w120.maxPriceDeltaPct === null || w120.maxPriceDeltaPct === undefined ? 'n/a' : `${fmt(w120.maxPriceDeltaPct, 2)}%`} | max300=${fmt(w300.maxCurveProgress, 4)}`;
 }
 
 function summarizeRaydiumShadow(item = {}) {
@@ -2049,6 +2057,7 @@ function buildSummary(docs) {
   const noPriorDecisionTimeStateAge = docs.noPriorDecisionTimeStateAge.data || {};
   const noPriorFollowThrough = docs.noPriorFollowThrough.data || {};
   const noPriorDelayedEntry = docs.noPriorDelayedEntry.data || {};
+  const runnerRejectFollowThrough = docs.runnerRejectFollowThrough.data || {};
   const runnerRaydiumShadow = docs.runnerRaydiumShadow.data || {};
   const runnerRaydiumShadowFixedHorizon = docs.runnerRaydiumShadowFixedHorizon.data || {};
   const runnerRaydiumShadowHistoricalHorizon = docs.runnerRaydiumShadowHistoricalHorizon.data || {};
@@ -2428,6 +2437,28 @@ function buildSummary(docs) {
     closestRunnerRejects.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRunnerReject(item)}`));
   } else {
     lines.push('  - none captured');
+  }
+  lines.push('');
+
+  const runnerRejectSummary = runnerRejectFollowThrough.summary || {};
+  const runnerRejectTop = topArray(runnerRejectFollowThrough.topPre90Wakeups || runnerRejectFollowThrough.topWakeups, 8);
+  lines.push('2b. Runner Reject Follow-through');
+  lines.push('---------------------------------');
+  lines.push('- Mode: report-only; joins trade.rejected rows to later PumpDev curve/price snapshots.');
+  lines.push(`- Deduped rejects / raw rejects / unique mints: ${runnerRejectSummary.rejects ?? 'n/a'} / ${runnerRejectSummary.rawRejects ?? 'n/a'} / ${runnerRejectSummary.uniqueMints ?? 'n/a'}`);
+  lines.push(`- Crossed 85/90 within 120s: ${runnerRejectSummary.crossed85Within120s ?? 'n/a'} / ${runnerRejectSummary.crossed90Within120s ?? 'n/a'}`);
+  lines.push(`- Actionable pre-90 rejects / unique / crossed85/90 within 120s: ${runnerRejectSummary.pre90Rejects ?? 'n/a'} / ${runnerRejectSummary.pre90UniqueMints ?? 'n/a'} / ${runnerRejectSummary.pre90Crossed85Within120s ?? 'n/a'} / ${runnerRejectSummary.pre90Crossed90Within120s ?? 'n/a'}`);
+  lines.push(`- Max curve 120s median/p90/max: ${fmt(runnerRejectSummary.maxCurve120s?.median, 4)} / ${fmt(runnerRejectSummary.maxCurve120s?.p90, 4)} / ${fmt(runnerRejectSummary.maxCurve120s?.max, 4)}`);
+  lines.push(`- Pre-90 price delta 120s median/p90/max: ${fmt(runnerRejectSummary.pre90MaxPriceDeltaPct120s?.median, 2)}% / ${fmt(runnerRejectSummary.pre90MaxPriceDeltaPct120s?.p90, 2)}% / ${fmt(runnerRejectSummary.pre90MaxPriceDeltaPct120s?.max, 2)}%`);
+  lines.push('- Reject reason counts:');
+  objectLines(runnerRejectSummary.reasonCounts, 6).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Pump failure reason counts:');
+  objectLines(runnerRejectSummary.pumpFailureReasonCounts, 6).forEach((line) => lines.push(`  - ${line}`));
+  if (runnerRejectTop.length) {
+    lines.push('- Top pre-90 rejected wakeups:');
+    runnerRejectTop.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRunnerRejectWakeup(item)}`));
+  } else {
+    lines.push('- Top pre-90 rejected wakeups: none');
   }
   lines.push('');
 
