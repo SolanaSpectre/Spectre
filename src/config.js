@@ -472,6 +472,18 @@ class Config {
     return parseInt(process.env.PRE_MIGRATION_WATCH_MAX_TRACKED_MINTS || '5000', 10);
   }
 
+  static get preMigrationObservedTelemetryMinIntervalMs() {
+    return parseInt(process.env.PRE_MIGRATION_OBSERVED_TELEMETRY_MIN_INTERVAL_MS || '1000', 10);
+  }
+
+  static get preMigrationObservedTelemetryMinScoreDelta() {
+    return parseFloat(process.env.PRE_MIGRATION_OBSERVED_TELEMETRY_MIN_SCORE_DELTA || '1');
+  }
+
+  static get preMigrationObservedTelemetryMinCurveDelta() {
+    return parseFloat(process.env.PRE_MIGRATION_OBSERVED_TELEMETRY_MIN_CURVE_DELTA || '0.005');
+  }
+
   static get candidateDossierEnabled() {
     return process.env.CANDIDATE_DOSSIER_ENABLED !== 'false';
   }

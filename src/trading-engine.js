@@ -147,9 +147,15 @@ class TradingEngine {
     this.pumpDevTargetedCurveParityInFlight = new Set();
     this.pumpDevTargetedCurveParitySkipLogLastAt = new Map();
     this.pumpDevTargetedCurveParitySampleCount = 0;
+    this.providerSnapshotTelemetryLastByMint = new Map();
+    this.reportOnlyTelemetrySuppressed = {
+      preMigrationObserved: 0,
+      providerSnapshot: 0
+    };
     this.tokenSignalCooldowns = new Map();
     this.preMigrationPaperRechecks = new Map();
     this.preMigrationPaperExpiredRechecks = new Set();
+    this.preMigrationObservedTelemetryLastByMint = new Map();
     this.syntheticBondingCurveMigrations = new Set();
     this.lastTelegramSightingSyncAt = null;
     this.preMigrationDecisionLogWindowStartedAt = 0;
@@ -3071,47 +3077,49 @@ class TradingEngine {
       this.latestPumpPortalTokens.set(mint, current);
     }
 
-    this.telemetry.record(result.flagged ? 'pre_migration.flagged' : 'pre_migration.observed', {
-      mint,
-      symbol: result.state.symbol || null,
-      score: result.state.score,
-      flagType: result.flagType || null,
-      reasons: result.state.reasons,
-      observedInterest: Boolean(result.observedInterest),
-      observedSignal: Boolean(result.observedSignal),
-      confirmed: Boolean(result.state.confirmed),
-      newlyConfirmed: Boolean(result.newlyConfirmed),
-      interestSignalCount: result.state.interestSignalCount,
-      observedSignalCount: result.state.observedSignalCount,
-      confirmedAt: result.state.confirmedAt,
-      confirmationReason: result.state.confirmationReason,
-      bondingCurveAddress: result.state.bondingCurveAddress,
-      bondingCurveComplete: result.state.bondingCurveComplete,
-      virtualSolReservesSol: result.state.virtualSolReservesSol,
-      realSolReservesSol: result.state.realSolReservesSol,
-      virtualTokenReservesTokens: result.state.virtualTokenReservesTokens,
-      bondingCurvePriceSol: result.state.bondingCurvePriceSol,
-      curveProgress: result.state.curveProgress,
-      bondingStage: result.state.bondingStage,
-      tradeVelocityPerMin: result.state.tradeVelocityPerMin,
-      recentVolumeSol: result.state.recentVolumeSol,
-      convictionWhaleCount: result.state.convictionWhaleCount,
-      alphaScalperCount: result.state.alphaScalperCount,
-      earlySniperCount: result.state.earlySniperCount,
-      riskWalletCount: result.state.riskWalletCount,
-      lateChaserCount: result.state.lateChaserCount
-    });
-
-    this.candidateDossierLedger.recordWatchState(result.state, {
-      eventType: result.flagged ? 'watch.flagged' : 'watch.observed',
-      flagged: Boolean(result.flagged),
-      flagType: result.flagType || null,
-      observedInterest: Boolean(result.observedInterest),
-      observedSignal: Boolean(result.observedSignal),
-      confirmed: Boolean(result.state.confirmed),
-      newlyConfirmed: Boolean(result.newlyConfirmed),
-      confirmationReason: result.state.confirmationReason
-    });
+    const shouldEmitWatchTelemetry = result.flagged || this.shouldEmitPreMigrationObservedTelemetry(result);
+    if (shouldEmitWatchTelemetry) {
+      this.telemetry.record(result.flagged ? 'pre_migration.flagged' : 'pre_migration.observed', {
+        mint,
+        symbol: result.state.symbol || null,
+        score: result.state.score,
+        flagType: result.flagType || null,
+        reasons: result.state.reasons,
+        observedInterest: Boolean(result.observedInterest),
+        observedSignal: Boolean(result.observedSignal),
+        confirmed: Boolean(result.state.confirmed),
+        newlyConfirmed: Boolean(result.newlyConfirmed),
+        interestSignalCount: result.state.interestSignalCount,
+        observedSignalCount: result.state.observedSignalCount,
+        confirmedAt: result.state.confirmedAt,
+        confirmationReason: result.state.confirmationReason,
+        bondingCurveAddress: result.state.bondingCurveAddress,
+        bondingCurveComplete: result.state.bondingCurveComplete,
+        virtualSolReservesSol: result.state.virtualSolReservesSol,
+        realSolReservesSol: result.state.realSolReservesSol,
+        virtualTokenReservesTokens: result.state.virtualTokenReservesTokens,
+        bondingCurvePriceSol: result.state.bondingCurvePriceSol,
+        curveProgress: result.state.curveProgress,
+        bondingStage: result.state.bondingStage,
+        tradeVelocityPerMin: result.state.tradeVelocityPerMin,
+        recentVolumeSol: result.state.recentVolumeSol,
+        convictionWhaleCount: result.state.convictionWhaleCount,
+        alphaScalperCount: result.state.alphaScalperCount,
+        earlySniperCount: result.state.earlySniperCount,
+        riskWalletCount: result.state.riskWalletCount,
+        lateChaserCount: result.state.lateChaserCount
+      });
+      this.candidateDossierLedger.recordWatchState(result.state, {
+        eventType: result.flagged ? 'watch.flagged' : 'watch.observed',
+        flagged: Boolean(result.flagged),
+        flagType: result.flagType || null,
+        observedInterest: Boolean(result.observedInterest),
+        observedSignal: Boolean(result.observedSignal),
+        confirmed: Boolean(result.state.confirmed),
+        newlyConfirmed: Boolean(result.newlyConfirmed),
+        confirmationReason: result.state.confirmationReason
+      });
+    }
     this.outcomeLedger.recordCandidate(result.state, {
       kind: result.flagged ? 'candidate.flagged' : 'candidate.observed',
       flagged: Boolean(result.flagged),
@@ -3173,6 +3181,39 @@ class TradingEngine {
     }
 
     return result;
+  }
+
+  shouldEmitPreMigrationObservedTelemetry(result = {}) {
+    const state = result.state || {};
+    const mint = state.mint;
+    if (!mint) return true;
+    if (result.newlyConfirmed || result.observedSignal || state.confirmed) return true;
+
+    const now = Date.now();
+    const minIntervalMs = Math.max(0, Number(this.config.preMigrationObservedTelemetryMinIntervalMs || 0));
+    const minScoreDelta = Math.max(0, Number(this.config.preMigrationObservedTelemetryMinScoreDelta || 0));
+    const minCurveDelta = Math.max(0, Number(this.config.preMigrationObservedTelemetryMinCurveDelta || 0));
+    const previous = this.preMigrationObservedTelemetryLastByMint.get(mint);
+    const score = Number(state.score);
+    const curveProgress = Number(state.curveProgress);
+
+    if (!previous) {
+      this.preMigrationObservedTelemetryLastByMint.set(mint, { at: now, score, curveProgress });
+      return true;
+    }
+
+    const ageMs = now - Number(previous.at || 0);
+    const scoreDelta = Number.isFinite(score) && Number.isFinite(previous.score)
+      ? Math.abs(score - previous.score)
+      : 0;
+    const curveDelta = Number.isFinite(curveProgress) && Number.isFinite(previous.curveProgress)
+      ? Math.abs(curveProgress - previous.curveProgress)
+      : 0;
+    const shouldEmit = ageMs >= minIntervalMs || scoreDelta >= minScoreDelta || curveDelta >= minCurveDelta;
+    if (shouldEmit) {
+      this.preMigrationObservedTelemetryLastByMint.set(mint, { at: now, score, curveProgress });
+    }
+    return shouldEmit;
   }
 
   buildWalletClassificationContextForMint(mint) {
@@ -4735,22 +4776,65 @@ class TradingEngine {
       approximate: true
     };
 
-    this.telemetry.record('pump_bonding_curve.provider_snapshot', {
-      mint: current.mint || event.mint || event.token || event.mintAddress || null,
-      provider: event.provider || null,
-      phase,
-      source,
-      pairBase,
-      curveProgress,
-      virtualSolReservesSol: Number.isFinite(virtualSolReservesSol) ? virtualSolReservesSol : null,
-      virtualTokenReservesTokens: Number.isFinite(virtualTokenReservesTokens) ? virtualTokenReservesTokens : null,
-      providerVirtualTokenReservesRaw,
-      providerVirtualQuoteReservesRaw,
-      providerVirtualSolReservesRaw,
-      priceSol: Number.isFinite(priceSol) && priceSol > 0 ? priceSol : null
-    });
+    const mint = current.mint || event.mint || event.token || event.mintAddress || null;
+    if (this.shouldRecordProviderSnapshotTelemetry(mint, curveProgress)) {
+      this.telemetry.record('pump_bonding_curve.provider_snapshot', {
+        mint,
+        provider: event.provider || null,
+        phase,
+        source,
+        pairBase,
+        curveProgress,
+        virtualSolReservesSol: Number.isFinite(virtualSolReservesSol) ? virtualSolReservesSol : null,
+        virtualTokenReservesTokens: Number.isFinite(virtualTokenReservesTokens) ? virtualTokenReservesTokens : null,
+        providerVirtualTokenReservesRaw,
+        providerVirtualQuoteReservesRaw,
+        providerVirtualSolReservesRaw,
+        priceSol: Number.isFinite(priceSol) && priceSol > 0 ? priceSol : null
+      });
+    } else {
+      this.reportOnlyTelemetrySuppressed.providerSnapshot += 1;
+    }
 
     return true;
+  }
+
+  shouldRecordProviderSnapshotTelemetry(mint, curveProgress) {
+    if (!mint) {
+      return true;
+    }
+
+    const intervalMs = Math.max(0, Number(this.config.providerSnapshotTelemetryMinIntervalMs || 0));
+    const minCurveDelta = Math.max(0, Number(this.config.providerSnapshotTelemetryMinCurveDelta || 0));
+    if (intervalMs === 0 && minCurveDelta === 0) {
+      return true;
+    }
+
+    const now = Date.now();
+    const currentCurve = Number(curveProgress);
+    const previous = this.providerSnapshotTelemetryLastByMint.get(mint);
+    if (!previous) {
+      this.providerSnapshotTelemetryLastByMint.set(mint, {
+        at: now,
+        curveProgress: Number.isFinite(currentCurve) ? currentCurve : null
+      });
+      return true;
+    }
+
+    const elapsedMs = now - Number(previous.at || 0);
+    const previousCurve = Number(previous.curveProgress);
+    const curveMoved = Number.isFinite(currentCurve)
+      && Number.isFinite(previousCurve)
+      && Math.abs(currentCurve - previousCurve) >= minCurveDelta;
+    if (elapsedMs >= intervalMs || curveMoved) {
+      this.providerSnapshotTelemetryLastByMint.set(mint, {
+        at: now,
+        curveProgress: Number.isFinite(currentCurve) ? currentCurve : previous.curveProgress ?? null
+      });
+      return true;
+    }
+
+    return false;
   }
 
   recordWatchedWalletTrade(event, tokenState, launchIntelSummary) {
@@ -5256,6 +5340,11 @@ class TradingEngine {
       candidateDossiers: this.candidateDossierLedger.getStats(),
       outcomeLedger: this.outcomeLedger.getStats(),
       telemetry: this.telemetry.getSummary(),
+      reportOnlyTelemetrySuppressed: {
+        ...this.reportOnlyTelemetrySuppressed,
+        preMigrationObservedTrackedMints: this.preMigrationObservedTelemetryLastByMint.size,
+        providerSnapshotTrackedMints: this.providerSnapshotTelemetryLastByMint.size
+      },
       eventLoopMonitor: { ...this.eventLoopMonitorStats },
       eventFlow: this.eventFlow.getSummary(),
       strategyLedger: this.strategyLedger.getSummary(),
