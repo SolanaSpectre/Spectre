@@ -125,6 +125,9 @@ async function readTelemetry(filePath) {
       simulationOk: { true: 0, false: 0, null: 0 },
       simulationErrors: {},
       simulationMissingAccounts: {},
+      signedOk: { true: 0, false: 0, null: 0 },
+      broadcastEnabled: { true: 0, false: 0, null: 0 },
+      signatureModes: {},
       accountAgeMs: [],
       priceImpactPct: [],
       blockhashLatencyMs: []
@@ -219,6 +222,17 @@ async function readTelemetry(filePath) {
         pushNumber(stats.dryRun.priceImpactPct, payload.quote && payload.quote.priceImpactPct);
         pushNumber(stats.dryRun.blockhashLatencyMs, payload.blockhashLatencyMs);
         increment(stats.dryRun.txBuildStatus, payload.txBuildStatus || 'unknown');
+        if (payload.signedOk === true || payload.signedOk === false) {
+          increment(stats.dryRun.signedOk, String(payload.signedOk));
+        } else {
+          increment(stats.dryRun.signedOk, 'null');
+        }
+        if (payload.broadcastEnabled === true || payload.broadcastEnabled === false) {
+          increment(stats.dryRun.broadcastEnabled, String(payload.broadcastEnabled));
+        } else {
+          increment(stats.dryRun.broadcastEnabled, 'null');
+        }
+        increment(stats.dryRun.signatureModes, payload.signatureMode || 'unknown');
         if (payload.simulationOk === true || payload.simulationOk === false) {
           increment(stats.dryRun.simulationOk, String(payload.simulationOk));
           if (payload.simulationOk === false) increment(stats.dryRun.simulationErrors, payload.simulationError || 'SIMULATION_FAILED');
@@ -233,6 +247,17 @@ async function readTelemetry(filePath) {
         pushNumber(stats.dryRun.blockhashLatencyMs, payload.blockhashLatencyMs);
         increment(stats.dryRun.blockReasons, payload.reason || 'unknown');
         increment(stats.dryRun.txBuildStatus, payload.txBuildStatus || 'unknown');
+        if (payload.signedOk === true || payload.signedOk === false) {
+          increment(stats.dryRun.signedOk, String(payload.signedOk));
+        } else {
+          increment(stats.dryRun.signedOk, 'null');
+        }
+        if (payload.broadcastEnabled === true || payload.broadcastEnabled === false) {
+          increment(stats.dryRun.broadcastEnabled, String(payload.broadcastEnabled));
+        } else {
+          increment(stats.dryRun.broadcastEnabled, 'null');
+        }
+        increment(stats.dryRun.signatureModes, payload.signatureMode || 'unknown');
         if (payload.simulationOk === true || payload.simulationOk === false) {
           increment(stats.dryRun.simulationOk, String(payload.simulationOk));
           if (payload.simulationOk === false) increment(stats.dryRun.simulationErrors, payload.simulationError || payload.reason || 'SIMULATION_FAILED');
@@ -286,6 +311,7 @@ async function readCurrentHotWalletBalanceSol() {
 
 function buildVerdict(stats) {
   const blockers = [];
+  const launchBlocks = [];
   const warnings = [];
   const passes = [];
 
@@ -316,6 +342,10 @@ function buildVerdict(stats) {
   ]);
   const dryCriticalBlocks = Math.max(0, dryWouldBlock - dryPolicyBlocks);
   const dryAmountSol = number(dryRunStop.amountSol, 0.1);
+  const drySignedTrue = number(stats.dryRun.signedOk.true, 0);
+  const drySignedFalse = number(stats.dryRun.signedOk.false, 0);
+  const dryBroadcastTrue = number(stats.dryRun.broadcastEnabled.true, 0);
+  const dryBroadcastFalse = number(stats.dryRun.broadcastEnabled.false, 0);
   const finalistSubscribed = number(finalistStop.subscribed, stats.finalist.subscribed);
   const finalistUpdates = number(finalistStop.updates, stats.finalist.updates);
   const finalistErrors = number(finalistStop.subscribeErrors, stats.finalist.errors)
@@ -379,10 +409,15 @@ function buildVerdict(stats) {
 
   if (paperEntries === 0) {
     warnings.push('No paper entries this run; infra looks healthier than strategy evidence.');
+    launchBlocks.push('Strategy evidence is not live-launchable: no paper entries in the evaluated run.');
   } else if (paperPnl < 0) {
     warnings.push(`Paper strategy sample was negative (${paperEntries}/${paperExits} entries/exits, pnl ${paperPnl.toFixed(6)} SOL).`);
+    launchBlocks.push(`Strategy evidence is not live-launchable: paper sample is negative (${paperEntries} entries, pnl ${paperPnl.toFixed(6)} SOL).`);
   } else {
     passes.push(`Paper strategy sample was non-negative (${paperEntries}/${paperExits}, pnl ${paperPnl.toFixed(6)} SOL).`);
+    if (paperEntries < 20) {
+      launchBlocks.push(`Strategy sample is too small for live launch review (${paperEntries}/20 minimum paper entries).`);
+    }
   }
 
   if (hotWalletBalanceSol < requiredLiveBalanceSol) {
@@ -391,10 +426,22 @@ function buildVerdict(stats) {
     passes.push(`Hot wallet balance covers one configured dry-run buy plus fee buffer (${hotWalletBalanceSol.toFixed(6)} SOL).`);
   }
 
-  warnings.push('Live broadcast should remain disabled until signed simulation/funding checks and a larger positive paper-entry sample pass.');
+  if (dryWouldSend > 0 && drySignedTrue < dryWouldSend) {
+    launchBlocks.push(`Live-wallet signed simulation has not passed for all dry-run would_send rows (signedOk true/false/null=${drySignedTrue}/${drySignedFalse}/${number(stats.dryRun.signedOk.null, 0)}).`);
+  }
+  if (dryWouldSend > 0 && dryBroadcastTrue === 0 && dryBroadcastFalse > 0) {
+    launchBlocks.push('Broadcast path is still report-only (broadcastEnabled=false on dry-run would_send rows).');
+  }
+  if (blockers.length > 0) {
+    launchBlocks.push('Infrastructure blockers must be cleared before any live launch review.');
+  }
+
+  if (launchBlocks.length > 0) {
+    warnings.push('Live broadcast should remain disabled until launch blockers clear.');
+  }
 
   let verdict = 'blocked';
-  if (blockers.length === 0 && warnings.some((line) => /strategy|paper entries|negative|signed simulation|funding/i.test(line))) {
+  if (blockers.length === 0 && launchBlocks.length > 0) {
     verdict = 'infra_ready_strategy_not_proven';
   } else if (blockers.length === 0) {
     verdict = 'ready_for_controlled_live_review';
@@ -403,6 +450,7 @@ function buildVerdict(stats) {
   return {
     verdict,
     blockers,
+    launchBlocks,
     warnings,
     passes,
     metrics: {
@@ -423,6 +471,12 @@ function buildVerdict(stats) {
       dryCriticalBlocks,
       dryErrors,
       drySimulationFailures,
+      drySignedTrue,
+      drySignedFalse,
+      drySignedNull: number(stats.dryRun.signedOk.null, 0),
+      dryBroadcastTrue,
+      dryBroadcastFalse,
+      dryBroadcastNull: number(stats.dryRun.broadcastEnabled.null, 0),
       dryAmountSol,
       hotWalletBalanceSol,
       requiredLiveBalanceSol,
@@ -440,6 +494,7 @@ function buildReport(stats) {
     telemetryPath: path.relative(ROOT, stats.filePath),
     verdict: verdict.verdict,
     blockers: verdict.blockers,
+    launchBlocks: verdict.launchBlocks,
     warnings: verdict.warnings,
     passes: verdict.passes,
     metrics: {
@@ -466,7 +521,10 @@ function buildReport(stats) {
         txBuildStatus: stats.dryRun.txBuildStatus,
         simulationOk: stats.dryRun.simulationOk,
         simulationErrors: stats.dryRun.simulationErrors,
-        simulationMissingAccounts: stats.dryRun.simulationMissingAccounts
+        simulationMissingAccounts: stats.dryRun.simulationMissingAccounts,
+        signedOk: stats.dryRun.signedOk,
+        broadcastEnabled: stats.dryRun.broadcastEnabled,
+        signatureModes: stats.dryRun.signatureModes
       },
       finalist: {
         uniqueMints: stats.finalist.uniqueMints,
@@ -510,9 +568,14 @@ function writeText(report) {
   if (!report.warnings.length) lines.push('- none');
   lines.push('');
 
-  lines.push('Blockers');
+  lines.push('Infrastructure Blockers');
   for (const line of report.blockers) lines.push(`- ${line}`);
   if (!report.blockers.length) lines.push('- none');
+  lines.push('');
+
+  lines.push('Live Launch Blocks');
+  for (const line of report.launchBlocks || []) lines.push(`- ${line}`);
+  if (!report.launchBlocks?.length) lines.push('- none');
   lines.push('');
 
   const m = report.metrics;
@@ -523,9 +586,13 @@ function writeText(report) {
   lines.push(`- Finalist verifier subscribed/updates/ready/checks: ${m.finalistSubscribed} / ${m.finalistUpdates} / ${m.finalistReady} / ${m.finalistChecks}`);
   lines.push(`- Dry-run attempts/would_send/would_block/errors: ${m.dryAttempts} / ${m.dryWouldSend} / ${m.dryWouldBlock} / ${m.dryErrors}`);
   lines.push(`- Dry-run simulation failures: ${m.drySimulationFailures}`);
+  lines.push(`- Dry-run signedOk true/false/null: ${m.drySignedTrue} / ${m.drySignedFalse} / ${m.drySignedNull}`);
+  lines.push(`- Dry-run broadcastEnabled true/false/null: ${m.dryBroadcastTrue} / ${m.dryBroadcastFalse} / ${m.dryBroadcastNull}`);
   lines.push(`- Dry-run account age median/p90/max: ${fmt(m.dryRun.accountAgeMs.median, 0)} / ${fmt(m.dryRun.accountAgeMs.p90, 0)} / ${fmt(m.dryRun.accountAgeMs.max, 0)}ms`);
   lines.push(`- Dry-run price impact median/p90/max: ${fmt(m.dryRun.priceImpactPct.median, 4)}% / ${fmt(m.dryRun.priceImpactPct.p90, 4)}% / ${fmt(m.dryRun.priceImpactPct.max, 4)}%`);
   lines.push(`- Dry-run simulation ok true/false/null: ${m.dryRun.simulationOk.true || 0} / ${m.dryRun.simulationOk.false || 0} / ${m.dryRun.simulationOk.null || 0}`);
+  const signatureModes = Object.entries(m.dryRun.signatureModes || {}).sort((a, b) => b[1] - a[1]).slice(0, 4);
+  for (const [name, count] of signatureModes) lines.push(`- Dry-run signature mode: ${name}: ${count}`);
   const blockReasons = Object.entries(m.dryRun.blockReasons || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
   for (const [name, count] of blockReasons) lines.push(`- Dry-run block reason: ${name}: ${count}`);
   const missing = Object.entries(m.dryRun.simulationMissingAccounts || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
@@ -536,7 +603,7 @@ function writeText(report) {
 
   lines.push('Interpretation');
   if (report.verdict === 'infra_ready_strategy_not_proven') {
-    lines.push('- Infrastructure gates are passing, but live trading is still blocked by strategy evidence and live-wallet simulation/funding checks.');
+    lines.push('- Infrastructure gates are passing, but live trading remains blocked by the launch-block list above.');
   } else if (report.verdict === 'ready_for_controlled_live_review') {
     lines.push('- This run passes the current report-only readiness gates. Human review is still required before enabling any broadcast path.');
   } else {

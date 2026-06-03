@@ -7,6 +7,7 @@ const DEFAULT_OUTPUT = path.join(REPO_ROOT, 'data', 'reports', 'latest-run-summa
 const FILES = {
   battlefield: 'data/reports/run-battlefield-latest.json',
   simpleRuntimeAiEvidence: 'data/reports/simple-runtime-ai-evidence-latest.json',
+  liveReadiness: 'data/reports/live-readiness-latest.json',
   pumpDevCurveParity: 'data/reports/pumpdev-curve-parity-latest.json',
   pumpDevTargetedCurveParity: 'data/reports/pumpdev-targeted-curve-parity-latest.json',
   eventLoopLagDiagnostic: 'data/reports/event-loop-lag-diagnostic-latest.json',
@@ -1993,6 +1994,7 @@ function readRuntimeHealthTelemetry(battlefield = {}) {
 function buildSummary(docs) {
   const battlefield = docs.battlefield.data || {};
   const simpleRuntimeAiEvidence = docs.simpleRuntimeAiEvidence.data || {};
+  const liveReadiness = docs.liveReadiness.data || {};
   const pumpDevCurveParity = docs.pumpDevCurveParity.data || {};
   const pumpDevTargetedCurveParity = docs.pumpDevTargetedCurveParity.data || {};
   const eventLoopLagDiagnostic = docs.eventLoopLagDiagnostic.data || {};
@@ -2350,6 +2352,10 @@ function buildSummary(docs) {
   }
   lines.push('- Live execution dry-run:');
   lines.push('  - Mode: report-only; verifies finalist account state and economics, never broadcasts.');
+  if (liveReadiness.verdict) {
+    lines.push(`  - live-readiness verdict: ${liveReadiness.verdict}; infra blockers=${Array.isArray(liveReadiness.blockers) ? liveReadiness.blockers.length : 'n/a'}; launch blocks=${Array.isArray(liveReadiness.launchBlocks) ? liveReadiness.launchBlocks.length : 'n/a'}`);
+    topArray(liveReadiness.launchBlocks, 4).forEach((line) => lines.push(`  - launch block: ${line}`));
+  }
   lines.push(`  - attempts / would_send / would_block / skipped / errors / unique mints: ${liveExecutionDryRunTelemetry.attempts} / ${liveExecutionDryRunTelemetry.wouldSend} / ${liveExecutionDryRunTelemetry.wouldBlock} / ${liveExecutionDryRunTelemetry.skipped} / ${liveExecutionDryRunTelemetry.errors} / ${liveExecutionDryRunTelemetry.uniqueMints}`);
   lines.push(`  - account age median/p90/max: ${ms(liveExecutionDryRunTelemetry.accountAgeMs?.median)} / ${ms(liveExecutionDryRunTelemetry.accountAgeMs?.p90)} / ${ms(liveExecutionDryRunTelemetry.accountAgeMs?.max)} (n=${liveExecutionDryRunTelemetry.accountAgeMs?.count ?? 0})`);
   lines.push(`  - price impact pct median/p90/max: ${fmt(liveExecutionDryRunTelemetry.priceImpactPct?.median, 4)}% / ${fmt(liveExecutionDryRunTelemetry.priceImpactPct?.p90, 4)}% / ${fmt(liveExecutionDryRunTelemetry.priceImpactPct?.max, 4)}% (n=${liveExecutionDryRunTelemetry.priceImpactPct?.count ?? 0})`);
