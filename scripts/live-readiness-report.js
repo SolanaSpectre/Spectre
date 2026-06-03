@@ -125,6 +125,7 @@ async function readTelemetry(filePath) {
       simulationOk: { true: 0, false: 0, null: 0 },
       simulationErrors: {},
       simulationMissingAccounts: {},
+      simulationPassedWithPreflightMissingAccounts: {},
       signedOk: { true: 0, false: 0, null: 0 },
       broadcastEnabled: { true: 0, false: 0, null: 0 },
       signatureModes: {},
@@ -239,6 +240,7 @@ async function readTelemetry(filePath) {
         } else {
           increment(stats.dryRun.simulationOk, 'null');
         }
+        recordSimulationAccountDiagnostic(stats, payload);
       } else if (type === 'live_dry_run.would_block') {
         stats.dryRun.attempts += 1;
         stats.dryRun.wouldBlock += 1;
@@ -264,12 +266,7 @@ async function readTelemetry(filePath) {
         } else {
           increment(stats.dryRun.simulationOk, 'null');
         }
-        const missingAccounts = payload.simulationAccountDiagnostic && payload.simulationAccountDiagnostic.missingAccounts;
-        if (Array.isArray(missingAccounts)) {
-          for (const account of missingAccounts) {
-            increment(stats.dryRun.simulationMissingAccounts, (account && (account.name || account.pubkey)) || 'unknown');
-          }
-        }
+        recordSimulationAccountDiagnostic(stats, payload);
       } else if (type === 'live_dry_run.skipped') {
         stats.dryRun.skipped += 1;
         increment(stats.dryRun.skipReasons, payload.reason || 'unknown');
@@ -296,6 +293,18 @@ async function readTelemetry(filePath) {
   stats.paper.uniqueEntryMints = stats.uniqueMints.paperEntries.size;
   delete stats.uniqueMints;
   return stats;
+}
+
+function recordSimulationAccountDiagnostic(stats, payload = {}) {
+  const missingAccounts = payload.simulationAccountDiagnostic && payload.simulationAccountDiagnostic.missingAccounts;
+  if (!Array.isArray(missingAccounts) || missingAccounts.length === 0) return;
+
+  const target = payload.simulationOk === true
+    ? stats.dryRun.simulationPassedWithPreflightMissingAccounts
+    : stats.dryRun.simulationMissingAccounts;
+  for (const account of missingAccounts) {
+    increment(target, (account && (account.name || account.pubkey)) || 'unknown');
+  }
 }
 
 async function readCurrentHotWalletBalanceSol() {
@@ -522,6 +531,7 @@ function buildReport(stats) {
         simulationOk: stats.dryRun.simulationOk,
         simulationErrors: stats.dryRun.simulationErrors,
         simulationMissingAccounts: stats.dryRun.simulationMissingAccounts,
+        simulationPassedWithPreflightMissingAccounts: stats.dryRun.simulationPassedWithPreflightMissingAccounts,
         signedOk: stats.dryRun.signedOk,
         broadcastEnabled: stats.dryRun.broadcastEnabled,
         signatureModes: stats.dryRun.signatureModes
@@ -597,6 +607,11 @@ function writeText(report) {
   for (const [name, count] of blockReasons) lines.push(`- Dry-run block reason: ${name}: ${count}`);
   const missing = Object.entries(m.dryRun.simulationMissingAccounts || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
   for (const [name, count] of missing) lines.push(`- Dry-run missing account: ${name}: ${count}`);
+  const preflightMissing = Object.entries(m.dryRun.simulationPassedWithPreflightMissingAccounts || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  if (preflightMissing.length) {
+    lines.push('- Dry-run pre-sim account diagnostic noted missing accounts, but signed simulation succeeded:');
+    for (const [name, count] of preflightMissing) lines.push(`  - ${name}: ${count}`);
+  }
   lines.push(`- Hot wallet balance / target: ${fmt(m.hotWalletBalanceSol, 6)} / ${fmt(m.requiredLiveBalanceSol, 3)} SOL`);
   lines.push(`- Paper entries/exits/PnL: ${m.paperEntries} / ${m.paperExits} / ${fmt(m.paperPnl, 6)} SOL`);
   lines.push('');

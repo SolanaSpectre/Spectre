@@ -1828,6 +1828,7 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
     simulationOk: { true: 0, false: 0, null: 0 },
     simulationErrors: {},
     simulationMissingAccounts: {},
+    simulationPassedWithPreflightMissingAccounts: {},
     accountAgeMs: { count: 0, min: null, median: null, p90: null, max: null },
     priceImpactPct: { count: 0, min: null, median: null, p90: null, max: null },
     postTradePriceMovePct: { count: 0, min: null, median: null, p90: null, max: null },
@@ -1896,8 +1897,11 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
       }
       const missingAccounts = payload.simulationAccountDiagnostic?.missingAccounts;
       if (Array.isArray(missingAccounts)) {
+        const target = payload.simulationOk === true
+          ? summary.simulationPassedWithPreflightMissingAccounts
+          : summary.simulationMissingAccounts;
         for (const account of missingAccounts) {
-          bump(summary.simulationMissingAccounts, account?.name || account?.pubkey || 'unknown');
+          bump(target, account?.name || account?.pubkey || 'unknown');
         }
       }
 
@@ -1927,10 +1931,16 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
           blockhashLatencyMs: payload.blockhashLatencyMs ?? null,
           simulationOk: payload.simulationOk ?? null,
           simulationError: payload.simulationError || null,
+          signatureMode: payload.signatureMode || null,
+          signedOk: payload.signedOk ?? null,
+          broadcastEnabled: payload.broadcastEnabled ?? null,
           simulationLogs: Array.isArray(payload.simulationLogs) ? payload.simulationLogs.slice(-4) : [],
-          missingAccounts: Array.isArray(payload.simulationAccountDiagnostic?.missingAccounts)
+          missingAccounts: payload.simulationOk !== true && Array.isArray(payload.simulationAccountDiagnostic?.missingAccounts)
             ? payload.simulationAccountDiagnostic.missingAccounts.slice(0, 6)
             : [],
+          preflightMissingAccountCount: payload.simulationOk === true && Array.isArray(payload.simulationAccountDiagnostic?.missingAccounts)
+            ? payload.simulationAccountDiagnostic.missingAccounts.length
+            : 0,
           txBuildStatus: payload.txBuildStatus || null
         });
       }
@@ -2364,6 +2374,7 @@ function buildSummary(docs) {
   lines.push(`  - simulation ok true/false/null: ${liveExecutionDryRunTelemetry.simulationOk.true || 0} / ${liveExecutionDryRunTelemetry.simulationOk.false || 0} / ${liveExecutionDryRunTelemetry.simulationOk.null || 0}`);
   objectLines(liveExecutionDryRunTelemetry.simulationErrors, 4).forEach((line) => lines.push(`  - simulation error: ${line}`));
   objectLines(liveExecutionDryRunTelemetry.simulationMissingAccounts, 8).forEach((line) => lines.push(`  - simulation missing account: ${line}`));
+  objectLines(liveExecutionDryRunTelemetry.simulationPassedWithPreflightMissingAccounts, 5).forEach((line) => lines.push(`  - pre-sim missing but sim ok: ${line}`));
   objectLines(liveExecutionDryRunTelemetry.blockReasons, 6).forEach((line) => lines.push(`  - would_block reason: ${line}`));
   objectLines(liveExecutionDryRunTelemetry.skipReasons, 4).forEach((line) => lines.push(`  - skipped reason: ${line}`));
   objectLines(liveExecutionDryRunTelemetry.byDecision, 5).forEach((line) => lines.push(`  - source decision: ${line}`));
@@ -2372,7 +2383,7 @@ function buildSummary(docs) {
     lines.push('  - latest dry-run rows:');
     liveExecutionDryRunTelemetry.latestRows.slice(-5).forEach((item, index) => {
       const label = `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim();
-      lines.push(`    ${index + 1}. ${label} | event=${item.eventType || 'n/a'} | reason=${item.reason || 'none'} | decision=${item.sourceDecision || 'n/a'} | age=${ms(item.accountAgeMs)} | curve=${fmt(item.accountCurveProgress, 4)} | amount=${fmt(item.amountSol, 4)} SOL | impact=${fmt(item.priceImpactPct, 4)}% | postMove=${fmt(item.postTradePriceMovePct, 4)}% | blockhash=${item.blockhashOk === true} | sim=${item.simulationOk === null ? 'n/a' : item.simulationOk === true} | tx=${item.txBuildStatus || 'n/a'}`);
+      lines.push(`    ${index + 1}. ${label} | event=${item.eventType || 'n/a'} | reason=${item.reason || 'none'} | decision=${item.sourceDecision || 'n/a'} | age=${ms(item.accountAgeMs)} | curve=${fmt(item.accountCurveProgress, 4)} | amount=${fmt(item.amountSol, 4)} SOL | impact=${fmt(item.priceImpactPct, 4)}% | postMove=${fmt(item.postTradePriceMovePct, 4)}% | blockhash=${item.blockhashOk === true} | sim=${item.simulationOk === null ? 'n/a' : item.simulationOk === true} | signed=${item.signedOk === null || item.signedOk === undefined ? 'n/a' : item.signedOk === true} | broadcast=${item.broadcastEnabled === true} | sig=${item.signatureMode || 'n/a'} | tx=${item.txBuildStatus || 'n/a'}`);
       if (item.simulationError) lines.push(`       simError=${item.simulationError}`);
       if (item.missingAccounts?.length) lines.push(`       missing=${item.missingAccounts.map((account) => account.name || account.pubkey).join(', ')}`);
       if (item.simulationLogs?.length) lines.push(`       simLogs=${item.simulationLogs.join(' | ')}`);
