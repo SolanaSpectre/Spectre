@@ -328,6 +328,10 @@ class Config {
     return process.env.LIVE_DRY_RUN_SIMULATE_TRANSACTION === 'true';
   }
 
+  static get liveDryRunSignForSimulation() {
+    return process.env.LIVE_DRY_RUN_SIGN_FOR_SIMULATION === 'true';
+  }
+
   static get liveDryRunSimulationCommitment() {
     return process.env.LIVE_DRY_RUN_SIMULATION_COMMITMENT || 'processed';
   }

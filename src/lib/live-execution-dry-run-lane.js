@@ -21,6 +21,7 @@ class LiveExecutionDryRunLane {
     this.connection = options.connection || null;
     this.accountReader = options.accountReader || this.connection;
     this.userPublicKey = options.userPublicKey || null;
+    this.signerKeypair = options.signerKeypair || null;
     this.telemetryHook = typeof options.telemetryHook === 'function' ? options.telemetryHook : null;
     this.enabled = config.liveDryRunEnabled === true;
     this.pumpBuyV2BuilderEnabled = config.liveDryRunPumpBuyV2BuilderEnabled !== false;
@@ -33,6 +34,7 @@ class LiveExecutionDryRunLane {
     this.fetchBlockhash = config.liveDryRunFetchBlockhash !== false;
     this.requireTransactionBuilder = config.liveDryRunRequireTransactionBuilder !== false;
     this.simulateTransaction = config.liveDryRunSimulateTransaction === true;
+    this.signForSimulation = config.liveDryRunSignForSimulation === true;
     this.simulationCommitment = config.liveDryRunSimulationCommitment || 'processed';
     this.dryRunKeypairLabel = config.liveDryRunKeypairLabel || 'hot_wallet';
     this.lastAttemptByMint = new Map();
@@ -54,6 +56,7 @@ class LiveExecutionDryRunLane {
       requireTransactionBuilder: this.requireTransactionBuilder,
       pumpBuyV2BuilderEnabled: this.pumpBuyV2BuilderEnabled,
       simulateTransaction: this.simulateTransaction,
+      signForSimulation: this.signForSimulation,
       simulationCommitment: this.simulationCommitment,
       simulations: 0,
       simulationOk: 0,
@@ -196,7 +199,9 @@ class LiveExecutionDryRunLane {
         payload.txBuilder = txBuild.builder || null;
         payload.txSizeBytes = txBuild.txSizeBytes ?? null;
         payload.signedOk = false;
-        payload.signatureMode = 'not_signed_report_only';
+        payload.signatureMode = this.signForSimulation
+          ? 'sign_for_simulation_pending'
+          : 'not_signed_report_only';
         if (!txBuild.ok) {
           return this.block(txBuild.reason || 'TX_BUILDER_UNAVAILABLE', payload);
         }
@@ -212,7 +217,17 @@ class LiveExecutionDryRunLane {
             }
           }
 
-          const simulation = await this.trySimulateTransaction(txBuild.transaction);
+          const transactionForSimulation = this.signForSimulation
+            ? this.trySignForSimulation(txBuild.transaction)
+            : { ok: true, transaction: txBuild.transaction, signatureMode: 'not_signed_report_only' };
+          payload.signedOk = transactionForSimulation.ok === true && this.signForSimulation;
+          payload.signatureMode = transactionForSimulation.signatureMode;
+          payload.signatureError = transactionForSimulation.error || null;
+          if (!transactionForSimulation.ok) {
+            return this.block(transactionForSimulation.reason || 'SIGN_FOR_SIMULATION_FAILED', payload);
+          }
+
+          const simulation = await this.trySimulateTransaction(transactionForSimulation.transaction);
           payload.simulationOk = simulation.ok;
           payload.simulationLatencyMs = simulation.latencyMs;
           payload.simulationError = simulation.error || null;
@@ -376,8 +391,8 @@ class LiveExecutionDryRunLane {
     const startedAt = Date.now();
     try {
       // web3.js v1.x only accepts config objects for VersionedTransaction simulation.
-      // These Pump dry-run transactions are legacy Transaction objects, so pass no
-      // second argument and let web3 simulate unsigned with sigVerify=false.
+      // These Pump dry-run transactions are legacy Transaction objects. They may
+      // be signed locally for simulation, but this lane never broadcasts them.
       const result = await this.connection.simulateTransaction(transaction);
       const value = result?.value || {};
       return {
@@ -394,6 +409,41 @@ class LiveExecutionDryRunLane {
         latencyMs: Date.now() - startedAt,
         unitsConsumed: null,
         logs: []
+      };
+    }
+  }
+
+  trySignForSimulation(transaction) {
+    if (!transaction || typeof transaction.sign !== 'function') {
+      return {
+        ok: false,
+        reason: 'SIGN_FOR_SIMULATION_UNAVAILABLE',
+        signatureMode: 'sign_for_simulation_failed',
+        error: 'transaction.sign unavailable'
+      };
+    }
+    if (!this.signerKeypair) {
+      return {
+        ok: false,
+        reason: 'SIGNER_KEYPAIR_UNAVAILABLE',
+        signatureMode: 'signer_unavailable_report_only',
+        error: 'missing signer keypair'
+      };
+    }
+
+    try {
+      transaction.sign(this.signerKeypair);
+      return {
+        ok: true,
+        transaction,
+        signatureMode: 'signed_for_simulation_report_only'
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        reason: 'SIGN_FOR_SIMULATION_FAILED',
+        signatureMode: 'sign_for_simulation_failed',
+        error: error.message || 'sign failed'
       };
     }
   }

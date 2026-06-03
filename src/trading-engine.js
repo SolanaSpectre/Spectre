@@ -122,6 +122,7 @@ class TradingEngine {
       connection: this.connection,
       accountReader: this.connection,
       userPublicKey: this.hotWallet.getPublicKey(),
+      signerKeypair: this.hotWallet.getKeypair(),
       telemetryHook: (type, payload) => {
         try {
           this.telemetry.record(type, payload);
