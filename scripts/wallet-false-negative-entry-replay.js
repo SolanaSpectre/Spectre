@@ -15,7 +15,8 @@ const STRATEGY = {
   takeProfitPct: 0.5,
   stopLossPct: 0.25,
   maxHoldSeconds: 600,
-  amountSol: 0.1
+  amountSol: 0.1,
+  stressExtraSlippagePct: 3
 };
 
 function readJson(filePath, fallback = {}) {
@@ -145,13 +146,16 @@ function simulateExit(entry, samples) {
 
 function buildExit(entry, exit, exitReason) {
   const returnPct = (exit.priceSol - entry.priceSol) / entry.priceSol;
+  const stressReturnPct = returnPct - (STRATEGY.stressExtraSlippagePct / 100);
   return {
     exitReason,
     exitAt: exit.timestamp,
     exitPriceSol: numberOrNull(exit.priceSol, 12),
     holdSeconds: secondsBetween(entry.timestamp, exit.timestamp),
     returnPct: numberOrNull(returnPct, 6),
-    pnlSol: numberOrNull(STRATEGY.amountSol * returnPct, 9)
+    pnlSol: numberOrNull(STRATEGY.amountSol * returnPct, 9),
+    stressReturnPct: numberOrNull(stressReturnPct, 6),
+    stressedPnlSol: numberOrNull(STRATEGY.amountSol * stressReturnPct, 9)
   };
 }
 
@@ -191,6 +195,27 @@ function summarize(rows) {
   const entered = rows.filter((row) => String(row.replayClass || '').startsWith('WOULD_ENTER_'));
   const wins = entered.filter((row) => row.exitReason === 'TAKE_PROFIT');
   const totalPnlSol = entered.reduce((sum, row) => sum + Number(row.pnlSol || 0), 0);
+  const stressedPnlSol = entered.reduce((sum, row) => sum + Number(row.stressedPnlSol || 0), 0);
+  const sortedByEntry = entered.slice().sort((a, b) => timestampMs(a.entryAt) - timestampMs(b.entryAt));
+  const splitIndex = Math.ceil(sortedByEntry.length / 2);
+  const firstHalfPnlSol = sortedByEntry.slice(0, splitIndex).reduce((sum, row) => sum + Number(row.pnlSol || 0), 0);
+  const secondHalfPnlSol = sortedByEntry.slice(splitIndex).reduce((sum, row) => sum + Number(row.pnlSol || 0), 0);
+  const sortedWinners = entered.filter((row) => Number(row.pnlSol) > 0).sort((a, b) => Number(b.pnlSol) - Number(a.pnlSol));
+  const grossWinnerPnlSol = sortedWinners.reduce((sum, row) => sum + Number(row.pnlSol || 0), 0);
+  const topWinnerPnlSol = sortedWinners[0] ? Number(sortedWinners[0].pnlSol || 0) : 0;
+  const top3WinnerPnlSol = sortedWinners.slice(0, 3).reduce((sum, row) => sum + Number(row.pnlSol || 0), 0);
+  const pnlAfterTopWinnerSol = totalPnlSol - topWinnerPnlSol;
+  const pnlAfterTop3WinnersSol = totalPnlSol - top3WinnerPnlSol;
+  const verdict = classifySummary({
+    entered: entered.length,
+    totalPnlSol,
+    stressedPnlSol,
+    winRate: entered.length ? wins.length / entered.length : null,
+    firstHalfPnlSol,
+    secondHalfPnlSol,
+    pnlAfterTopWinnerSol,
+    pnlAfterTop3WinnersSol
+  });
   return {
     strongWalletLedMisses: rows.length,
     wouldEnter: entered.length,
@@ -200,9 +225,49 @@ function summarize(rows) {
     maxHolds: entered.filter((row) => row.exitReason === 'MAX_HOLD').length,
     endOfRun: entered.filter((row) => row.exitReason === 'END_OF_RUN').length,
     totalPnlSol: numberOrNull(totalPnlSol, 9),
+    stressedPnlSol: numberOrNull(stressedPnlSol, 9),
     averagePnlSol: entered.length ? numberOrNull(totalPnlSol / entered.length, 9) : null,
-    winRate: entered.length ? numberOrNull(wins.length / entered.length, 4) : null
+    winRate: entered.length ? numberOrNull(wins.length / entered.length, 4) : null,
+    firstHalfPnlSol: entered.length ? numberOrNull(firstHalfPnlSol, 9) : null,
+    secondHalfPnlSol: entered.length > 1 ? numberOrNull(secondHalfPnlSol, 9) : null,
+    grossWinnerPnlSol: numberOrNull(grossWinnerPnlSol, 9),
+    topWinnerPnlSol: numberOrNull(topWinnerPnlSol, 9),
+    top3WinnerPnlSol: numberOrNull(top3WinnerPnlSol, 9),
+    pnlAfterTopWinnerSol: numberOrNull(pnlAfterTopWinnerSol, 9),
+    pnlAfterTop3WinnersSol: numberOrNull(pnlAfterTop3WinnersSol, 9),
+    topWinnerShareOfGrossProfit: grossWinnerPnlSol > 0 ? numberOrNull(topWinnerPnlSol / grossWinnerPnlSol, 4) : null,
+    verdict,
+    shadowLaneEligible: verdict === 'PROMISING',
+    verdictReason: verdictReason(verdict)
   };
+}
+
+function classifySummary(summary) {
+  if (summary.entered < 20) return 'INSUFFICIENT_SAMPLE';
+  if (summary.totalPnlSol <= 0 || summary.stressedPnlSol <= 0) return 'NEGATIVE';
+  if (summary.winRate < 0.45) return 'INCONCLUSIVE_LOW_WIN_RATE';
+  if (summary.firstHalfPnlSol <= 0 || summary.secondHalfPnlSol <= 0) return 'INCONCLUSIVE_UNSTABLE_SPLIT';
+  if (summary.pnlAfterTopWinnerSol <= 0 || summary.pnlAfterTop3WinnersSol <= 0) return 'INCONCLUSIVE_WINNER_CONCENTRATED';
+  return 'PROMISING';
+}
+
+function verdictReason(verdict) {
+  switch (verdict) {
+    case 'PROMISING':
+      return 'Sample clears positive/stressed PnL, win-rate, split-half, and winner-concentration checks.';
+    case 'INSUFFICIENT_SAMPLE':
+      return 'Fewer than 20 hypothetical entries; keep collecting report-only evidence before creating a runtime shadow lane.';
+    case 'NEGATIVE':
+      return 'Raw or stressed PnL is non-positive.';
+    case 'INCONCLUSIVE_LOW_WIN_RATE':
+      return 'PnL is positive but win rate is below the durability threshold.';
+    case 'INCONCLUSIVE_UNSTABLE_SPLIT':
+      return 'PnL is positive but does not persist across split halves.';
+    case 'INCONCLUSIVE_WINNER_CONCENTRATED':
+      return 'PnL is positive but depends too heavily on the largest winners.';
+    default:
+      return 'Replay did not meet shadow-lane durability requirements.';
+  }
 }
 
 function main() {
@@ -218,6 +283,11 @@ function main() {
       bridgeGeneratedAt: bridge.generatedAt || null
     },
     strategy: STRATEGY,
+    criteria: {
+      promising: '>=20 hypothetical entries, positive raw/stressed PnL, winRate >=45%, both split halves positive, and PnL remains positive after removing top-1 and top-3 winners.',
+      insufficientSample: '<20 hypothetical entries.',
+      caveat: 'Report-only replay; still not a quote-fill, MEV, liquidity, or broadcast-latency model.'
+    },
     note: 'Report-only replay. A strong wallet-led miss only becomes a hypothetical entry after the existing score/curve/volume/velocity gate is satisfied after the first strong wallet touch. Does not change entries, wallet weighting, or live behavior.',
     summary: summarize(rows),
     topWouldWinners: rows.filter((row) => row.pnlSol !== null && row.pnlSol !== undefined).slice().sort((a, b) => Number(b.pnlSol) - Number(a.pnlSol)).slice(0, 10),
