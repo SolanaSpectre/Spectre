@@ -147,11 +147,6 @@ class TradingEngine {
     this.pumpDevTargetedCurveParityInFlight = new Set();
     this.pumpDevTargetedCurveParitySkipLogLastAt = new Map();
     this.pumpDevTargetedCurveParitySampleCount = 0;
-    this.providerSnapshotTelemetryLastByMint = new Map();
-    this.reportOnlyTelemetrySuppressed = {
-      preMigrationObserved: 0,
-      providerSnapshot: 0
-    };
     this.tokenSignalCooldowns = new Map();
     this.preMigrationPaperRechecks = new Map();
     this.preMigrationPaperExpiredRechecks = new Set();
@@ -3109,6 +3104,7 @@ class TradingEngine {
         riskWalletCount: result.state.riskWalletCount,
         lateChaserCount: result.state.lateChaserCount
       });
+
       this.candidateDossierLedger.recordWatchState(result.state, {
         eventType: result.flagged ? 'watch.flagged' : 'watch.observed',
         flagged: Boolean(result.flagged),
@@ -4776,65 +4772,22 @@ class TradingEngine {
       approximate: true
     };
 
-    const mint = current.mint || event.mint || event.token || event.mintAddress || null;
-    if (this.shouldRecordProviderSnapshotTelemetry(mint, curveProgress)) {
-      this.telemetry.record('pump_bonding_curve.provider_snapshot', {
-        mint,
-        provider: event.provider || null,
-        phase,
-        source,
-        pairBase,
-        curveProgress,
-        virtualSolReservesSol: Number.isFinite(virtualSolReservesSol) ? virtualSolReservesSol : null,
-        virtualTokenReservesTokens: Number.isFinite(virtualTokenReservesTokens) ? virtualTokenReservesTokens : null,
-        providerVirtualTokenReservesRaw,
-        providerVirtualQuoteReservesRaw,
-        providerVirtualSolReservesRaw,
-        priceSol: Number.isFinite(priceSol) && priceSol > 0 ? priceSol : null
-      });
-    } else {
-      this.reportOnlyTelemetrySuppressed.providerSnapshot += 1;
-    }
+    this.telemetry.record('pump_bonding_curve.provider_snapshot', {
+      mint: current.mint || event.mint || event.token || event.mintAddress || null,
+      provider: event.provider || null,
+      phase,
+      source,
+      pairBase,
+      curveProgress,
+      virtualSolReservesSol: Number.isFinite(virtualSolReservesSol) ? virtualSolReservesSol : null,
+      virtualTokenReservesTokens: Number.isFinite(virtualTokenReservesTokens) ? virtualTokenReservesTokens : null,
+      providerVirtualTokenReservesRaw,
+      providerVirtualQuoteReservesRaw,
+      providerVirtualSolReservesRaw,
+      priceSol: Number.isFinite(priceSol) && priceSol > 0 ? priceSol : null
+    });
 
     return true;
-  }
-
-  shouldRecordProviderSnapshotTelemetry(mint, curveProgress) {
-    if (!mint) {
-      return true;
-    }
-
-    const intervalMs = Math.max(0, Number(this.config.providerSnapshotTelemetryMinIntervalMs || 0));
-    const minCurveDelta = Math.max(0, Number(this.config.providerSnapshotTelemetryMinCurveDelta || 0));
-    if (intervalMs === 0 && minCurveDelta === 0) {
-      return true;
-    }
-
-    const now = Date.now();
-    const currentCurve = Number(curveProgress);
-    const previous = this.providerSnapshotTelemetryLastByMint.get(mint);
-    if (!previous) {
-      this.providerSnapshotTelemetryLastByMint.set(mint, {
-        at: now,
-        curveProgress: Number.isFinite(currentCurve) ? currentCurve : null
-      });
-      return true;
-    }
-
-    const elapsedMs = now - Number(previous.at || 0);
-    const previousCurve = Number(previous.curveProgress);
-    const curveMoved = Number.isFinite(currentCurve)
-      && Number.isFinite(previousCurve)
-      && Math.abs(currentCurve - previousCurve) >= minCurveDelta;
-    if (elapsedMs >= intervalMs || curveMoved) {
-      this.providerSnapshotTelemetryLastByMint.set(mint, {
-        at: now,
-        curveProgress: Number.isFinite(currentCurve) ? currentCurve : previous.curveProgress ?? null
-      });
-      return true;
-    }
-
-    return false;
   }
 
   recordWatchedWalletTrade(event, tokenState, launchIntelSummary) {
@@ -5340,11 +5293,6 @@ class TradingEngine {
       candidateDossiers: this.candidateDossierLedger.getStats(),
       outcomeLedger: this.outcomeLedger.getStats(),
       telemetry: this.telemetry.getSummary(),
-      reportOnlyTelemetrySuppressed: {
-        ...this.reportOnlyTelemetrySuppressed,
-        preMigrationObservedTrackedMints: this.preMigrationObservedTelemetryLastByMint.size,
-        providerSnapshotTrackedMints: this.providerSnapshotTelemetryLastByMint.size
-      },
       eventLoopMonitor: { ...this.eventLoopMonitorStats },
       eventFlow: this.eventFlow.getSummary(),
       strategyLedger: this.strategyLedger.getSummary(),
