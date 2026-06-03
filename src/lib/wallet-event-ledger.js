@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const AsyncJsonlWriter = require('./async-jsonl-writer');
 
 class WalletEventLedger {
   constructor(config, logger) {
@@ -9,12 +10,19 @@ class WalletEventLedger {
     this.eventFilePath = config.walletEventLedgerFilePath;
     this.latestFilePath = config.walletEventLedgerLatestFilePath;
     this.maxRecentEvents = config.walletEventLedgerMaxRecentEvents;
+    this.maxEventsPerMint = Number(config.walletEventLedgerMaxEventsPerMint || 50);
     this.recentEvents = [];
+    this.eventsByMint = new Map();
     this.walletStats = new Map();
+    this.latestFlushIntervalMs = Number(process.env.WALLET_EVENT_LATEST_FLUSH_INTERVAL_MS || 5000);
+    this.lastLatestFlushAt = 0;
+    this.latestWritePending = Promise.resolve();
+    this.latestWriteInFlight = 0;
 
     if (this.enabled) {
       fs.mkdirSync(path.dirname(this.eventFilePath), { recursive: true });
       fs.mkdirSync(path.dirname(this.latestFilePath), { recursive: true });
+      this.eventWriter = new AsyncJsonlWriter(this.eventFilePath, this.logger);
     }
   }
 
@@ -129,7 +137,7 @@ class WalletEventLedger {
   }
 
   appendRecord(record) {
-    fs.appendFileSync(this.eventFilePath, `${JSON.stringify(record)}\n`);
+    this.eventWriter?.append(record, 'wallet event');
   }
 
   updateStats(record) {
@@ -347,27 +355,72 @@ class WalletEventLedger {
   updateLatest(record) {
     this.recentEvents.unshift(record);
     this.recentEvents = this.recentEvents.slice(0, this.maxRecentEvents);
-    this.flushLatest();
+
+    const mintEvents = this.eventsByMint.get(record.mint) || [];
+    mintEvents.push(record);
+    mintEvents.sort((a, b) => this.normalizeTimestampMs(a.tradeAt || a.observedAt) - this.normalizeTimestampMs(b.tradeAt || b.observedAt));
+    this.eventsByMint.set(record.mint, mintEvents.slice(0, Math.max(1, this.maxEventsPerMint)));
+
+    this.flushLatest(false);
   }
 
-  flushLatest() {
+  recentEventsForMint(mint, limit = this.maxEventsPerMint) {
+    if (!mint) return [];
+    const rows = this.eventsByMint.get(mint) || [];
+    return rows.slice(0, Math.max(1, Number(limit || this.maxEventsPerMint)));
+  }
+
+  flushLatest(force = false) {
     if (!this.enabled) {
       return;
+    }
+
+    const now = Date.now();
+    if (!force && Number.isFinite(this.latestFlushIntervalMs) && this.latestFlushIntervalMs > 0) {
+      if (now - this.lastLatestFlushAt < this.latestFlushIntervalMs) {
+        return;
+      }
     }
 
     const topWallets = [...this.walletStats.values()]
       .sort((a, b) => b.touches - a.touches || new Date(b.lastSeenAt || 0) - new Date(a.lastSeenAt || 0))
       .slice(0, 50);
 
-    fs.writeFileSync(this.latestFilePath, JSON.stringify({
+    let payload = '';
+    try {
+      payload = JSON.stringify({
       generatedAt: new Date().toISOString(),
       eventFilePath: this.eventFilePath,
       recentEventCount: this.recentEvents.length,
+      mintContextCount: this.eventsByMint.size,
       walletCount: this.walletStats.size,
       classificationCounts: this.countClassifications(topWallets),
       topWallets,
       recentEvents: this.recentEvents
-    }, null, 2));
+      }, null, 2);
+    } catch (error) {
+      this.logger.warn('Failed to serialize wallet event latest snapshot', error.message);
+      return;
+    }
+
+    this.lastLatestFlushAt = now;
+    this.latestWriteInFlight += 1;
+    this.latestWritePending = this.latestWritePending
+      .then(() => fs.promises.writeFile(this.latestFilePath, payload, 'utf8'))
+      .catch((error) => {
+        this.logger.warn('Failed to write wallet event latest snapshot', error.message);
+      })
+      .finally(() => {
+        this.latestWriteInFlight = Math.max(0, this.latestWriteInFlight - 1);
+      });
+  }
+
+  async flushAsync() {
+    this.flushLatest(true);
+    await Promise.all([
+      this.eventWriter?.flush?.(),
+      this.latestWritePending
+    ]);
   }
 
   countClassifications(wallets = []) {
@@ -384,7 +437,11 @@ class WalletEventLedger {
       eventFilePath: this.eventFilePath,
       latestFilePath: this.latestFilePath,
       recentEventCount: this.recentEvents.length,
-      walletCount: this.walletStats.size
+      mintContextCount: this.eventsByMint.size,
+      walletCount: this.walletStats.size,
+      maxEventsPerMint: this.maxEventsPerMint,
+      latestWriteInFlight: this.latestWriteInFlight,
+      eventWritePending: this.eventWriter?.getStats?.().pending || 0
     };
   }
 

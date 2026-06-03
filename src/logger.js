@@ -7,6 +7,7 @@ const SECRET_KEY_PATTERN = /(secret|private|api[_-]?key|token|password|session|a
 const MAX_RECENT_ISSUES = 80;
 const MAX_SUMMARY_GROUPS = 25;
 const PROCESS_STARTED_AT = new Date().toISOString();
+const IMPORTANT_DECISION_PATTERN = /(ENTRY|EXIT|SIGNAL READY|AI ACCEPT|AI APPROVE|HARD VETO|LIVE|ERROR)/i;
 
 function redactString(value) {
   return String(value)
@@ -153,6 +154,9 @@ class Logger {
   }
 
   decision(message, data = null) {
+    if (process.env.RUNTIME_DECISION_LOGS_ENABLED === 'false' && !IMPORTANT_DECISION_PATTERN.test(String(message || ''))) {
+      return;
+    }
     if (this.shouldLog('info')) {
       console.log(chalk.cyan(this.formatMessage('info', message, data)));
     }

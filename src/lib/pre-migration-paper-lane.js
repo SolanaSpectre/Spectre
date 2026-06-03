@@ -228,6 +228,7 @@ class PreMigrationPaperLane {
       strategy: {
         minScore: config.preMigrationPaperEarlyAccelerationRunnerMinScore,
         minCurveProgress: config.preMigrationPaperEarlyAccelerationRunnerMinCurveProgress,
+        maxCurveProgress: config.preMigrationPaperEarlyAccelerationRunnerMaxCurveProgress,
         minRecentVolumeSol: config.preMigrationPaperEarlyAccelerationRunnerMinRecentVolumeSol,
         minTradeVelocityPerMin: config.preMigrationPaperEarlyAccelerationRunnerMinTradeVelocityPerMin,
         takeProfitPct: config.preMigrationPaperEarlyAccelerationRunnerTakeProfitPct,

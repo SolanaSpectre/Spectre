@@ -22,7 +22,27 @@ const PUMP_LIVE_READINESS = Object.freeze({
       spectreUse: 'not used by the current Spectre executor',
     }),
   }),
-  feeRecipients: Object.freeze([
+  normalFeeRecipients: Object.freeze([
+    '62qc2CNXwrYqQScmEdiZFFAnJR262PxWEuNQtxfafNgV',
+    '7VtfL8fvgNfhz17qKRMjzQEXgbdpnHHHQRh54R9jP2RJ',
+    '7hTckgnGnLQR6sdH7YkqFTAA7VwTfYFaZ6EhEsU3saCX',
+    '9rPYyANsfQZw3DnDmKE3YCQF5E8oD89UXoHn9JFEhJUz',
+    'AVmoTthdrX6tKt4nDjco2D775W2YK3sDhxPcMmzUAmTY',
+    'CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM',
+    'FWsW1xNtWscwNmKv6wVsU1iTzRN6wmmk3MjxRP5tT7hz',
+    'G5UZAVbAf46s7cKWoyKu8kYTip9DGTpbLZ2qa9Aq69dP',
+  ]),
+  reservedFeeRecipients: Object.freeze([
+    'GesfTA3X2arioaHp8bbKdjG9vJtskViWACZoYvxp4twS',
+    '4budycTjhs9fD6xw62VBducVTNgMgJJ5BgtKq7mAZwn6',
+    '8SBKzEQU4nLSzcwF4a74F2iaUDQyTfjGndn6qUWBnrpR',
+    '4UQeTP1T39KZ9Sfxzo3WR5skgsaP6NZa87BAkuazLEKH',
+    '8sNeir4QsLsJdYpc9RZacohhK1Y5FLU3nC5LXgYB4aa6',
+    'Fh9HmeLNUMVCvejxCtCL2DbYaRyBFVJ5xrWkLnMH6fdk',
+    '463MEnMeGyJekNZFQSTUABBEbLnvMTALbT6ZmsxAbAdq',
+    '6AUH3WEHucYZyC61hqpqYUWVto5qA5hjHuNQ32GNnNxA',
+  ]),
+  buybackFeeRecipients: Object.freeze([
     '5YxQFdt3Tr9zJLvkFccqXVUwhdTWJQc1fFg2YPbxvxeD',
     '9M4giFFMxmFGXtc3feFzRai56WbBqehoSeRE5GK7gf7',
     'GXPFM2caqTtQYC2cJ5yJRi9VDkpsYZXzYdwYpGnLmtDL',
@@ -35,7 +55,8 @@ const PUMP_LIVE_READINESS = Object.freeze({
   instructionRequirements: Object.freeze({
     bondingCurve: Object.freeze({
       appliesTo: 'direct Pump bonding curve buy/sell instruction builders',
-      addAfterAccount: 'bonding-curve-v2',
+      preferredInstruction: 'buy_v2',
+      accountCount: 27,
       addedAccounts: Object.freeze([
         Object.freeze({
           name: 'fee_recipient',
@@ -104,27 +125,35 @@ function validatePubkeyList(pubkeys) {
 
 function validatePumpLiveReadinessManifest(manifest = PUMP_LIVE_READINESS) {
   const issues = [];
-  const feeRecipientCheck = validatePubkeyList(manifest.feeRecipients || []);
+  const normalFeeRecipientCheck = validatePubkeyList(manifest.normalFeeRecipients || []);
+  const reservedFeeRecipientCheck = validatePubkeyList(manifest.reservedFeeRecipients || []);
+  const buybackFeeRecipientCheck = validatePubkeyList(manifest.buybackFeeRecipients || []);
   const programIds = [
     manifest.programs?.pumpBondingCurve?.programId,
     manifest.programs?.pumpSwapAmm?.programId,
   ].filter(Boolean);
   const programIdCheck = validatePubkeyList(programIds);
 
-  if ((manifest.feeRecipients || []).length !== 8) {
-    issues.push(`Expected 8 upgraded fee recipients, found ${(manifest.feeRecipients || []).length}.`);
+  if ((manifest.normalFeeRecipients || []).length !== 8) {
+    issues.push(`Expected 8 normal fee recipients, found ${(manifest.normalFeeRecipients || []).length}.`);
   }
-  for (const invalid of feeRecipientCheck.invalid) {
+  if ((manifest.reservedFeeRecipients || []).length !== 8) {
+    issues.push(`Expected 8 reserved fee recipients, found ${(manifest.reservedFeeRecipients || []).length}.`);
+  }
+  if ((manifest.buybackFeeRecipients || []).length !== 8) {
+    issues.push(`Expected 8 buyback fee recipients, found ${(manifest.buybackFeeRecipients || []).length}.`);
+  }
+  for (const invalid of [...normalFeeRecipientCheck.invalid, ...reservedFeeRecipientCheck.invalid, ...buybackFeeRecipientCheck.invalid]) {
     issues.push(`Invalid fee recipient pubkey format: ${invalid}`);
   }
-  for (const duplicate of feeRecipientCheck.duplicates) {
+  for (const duplicate of [...normalFeeRecipientCheck.duplicates, ...reservedFeeRecipientCheck.duplicates, ...buybackFeeRecipientCheck.duplicates]) {
     issues.push(`Duplicate fee recipient pubkey: ${duplicate}`);
   }
   for (const invalid of programIdCheck.invalid) {
     issues.push(`Invalid program id format: ${invalid}`);
   }
-  if (manifest.instructionRequirements?.bondingCurve?.expectedAccountCounts?.buy !== 18) {
-    issues.push('Bonding curve buy account count should be 18 after the fee-recipient upgrade.');
+  if (manifest.instructionRequirements?.bondingCurve?.accountCount !== 27) {
+    issues.push('Bonding curve buy_v2 account count should be 27.');
   }
   if (manifest.instructionRequirements?.pumpSwapAmm?.addedAccounts?.length !== 2) {
     issues.push('PumpSwap AMM requires exactly 2 added fee-recipient accounts after pool-v2.');

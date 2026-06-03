@@ -36,7 +36,9 @@ function main() {
     `PumpSwap AMM: ${PUMP_LIVE_READINESS.programs.pumpSwapAmm.programId}`,
   ]);
 
-  printSection('Required upgraded fee recipients', PUMP_LIVE_READINESS.feeRecipients);
+  printSection('Normal fee recipients', PUMP_LIVE_READINESS.normalFeeRecipients);
+  printSection('Reserved mayhem fee recipients', PUMP_LIVE_READINESS.reservedFeeRecipients);
+  printSection('Buyback fee recipients', PUMP_LIVE_READINESS.buybackFeeRecipients);
 
   printSection('Future direct-executor rules', PUMP_LIVE_READINESS.liveExecutorRules);
 

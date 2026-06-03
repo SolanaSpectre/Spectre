@@ -1,9 +1,11 @@
 const { LAMPORTS_PER_SOL } = require('@solana/web3.js');
+const fs = require('fs');
 const MarketData = require('./market-data');
 const AIAgent = require('./ai-agent');
 const CapitalAllocation = require('./capital-allocation');
 const WalletManager = require('./wallet');
 const PumpPortalListener = require('./pumpportal-listener');
+const PumpDevListener = require('./pumpdev-listener');
 const SafetyGate = require('./lib/safety-gates');
 const ExecutionModeManager = require('./lib/execution-modes');
 const SessionManager = require('./lib/session-manager');
@@ -27,6 +29,8 @@ const PostMigrationContinuationLane = require('./lib/post-migration-continuation
 const WalletEventLedger = require('./lib/wallet-event-ledger');
 const SolanaRpcRouter = require('./lib/solana-rpc-router');
 const OutcomeLedger = require('./lib/outcome-ledger');
+const FinalistAccountVerifier = require('./lib/finalist-account-verifier');
+const LiveExecutionDryRunLane = require('./lib/live-execution-dry-run-lane');
 
 class TradingEngine {
   constructor(config, logger) {
@@ -50,6 +54,24 @@ class TradingEngine {
         }
       }
     });
+    this.pumpDevListener = new PumpDevListener(config, logger, {
+      onNewToken: async (event) => this.handlePumpDevNewToken(event),
+      onTrade: async (event) => this.handlePumpDevTrade(event),
+      onLifecycle: (type, payload) => {
+        try {
+          this.telemetry.record(type, payload);
+        } catch {
+          // Shadow provider lifecycle telemetry is report-only and must not affect intake.
+        }
+      },
+      onShadowEvent: (type, payload) => {
+        try {
+          this.telemetry.record(type, payload);
+        } catch {
+          // PumpDev shadow events are observability-only and must never affect decisions.
+        }
+      }
+    });
 
     this.safetyGate = new SafetyGate(config);
     this.executionModeManager = new ExecutionModeManager(config, logger);
@@ -57,6 +79,13 @@ class TradingEngine {
     this.accounting = new AccountingService();
     this.treasurySweeper = new TreasurySweeper(config, logger);
     this.telemetry = new Telemetry(config, logger);
+    this.connection.setTelemetryHook?.((type, payload) => {
+      try {
+        this.telemetry.record(type, payload);
+      } catch {
+        // RPC telemetry is observability-only and must never affect trading or RPC behavior.
+      }
+    });
     this.aiAgent.telemetryHook = (type, payload) => {
       try {
         this.telemetry.record(type, payload);
@@ -76,6 +105,31 @@ class TradingEngine {
     this.preMigrationWatchLane = new PreMigrationWatchLane(config, logger);
     this.preMigrationPaperLane = new PreMigrationPaperLane(config, logger);
     this.pumpBondingCurveLane = new PumpBondingCurveLane(config, logger, this.connection);
+    this.finalistAccountVerifier = new FinalistAccountVerifier(config, logger, {
+      connection: this.connection.getSubscriptionConnection?.(),
+      accountReader: this.connection,
+      decodeBondingCurveAccount: (data) => this.pumpBondingCurveLane.decodeBondingCurveAccount(data),
+      deriveBondingCurveAddress: (mint) => this.pumpBondingCurveLane.safeDeriveBondingCurveAddress(mint),
+      telemetryHook: (type, payload) => {
+        try {
+          this.telemetry.record(type, payload);
+        } catch {
+          // Finalist account stream verification is report-only.
+        }
+      }
+    });
+    this.liveExecutionDryRunLane = new LiveExecutionDryRunLane(config, logger, {
+      connection: this.connection,
+      accountReader: this.connection,
+      userPublicKey: this.hotWallet.getPublicKey(),
+      telemetryHook: (type, payload) => {
+        try {
+          this.telemetry.record(type, payload);
+        } catch {
+          // Live execution dry-run telemetry is report-only.
+        }
+      }
+    });
     this.candidateDossierLedger = new CandidateDossierLedger(config, logger);
     this.postMigrationContinuationLane = new PostMigrationContinuationLane(config, logger);
     this.walletEventLedger = new WalletEventLedger(config, logger);
@@ -86,11 +140,37 @@ class TradingEngine {
     this.rejectedTrades = [];
     this.latestPumpPortalTokens = new Map();
     this.pendingPumpBondingCurveSyncs = new Set();
+    this.queuedPumpBondingCurveSyncs = new Map();
+    this.pumpBondingCurveQueueTimer = null;
+    this.pumpDevTargetedCurveParityLastSampleAt = new Map();
+    this.pumpDevTargetedCurveParityInFlight = new Set();
+    this.pumpDevTargetedCurveParitySkipLogLastAt = new Map();
+    this.pumpDevTargetedCurveParitySampleCount = 0;
     this.tokenSignalCooldowns = new Map();
     this.preMigrationPaperRechecks = new Map();
     this.preMigrationPaperExpiredRechecks = new Set();
     this.syntheticBondingCurveMigrations = new Set();
     this.lastTelegramSightingSyncAt = null;
+    this.preMigrationDecisionLogWindowStartedAt = 0;
+    this.preMigrationDecisionLogCount = 0;
+    this.eventLoopMonitorTimer = null;
+    this.eventLoopMonitorExpectedAt = 0;
+    this.eventLoopMonitorStats = {
+      samples: 0,
+      lagEvents: 0,
+      maxLagMs: 0,
+      lastLagMs: 0,
+      startedAt: null
+    };
+    this.pumpDevPrimarySilenceTimer = null;
+    this.pumpDevPrimarySilenceStartedAt = null;
+    this.pumpDevPrimarySilenceTripped = false;
+    this.walletPromotionReviewLastLoadedAt = 0;
+    this.walletPromotionReviewLastMtimeMs = 0;
+    this.walletPromotionReviewByAddress = new Map();
+    this.walletPromotionReviewByName = new Map();
+    this.walletRelaxedShadowEnterSeen = new Set();
+    this.walletRelaxedShadowSkipSeen = new Set();
 
     this.dailyPnL = 0;
     this.realizedPnL = 0;
@@ -255,9 +335,12 @@ class TradingEngine {
       sessionDurationMinutes: this.config.sessionDurationMinutes,
       initialEquitySol: this.totalEquitySol
     });
+    this.startEventLoopMonitor();
     this.armSessionTimeout();
     this.logger.info('Starting trading engine...');
     await this.pumpPortalListener.start();
+    await this.pumpDevListener.start();
+    this.armPumpDevPrimarySilenceWatchdog(sessionStartTime);
     this.entryStartTime = Date.now();
     this.tradingLoop();
   }
@@ -300,12 +383,25 @@ class TradingEngine {
       return;
     }
 
+    if (!this.active && this.sessionManager.getStatus?.().state === 'STOPPED') {
+      return;
+    }
+
     this.stopInProgress = true;
     this.active = false;
     if (this.sessionTimeout) {
       clearTimeout(this.sessionTimeout);
       this.sessionTimeout = null;
     }
+    if (this.pumpBondingCurveQueueTimer) {
+      clearTimeout(this.pumpBondingCurveQueueTimer);
+      this.pumpBondingCurveQueueTimer = null;
+    }
+    this.clearPumpDevPrimarySilenceWatchdog();
+    this.stopEventLoopMonitor(reason);
+    this.queuedPumpBondingCurveSyncs.clear();
+    this.finalistAccountVerifier?.stop?.('SESSION_STOP');
+    this.connection?.clearQueue?.('SESSION_STOP');
     this.clearPreMigrationPaperRechecks('SESSION_STOP');
 
     this.telemetry.record('session.stopping', {
@@ -320,7 +416,10 @@ class TradingEngine {
       await this.refreshCapitalState();
     }
 
-    await this.pumpPortalListener.stop();
+    await Promise.all([
+      this.pumpPortalListener.stop(),
+      this.pumpDevListener.stop()
+    ]);
     this.persistLivePositions();
     this.launchIntelStore.flush(true);
     this.sessionManager.stop(reason);
@@ -328,6 +427,7 @@ class TradingEngine {
       reason,
       stats: this.getStats()
     });
+    await this.telemetry.flushAsync?.();
     this.strategyLedger.record('session.stopped', {
       sessionId: this.sessionId,
       reason,
@@ -338,16 +438,96 @@ class TradingEngine {
         totalEquitySol: this.totalEquitySol
       }
     });
+    await Promise.all([
+      this.candidateDossierLedger?.flushAsync?.(),
+      this.outcomeLedger?.flushAsync?.(),
+      this.walletEventLedger?.flushAsync?.(),
+      this.launchIntelStore?.flushAsync?.(),
+      this.strategyLedger?.flushAsync?.()
+    ]);
     this.logger.info('Stopping trading engine...');
     this.stopInProgress = false;
+  }
+
+  armPumpDevPrimarySilenceWatchdog(startedAt = Date.now()) {
+    this.clearPumpDevPrimarySilenceWatchdog();
+    this.pumpDevPrimarySilenceStartedAt = startedAt;
+    this.pumpDevPrimarySilenceTripped = false;
+
+    if (
+      !this.config.pumpDevPrimarySilenceFailFastEnabled
+      || !this.config.pumpDevDrivesPreMigration
+    ) {
+      return;
+    }
+
+    const timeoutMs = Number(this.config.pumpDevPrimarySilenceTimeoutMs || 0);
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      return;
+    }
+
+    this.pumpDevPrimarySilenceTimer = setTimeout(() => {
+      this.checkPumpDevPrimarySilenceTimeout('timeout');
+    }, timeoutMs);
+    if (typeof this.pumpDevPrimarySilenceTimer.unref === 'function') {
+      this.pumpDevPrimarySilenceTimer.unref();
+    }
+  }
+
+  clearPumpDevPrimarySilenceWatchdog() {
+    if (this.pumpDevPrimarySilenceTimer) {
+      clearTimeout(this.pumpDevPrimarySilenceTimer);
+      this.pumpDevPrimarySilenceTimer = null;
+    }
+  }
+
+  getPumpDevMarketEventCount(stats = {}) {
+    return Number(stats.newTokens || 0)
+      + Number(stats.trades || 0)
+      + Number(stats.mintEvents || 0)
+      + Number(stats.migrations || 0);
+  }
+
+  checkPumpDevPrimarySilenceTimeout(trigger = 'timeout') {
+    if (!this.active || this.stopInProgress || this.pumpDevPrimarySilenceTripped) {
+      return;
+    }
+
+    const stats = this.pumpDevListener.getStats();
+    const marketEvents = this.getPumpDevMarketEventCount(stats);
+    if (marketEvents > 0) {
+      return;
+    }
+
+    const payload = {
+      reason: 'PUMPDEV_PRIMARY_SILENT',
+      trigger,
+      sessionId: this.sessionId,
+      timeoutMs: Number(this.config.pumpDevPrimarySilenceTimeoutMs || 0),
+      elapsedMs: this.pumpDevPrimarySilenceStartedAt ? Date.now() - this.pumpDevPrimarySilenceStartedAt : null,
+      messages: Number(stats.messages || 0),
+      systemMessages: Number(stats.systemMessages || 0),
+      newTokens: Number(stats.newTokens || 0),
+      trades: Number(stats.trades || 0),
+      mintEvents: Number(stats.mintEvents || 0),
+      migrations: Number(stats.migrations || 0),
+      closes: Number(stats.closeEvents || 0),
+      errors: Number(stats.errorEvents || 0),
+      connected: Boolean(stats.connected),
+      lastMessageAgeMs: stats.lastMessageAt ? Date.now() - Number(stats.lastMessageAt) : null
+    };
+    this.pumpDevPrimarySilenceTripped = true;
+    this.logger.warn('PumpDev primary feed produced no market events before silence timeout; stopping session early', payload);
+    this.telemetry.record('provider.pumpdev.primary_silence_timeout', payload);
+    this.stop('PUMPDEV_PRIMARY_SILENT').catch((error) => {
+      this.logger.error('Failed to stop after PumpDev primary silence timeout', error.message);
+    });
   }
 
   async tradingLoop() {
     while (this.active) {
       try {
-        if (!this.sessionManager.isTradeAllowed()) {
-          this.logger.info('Session is no longer accepting trades');
-          await this.stop('SESSION_CLOSED');
+        if (this.maybeStopExpiredSession('trading_loop')) {
           break;
         }
 
@@ -812,6 +992,61 @@ class TradingEngine {
     this.telemetry.record('candidate.snapshot', payload);
   }
 
+  startEventLoopMonitor() {
+    if (this.eventLoopMonitorTimer || this.config.eventLoopMonitorEnabled === false) {
+      return;
+    }
+
+    const intervalMs = Math.max(100, Number(this.config.eventLoopMonitorIntervalMs || 1000));
+    const lagThresholdMs = Math.max(1, Number(this.config.eventLoopMonitorLagThresholdMs || 250));
+    const startedAt = Date.now();
+    this.eventLoopMonitorStats = {
+      samples: 0,
+      lagEvents: 0,
+      maxLagMs: 0,
+      lastLagMs: 0,
+      startedAt: new Date(startedAt).toISOString(),
+      intervalMs,
+      lagThresholdMs
+    };
+    this.eventLoopMonitorExpectedAt = startedAt + intervalMs;
+    this.eventLoopMonitorTimer = setInterval(() => {
+      const now = Date.now();
+      const lagMs = Math.max(0, now - this.eventLoopMonitorExpectedAt);
+      this.eventLoopMonitorExpectedAt = now + intervalMs;
+      this.eventLoopMonitorStats.samples += 1;
+      this.eventLoopMonitorStats.lastLagMs = lagMs;
+      if (lagMs > this.eventLoopMonitorStats.maxLagMs) {
+        this.eventLoopMonitorStats.maxLagMs = lagMs;
+      }
+      if (lagMs >= lagThresholdMs) {
+        this.eventLoopMonitorStats.lagEvents += 1;
+        this.telemetry.record('runtime.event_loop_lag', {
+          lagMs,
+          thresholdMs: lagThresholdMs,
+          intervalMs,
+          sample: this.eventLoopMonitorStats.samples
+        });
+      }
+    }, intervalMs);
+    if (typeof this.eventLoopMonitorTimer.unref === 'function') {
+      this.eventLoopMonitorTimer.unref();
+    }
+  }
+
+  stopEventLoopMonitor(reason = 'STOPPED') {
+    if (!this.eventLoopMonitorTimer) {
+      return;
+    }
+    clearInterval(this.eventLoopMonitorTimer);
+    this.eventLoopMonitorTimer = null;
+    this.telemetry.record('runtime.event_loop_monitor_summary', {
+      ...this.eventLoopMonitorStats,
+      reason,
+      stoppedAt: new Date().toISOString()
+    });
+  }
+
   emitRaydiumRunnerShadowObservation({ token, quality, momentum, rankScore }) {
     if (
       !this.config.runnerRaydiumShadowEnabled ||
@@ -1182,6 +1417,73 @@ class TradingEngine {
   }
 
   async fetchMarketData() {
+    const suppressOptionalHttp = this.shouldSuppressOptionalHttpEnrichment();
+    if (suppressOptionalHttp) {
+      const solPriceFallback = this.marketData.getCachedSolanaPrice(
+        Math.max(this.config.solPriceCacheTtlMs * 10, 300000)
+      );
+      const solPrice = Number(solPriceFallback?.value || 0);
+      const pumpPortalTokens = Array.from(this.latestPumpPortalTokens.values())
+        .map((token) => {
+          const momentum = this.summarizePumpPortalMomentum(token);
+          const liquiditySol = Number(token.liquiditySol || 0);
+          const liquidityUsd = Number(
+            token.liquidityUsd
+            || (liquiditySol > 0 && solPrice > 0 ? liquiditySol * solPrice : 0)
+          );
+          return {
+            id: token.mint,
+            source: token.source || 'pumpdev',
+            type: token.migratedAt ? 'migration' : 'launch',
+            mintAddress: token.mint,
+            symbol: token.symbol,
+            name: token.name,
+            liquidity: liquiditySol,
+            liquidityUsd,
+            volume24h: token.volumeSol || 0,
+            marketCap: token.marketCapSol || token.marketCap || 0,
+            bondingStage: token.bondingStage,
+            buys: token.buys || 0,
+            sells: token.sells || 0,
+            tradeCount: token.tradeCount || 0,
+            accountTradeCount: token.accountTradeCount || 0,
+            openTime: token.createdAt,
+            preMigrationState: this.preMigrationWatchLane.getMintSummary(token.mint),
+            ...momentum,
+            raw: token
+          };
+        });
+
+      const prioritizedPools = this.prioritizePools(this.dedupeAndFilterPools(pumpPortalTokens));
+      this.telemetry.record('optional_http_enrichment.suppressed', {
+        reason: 'PAPER_PUMPDEV_PRIMARY',
+        skippedProviders: ['sol_price', 'raydium_pools', 'meteora_pools', 'moonshot_tokens', 'dexscreener_continuation'],
+        cachedSolPriceAgeMs: solPriceFallback?.ageMs ?? null,
+        pumpPortalTokens: pumpPortalTokens.length
+      });
+
+      return {
+        solPrice,
+        pools: prioritizedPools,
+        sourceCounts: {
+          raydium: 0,
+          meteora: 0,
+          moonshot: 0,
+          pumpportal: pumpPortalTokens.length,
+          poolStateUpdates: 0,
+          continuationObserved: 0,
+          continuationEmitted: 0,
+          optionalHttpSuppressed: true
+        },
+        timestamp: new Date().toISOString(),
+        sentiment: this.calculateMarketSentiment(pumpPortalTokens),
+        maxPositionSize: this.config.maxPositionSizeSol,
+        stopLossPercent: this.config.stopLossPercent,
+        takeProfitPercent: this.config.takeProfitPercent,
+        maxDailyLoss: this.config.maxDailyLossSol
+      };
+    }
+
     const [solPriceResult, raydiumResult, meteoraResult, moonshotResult] = await Promise.allSettled([
       this.marketData.getSolanaPrice(),
       this.marketData.getRaydiumPools(),
@@ -1449,6 +1751,7 @@ class TradingEngine {
   async analyzeTokens(marketData) {
     const tokens = [];
     let birdeyeEnrichedThisCycle = 0;
+    const suppressOptionalHttp = this.shouldSuppressOptionalHttpEnrichment();
     const topPools = marketData.pools
       .filter((pool) => {
         if (pool.source?.startsWith?.('pumpportal')) {
@@ -1468,7 +1771,19 @@ class TradingEngine {
 
     for (const pool of topPools) {
       try {
-        let analysis = await this.marketData.analyzeToken(pool.mintAddress);
+        let analysis = suppressOptionalHttp
+          ? {
+              mintAddress: pool.mintAddress,
+              source: pool.source || 'pumpdev',
+              price: 0,
+              priceUsd: 0,
+              liquidity: pool.liquidity || 0,
+              liquidityUsd: pool.liquidityUsd || 0,
+              volume: pool.volume24h || pool.volume || 0,
+              marketCap: pool.marketCap || pool.fdv || 0,
+              riskScore: 0
+            }
+          : await this.marketData.analyzeToken(pool.mintAddress);
         analysis = {
           ...analysis,
           source: pool.source || 'raydium',
@@ -1494,6 +1809,7 @@ class TradingEngine {
         };
 
         if (
+          !suppressOptionalHttp &&
           this.config.birdeyeEnabled &&
           birdeyeEnrichedThisCycle < this.config.birdeyeMaxTokensPerCycle
         ) {
@@ -1521,6 +1837,14 @@ class TradingEngine {
     }
 
     return tokens;
+  }
+
+  shouldSuppressOptionalHttpEnrichment() {
+    return Boolean(
+      this.config.paperSuppressOptionalHttpEnrichment
+      && this.executionModeManager?.isPaper?.()
+      && this.config.pumpDevDrivesPreMigration
+    );
   }
 
   dedupeAndFilterPools(pools) {
@@ -2445,7 +2769,8 @@ class TradingEngine {
   }
 
   isPumpPortalToken(token) {
-    return String(token.source || '').startsWith('pumpportal');
+    const source = String(token.source || '');
+    return source.startsWith('pumpportal') || source.startsWith('pumpdev');
   }
 
   isMigratedPumpPortalToken(token = {}) {
@@ -2796,11 +3121,36 @@ class TradingEngine {
       sessionId: this.sessionId
     });
 
+    this.finalistAccountVerifier?.maybeSubscribe?.(result.state, {
+      source: 'pre_migration_watch',
+      flagged: Boolean(result.flagged),
+      confirmed: Boolean(result.state.confirmed),
+      newlyConfirmed: Boolean(result.newlyConfirmed),
+      flagType: result.flagType || null
+    }).catch((error) => {
+      this.logger.warn('Finalist account verifier subscription failed', {
+        mint,
+        errorMessage: error.message
+      });
+    });
+
     this.recordPreMigrationPaperEvents(this.preMigrationPaperLane.observe(result.state, {
       flagged: Boolean(result.flagged),
       timestamp: new Date().toISOString(),
       walletClassificationContext
     }));
+
+    if (
+      this.config.pumpDevTargetedCurveParitySampleWatchEnabled
+      && result.state.confirmed === true
+      && (Number(result.state.score) >= 70 || Number(result.state.curveProgress) >= 0.6)
+    ) {
+      this.maybeSchedulePumpDevTargetedCurveParitySample('high_conviction_watch', result.state, {
+        source: 'pre_migration_watch',
+        flagType: result.flagType || null,
+        reasons: result.state.reasons || []
+      });
+    }
 
     if (result.flagged) {
       this.eventFlow.record('pre_migration.flagged', {
@@ -2825,38 +3175,45 @@ class TradingEngine {
   }
 
   buildWalletClassificationContextForMint(mint) {
-    if (!mint || !this.walletEventLedger?.recentEvents) {
+    if (!mint || !this.walletEventLedger) {
       return null;
     }
 
-    const events = this.walletEventLedger.recentEvents
-      .filter((event) => event?.mint === mint)
-      .slice(0, 25);
+    const events = typeof this.walletEventLedger.recentEventsForMint === 'function'
+      ? this.walletEventLedger.recentEventsForMint(mint, 50)
+      : (this.walletEventLedger.recentEvents || []).filter((event) => event?.mint === mint).slice(0, 25);
     if (events.length === 0) {
       return null;
     }
 
     const labels = {};
-    const wallets = [];
+    const walletRows = [];
     for (const event of events) {
       const wallet = event.wallet;
       const classification = wallet
         ? this.walletEventLedger.walletStats.get(wallet)?.classification
         : null;
+      const promotion = this.getWalletPromotionReview(wallet, event.walletProfile?.name);
       const label = classification?.label || 'UNCLASSIFIED';
       labels[label] = (labels[label] || 0) + 1;
-      if (wallets.length < 8) {
-        wallets.push({
-          wallet,
-          label,
-          confidence: classification?.confidence ?? null,
-          side: event.side || null,
-          phase: event.phase || null,
-          solAmount: event.amount?.sol ?? null,
-          secondsSinceCreate: event.timing?.secondsSinceCreate ?? null
-        });
-      }
+      walletRows.push({
+        wallet,
+        name: event.walletProfile?.name || promotion?.name || null,
+        label,
+        confidence: classification?.confidence ?? null,
+        side: event.side || null,
+        phase: event.phase || null,
+        tradeAt: event.tradeAt || event.observedAt || null,
+        reviewTier: promotion?.reviewTier || null,
+        evidenceTier: promotion?.evidenceTier || null,
+        solAmount: event.amount?.sol ?? null,
+        curveProgress: event.market?.curveProgress ?? null,
+        secondsSinceCreate: event.timing?.secondsSinceCreate ?? null
+      });
     }
+    const wallets = walletRows
+      .sort((a, b) => new Date(a.tradeAt || 0).getTime() - new Date(b.tradeAt || 0).getTime())
+      .slice(0, 8);
 
     const count = (...selectedLabels) => selectedLabels.reduce((sum, label) => sum + Number(labels[label] || 0), 0);
     return {
@@ -2868,8 +3225,74 @@ class TradingEngine {
       convictionWhaleCount: count('CONVICTION_WHALE', 'RUNNER_HUNTER', 'DIP_SUPPORT_BUYER'),
       riskWalletCount: count('INSIDER_DUMPER', 'DEV_SIDE_WALLET', 'BUNDLE_CLUSTER', 'LOW_SIGNAL_AVOID'),
       lateChaserCount: count('LATE_CHASER'),
+      contextSource: typeof this.walletEventLedger.recentEventsForMint === 'function' ? 'per_mint_cache' : 'recent_events_scan',
+      earliestTouchAt: wallets[0]?.tradeAt || null,
+      earliestBuyAt: wallets.find((wallet) => String(wallet.side || '').toLowerCase() === 'buy')?.tradeAt || null,
       wallets
     };
+  }
+
+  canonicalWalletName(name, walletAddress) {
+    const label = String(name || walletAddress || '').trim();
+    if (/^Cupsey(?:\s+\d+)?$/i.test(label)) return 'Cupsey';
+    return label || walletAddress || null;
+  }
+
+  refreshWalletPromotionReviewIfNeeded() {
+    const filePath = this.config.walletPromotionReviewFilePath;
+    if (!filePath) return;
+    const now = Date.now();
+    const refreshIntervalMs = Number(this.config.walletPromotionReviewRefreshIntervalMs || 60000);
+    if ((now - this.walletPromotionReviewLastLoadedAt) < refreshIntervalMs) return;
+    this.walletPromotionReviewLastLoadedAt = now;
+
+    try {
+      if (!fs.existsSync(filePath)) return;
+      const stat = fs.statSync(filePath);
+      if (stat.mtimeMs <= this.walletPromotionReviewLastMtimeMs) return;
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
+      const byAddress = new Map();
+      const byName = new Map();
+      const addRows = (rows = []) => {
+        for (const row of rows) {
+          const meta = {
+            walletAddress: row.walletAddress || null,
+            name: row.name || null,
+            reviewTier: row.reviewTier || null,
+            evidenceTier: row.evidenceTier || null
+          };
+          if (meta.walletAddress) byAddress.set(meta.walletAddress, meta);
+          const canonical = this.canonicalWalletName(meta.name, meta.walletAddress);
+          if (canonical) byName.set(canonical, meta);
+        }
+      };
+      addRows(parsed.trustReview);
+      addRows(parsed.profitableNeedsFirstTouchEvidence);
+      addRows(parsed.watchReview);
+      addRows(parsed.avoidReview);
+      addRows(parsed.hold);
+      this.walletPromotionReviewByAddress = byAddress;
+      this.walletPromotionReviewByName = byName;
+      this.walletPromotionReviewLastMtimeMs = stat.mtimeMs;
+      this.logger.info('Wallet promotion review loaded', {
+        wallets: byAddress.size,
+        filePath
+      });
+    } catch (error) {
+      this.logger.warn('Failed to load wallet promotion review', {
+        filePath,
+        errorMessage: error.message
+      });
+    }
+  }
+
+  getWalletPromotionReview(wallet, name = null) {
+    this.refreshWalletPromotionReviewIfNeeded();
+    if (wallet && this.walletPromotionReviewByAddress.has(wallet)) {
+      return this.walletPromotionReviewByAddress.get(wallet);
+    }
+    const canonical = this.canonicalWalletName(name, wallet);
+    return canonical ? this.walletPromotionReviewByName.get(canonical) || null : null;
   }
 
   recordPreMigrationPaperEvents(events = []) {
@@ -2897,6 +3320,34 @@ class TradingEngine {
         reason: event.payload?.reason
       });
 
+      this.maybeSchedulePumpDevTargetedCurveParitySampleFromPaperEvent(event);
+      if (
+        event.type === 'decision'
+        || event.type === 'entry'
+        || event.telemetryType === 'pre_migration_paper.entry'
+      ) {
+        const shadowGateResult = this.finalistAccountVerifier?.evaluateShadowGate?.(event.payload || {}, {
+          decision: event.payload?.decision || (event.type === 'entry' ? 'PAPER_ENTRY' : null),
+          reason: event.payload?.reason || null,
+          preset: event.payload?.preset || null,
+          lane: event.payload?.lane || null
+        });
+        if (shadowGateResult?.status === 'LIVE_SHADOW_READY_FRESH_ACCOUNT_STATE') {
+          this.liveExecutionDryRunLane?.evaluate?.(event.payload || {}, {
+            decision: event.payload?.decision || (event.type === 'entry' ? 'PAPER_ENTRY' : null),
+            reason: event.payload?.reason || null,
+            preset: event.payload?.preset || null,
+            lane: event.payload?.lane || null,
+            gateResult: shadowGateResult
+          }).catch((error) => {
+            this.logger.warn('Live execution dry-run failed', {
+              mint: event.payload?.mint || null,
+              errorMessage: error.message
+            });
+          });
+        }
+      }
+
       if (
         event.telemetryType === 'pre_migration_paper.decision'
         && event.payload?.decision === 'PAPER_SKIPPED'
@@ -2905,7 +3356,14 @@ class TradingEngine {
         this.schedulePreMigrationPaperRecheck(event.payload);
       }
 
-      if (event.type === 'diagnostic' && event.telemetryType === 'pre_migration_paper.first_curve_snapshot_near_miss' && this.preMigrationPaperLane?.logDecisionEvents) {
+      this.maybeRecordWalletRelaxedShadowDecision(event);
+
+      if (
+        event.type === 'diagnostic'
+        && event.telemetryType === 'pre_migration_paper.first_curve_snapshot_near_miss'
+        && this.preMigrationPaperLane?.logDecisionEvents
+        && this.shouldLogPreMigrationPaperEvent(event)
+      ) {
         this.logger.decision(`PRE-MIGRATION PAPER NEAR MISS: ${event.payload.mint}`, {
           symbol: event.payload.symbol,
           failedChecks: event.payload.failedChecks,
@@ -2919,7 +3377,11 @@ class TradingEngine {
           buyRatio: event.payload.buyRatio,
           hasPrice: event.payload.hasPrice
         });
-      } else if (event.type === 'decision' && this.preMigrationPaperLane?.logDecisionEvents) {
+      } else if (
+        event.type === 'decision'
+        && this.preMigrationPaperLane?.logDecisionEvents
+        && this.shouldLogPreMigrationPaperEvent(event)
+      ) {
         this.logger.decision(`PRE-MIGRATION PAPER ${event.payload.decision}: ${event.payload.mint}`, {
           symbol: event.payload.symbol,
           preset: event.payload.preset,
@@ -2953,6 +3415,591 @@ class TradingEngine {
         });
       }
     }
+  }
+
+  maybeRecordWalletRelaxedShadowDecision(event) {
+    if (this.config.preMigrationWalletRelaxedShadowEnabled === false) {
+      return;
+    }
+    if (
+      event?.telemetryType !== 'pre_migration_paper.decision'
+      || event.payload?.decision !== 'PAPER_SKIPPED'
+      || !['LOW_SCORE', 'FIRST_SIGHT_REQUIRES_GUARD_OVERRIDE'].includes(event.payload?.reason)
+    ) {
+      return;
+    }
+
+    const payload = event.payload || {};
+    const mint = payload.mint;
+    if (!mint) return;
+    const shadowProfile = 'all_low_score_first_sight__tracked_first_touch_buy';
+    const key = `${shadowProfile}:${mint}`;
+
+    const context = payload.walletClassificationContext || {};
+    const wallets = Array.isArray(context.wallets) ? context.wallets.slice() : [];
+    const sortedWallets = wallets.sort((a, b) => {
+      const atA = new Date(a.tradeAt || 0).getTime();
+      const atB = new Date(b.tradeAt || 0).getTime();
+      return atA - atB;
+    });
+    const isPositiveOrProven = (wallet) => (
+      ['PROVEN_POSITIVE', 'PROMISING_POSITIVE'].includes(wallet.evidenceTier)
+      || ['TRUST_REVIEW', 'PROFITABLE_NEEDS_FIRST_TOUCH_EVIDENCE'].includes(wallet.reviewTier)
+    );
+    const positiveFirstTouch = sortedWallets.find((wallet) =>
+      String(wallet.side || '').toLowerCase() === 'buy'
+      && isPositiveOrProven(wallet)
+      && (Number(wallet.curveProgress) < 0.85 || wallet.phase === 'fresh_launch' || wallet.phase === 'pre_migration')
+    );
+    const avoidTouches = sortedWallets.filter((wallet) =>
+      wallet.reviewTier === 'AVOID_REVIEW' || wallet.evidenceTier === 'NEGATIVE_EVIDENCE'
+    );
+    const qualifyingFirstTouch = sortedWallets.find((wallet) =>
+      String(wallet.side || '').toLowerCase() === 'buy'
+      && (Number(wallet.curveProgress) < 0.85 || wallet.phase === 'fresh_launch' || wallet.phase === 'pre_migration')
+    );
+    const wouldEnter = Boolean(qualifyingFirstTouch);
+    if (wouldEnter) {
+      if (this.walletRelaxedShadowEnterSeen.has(key)) return;
+      this.walletRelaxedShadowEnterSeen.add(key);
+    } else {
+      if (this.walletRelaxedShadowSkipSeen.has(key)) return;
+      this.walletRelaxedShadowSkipSeen.add(key);
+    }
+    this.telemetry.record(
+      wouldEnter
+        ? 'pre_migration_wallet_relaxed_shadow.would_enter'
+        : 'pre_migration_wallet_relaxed_shadow.would_skip',
+      {
+        mode: 'report_only_wallet_relaxed_shadow',
+        shadowProfile,
+        mint,
+        symbol: payload.symbol || null,
+        timestamp: payload.timestamp || new Date().toISOString(),
+        sourceDecision: payload.decision,
+        sourceReason: payload.reason,
+        sourcePreset: payload.preset || null,
+        sourceLane: payload.lane || null,
+        score: payload.score ?? null,
+        curveProgress: payload.curveProgress ?? null,
+        recentVolumeSol: payload.recentVolumeSol ?? null,
+        tradeVelocityPerMin: payload.tradeVelocityPerMin ?? null,
+        priceSol: payload.priceSol ?? payload.bondingCurvePriceSol ?? payload.curvePriceSol ?? null,
+        wouldEnter,
+        shadowDecision: wouldEnter ? 'WOULD_ENTER' : 'WOULD_SKIP',
+        shadowReason: wouldEnter ? 'TRACKED_FIRST_TOUCH_BUY' : 'NO_TRACKED_FIRST_TOUCH_BUY',
+        qualifyingFirstTouch: qualifyingFirstTouch ? {
+          wallet: qualifyingFirstTouch.wallet || null,
+          name: qualifyingFirstTouch.name || null,
+          reviewTier: qualifyingFirstTouch.reviewTier || null,
+          evidenceTier: qualifyingFirstTouch.evidenceTier || null,
+          label: qualifyingFirstTouch.label || null,
+          side: qualifyingFirstTouch.side || null,
+          phase: qualifyingFirstTouch.phase || null,
+          tradeAt: qualifyingFirstTouch.tradeAt || null,
+          curveProgress: qualifyingFirstTouch.curveProgress ?? null,
+          solAmount: qualifyingFirstTouch.solAmount ?? null,
+          positiveOrProven: isPositiveOrProven(qualifyingFirstTouch),
+          avoidOrNegative: qualifyingFirstTouch.reviewTier === 'AVOID_REVIEW' || qualifyingFirstTouch.evidenceTier === 'NEGATIVE_EVIDENCE'
+        } : null,
+        positiveFirstTouch: positiveFirstTouch ? {
+          wallet: positiveFirstTouch.wallet || null,
+          name: positiveFirstTouch.name || null,
+          reviewTier: positiveFirstTouch.reviewTier || null,
+          evidenceTier: positiveFirstTouch.evidenceTier || null,
+          label: positiveFirstTouch.label || null,
+          side: positiveFirstTouch.side || null,
+          phase: positiveFirstTouch.phase || null,
+          tradeAt: positiveFirstTouch.tradeAt || null,
+          curveProgress: positiveFirstTouch.curveProgress ?? null,
+          solAmount: positiveFirstTouch.solAmount ?? null
+        } : null,
+        walletTouchCount: sortedWallets.length,
+        walletContextSource: context.contextSource || null,
+        earliestWalletTouchAt: context.earliestTouchAt || null,
+        earliestWalletBuyAt: context.earliestBuyAt || null,
+        positiveOrProvenTouchCount: sortedWallets.filter(isPositiveOrProven).length,
+        avoidTouchCount: avoidTouches.length,
+        walletSummary: sortedWallets.slice(0, 8).map((wallet) => ({
+          wallet: wallet.wallet || null,
+          name: wallet.name || null,
+          reviewTier: wallet.reviewTier || null,
+          evidenceTier: wallet.evidenceTier || null,
+          label: wallet.label || null,
+          side: wallet.side || null,
+          phase: wallet.phase || null,
+          tradeAt: wallet.tradeAt || null,
+          curveProgress: wallet.curveProgress ?? null,
+          solAmount: wallet.solAmount ?? null
+        }))
+      }
+    );
+  }
+
+  maybeSchedulePumpDevTargetedCurveParitySampleFromPaperEvent(event) {
+    if (!event?.payload || !event.telemetryType?.startsWith?.('pre_migration_paper.')) {
+      return;
+    }
+
+    const payload = event.payload;
+    const decision = payload.decision || null;
+    const reason = payload.reason || payload.skipReason || null;
+    const score = Number(payload.entryScore ?? payload.score);
+    const curve = Number(payload.entryCurveProgress ?? payload.curveProgress);
+    let trigger = null;
+
+    if (event.type === 'entry' || event.telemetryType === 'pre_migration_paper.entry') {
+      trigger = 'actual_entry';
+    } else if (
+      this.config.pumpDevTargetedCurveParitySampleEligibleEnabled
+      && (decision === 'PAPER_ELIGIBLE' || decision === 'PAPER_SHADOWED')
+    ) {
+      trigger = 'eligible_or_shadowed';
+    } else if (this.config.pumpDevTargetedCurveParitySampleSkipsEnabled && decision === 'PAPER_SKIPPED') {
+      const interestingSkip = (
+        reason === 'RECENT_BAD_EXIT_COOLDOWN'
+        || (Number.isFinite(curve) && curve >= 0.8)
+        || (Number.isFinite(score) && score >= 80)
+        || (
+          ['LOW_SCORE', 'FIRST_SIGHT_REQUIRES_GUARD_OVERRIDE', 'NO_PRIOR_CURVE_PROGRESS'].includes(reason)
+          && Number.isFinite(curve)
+          && curve >= 0.75
+        )
+      );
+      if (interestingSkip) {
+        trigger = `interesting_skip:${reason || 'unknown'}`;
+      }
+    }
+
+    if (!trigger) {
+      return;
+    }
+
+    this.maybeSchedulePumpDevTargetedCurveParitySample(trigger, payload, {
+      source: 'pre_migration_paper',
+      decision,
+      reason,
+      preset: payload.preset || null,
+      lane: payload.lane || null,
+      reasons: Array.isArray(payload.reasons) ? payload.reasons : []
+    });
+  }
+
+  maybeSchedulePumpDevTargetedCurveParitySample(trigger, state = {}, meta = {}) {
+    if (
+      this.config.pumpDevTargetedCurveParityEnabled === false
+      || !this.active
+      || !this.pumpBondingCurveLane?.enabled
+    ) {
+      return false;
+    }
+
+    const maxSamples = Number(this.config.pumpDevTargetedCurveParityMaxSamplesPerRun ?? 25);
+    if (maxSamples <= 0 || this.pumpDevTargetedCurveParitySampleCount >= maxSamples) {
+      return false;
+    }
+
+    const mint = state.mint || state.token || state.mintAddress;
+    if (!mint) {
+      return false;
+    }
+
+    const now = Date.now();
+    const cooldownMs = Number(this.config.pumpDevTargetedCurveParityCooldownMs ?? 300000);
+    const lastSampleAt = Number(this.pumpDevTargetedCurveParityLastSampleAt.get(mint) || 0);
+    if (cooldownMs > 0 && now - lastSampleAt < cooldownMs) {
+      return false;
+    }
+
+    const maxInFlight = Math.max(1, Number(this.config.pumpDevTargetedCurveParityMaxInFlight ?? 1));
+    if (this.pumpDevTargetedCurveParityInFlight.size >= maxInFlight) {
+      this.recordPumpDevTargetedCurveParitySkipped(mint, trigger, 'IN_FLIGHT_LIMIT', {
+        inFlight: this.pumpDevTargetedCurveParityInFlight.size,
+        maxInFlight
+      });
+      return false;
+    }
+
+    const providerCurveProgress = this.extractProviderCurveProgressForParity(state);
+    if (!Number.isFinite(providerCurveProgress)) {
+      return false;
+    }
+
+    const providerPriceSol = this.extractProviderPriceForParity(state);
+    const providerAt = state.providerCurveSnapshotAt
+      || state.lastCurveUpdateAt
+      || state.bondingCurveLastFetchAt
+      || state.timestamp
+      || new Date(now).toISOString();
+
+    this.pumpDevTargetedCurveParityLastSampleAt.set(mint, now);
+    this.pumpDevTargetedCurveParityInFlight.add(mint);
+    this.pumpDevTargetedCurveParitySampleCount += 1;
+    const scheduledAtMs = now;
+    const scheduledAtIso = new Date(scheduledAtMs).toISOString();
+
+    const tokenMeta = {
+      ...(this.latestPumpPortalTokens.get(mint) || {}),
+      ...(state || {}),
+      mint,
+      source: state.source || meta.source || 'pumpdev_targeted_curve_parity'
+    };
+    const expectedBondingCurveAddress = this.pumpBondingCurveLane.safeDeriveBondingCurveAddress?.(mint) || null;
+    const providerBondingCurveAddress = state.bondingCurveAddress || state.bondingCurveKey || null;
+
+    this.telemetry.record('pumpdev.targeted_curve_parity_scheduled', {
+      mint,
+      symbol: state.symbol || null,
+      trigger,
+      providerAt,
+      scheduledAt: scheduledAtIso,
+      providerCurveProgress: Number(providerCurveProgress.toFixed(6)),
+      providerPriceSol: Number.isFinite(providerPriceSol) ? Number(providerPriceSol.toFixed(12)) : null,
+      score: Number.isFinite(Number(state.entryScore ?? state.score)) ? Number(Number(state.entryScore ?? state.score).toFixed(2)) : null,
+      source: meta.source || null,
+      decision: meta.decision || null,
+      reason: meta.reason || null,
+      preset: meta.preset || null,
+      lane: meta.lane || null,
+      sampleIndex: this.pumpDevTargetedCurveParitySampleCount,
+      maxSamples
+    });
+
+    let settled = false;
+    const timeoutMs = Math.max(1000, Number(this.config.pumpDevTargetedCurveParityTimeoutMs ?? 15000));
+    const timeoutDueAtMs = scheduledAtMs + timeoutMs;
+    const timeoutDueAtIso = new Date(timeoutDueAtMs).toISOString();
+    const finish = (callback) => {
+      if (settled) {
+        return false;
+      }
+      settled = true;
+      this.pumpDevTargetedCurveParityInFlight.delete(mint);
+      callback();
+      return true;
+    };
+    const timeout = setTimeout(() => {
+      finish(() => {
+        this.telemetry.record('pumpdev.targeted_curve_parity_sample', {
+          mint,
+          symbol: state.symbol || null,
+          trigger,
+          source: meta.source || null,
+          decision: meta.decision || null,
+          reason: meta.reason || null,
+          preset: meta.preset || null,
+          lane: meta.lane || null,
+          scheduledAt: scheduledAtIso,
+          providerAt,
+          providerCurveProgress: Number(providerCurveProgress.toFixed(6)),
+          providerPriceSol: Number.isFinite(providerPriceSol) ? Number(providerPriceSol.toFixed(12)) : null,
+          onchainFetchedAt: null,
+          accountFound: false,
+          invalidAccountData: false,
+          complete: false,
+          onchainBondingStage: null,
+          onchainCurveProgress: null,
+          onchainPriceSol: null,
+          curveDelta: null,
+          absCurveDelta: null,
+          priceDeltaPct: null,
+          absPriceDeltaPct: null,
+          bondingCurveAddress: expectedBondingCurveAddress,
+          expectedBondingCurveAddress,
+          providerBondingCurveAddress,
+          bondingCurveValidated: false,
+          bondingCurveValidationReason: 'TARGETED_PARITY_TIMEOUT',
+          bondingCurveAccountOwner: null,
+          timedOut: true,
+          timeoutDueAt: timeoutDueAtIso,
+          timeoutLagMs: Math.max(0, Date.now() - timeoutDueAtMs),
+          latencyMs: Date.now() - scheduledAtMs,
+          error: `TARGETED_PARITY_TIMEOUT_${timeoutMs}MS`
+        });
+        this.logger.warn('PumpDev targeted curve parity sample timed out', {
+          mint,
+          trigger,
+          timeoutMs
+        });
+      });
+    }, timeoutMs);
+
+    this.pumpBondingCurveLane.observeMint(mint, tokenMeta, {
+      forceRefresh: true,
+      bypassFailureCooldown: true,
+      bypassGlobalBackoff: true
+    }).then((summary) => {
+      finish(() => {
+        clearTimeout(timeout);
+        this.recordPumpDevTargetedCurveParitySample({
+          mint,
+          state,
+          meta,
+          trigger,
+          providerAt,
+          scheduledAt: scheduledAtIso,
+          scheduledAtMs,
+          providerCurveProgress,
+          providerPriceSol,
+          summary
+        });
+      });
+    }).catch((error) => {
+      finish(() => {
+        clearTimeout(timeout);
+        this.telemetry.record('pumpdev.targeted_curve_parity_sample', {
+          mint,
+          symbol: state.symbol || null,
+          trigger,
+          source: meta.source || null,
+          decision: meta.decision || null,
+          reason: meta.reason || null,
+          preset: meta.preset || null,
+          lane: meta.lane || null,
+          scheduledAt: scheduledAtIso,
+          providerAt,
+          providerCurveProgress: Number(providerCurveProgress.toFixed(6)),
+          providerPriceSol: Number.isFinite(providerPriceSol) ? Number(providerPriceSol.toFixed(12)) : null,
+          onchainFetchedAt: new Date().toISOString(),
+          accountFound: false,
+          invalidAccountData: false,
+          complete: false,
+          onchainBondingStage: null,
+          onchainCurveProgress: null,
+          onchainPriceSol: null,
+          curveDelta: null,
+          absCurveDelta: null,
+          priceDeltaPct: null,
+          absPriceDeltaPct: null,
+          bondingCurveAddress: expectedBondingCurveAddress,
+          expectedBondingCurveAddress,
+          providerBondingCurveAddress,
+          bondingCurveValidated: false,
+          bondingCurveValidationReason: error.message || 'TARGETED_PARITY_FETCH_FAILED',
+          bondingCurveAccountOwner: null,
+          timedOut: false,
+          latencyMs: Date.now() - scheduledAtMs,
+          error: error.message
+        });
+        this.logger.warn('PumpDev targeted curve parity sample failed', {
+          mint,
+          trigger,
+          error: error.message
+        });
+      });
+    });
+
+    return true;
+  }
+
+  recordPumpDevTargetedCurveParitySkipped(mint, trigger, reason, extra = {}) {
+    if (!this.telemetry) {
+      return;
+    }
+
+    const now = Date.now();
+    const cooldownMs = Math.max(1000, Number(this.config.pumpDevTargetedCurveParitySkipLogCooldownMs ?? 10000));
+    const key = `${mint || 'unknown'}:${trigger || 'unknown'}:${reason || 'unknown'}`;
+    const lastAt = Number(this.pumpDevTargetedCurveParitySkipLogLastAt.get(key) || 0);
+    if (now - lastAt < cooldownMs) {
+      return;
+    }
+
+    this.pumpDevTargetedCurveParitySkipLogLastAt.set(key, now);
+    this.telemetry.record('pumpdev.targeted_curve_parity_skipped', {
+      mint,
+      trigger,
+      reason,
+      ...extra
+    });
+  }
+
+  recordPumpDevTargetedCurveParitySample({
+    mint,
+    state,
+    meta,
+    trigger,
+    providerAt,
+    scheduledAt,
+    scheduledAtMs,
+    providerCurveProgress,
+    providerPriceSol,
+    summary
+  }) {
+    const parseFiniteOrNull = (value) => {
+      if (value === null || value === undefined || value === '') {
+        return null;
+      }
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : null;
+    };
+    const rawOnchainCurveProgress = parseFiniteOrNull(summary?.curveProgress);
+    const rawOnchainCurveProgressByVirtualTokenReserves = parseFiniteOrNull(summary?.curveProgressByVirtualTokenReserves);
+    const rawOnchainCurveProgressByRealTokenSupply = parseFiniteOrNull(summary?.curveProgressByRealTokenSupply);
+    const rawOnchainPriceSol = parseFiniteOrNull(summary?.priceSol);
+    const fetchAtMs = Date.parse(summary?.lastFetchAt || '');
+    const fetchLatencyMs = parseFiniteOrNull(summary?.fetchLatencyMs);
+    const maxComparableLatencyMs = Math.max(1000, Number(this.config.pumpDevTargetedCurveParityMaxComparableLatencyMs ?? 2500));
+    const expectedBondingCurveAddress = this.pumpBondingCurveLane.safeDeriveBondingCurveAddress?.(mint) || null;
+    const providerBondingCurveAddress = state.bondingCurveAddress || state.bondingCurveKey || null;
+    const bondingCurveAddress = summary?.bondingCurveAddress || expectedBondingCurveAddress;
+    const bondingCurveValidated = summary?.bondingCurveValidated === true;
+    const bondingCurveValidationReason = summary?.bondingCurveValidationReason || (
+      bondingCurveValidated ? 'OWNER_AND_DISCRIMINATOR_OK' : null
+    );
+    const freshFetch = summary?.refreshed === true
+      && Number.isFinite(fetchAtMs)
+      && (!Number.isFinite(scheduledAtMs) || fetchAtMs >= scheduledAtMs - 1000);
+    const fastEnoughFetch = Number.isFinite(fetchLatencyMs)
+      ? fetchLatencyMs <= maxComparableLatencyMs
+      : true;
+    const accountUsable = summary?.accountFound === true && summary?.invalidAccountData !== true;
+    const hasComparableCurve = freshFetch && fastEnoughFetch && accountUsable && bondingCurveValidated && Number.isFinite(rawOnchainCurveProgress);
+    const onchainCurveProgress = hasComparableCurve ? rawOnchainCurveProgress : null;
+    const onchainCurveProgressByVirtualTokenReserves = hasComparableCurve && Number.isFinite(rawOnchainCurveProgressByVirtualTokenReserves)
+      ? rawOnchainCurveProgressByVirtualTokenReserves
+      : null;
+    const virtualReserveCurveDelta = Number.isFinite(providerCurveProgress) && Number.isFinite(onchainCurveProgressByVirtualTokenReserves)
+      ? onchainCurveProgressByVirtualTokenReserves - providerCurveProgress
+      : null;
+    const onchainPriceSol = Number.isFinite(rawOnchainPriceSol) && rawOnchainPriceSol > 0 ? rawOnchainPriceSol : null;
+    const curveDelta = Number.isFinite(providerCurveProgress) && Number.isFinite(onchainCurveProgress)
+      ? onchainCurveProgress - providerCurveProgress
+      : null;
+    const priceDeltaPct = Number.isFinite(providerPriceSol) && providerPriceSol > 0 && Number.isFinite(onchainPriceSol) && onchainPriceSol > 0
+      ? ((providerPriceSol - onchainPriceSol) / onchainPriceSol) * 100
+      : null;
+
+    this.telemetry.record('pumpdev.targeted_curve_parity_sample', {
+      mint,
+      symbol: state.symbol || null,
+      trigger,
+      source: meta.source || null,
+      decision: meta.decision || null,
+      reason: meta.reason || null,
+      preset: meta.preset || null,
+      lane: meta.lane || null,
+      scheduledAt,
+      providerAt,
+      providerCurveProgress: Number(providerCurveProgress.toFixed(6)),
+      providerPriceSol: Number.isFinite(providerPriceSol) ? Number(providerPriceSol.toFixed(12)) : null,
+      providerVirtualTokenReservesTokens: parseFiniteOrNull(state.virtualTokenReservesTokens),
+      providerVirtualSolReservesSol: parseFiniteOrNull(state.virtualSolReservesSol),
+      providerVirtualTokenReservesRaw: state.providerVirtualTokenReservesRaw ?? state.bondingCurveState?.providerVirtualTokenReservesRaw ?? null,
+      providerVirtualQuoteReservesRaw: state.providerVirtualQuoteReservesRaw ?? state.bondingCurveState?.providerVirtualQuoteReservesRaw ?? null,
+      providerVirtualSolReservesRaw: state.providerVirtualSolReservesRaw ?? state.bondingCurveState?.providerVirtualSolReservesRaw ?? null,
+      onchainFetchedAt: summary?.lastFetchAt || new Date().toISOString(),
+      onchainFetchStartedAt: summary?.lastFetchStartedAt || null,
+      onchainFresh: freshFetch,
+      onchainFetchLatencyMs: Number.isFinite(fetchLatencyMs) ? Number(fetchLatencyMs.toFixed(0)) : null,
+      onchainComparableLatencyMs: maxComparableLatencyMs,
+      refreshed: summary?.refreshed === true,
+      accountFound: summary?.accountFound === true,
+      invalidAccountData: summary?.invalidAccountData === true,
+      complete: summary?.complete === true,
+      onchainBondingStage: summary?.bondingStage || null,
+      onchainCurveProgress: Number.isFinite(onchainCurveProgress) ? Number(onchainCurveProgress.toFixed(6)) : null,
+      onchainCurveProgressByRealTokenSupply: Number.isFinite(rawOnchainCurveProgressByRealTokenSupply) ? Number(rawOnchainCurveProgressByRealTokenSupply.toFixed(6)) : null,
+      onchainCurveProgressByVirtualTokenReserves: Number.isFinite(onchainCurveProgressByVirtualTokenReserves) ? Number(onchainCurveProgressByVirtualTokenReserves.toFixed(6)) : null,
+      onchainPriceSol: Number.isFinite(onchainPriceSol) ? Number(onchainPriceSol.toFixed(12)) : null,
+      curveDelta: Number.isFinite(curveDelta) ? Number(curveDelta.toFixed(6)) : null,
+      absCurveDelta: Number.isFinite(curveDelta) ? Number(Math.abs(curveDelta).toFixed(6)) : null,
+      virtualReserveCurveDelta: Number.isFinite(virtualReserveCurveDelta) ? Number(virtualReserveCurveDelta.toFixed(6)) : null,
+      virtualReserveAbsCurveDelta: Number.isFinite(virtualReserveCurveDelta) ? Number(Math.abs(virtualReserveCurveDelta).toFixed(6)) : null,
+      priceDeltaPct: Number.isFinite(priceDeltaPct) ? Number(priceDeltaPct.toFixed(4)) : null,
+      absPriceDeltaPct: Number.isFinite(priceDeltaPct) ? Number(Math.abs(priceDeltaPct).toFixed(4)) : null,
+      onchainVirtualTokenReservesTokens: parseFiniteOrNull(summary?.virtualTokenReservesTokens),
+      onchainVirtualSolReservesSol: parseFiniteOrNull(summary?.virtualSolReservesSol),
+      onchainRealSolReservesSol: parseFiniteOrNull(summary?.realSolReservesSol),
+      onchainVirtualTokenReservesRaw: summary?.virtualTokenReserves ?? null,
+      onchainVirtualSolReservesRaw: summary?.virtualSolReserves ?? null,
+      onchainRealTokenReservesRaw: summary?.realTokenReserves ?? null,
+      onchainRealSolReservesRaw: summary?.realSolReserves ?? null,
+      onchainTokenTotalSupplyRaw: summary?.tokenTotalSupply ?? null,
+      bondingCurveAddress,
+      expectedBondingCurveAddress,
+      providerBondingCurveAddress,
+      bondingCurveValidated,
+      bondingCurveValidationReason,
+      bondingCurveAccountOwner: summary?.bondingCurveAccountOwner || null,
+      timedOut: false,
+      latencyMs: Number.isFinite(scheduledAtMs) ? Date.now() - scheduledAtMs : null,
+      lastErrorMessage: hasComparableCurve
+        ? null
+        : summary?.lastErrorMessage
+          || (!freshFetch ? 'STALE_OR_UNREFRESHED_ONCHAIN_SAMPLE' : null)
+          || (!fastEnoughFetch ? `SLOW_ONCHAIN_SAMPLE_${Number(fetchLatencyMs || 0).toFixed(0)}MS` : null)
+          || (!bondingCurveValidated ? (bondingCurveValidationReason || 'UNVALIDATED_BONDING_CURVE_ACCOUNT') : 'UNCOMPARABLE_ONCHAIN_SAMPLE')
+    });
+  }
+
+  extractProviderCurveProgressForParity(state = {}) {
+    const raw = state.providerCurveProgress
+      ?? state.entryCurveProgress
+      ?? state.curveProgress
+      ?? state.bondingCurveState?.curveProgress;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return null;
+    return value > 1 && value <= 100 ? value / 100 : value;
+  }
+
+  extractProviderPriceForParity(state = {}) {
+    const raw = state.providerCurvePriceSol
+      ?? state.entryPriceSol
+      ?? state.bondingCurvePriceSol
+      ?? state.priceSol
+      ?? state.bondingCurveState?.priceSol;
+    const value = Number(raw);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+
+  maybeStopExpiredSession(trigger = 'unknown') {
+    if (!this.active || this.stopInProgress) {
+      return true;
+    }
+
+    if (this.sessionManager.isTradeAllowed()) {
+      return false;
+    }
+
+    this.logger.info('Session is no longer accepting trades');
+    this.telemetry.record('session.stop_requested', {
+      reason: 'SESSION_DURATION_EXCEEDED',
+      sessionId: this.sessionId,
+      sessionDurationMinutes: this.config.sessionDurationMinutes,
+      trigger
+    });
+    this.stop('SESSION_DURATION_EXCEEDED').catch((error) => {
+      this.logger.error('Failed to stop trading engine after session expiration', error.message);
+    });
+    return true;
+  }
+
+  shouldLogPreMigrationPaperEvent(event = {}) {
+    if (event.type === 'entry' || event.payload?.decision === 'PAPER_ENTERED') {
+      return true;
+    }
+
+    const maxLogs = Number(this.config.preMigrationPaperMaxDecisionLogsPerMinute ?? 30);
+    if (!Number.isFinite(maxLogs)) {
+      return true;
+    }
+    if (maxLogs <= 0) {
+      return false;
+    }
+
+    const now = Date.now();
+    if (!this.preMigrationDecisionLogWindowStartedAt || now - this.preMigrationDecisionLogWindowStartedAt >= 60_000) {
+      this.preMigrationDecisionLogWindowStartedAt = now;
+      this.preMigrationDecisionLogCount = 0;
+    }
+
+    if (this.preMigrationDecisionLogCount >= maxLogs) {
+      return false;
+    }
+
+    this.preMigrationDecisionLogCount += 1;
+    return true;
   }
 
   schedulePreMigrationPaperRecheck(payload = {}) {
@@ -3185,7 +4232,7 @@ class TradingEngine {
   }
 
   async syncPumpBondingCurveState(mint, token = {}, options = {}) {
-    if (!mint || !this.pumpBondingCurveLane?.enabled) {
+    if (!mint || !this.pumpBondingCurveLane?.enabled || !this.config.pumpBondingCurveRuntimeRpcEnabled) {
       return null;
     }
 
@@ -3255,7 +4302,12 @@ class TradingEngine {
   }
 
   async syncPumpBondingCurveBeforePreMigrationObservation(mint, token = {}, launchIntelSummary = null) {
+    if (!this.config.pumpBondingCurveRuntimeRpcEnabled) {
+      return null;
+    }
+
     if (!mint || !this.pumpBondingCurveLane?.isRefreshDue?.(mint)) {
+      this.enqueuePumpBondingCurveSync(mint, token, launchIntelSummary);
       return null;
     }
 
@@ -3274,18 +4326,33 @@ class TradingEngine {
   }
 
   schedulePumpBondingCurveSync(mint, token = {}, launchIntelSummary = null) {
-    if (!mint || !this.pumpBondingCurveLane?.isRefreshDue?.(mint)) {
+    if (!mint || !this.pumpBondingCurveLane?.enabled || !this.config.pumpBondingCurveRuntimeRpcEnabled) {
       return;
     }
 
     if (this.pendingPumpBondingCurveSyncs.has(mint)) {
+      this.enqueuePumpBondingCurveSync(mint, token, launchIntelSummary);
       return;
+    }
+
+    if (!this.pumpBondingCurveLane.isRefreshDue(mint)) {
+      this.enqueuePumpBondingCurveSync(mint, token, launchIntelSummary);
+      return;
+    }
+
+    this.startPumpBondingCurveSync(mint, token, launchIntelSummary);
+  }
+
+  startPumpBondingCurveSync(mint, token = {}, launchIntelSummary = null, options = {}) {
+    if (!this.active || !mint || !this.config.pumpBondingCurveRuntimeRpcEnabled || this.pendingPumpBondingCurveSyncs.has(mint)) {
+      return false;
     }
 
     this.pendingPumpBondingCurveSyncs.add(mint);
     this.syncPumpBondingCurveState(mint, token, {
       observeAfterSync: true,
-      launchIntelSummary
+      launchIntelSummary,
+      forceRefresh: Boolean(options.forceVerify)
     }).catch((error) => {
       this.logger.warn('Pump bonding curve async sync failed', {
         mint,
@@ -3293,43 +4360,192 @@ class TradingEngine {
       });
     }).finally(() => {
       this.pendingPumpBondingCurveSyncs.delete(mint);
+      if (this.active) {
+        this.armPumpBondingCurveQueueDrain(0);
+      }
     });
+    return true;
+  }
+
+  enqueuePumpBondingCurveSync(mint, token = {}, launchIntelSummary = null, delayMs = 250, options = {}) {
+    if (!this.active || !mint || !this.pumpBondingCurveLane?.enabled || !this.config.pumpBondingCurveRuntimeRpcEnabled) {
+      return;
+    }
+
+    const existing = this.pumpBondingCurveLane.getMintSummary?.(mint);
+    if (!options.forceVerify && Number.isFinite(Number(existing?.curveProgress))) {
+      return;
+    }
+
+    const queued = this.queuedPumpBondingCurveSyncs.get(mint) || {
+      mint,
+      attempts: 0,
+      firstQueuedAt: Date.now()
+    };
+    queued.forceVerify = Boolean(queued.forceVerify || options.forceVerify);
+    queued.token = {
+      ...(queued.token || {}),
+      ...(token || {})
+    };
+    queued.launchIntelSummary = launchIntelSummary || queued.launchIntelSummary || token?.launchIntelSummary || null;
+    const queueDelayMs = Math.max(0, Number(delayMs || 0));
+    queued.nextAttemptAt = Math.min(queued.nextAttemptAt || Infinity, Date.now() + queueDelayMs);
+    this.queuedPumpBondingCurveSyncs.set(mint, queued);
+    this.armPumpBondingCurveQueueDrain(queueDelayMs);
+  }
+
+  armPumpBondingCurveQueueDrain(delayMs = 1000) {
+    if (this.pumpBondingCurveQueueTimer || !this.active) {
+      return;
+    }
+
+    this.pumpBondingCurveQueueTimer = setTimeout(() => {
+      this.pumpBondingCurveQueueTimer = null;
+      this.drainPumpBondingCurveQueue();
+    }, Math.max(0, delayMs));
+    if (typeof this.pumpBondingCurveQueueTimer.unref === 'function') {
+      this.pumpBondingCurveQueueTimer.unref();
+    }
+  }
+
+  drainPumpBondingCurveQueue() {
+    if (!this.active || !this.pumpBondingCurveLane?.enabled || this.queuedPumpBondingCurveSyncs.size === 0) {
+      return;
+    }
+
+    const now = Date.now();
+    let started = 0;
+    let nextDelayMs = 1000;
+    const maxAttempts = 90;
+
+    for (const [mint, queued] of Array.from(this.queuedPumpBondingCurveSyncs.entries())) {
+      if (queued.nextAttemptAt && queued.nextAttemptAt > now) {
+        nextDelayMs = Math.min(nextDelayMs, Math.max(50, queued.nextAttemptAt - now));
+        continue;
+      }
+
+      if (this.pendingPumpBondingCurveSyncs.has(mint)) {
+        queued.nextAttemptAt = now + 500;
+        nextDelayMs = Math.min(nextDelayMs, 500);
+        continue;
+      }
+
+      const existing = this.pumpBondingCurveLane.getMintSummary?.(mint);
+      if (!queued.forceVerify && Number.isFinite(Number(existing?.curveProgress))) {
+        this.queuedPumpBondingCurveSyncs.delete(mint);
+        continue;
+      }
+
+      if (!queued.forceVerify && !this.pumpBondingCurveLane.isRefreshDue(mint)) {
+        queued.attempts += 1;
+        if (queued.attempts >= maxAttempts) {
+          this.queuedPumpBondingCurveSyncs.delete(mint);
+          this.telemetry.record('pump_bonding_curve.queue_expired', {
+            mint,
+            attempts: queued.attempts,
+            ageMs: now - Number(queued.firstQueuedAt || now)
+          });
+          continue;
+        }
+        queued.nextAttemptAt = now + 1000;
+        nextDelayMs = Math.min(nextDelayMs, 1000);
+        continue;
+      }
+
+      this.queuedPumpBondingCurveSyncs.delete(mint);
+      if (this.startPumpBondingCurveSync(mint, queued.token || { mint }, queued.launchIntelSummary || null, {
+        forceVerify: Boolean(queued.forceVerify)
+      })) {
+        started += 1;
+      }
+
+      if (started >= 2) {
+        break;
+      }
+    }
+
+    if (this.queuedPumpBondingCurveSyncs.size > 0) {
+      this.armPumpBondingCurveQueueDrain(started > 0 ? 0 : nextDelayMs);
+    }
   }
 
   async handlePumpPortalNewToken(event) {
+    return this.handleProviderNewToken(event, {
+      telemetryType: 'provider.pumpportal.new_token',
+      defaultSource: 'pumpportal_create'
+    });
+  }
+
+  async handlePumpDevNewToken(event) {
+    return this.handleProviderNewToken(event, {
+      telemetryType: 'provider.pumpdev.runtime_new_token',
+      defaultSource: 'pumpdev_create'
+    });
+  }
+
+  async handleProviderNewToken(event, options = {}) {
+    if (this.maybeStopExpiredSession('provider_new_token')) {
+      return;
+    }
     this.executeDuePreMigrationPaperRechecks();
     const mint = event.mint || event.token || event.mintAddress;
     if (!mint) {
       return;
     }
 
-    this.latestPumpPortalTokens.set(mint, {
+    const nextToken = {
       mint,
-      source: event.source,
+      source: event.source || options.defaultSource || 'provider_create',
       createdAt: Date.now(),
       symbol: event.symbol,
       name: event.name,
       marketCapSol: Number(event.marketCapSol || event.marketCap || 0),
       bondingStage: this.inferBondingStage(event),
       rawEvent: event
-    });
+    };
+    const providerCurveSnapshotApplied = this.applyProviderCurveSnapshot(nextToken, event, 'new_token');
+    this.latestPumpPortalTokens.set(mint, nextToken);
     const launchIntelSummary = this.launchIntelStore.registerNewToken(event);
     if (launchIntelSummary) {
       const current = this.latestPumpPortalTokens.get(mint);
       current.launchIntelSummary = launchIntelSummary;
       this.latestPumpPortalTokens.set(mint, current);
     }
-    await this.syncPumpBondingCurveBeforePreMigrationObservation(
+    if (!providerCurveSnapshotApplied) {
+      await this.syncPumpBondingCurveBeforePreMigrationObservation(
+        mint,
+        this.latestPumpPortalTokens.get(mint),
+        launchIntelSummary
+      );
+    }
+    this.observePreMigrationToken(this.latestPumpPortalTokens.get(mint), launchIntelSummary);
+    this.scheduleProviderBackedBondingCurveSync(
       mint,
       this.latestPumpPortalTokens.get(mint),
-      launchIntelSummary
+      launchIntelSummary,
+      providerCurveSnapshotApplied
     );
-    this.observePreMigrationToken(this.latestPumpPortalTokens.get(mint), launchIntelSummary);
-    this.schedulePumpBondingCurveSync(mint, this.latestPumpPortalTokens.get(mint), launchIntelSummary);
-    this.telemetry.record('provider.pumpportal.new_token', { mint });
+    this.telemetry.record(options.telemetryType || 'provider.pumpportal.new_token', { mint });
   }
 
   async handlePumpPortalTrade(event) {
+    return this.handleProviderTrade(event, {
+      telemetryType: 'provider.pumpportal.trade',
+      defaultSource: 'pumpportal_trade'
+    });
+  }
+
+  async handlePumpDevTrade(event) {
+    return this.handleProviderTrade(event, {
+      telemetryType: 'provider.pumpdev.runtime_trade',
+      defaultSource: 'pumpdev_trade'
+    });
+  }
+
+  async handleProviderTrade(event, options = {}) {
+    if (this.maybeStopExpiredSession('provider_trade')) {
+      return;
+    }
     this.executeDuePreMigrationPaperRechecks();
     const mint = event.mint || event.token || event.mintAddress;
     if (!mint) {
@@ -3341,14 +4557,16 @@ class TradingEngine {
       createdAt: Date.now()
     };
 
+    current.source = current.source || event.source || options.defaultSource || 'provider_trade';
     current.lastTradeAt = Date.now();
     current.firstTradeAt = current.firstTradeAt || current.lastTradeAt;
     current.tradeCount = (current.tradeCount || 0) + 1;
-    const tradeVolumeSol = Number(event.solAmount || event.vSolInBondingCurve || 0);
+    const tradeVolumeSol = Number(event.solAmount || 0);
     current.volumeSol = (current.volumeSol || 0) + tradeVolumeSol;
-    current.liquiditySol = Number(event.vSolInBondingCurve || current.liquiditySol || 0);
+    current.liquiditySol = Number(event.virtualSolReservesSol || current.liquiditySol || 0);
     current.marketCapSol = Number(event.marketCapSol || current.marketCapSol || 0);
     current.bondingStage = this.inferBondingStage(event, current.bondingStage);
+    const providerCurveSnapshotApplied = this.applyProviderCurveSnapshot(current, event, 'trade');
 
     if (event.txType === 'buy') {
       current.buys = (current.buys || 0) + 1;
@@ -3380,16 +4598,158 @@ class TradingEngine {
     const walletLedgerRecord = this.recordWatchedWalletTrade(event, current, launchIntelSummary);
     const curveRefreshDue = Boolean(this.pumpBondingCurveLane?.isRefreshDue?.(mint));
     const hasUsableCurveState = Number.isFinite(Number(current.curveProgress));
-    this.schedulePumpBondingCurveSync(mint, current, launchIntelSummary);
-    if (!curveRefreshDue || hasUsableCurveState) {
+    this.scheduleProviderBackedBondingCurveSync(mint, current, launchIntelSummary, providerCurveSnapshotApplied);
+    if (!curveRefreshDue || hasUsableCurveState || providerCurveSnapshotApplied) {
       this.observePreMigrationToken(current, launchIntelSummary);
     }
-    this.telemetry.record('provider.pumpportal.trade', {
+    this.telemetry.record(options.telemetryType || 'provider.pumpportal.trade', {
       mint,
       tradeCount: current.tradeCount,
       watchedWallet: Boolean(walletLedgerRecord),
       watchedWalletReason: walletLedgerRecord?.watchedReason || null
     });
+  }
+
+  scheduleProviderBackedBondingCurveSync(mint, token = {}, launchIntelSummary = null, providerCurveSnapshotApplied = false) {
+    if (!providerCurveSnapshotApplied) {
+      this.schedulePumpBondingCurveSync(mint, token, launchIntelSummary);
+      return;
+    }
+
+    if (!this.config.pumpDevProviderCurveVerificationEnabled) {
+      return;
+    }
+
+    const curveProgress = Number(token.curveProgress);
+    const tradeCount = Number(token.tradeCount || 0);
+    const watchedWalletTouches = Number(token.accountTradeCount || 0);
+    const shouldVerifySoon = (
+      (Number.isFinite(curveProgress) && curveProgress >= 0.85)
+      || (Number.isFinite(curveProgress) && curveProgress >= 0.65 && tradeCount >= 25)
+      || watchedWalletTouches > 0
+    );
+
+    if (shouldVerifySoon) {
+      const now = Date.now();
+      const lastQueuedAt = Number(token.providerCurveVerificationQueuedAt || 0);
+      if (Number.isFinite(lastQueuedAt) && now - lastQueuedAt < 30_000) {
+        return;
+      }
+      if (this.pendingPumpBondingCurveSyncs.size >= 1 || this.queuedPumpBondingCurveSyncs.size >= 2) {
+        token.providerCurveVerificationQueuedAt = now;
+        const lastSkippedAt = Number(token.providerCurveVerificationSkippedAt || 0);
+        token.providerCurveVerificationSkippedAt = now;
+        if (!Number.isFinite(lastSkippedAt) || now - lastSkippedAt >= 30_000) {
+          this.telemetry.record('pump_bonding_curve.provider_verification_skipped', {
+            mint,
+            providerCurveProgress: Number.isFinite(curveProgress) ? Number(curveProgress.toFixed(6)) : null,
+            tradeCount,
+            watchedWalletTouches,
+            reason: 'VERIFICATION_PRESSURE'
+          });
+        }
+        return;
+      }
+      token.providerCurveVerificationQueuedAt = now;
+      const started = this.startPumpBondingCurveSync(mint, token, launchIntelSummary, {
+        forceVerify: true
+      });
+      this.telemetry.record('pump_bonding_curve.provider_verification_scheduled', {
+        mint,
+        providerCurveProgress: Number.isFinite(curveProgress) ? Number(curveProgress.toFixed(6)) : null,
+        tradeCount,
+        watchedWalletTouches,
+        startedImmediately: started
+      });
+      return;
+    }
+  }
+
+  applyProviderCurveSnapshot(current, event = {}, phase = 'unknown') {
+    const curveProgress = Number(event.providerCurveProgress ?? event.curveProgress);
+    if (!current || !Number.isFinite(curveProgress)) {
+      return false;
+    }
+
+    const now = Date.now();
+    const nowIso = new Date(now).toISOString();
+    const source = event.providerCurveSource || `${event.provider || 'provider'}_curve_snapshot`;
+    const pairBase = event.pairBase || current.pairBase || null;
+    const virtualSolReservesSol = Number(event.virtualSolReservesSol);
+    const virtualTokenReservesTokens = Number(event.virtualTokenReservesTokens);
+    const priceSol = Number(event.providerCurvePriceSol ?? event.bondingCurvePriceSol);
+    const providerVirtualTokenReservesRaw = event.providerVirtualTokenReservesRaw ?? null;
+    const providerVirtualQuoteReservesRaw = event.providerVirtualQuoteReservesRaw ?? null;
+    const providerVirtualSolReservesRaw = event.providerVirtualSolReservesRaw ?? null;
+
+    current.curveProgress = curveProgress;
+    current.curveProgressSource = source;
+    current.providerCurveSnapshotAt = nowIso;
+    current.lastCurveUpdateAt = nowIso;
+    current.bondingCurveLastFetchAt = nowIso;
+    current.pairBase = pairBase;
+    current.bondingStage = curveProgress >= 1
+      ? 'recently_bonded'
+      : (curveProgress >= this.config.preMigrationWatchMinCurveProgress ? 'almost_bonded' : 'bonding_curve');
+
+    if (Number.isFinite(virtualSolReservesSol)) {
+      current.virtualSolReservesSol = virtualSolReservesSol;
+      current.liquiditySol = current.liquiditySol || virtualSolReservesSol;
+    }
+
+    if (Number.isFinite(virtualTokenReservesTokens)) {
+      current.virtualTokenReservesTokens = virtualTokenReservesTokens;
+    }
+
+    current.providerVirtualTokenReservesRaw = providerVirtualTokenReservesRaw;
+    current.providerVirtualQuoteReservesRaw = providerVirtualQuoteReservesRaw;
+    current.providerVirtualSolReservesRaw = providerVirtualSolReservesRaw;
+
+    if (Number.isFinite(priceSol) && priceSol > 0) {
+      current.bondingCurvePriceSol = priceSol;
+    }
+
+    if (Number.isFinite(Number(event.marketCapQuote))) {
+      current.marketCapQuote = Number(event.marketCapQuote);
+    }
+
+    current.bondingCurveState = {
+      ...(current.bondingCurveState || {}),
+      source,
+      provider: event.provider || current.provider || null,
+      pairBase,
+      curveProgress,
+      bondingStage: current.bondingStage,
+      complete: curveProgress >= 1,
+      bondingCurveAddress: event.bondingCurveKey || current.bondingCurveAddress || current.bondingCurveState?.bondingCurveAddress || null,
+      virtualSolReservesSol: Number.isFinite(virtualSolReservesSol) ? virtualSolReservesSol : current.virtualSolReservesSol ?? null,
+      virtualTokenReservesTokens: Number.isFinite(virtualTokenReservesTokens) ? virtualTokenReservesTokens : current.virtualTokenReservesTokens ?? null,
+      providerVirtualTokenReservesRaw,
+      providerVirtualQuoteReservesRaw,
+      providerVirtualSolReservesRaw,
+      priceSol: Number.isFinite(priceSol) && priceSol > 0 ? priceSol : current.bondingCurvePriceSol ?? null,
+      lastFetchAt: nowIso,
+      lastFetchAtIso: nowIso,
+      refreshed: true,
+      approximate: true
+    };
+
+    this.telemetry.record('pump_bonding_curve.provider_snapshot', {
+      mint: current.mint || event.mint || event.token || event.mintAddress || null,
+      provider: event.provider || null,
+      phase,
+      source,
+      pairBase,
+      curveProgress,
+      virtualSolReservesSol: Number.isFinite(virtualSolReservesSol) ? virtualSolReservesSol : null,
+      virtualTokenReservesTokens: Number.isFinite(virtualTokenReservesTokens) ? virtualTokenReservesTokens : null,
+      providerVirtualTokenReservesRaw,
+      providerVirtualQuoteReservesRaw,
+      providerVirtualSolReservesRaw,
+      priceSol: Number.isFinite(priceSol) && priceSol > 0 ? priceSol : null
+    });
+
+    return true;
   }
 
   recordWatchedWalletTrade(event, tokenState, launchIntelSummary) {
@@ -3868,8 +5228,26 @@ class TradingEngine {
       accounting: this.accounting.getStats(),
       solanaRpc: this.connection.getStatus(),
       pumpPortal: this.pumpPortalListener.getStats(),
+      pumpDev: {
+        ...this.pumpDevListener.getStats(),
+        primarySilenceFailFastEnabled: this.config.pumpDevPrimarySilenceFailFastEnabled === true,
+        primarySilenceTimeoutMs: Number(this.config.pumpDevPrimarySilenceTimeoutMs || 0),
+        primarySilenceElapsedMs: this.pumpDevPrimarySilenceStartedAt ? Date.now() - this.pumpDevPrimarySilenceStartedAt : null,
+        primarySilenceTripped: this.pumpDevPrimarySilenceTripped === true
+      },
       poolStateLane: this.poolStateLane.getStats(),
-      pumpBondingCurveLane: this.pumpBondingCurveLane.getStats(),
+      pumpBondingCurveLane: {
+        ...this.pumpBondingCurveLane.getStats(),
+        engineQueueSize: this.queuedPumpBondingCurveSyncs.size,
+        enginePendingSyncs: this.pendingPumpBondingCurveSyncs.size,
+        pumpDevTargetedCurveParitySamples: this.pumpDevTargetedCurveParitySampleCount,
+        pumpDevTargetedCurveParityInFlight: this.pumpDevTargetedCurveParityInFlight.size,
+        pumpDevTargetedCurveParitySampleWatchEnabled: this.config.pumpDevTargetedCurveParitySampleWatchEnabled === true,
+        pumpDevTargetedCurveParitySampleSkipsEnabled: this.config.pumpDevTargetedCurveParitySampleSkipsEnabled === true,
+        pumpDevTargetedCurveParitySampleEligibleEnabled: this.config.pumpDevTargetedCurveParitySampleEligibleEnabled !== false
+      },
+      finalistAccountVerifier: this.finalistAccountVerifier?.getStats?.() || null,
+      liveExecutionDryRun: this.liveExecutionDryRunLane?.getStats?.() || null,
       preMigrationWatch: this.preMigrationWatchLane.getStats(),
       preMigrationPaper: this.preMigrationPaperLane.getStats(),
       postMigrationContinuation: this.postMigrationContinuationLane.getStats(),
@@ -3877,6 +5255,7 @@ class TradingEngine {
       candidateDossiers: this.candidateDossierLedger.getStats(),
       outcomeLedger: this.outcomeLedger.getStats(),
       telemetry: this.telemetry.getSummary(),
+      eventLoopMonitor: { ...this.eventLoopMonitorStats },
       eventFlow: this.eventFlow.getSummary(),
       strategyLedger: this.strategyLedger.getSummary(),
       positions: [

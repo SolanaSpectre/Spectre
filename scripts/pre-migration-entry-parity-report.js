@@ -11,8 +11,11 @@ const {
 const ROOT = path.join(__dirname, '..');
 const BATTLEFIELD_PATH = path.join(ROOT, 'data', 'reports', 'run-battlefield-latest.json');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-entry-parity-latest.json');
+const TARGETED_PARITY_PATH = path.join(ROOT, 'data', 'reports', 'pumpdev-targeted-curve-parity-latest.json');
 // Entry matching is intentionally tight; wider same-mint delay analysis is reported separately.
 const NEARBY_DECISION_WINDOW_MS = 5000;
+const LIVE_READINESS_MATCH_WINDOW_MS = 30000;
+const LIVE_READINESS_MAX_CURVE_DELTA = 0.05;
 
 function readJson(filePath, fallback = {}) {
   try {
@@ -120,6 +123,127 @@ function collectActualEntries(events) {
     .sort((a, b) => timeMs(a.entryAt) - timeMs(b.entryAt));
 }
 
+function collectTargetedParityRows() {
+  const report = readJson(TARGETED_PARITY_PATH, { rows: [] });
+  return Array.isArray(report.rows) ? report.rows : [];
+}
+
+function classifyLiveReadiness(sample) {
+  if (!sample) {
+    return {
+      liveReadiness: 'LIVE_BLOCKED_NO_ONCHAIN_SAMPLE',
+      liveReadinessReason: 'No runtime targeted parity sample was found near the paper entry.'
+    };
+  }
+
+  const error = String(sample.error || sample.lastErrorMessage || '');
+  if (sample.timedOut === true || /timeout/i.test(error)) {
+    return {
+      liveReadiness: 'LIVE_BLOCKED_RPC_TIMEOUT',
+      liveReadinessReason: error || 'On-chain verification timed out.'
+    };
+  }
+
+  if (sample.invalidAccountData === true || sample.bondingCurveValidated === false && sample.bondingCurveValidationReason) {
+    return {
+      liveReadiness: 'LIVE_BLOCKED_INVALID_ACCOUNT',
+      liveReadinessReason: sample.invalidAccountReason || sample.bondingCurveValidationReason || 'Bonding curve account was not validated.'
+    };
+  }
+
+  if (sample.accountFound !== true) {
+    return {
+      liveReadiness: 'LIVE_BLOCKED_ACCOUNT_NOT_FOUND',
+      liveReadinessReason: 'On-chain bonding curve account was not found.'
+    };
+  }
+
+  if (sample.onchainFresh !== true || sample.refreshed !== true) {
+    return {
+      liveReadiness: 'LIVE_BLOCKED_STALE_ONCHAIN_STATE',
+      liveReadinessReason: 'On-chain sample was not fresh enough for live authority.'
+    };
+  }
+
+  if (sample.bondingCurveValidated !== true) {
+    return {
+      liveReadiness: 'LIVE_BLOCKED_UNVALIDATED_ACCOUNT',
+      liveReadinessReason: sample.bondingCurveValidationReason || 'Bonding curve owner/discriminator validation was unavailable.'
+    };
+  }
+
+  const absCurveDelta = Number(sample.absCurveDelta);
+  if (!Number.isFinite(absCurveDelta)) {
+    return {
+      liveReadiness: 'LIVE_BLOCKED_UNCOMPARABLE_ONCHAIN_STATE',
+      liveReadinessReason: 'Fresh on-chain state was present but not comparable to provider state.'
+    };
+  }
+
+  if (absCurveDelta > LIVE_READINESS_MAX_CURVE_DELTA) {
+    return {
+      liveReadiness: 'LIVE_BLOCKED_STATE_MISMATCH',
+      liveReadinessReason: `Provider/on-chain curve delta ${compact(absCurveDelta, 6)} exceeded ${LIVE_READINESS_MAX_CURVE_DELTA}.`
+    };
+  }
+
+  return {
+    liveReadiness: 'LIVE_ELIGIBLE_ONCHAIN_CONFIRMED',
+    liveReadinessReason: 'Fresh validated on-chain bonding curve state matched provider state.'
+  };
+}
+
+function attachLiveReadiness(actualEntries, targetedRows) {
+  const rowsByMint = new Map();
+  for (const row of targetedRows) {
+    if (!row?.mint) continue;
+    const rows = rowsByMint.get(row.mint) || [];
+    rows.push(row);
+    rowsByMint.set(row.mint, rows);
+  }
+
+  for (const rows of rowsByMint.values()) {
+    rows.sort((a, b) => timeMs(a.targetAt || a.scheduledAt || a.onchainFetchedAt) - timeMs(b.targetAt || b.scheduledAt || b.onchainFetchedAt));
+  }
+
+  return actualEntries.map((entry) => {
+    const entryMs = timeMs(entry.entryAt);
+    const candidates = (rowsByMint.get(entry.mint) || [])
+      .map((sample) => {
+        const sampleMs = timeMs(sample.targetAt || sample.scheduledAt || sample.onchainFetchedAt);
+        return {
+          sample,
+          distanceMs: Number.isFinite(entryMs) && Number.isFinite(sampleMs)
+            ? Math.abs(sampleMs - entryMs)
+            : Infinity
+        };
+      })
+      .filter((item) => item.distanceMs <= LIVE_READINESS_MATCH_WINDOW_MS)
+      .sort((a, b) => a.distanceMs - b.distanceMs);
+    const best = candidates[0]?.sample || null;
+    const classification = classifyLiveReadiness(best);
+    return {
+      ...entry,
+      ...classification,
+      liveReadinessSample: best ? {
+        targetAt: best.targetAt || null,
+        runtimeTrigger: best.runtimeTrigger || null,
+        runtimeDecision: best.runtimeDecision || null,
+        providerCurveProgress: asNumber(best.providerCurveProgress),
+        onchainCurveProgress: asNumber(best.onchainCurveProgress),
+        absCurveDelta: asNumber(best.absCurveDelta),
+        providerToOnchainAgeMs: asNumber(best.providerToOnchainAgeMs),
+        onchainFetchLatencyMs: asNumber(best.onchainFetchLatencyMs ?? best.latencyMs),
+        timedOut: best.timedOut === true,
+        accountFound: best.accountFound === true,
+        bondingCurveValidated: best.bondingCurveValidated === true,
+        semanticDiagnosis: best.semanticDiagnosis || null,
+        error: best.error || best.lastErrorMessage || null
+      } : null
+    };
+  });
+}
+
 function collectDecisions(events) {
   const byMint = new Map();
   for (const event of events) {
@@ -197,7 +321,10 @@ function matchRows(simulatedTrades, actualEntries) {
           ? compact(Number(best.actual.pnlSol) - Number(sim.pnlSol), 9)
           : null,
         actualPreset: best.actual.preset,
-        actualGuardOverride: best.actual.guardOverride
+        actualGuardOverride: best.actual.guardOverride,
+        liveReadiness: best.actual.liveReadiness || null,
+        liveReadinessReason: best.actual.liveReadinessReason || null,
+        liveReadinessSample: best.actual.liveReadinessSample || null
       });
     } else {
       simOnly.push(sim);
@@ -242,7 +369,10 @@ function sameMintLaterEntries(simOnly, actualOnly) {
         pnlDeltaSol: Number.isFinite(Number(sim.pnlSol)) && Number.isFinite(Number(laterActual.pnlSol))
           ? compact(Number(laterActual.pnlSol) - Number(sim.pnlSol), 9)
           : null,
-        actualPreset: laterActual.preset || null
+        actualPreset: laterActual.preset || null,
+        liveReadiness: laterActual.liveReadiness || null,
+        liveReadinessReason: laterActual.liveReadinessReason || null,
+        liveReadinessSample: laterActual.liveReadinessSample || null
       };
     })
     .filter(Boolean);
@@ -284,8 +414,9 @@ function buildReport() {
     ? buildPaperSimReport(events, telemetryPath, DEFAULT_STRATEGY)
     : { simulatedTrades: [], summary: {}, run: {}, actualPaperTelemetry: {} };
   const actualEntries = collectActualEntries(events);
+  const actualEntriesWithReadiness = attachLiveReadiness(actualEntries, collectTargetedParityRows());
   const decisionsByMint = collectDecisions(events);
-  const matched = matchRows(paperSim.simulatedTrades || [], actualEntries);
+  const matched = matchRows(paperSim.simulatedTrades || [], actualEntriesWithReadiness);
   const laterRuntimeEntries = sameMintLaterEntries(matched.simOnly, matched.actualOnly);
   const delayedSimKeys = new Set(laterRuntimeEntries.map((row) => row.simKey));
   const delayedActualKeys = new Set(laterRuntimeEntries.map((row) => row.actualPositionKey).filter(Boolean));
@@ -327,11 +458,13 @@ function buildReport() {
         actualOnly.flatMap((row) => row.nearbyDecisionReasons.map((reason) => ({ reason }))),
         (row) => row.reason
       ),
+      liveReadinessCounts: countBy(actualEntriesWithReadiness, (row) => row.liveReadiness),
       interpretation: simOnly.length || actualOnly.length || laterRuntimeEntries.length
         ? 'same-run simulated and actual pre-migration books diverged; inspect delayed same-mint, sim-only, and actual-only rows before treating rolling sim findings as runtime behavior'
         : 'same-run simulated and actual pre-migration books matched for the latest telemetry'
     },
     matchedEntries: matched.matched,
+    actualEntries: actualEntriesWithReadiness,
     simOnlyEntries: simOnly,
     actualOnlyEntries: actualOnly,
     sameMintLaterRuntimeEntries: laterRuntimeEntries,

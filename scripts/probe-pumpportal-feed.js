@@ -11,9 +11,13 @@ const DEFAULT_LATEST_PATH = path.join(ROOT, 'data', 'reports', 'pumpportal-feed-
 
 function parseArgs(argv) {
   const args = {};
+  const positional = [];
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (!arg.startsWith('--')) continue;
+    if (!arg.startsWith('--')) {
+      positional.push(arg);
+      continue;
+    }
     const key = arg.slice(2);
     const next = argv[index + 1];
     if (!next || next.startsWith('--')) {
@@ -23,6 +27,9 @@ function parseArgs(argv) {
     args[key] = next;
     index += 1;
   }
+  if (positional.length > 0 && args.durationMs === undefined && args.ms === undefined) args.durationMs = positional[0];
+  if (positional.length > 1 && args.sampleTokenTrades === undefined) args.sampleTokenTrades = positional[1];
+  if (positional.length > 2 && args.pingIntervalMs === undefined) args.pingIntervalMs = positional[2];
   return args;
 }
 

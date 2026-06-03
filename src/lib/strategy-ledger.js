@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const AsyncJsonlWriter = require('./async-jsonl-writer');
 
 class StrategyLedger {
   constructor(config, logger) {
@@ -21,6 +22,7 @@ class StrategyLedger {
       fs.mkdirSync(logDir, { recursive: true });
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
       this.filePath = path.join(logDir, `strategy-ledger-${stamp}.jsonl`);
+      this.writer = new AsyncJsonlWriter(this.filePath, this.logger);
     }
   }
 
@@ -35,14 +37,14 @@ class StrategyLedger {
     this.applyToSummary(event);
 
     if (this.enabled && this.filePath) {
-      try {
-        fs.appendFileSync(this.filePath, `${JSON.stringify(event)}\n`);
-      } catch (error) {
-        this.logger.warn('Failed to write strategy ledger event', error.message);
-      }
+      this.writer?.append(event, 'strategy ledger event');
     }
 
     return event;
+  }
+
+  async flushAsync() {
+    await this.writer?.flush?.();
   }
 
   applyToSummary(event) {

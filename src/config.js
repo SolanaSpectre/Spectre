@@ -38,7 +38,19 @@ class Config {
   }
 
   static get solanaRpcPrimaryDowngradeMs() {
-    return parseInt(process.env.SOLANA_RPC_PRIMARY_DOWNGRADE_MS || '300000', 10);
+    return parseInt(process.env.SOLANA_RPC_PRIMARY_DOWNGRADE_MS || '60000', 10);
+  }
+
+  static get solanaRpcPrimaryFailureThreshold() {
+    return parseInt(process.env.SOLANA_RPC_PRIMARY_FAILURE_THRESHOLD || '2', 10);
+  }
+
+  static get solanaRpcFallbackFailureThreshold() {
+    return parseInt(process.env.SOLANA_RPC_FALLBACK_FAILURE_THRESHOLD || '2', 10);
+  }
+
+  static get solanaRpcSameVendorFallbackEnabled() {
+    return process.env.SOLANA_RPC_SAME_VENDOR_FALLBACK_ENABLED === 'true';
   }
 
   static get solanaRpcMaxConcurrentRequests() {
@@ -47,6 +59,50 @@ class Config {
 
   static get solanaRpcMinRequestIntervalMs() {
     return parseInt(process.env.SOLANA_RPC_MIN_REQUEST_INTERVAL_MS || '150', 10);
+  }
+
+  static get solanaRpcCallTimeoutMs() {
+    return parseInt(process.env.SOLANA_RPC_CALL_TIMEOUT_MS || '10000', 10);
+  }
+
+  static get solanaRpcHttpAgentMode() {
+    return process.env.SOLANA_RPC_HTTP_AGENT_MODE || 'keepalive';
+  }
+
+  static get solanaRpcHttpAgentKeepAliveMsecs() {
+    return parseInt(process.env.SOLANA_RPC_HTTP_AGENT_KEEPALIVE_MSECS || '1000', 10);
+  }
+
+  static get solanaRpcHttpAgentMaxSockets() {
+    return parseInt(process.env.SOLANA_RPC_HTTP_AGENT_MAX_SOCKETS || '16', 10);
+  }
+
+  static get solanaRpcHttpAgentMaxFreeSockets() {
+    return parseInt(process.env.SOLANA_RPC_HTTP_AGENT_MAX_FREE_SOCKETS || '8', 10);
+  }
+
+  static get solanaRpcHttpAgentTimeoutMs() {
+    return parseInt(process.env.SOLANA_RPC_HTTP_AGENT_TIMEOUT_MS || '5000', 10);
+  }
+
+  static get solanaRpcHttpAgentScheduling() {
+    return process.env.SOLANA_RPC_HTTP_AGENT_SCHEDULING || 'lifo';
+  }
+
+  static get solanaRpcAccountReadTransport() {
+    return process.env.SOLANA_RPC_ACCOUNT_READ_TRANSPORT || 'web3';
+  }
+
+  static get solanaRpcAccountReadUrl() {
+    return process.env.SOLANA_RPC_ACCOUNT_READ_URL || '';
+  }
+
+  static get solanaRpcFallbackDowngradeMs() {
+    return parseInt(process.env.SOLANA_RPC_FALLBACK_DOWNGRADE_MS || '60000', 10);
+  }
+
+  static get solanaRpcAccountInfoCacheTtlMs() {
+    return parseInt(process.env.SOLANA_RPC_ACCOUNT_INFO_CACHE_TTL_MS || '3000', 10);
   }
 
   static get heliusEnhancedWebsocketUrl() {
@@ -162,6 +218,140 @@ class Config {
     return process.env.PUMP_BONDING_CURVE_LANE_ENABLED !== 'false';
   }
 
+  static get pumpBondingCurveRuntimeRpcEnabled() {
+    return process.env.PUMP_BONDING_CURVE_RUNTIME_RPC_ENABLED !== 'false';
+  }
+
+  static get liveAllowDisabledBondingCurveRpc() {
+    return process.env.LIVE_ALLOW_DISABLED_BONDING_CURVE_RPC === 'true';
+  }
+
+  static get finalistAccountVerifierEnabled() {
+    return process.env.FINALIST_ACCOUNT_VERIFIER_ENABLED !== 'false';
+  }
+
+  static get finalistAccountVerifierCommitment() {
+    const value = String(process.env.FINALIST_ACCOUNT_VERIFIER_COMMITMENT || 'processed').toLowerCase();
+    return ['processed', 'confirmed', 'finalized'].includes(value) ? value : 'processed';
+  }
+
+  static get finalistAccountVerifierMaxSubscriptions() {
+    return parseInt(process.env.FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS || '12', 10);
+  }
+
+  static get finalistAccountVerifierTtlMs() {
+    return parseInt(process.env.FINALIST_ACCOUNT_VERIFIER_TTL_MS || '120000', 10);
+  }
+
+  static get finalistAccountVerifierFreshMs() {
+    return parseInt(process.env.FINALIST_ACCOUNT_VERIFIER_FRESH_MS || '1500', 10);
+  }
+
+  static get finalistAccountVerifierInitialSnapshotEnabled() {
+    return process.env.FINALIST_ACCOUNT_VERIFIER_INITIAL_SNAPSHOT_ENABLED !== 'false';
+  }
+
+  static get finalistAccountVerifierInitialSnapshotMethod() {
+    const value = String(process.env.FINALIST_ACCOUNT_VERIFIER_INITIAL_SNAPSHOT_METHOD || 'getMultipleAccountsInfo').trim();
+    return value === 'getAccountInfo' ? 'getAccountInfo' : 'getMultipleAccountsInfo';
+  }
+
+  static get finalistAccountVerifierMinScore() {
+    return parseFloat(process.env.FINALIST_ACCOUNT_VERIFIER_MIN_SCORE || '70');
+  }
+
+  static get finalistAccountVerifierMinCurveProgress() {
+    return parseFloat(process.env.FINALIST_ACCOUNT_VERIFIER_MIN_CURVE_PROGRESS || '0.6');
+  }
+
+  static get finalistAccountVerifierMinConfirmedScore() {
+    return parseFloat(process.env.FINALIST_ACCOUNT_VERIFIER_MIN_CONFIRMED_SCORE || '65');
+  }
+
+  static get finalistAccountVerifierMinConfirmedCurveProgress() {
+    return parseFloat(process.env.FINALIST_ACCOUNT_VERIFIER_MIN_CONFIRMED_CURVE_PROGRESS || '0.5');
+  }
+
+  static get finalistAccountVerifierMinWalletScore() {
+    return parseFloat(process.env.FINALIST_ACCOUNT_VERIFIER_MIN_WALLET_SCORE || '55');
+  }
+
+  static get finalistAccountVerifierMaxCurveDelta() {
+    return parseFloat(process.env.FINALIST_ACCOUNT_VERIFIER_MAX_CURVE_DELTA || '0.05');
+  }
+
+  static get finalistAccountVerifierUpdateTelemetryMinIntervalMs() {
+    return parseInt(process.env.FINALIST_ACCOUNT_VERIFIER_UPDATE_TELEMETRY_MIN_INTERVAL_MS || '1000', 10);
+  }
+
+  static get finalistAccountVerifierUpdateTelemetryMinCurveDelta() {
+    return parseFloat(process.env.FINALIST_ACCOUNT_VERIFIER_UPDATE_TELEMETRY_MIN_CURVE_DELTA || '0.001');
+  }
+
+  static get liveDryRunEnabled() {
+    return process.env.LIVE_DRY_RUN_ENABLED === 'true';
+  }
+
+  static get liveDryRunAmountSol() {
+    return parseFloat(process.env.LIVE_DRY_RUN_AMOUNT_SOL || String(this.preMigrationPaperAmountSol));
+  }
+
+  static get liveDryRunMaxAccountAgeMs() {
+    return parseInt(process.env.LIVE_DRY_RUN_MAX_ACCOUNT_AGE_MS || String(this.finalistAccountVerifierFreshMs), 10);
+  }
+
+  static get liveDryRunMaxPriceImpactPct() {
+    return parseFloat(process.env.LIVE_DRY_RUN_MAX_PRICE_IMPACT_PCT || '3');
+  }
+
+  static get liveDryRunMaxPerRun() {
+    return parseInt(process.env.LIVE_DRY_RUN_MAX_PER_RUN || '50', 10);
+  }
+
+  static get liveDryRunMintCooldownMs() {
+    return parseInt(process.env.LIVE_DRY_RUN_MINT_COOLDOWN_MS || '15000', 10);
+  }
+
+  static get liveDryRunFetchBlockhash() {
+    return process.env.LIVE_DRY_RUN_FETCH_BLOCKHASH !== 'false';
+  }
+
+  static get liveDryRunRequireTransactionBuilder() {
+    return process.env.LIVE_DRY_RUN_REQUIRE_TRANSACTION_BUILDER !== 'false';
+  }
+
+  static get liveDryRunPumpBuyV2BuilderEnabled() {
+    return process.env.LIVE_DRY_RUN_PUMP_BUY_V2_BUILDER_ENABLED !== 'false';
+  }
+
+  static get liveDryRunSimulateTransaction() {
+    return process.env.LIVE_DRY_RUN_SIMULATE_TRANSACTION === 'true';
+  }
+
+  static get liveDryRunSimulationCommitment() {
+    return process.env.LIVE_DRY_RUN_SIMULATION_COMMITMENT || 'processed';
+  }
+
+  static get liveDryRunBuySlippageBps() {
+    return parseInt(process.env.LIVE_DRY_RUN_BUY_SLIPPAGE_BPS || '1500', 10);
+  }
+
+  static get liveDryRunKeypairLabel() {
+    return process.env.LIVE_DRY_RUN_KEYPAIR_LABEL || 'hot_wallet';
+  }
+
+  static get eventLoopMonitorEnabled() {
+    return process.env.EVENT_LOOP_MONITOR_ENABLED !== 'false';
+  }
+
+  static get eventLoopMonitorIntervalMs() {
+    return parseInt(process.env.EVENT_LOOP_MONITOR_INTERVAL_MS || '1000', 10);
+  }
+
+  static get eventLoopMonitorLagThresholdMs() {
+    return parseInt(process.env.EVENT_LOOP_MONITOR_LAG_THRESHOLD_MS || '250', 10);
+  }
+
   static get pumpBondingCurveProgramId() {
     return process.env.PUMP_BONDING_CURVE_PROGRAM_ID || '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
   }
@@ -196,6 +386,22 @@ class Config {
 
   static get pumpBondingCurveMaxFetchesPerCycle() {
     return parseInt(process.env.PUMP_BONDING_CURVE_MAX_FETCHES_PER_CYCLE || '12', 10);
+  }
+
+  static get pumpBondingCurveBatchFetchEnabled() {
+    return process.env.PUMP_BONDING_CURVE_BATCH_FETCH_ENABLED !== 'false';
+  }
+
+  static get pumpBondingCurveBatchFlushMs() {
+    return parseInt(process.env.PUMP_BONDING_CURVE_BATCH_FLUSH_MS || '150', 10);
+  }
+
+  static get pumpBondingCurveBatchMaxAccounts() {
+    return parseInt(process.env.PUMP_BONDING_CURVE_BATCH_MAX_ACCOUNTS || '25', 10);
+  }
+
+  static get pumpBondingCurveRpcCommitment() {
+    return process.env.PUMP_BONDING_CURVE_RPC_COMMITMENT || 'processed';
   }
 
   static get preMigrationWatchEnabled() {
@@ -542,6 +748,10 @@ class Config {
     return process.env.PRE_MIGRATION_PAPER_LOG_DECISION_EVENTS !== 'false';
   }
 
+  static get preMigrationPaperMaxDecisionLogsPerMinute() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_MAX_DECISION_LOGS_PER_MINUTE || '8', 10);
+  }
+
   static get preMigrationPaperEarlySurgeOverrideEnabled() {
     return process.env.PRE_MIGRATION_PAPER_EARLY_SURGE_OVERRIDE_ENABLED !== 'false';
   }
@@ -674,6 +884,10 @@ class Config {
     return parseFloat(process.env.PRE_MIGRATION_PAPER_EARLY_ACCELERATION_RUNNER_MIN_CURVE_PROGRESS || '0.88');
   }
 
+  static get preMigrationPaperEarlyAccelerationRunnerMaxCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_EARLY_ACCELERATION_RUNNER_MAX_CURVE_PROGRESS || '0.95');
+  }
+
   static get preMigrationPaperEarlyAccelerationRunnerMinRecentVolumeSol() {
     return parseFloat(process.env.PRE_MIGRATION_PAPER_EARLY_ACCELERATION_RUNNER_MIN_RECENT_VOLUME_SOL || '60');
   }
@@ -803,6 +1017,14 @@ class Config {
     return process.env.PUMPPORTAL_USE_API_KEY_QUERY !== 'false';
   }
 
+  static get pumpPortalSplitSockets() {
+    return process.env.PUMPPORTAL_SPLIT_SOCKETS === 'true';
+  }
+
+  static get pumpPortalPostCloseTradestreamDelayMs() {
+    return parseInt(process.env.PUMPPORTAL_POST_CLOSE_TRADESTREAM_DELAY_MS || '15000', 10);
+  }
+
   static get pumpPortalEnabled() {
     return process.env.PUMPPORTAL_ENABLED !== 'false';
   }
@@ -860,6 +1082,107 @@ class Config {
     return parseInt(process.env.PUMPPORTAL_EVENT_QUEUE_MAX_SIZE || '10000', 10);
   }
 
+  static get pumpPortalBackupOnly() {
+    return process.env.PUMPPORTAL_BACKUP_ONLY === 'true' || this.pumpDevFeedMode === 'primary';
+  }
+
+  static get pumpDevShadowEnabled() {
+    return process.env.PUMPDEV_SHADOW_ENABLED !== 'false';
+  }
+
+  static get pumpDevFeedMode() {
+    const mode = String(process.env.PUMPDEV_FEED_MODE || 'shadow').trim().toLowerCase();
+    return mode === 'primary' ? 'primary' : 'shadow';
+  }
+
+  static get pumpDevDrivesPreMigration() {
+    return this.pumpDevShadowEnabled && this.pumpDevFeedMode === 'primary';
+  }
+
+  static get pumpDevPrimarySilenceFailFastEnabled() {
+    return process.env.PUMPDEV_PRIMARY_SILENCE_FAIL_FAST !== 'false';
+  }
+
+  static get pumpDevPrimarySilenceTimeoutMs() {
+    return parseInt(process.env.PUMPDEV_PRIMARY_SILENCE_TIMEOUT_MS || '600000', 10);
+  }
+
+  static get pumpDevWebsocketUrl() {
+    return process.env.PUMPDEV_WS_URL || 'wss://pumpdev.io/ws';
+  }
+
+  static get pumpDevMaxSubscribedMints() {
+    return parseInt(process.env.PUMPDEV_MAX_SUBSCRIBED_MINTS || '100', 10);
+  }
+
+  static get pumpDevPingIntervalMs() {
+    return parseInt(process.env.PUMPDEV_PING_INTERVAL_MS || '25000', 10);
+  }
+
+  static get pumpDevReconnectDelayMs() {
+    return parseInt(process.env.PUMPDEV_RECONNECT_DELAY_MS || '5000', 10);
+  }
+
+  static get pumpDevMaxReconnectDelayMs() {
+    return parseInt(process.env.PUMPDEV_MAX_RECONNECT_DELAY_MS || '30000', 10);
+  }
+
+  static get pumpDevEventHandlerConcurrency() {
+    return parseInt(process.env.PUMPDEV_EVENT_HANDLER_CONCURRENCY || '4', 10);
+  }
+
+  static get pumpDevEventQueueMaxSize() {
+    return parseInt(process.env.PUMPDEV_EVENT_QUEUE_MAX_SIZE || '10000', 10);
+  }
+
+  static get pumpDevTradeCoalesceQueueDepth() {
+    return parseInt(process.env.PUMPDEV_TRADE_COALESCE_QUEUE_DEPTH || '500', 10);
+  }
+
+  static get pumpDevProviderCurveVerificationEnabled() {
+    return process.env.PUMPDEV_PROVIDER_CURVE_VERIFICATION_ENABLED === 'true';
+  }
+
+  static get pumpDevTargetedCurveParityEnabled() {
+    return process.env.PUMPDEV_TARGETED_CURVE_PARITY_ENABLED !== 'false';
+  }
+
+  static get pumpDevTargetedCurveParitySampleWatchEnabled() {
+    return process.env.PUMPDEV_TARGETED_CURVE_PARITY_SAMPLE_WATCH_ENABLED === 'true';
+  }
+
+  static get pumpDevTargetedCurveParitySampleSkipsEnabled() {
+    return process.env.PUMPDEV_TARGETED_CURVE_PARITY_SAMPLE_SKIPS_ENABLED === 'true';
+  }
+
+  static get pumpDevTargetedCurveParitySampleEligibleEnabled() {
+    return process.env.PUMPDEV_TARGETED_CURVE_PARITY_SAMPLE_ELIGIBLE_ENABLED !== 'false';
+  }
+
+  static get pumpDevTargetedCurveParityMaxSamplesPerRun() {
+    return parseInt(process.env.PUMPDEV_TARGETED_CURVE_PARITY_MAX_SAMPLES_PER_RUN || '25', 10);
+  }
+
+  static get pumpDevTargetedCurveParityCooldownMs() {
+    return parseInt(process.env.PUMPDEV_TARGETED_CURVE_PARITY_COOLDOWN_MS || '300000', 10);
+  }
+
+  static get pumpDevTargetedCurveParityMaxInFlight() {
+    return parseInt(process.env.PUMPDEV_TARGETED_CURVE_PARITY_MAX_IN_FLIGHT || '1', 10);
+  }
+
+  static get pumpDevTargetedCurveParityTimeoutMs() {
+    return parseInt(process.env.PUMPDEV_TARGETED_CURVE_PARITY_TIMEOUT_MS || String(this.solanaRpcCallTimeoutMs), 10);
+  }
+
+  static get pumpDevTargetedCurveParityMaxComparableLatencyMs() {
+    return parseInt(process.env.PUMPDEV_TARGETED_CURVE_PARITY_MAX_COMPARABLE_LATENCY_MS || '2500', 10);
+  }
+
+  static get pumpDevTargetedCurveParitySkipLogCooldownMs() {
+    return parseInt(process.env.PUMPDEV_TARGETED_CURVE_PARITY_SKIP_LOG_COOLDOWN_MS || '10000', 10);
+  }
+
   static get gmgnApiBaseUrl() {
     return process.env.GMGN_API_BASE_URL || 'https://gmgn.ai';
   }
@@ -906,6 +1229,22 @@ class Config {
 
   static get walletEventLedgerMaxRecentEvents() {
     return parseInt(process.env.WALLET_EVENT_LEDGER_MAX_RECENT_EVENTS || '250', 10);
+  }
+
+  static get walletEventLedgerMaxEventsPerMint() {
+    return parseInt(process.env.WALLET_EVENT_LEDGER_MAX_EVENTS_PER_MINT || '50', 10);
+  }
+
+  static get walletPromotionReviewFilePath() {
+    return process.env.WALLET_PROMOTION_REVIEW_FILE_PATH || path.join(process.cwd(), 'data', 'reports', 'wallet-promotion-review-latest.json');
+  }
+
+  static get walletPromotionReviewRefreshIntervalMs() {
+    return parseInt(process.env.WALLET_PROMOTION_REVIEW_REFRESH_INTERVAL_MS || '60000', 10);
+  }
+
+  static get preMigrationWalletRelaxedShadowEnabled() {
+    return process.env.PRE_MIGRATION_WALLET_RELAXED_SHADOW_ENABLED !== 'false';
   }
 
   static get kolscanLeaderboardFilePath() {
@@ -1047,7 +1386,15 @@ class Config {
   }
 
   static get launchIntelFlushIntervalMs() {
-    return parseInt(process.env.LAUNCH_INTEL_FLUSH_INTERVAL_MS || '10000', 10);
+    return parseInt(process.env.LAUNCH_INTEL_FLUSH_INTERVAL_MS || '60000', 10);
+  }
+
+  static get launchIntelIndexFlushIntervalMs() {
+    return parseInt(process.env.LAUNCH_INTEL_INDEX_FLUSH_INTERVAL_MS || '300000', 10);
+  }
+
+  static get launchIntelRuntimeFlushEnabled() {
+    return process.env.LAUNCH_INTEL_RUNTIME_FLUSH_ENABLED === 'true';
   }
 
   static get launchIntelMaxTrackedTokens() {
@@ -1087,8 +1434,20 @@ class Config {
     return (process.env.EXECUTION_MODE || 'DRY_RUN').toUpperCase();
   }
 
+  static get paperSuppressOptionalHttpEnrichment() {
+    return process.env.PAPER_SUPPRESS_OPTIONAL_HTTP_ENRICHMENT !== 'false';
+  }
+
   static get sessionDurationMinutes() {
     return parseInt(process.env.SESSION_DURATION_MINUTES || '90', 10);
+  }
+
+  static get runtimeStatusIntervalMs() {
+    return parseInt(process.env.RUNTIME_STATUS_INTERVAL_MS || '60000', 10);
+  }
+
+  static get runtimeStatusDetailEvery() {
+    return parseInt(process.env.RUNTIME_STATUS_DETAIL_EVERY || '5', 10);
   }
 
   static get aiTimeoutMs() {
@@ -1674,6 +2033,7 @@ class Config {
       { key: 'preMigrationPaperHighConfidenceRunnerMaxHoldSeconds', value: this.preMigrationPaperHighConfidenceRunnerMaxHoldSeconds, min: 1 },
       { key: 'preMigrationPaperEarlyAccelerationRunnerMinScore', value: this.preMigrationPaperEarlyAccelerationRunnerMinScore, min: 0, max: 100 },
       { key: 'preMigrationPaperEarlyAccelerationRunnerMinCurveProgress', value: this.preMigrationPaperEarlyAccelerationRunnerMinCurveProgress, min: 0, max: 1 },
+      { key: 'preMigrationPaperEarlyAccelerationRunnerMaxCurveProgress', value: this.preMigrationPaperEarlyAccelerationRunnerMaxCurveProgress, min: 0, max: 1 },
       { key: 'preMigrationPaperEarlyAccelerationRunnerMinRecentVolumeSol', value: this.preMigrationPaperEarlyAccelerationRunnerMinRecentVolumeSol, min: 0 },
       { key: 'preMigrationPaperEarlyAccelerationRunnerMinTradeVelocityPerMin', value: this.preMigrationPaperEarlyAccelerationRunnerMinTradeVelocityPerMin, min: 0 },
       { key: 'preMigrationPaperEarlyAccelerationRunnerTakeProfitPct', value: this.preMigrationPaperEarlyAccelerationRunnerTakeProfitPct, min: 0.001, max: 5 },
@@ -1697,10 +2057,59 @@ class Config {
       { key: 'pumpBondingCurveGlobalBackoffHighCurveBypassProgress', value: this.pumpBondingCurveGlobalBackoffHighCurveBypassProgress, min: 0, max: 1 },
       { key: 'pumpBondingCurveMaxTrackedMints', value: this.pumpBondingCurveMaxTrackedMints, min: 1 },
       { key: 'pumpBondingCurveMaxFetchesPerCycle', value: this.pumpBondingCurveMaxFetchesPerCycle, min: 1 },
+      { key: 'pumpBondingCurveBatchFlushMs', value: this.pumpBondingCurveBatchFlushMs, min: 0 },
+      { key: 'pumpBondingCurveBatchMaxAccounts', value: this.pumpBondingCurveBatchMaxAccounts, min: 1 },
+      { key: 'finalistAccountVerifierMaxSubscriptions', value: this.finalistAccountVerifierMaxSubscriptions, min: 1 },
+      { key: 'finalistAccountVerifierTtlMs', value: this.finalistAccountVerifierTtlMs, min: 1000 },
+      { key: 'finalistAccountVerifierFreshMs', value: this.finalistAccountVerifierFreshMs, min: 100 },
+      { key: 'finalistAccountVerifierMinScore', value: this.finalistAccountVerifierMinScore, min: 0, max: 100 },
+      { key: 'finalistAccountVerifierMinCurveProgress', value: this.finalistAccountVerifierMinCurveProgress, min: 0, max: 1 },
+      { key: 'finalistAccountVerifierMinConfirmedScore', value: this.finalistAccountVerifierMinConfirmedScore, min: 0, max: 100 },
+      { key: 'finalistAccountVerifierMinConfirmedCurveProgress', value: this.finalistAccountVerifierMinConfirmedCurveProgress, min: 0, max: 1 },
+      { key: 'finalistAccountVerifierMinWalletScore', value: this.finalistAccountVerifierMinWalletScore, min: 0, max: 100 },
+      { key: 'finalistAccountVerifierMaxCurveDelta', value: this.finalistAccountVerifierMaxCurveDelta, min: 0, max: 1 },
+      { key: 'liveDryRunAmountSol', value: this.liveDryRunAmountSol, min: 0.001 },
+      { key: 'liveDryRunMaxAccountAgeMs', value: this.liveDryRunMaxAccountAgeMs, min: 100 },
+      { key: 'liveDryRunMaxPriceImpactPct', value: this.liveDryRunMaxPriceImpactPct, min: 0 },
+      { key: 'liveDryRunMaxPerRun', value: this.liveDryRunMaxPerRun, min: 0 },
+      { key: 'liveDryRunMintCooldownMs', value: this.liveDryRunMintCooldownMs, min: 0 },
+      { key: 'eventLoopMonitorIntervalMs', value: this.eventLoopMonitorIntervalMs, min: 100 },
+      { key: 'eventLoopMonitorLagThresholdMs', value: this.eventLoopMonitorLagThresholdMs, min: 1 },
+      { key: 'runtimeStatusIntervalMs', value: this.runtimeStatusIntervalMs, min: 1000 },
+      { key: 'runtimeStatusDetailEvery', value: this.runtimeStatusDetailEvery, min: 1 },
       { key: 'solanaRpcMaxConcurrentRequests', value: this.solanaRpcMaxConcurrentRequests, min: 1 },
       { key: 'solanaRpcMinRequestIntervalMs', value: this.solanaRpcMinRequestIntervalMs, min: 0 },
+      { key: 'solanaRpcCallTimeoutMs', value: this.solanaRpcCallTimeoutMs, min: 1000 },
+      { key: 'solanaRpcHttpAgentKeepAliveMsecs', value: this.solanaRpcHttpAgentKeepAliveMsecs, min: 1 },
+      { key: 'solanaRpcHttpAgentMaxSockets', value: this.solanaRpcHttpAgentMaxSockets, min: 1 },
+      { key: 'solanaRpcHttpAgentMaxFreeSockets', value: this.solanaRpcHttpAgentMaxFreeSockets, min: 0 },
+      { key: 'solanaRpcHttpAgentTimeoutMs', value: this.solanaRpcHttpAgentTimeoutMs, min: 1000 },
+      { key: 'solanaRpcAccountInfoCacheTtlMs', value: this.solanaRpcAccountInfoCacheTtlMs, min: 0 },
+      { key: 'solanaRpcPrimaryDowngradeMs', value: this.solanaRpcPrimaryDowngradeMs, min: 1000 },
+      { key: 'solanaRpcPrimaryFailureThreshold', value: this.solanaRpcPrimaryFailureThreshold, min: 1 },
+      { key: 'solanaRpcFallbackFailureThreshold', value: this.solanaRpcFallbackFailureThreshold, min: 1 },
+      { key: 'solanaRpcFallbackDowngradeMs', value: this.solanaRpcFallbackDowngradeMs, min: 1000 },
+      { key: 'launchIntelFlushIntervalMs', value: this.launchIntelFlushIntervalMs, min: 1000 },
+      { key: 'launchIntelIndexFlushIntervalMs', value: this.launchIntelIndexFlushIntervalMs, min: 1000 },
+      { key: 'preMigrationPaperMaxDecisionLogsPerMinute', value: this.preMigrationPaperMaxDecisionLogsPerMinute, min: 0 },
+      { key: 'pumpPortalPostCloseTradestreamDelayMs', value: this.pumpPortalPostCloseTradestreamDelayMs, min: 0 },
       { key: 'pumpPortalEventHandlerConcurrency', value: this.pumpPortalEventHandlerConcurrency, min: 1 },
       { key: 'pumpPortalEventQueueMaxSize', value: this.pumpPortalEventQueueMaxSize, min: 1 },
+      { key: 'pumpDevMaxSubscribedMints', value: this.pumpDevMaxSubscribedMints, min: 1 },
+      { key: 'pumpDevPingIntervalMs', value: this.pumpDevPingIntervalMs, min: 0 },
+      { key: 'pumpDevReconnectDelayMs', value: this.pumpDevReconnectDelayMs, min: 1 },
+      { key: 'pumpDevMaxReconnectDelayMs', value: this.pumpDevMaxReconnectDelayMs, min: 1 },
+      { key: 'pumpDevEventHandlerConcurrency', value: this.pumpDevEventHandlerConcurrency, min: 1 },
+      { key: 'pumpDevEventQueueMaxSize', value: this.pumpDevEventQueueMaxSize, min: 1 },
+      { key: 'pumpDevTradeCoalesceQueueDepth', value: this.pumpDevTradeCoalesceQueueDepth, min: 0 },
+      { key: 'pumpDevPrimarySilenceTimeoutMs', value: this.pumpDevPrimarySilenceTimeoutMs, min: 1000 },
+      { key: 'pumpDevTargetedCurveParityMaxSamplesPerRun', value: this.pumpDevTargetedCurveParityMaxSamplesPerRun, min: 0 },
+      { key: 'pumpDevTargetedCurveParityCooldownMs', value: this.pumpDevTargetedCurveParityCooldownMs, min: 0 },
+      { key: 'pumpDevTargetedCurveParityMaxInFlight', value: this.pumpDevTargetedCurveParityMaxInFlight, min: 1 },
+      { key: 'pumpDevTargetedCurveParityTimeoutMs', value: this.pumpDevTargetedCurveParityTimeoutMs, min: 1000 },
+      { key: 'pumpDevTargetedCurveParityMaxComparableLatencyMs', value: this.pumpDevTargetedCurveParityMaxComparableLatencyMs, min: 1000 },
+      { key: 'pumpDevTargetedCurveParitySkipLogCooldownMs', value: this.pumpDevTargetedCurveParitySkipLogCooldownMs, min: 1000 },
+      { key: 'liveDryRunBuySlippageBps', value: this.liveDryRunBuySlippageBps, min: 0, max: 10000 },
       { key: 'walletIntelRefreshIntervalMs', value: this.walletIntelRefreshIntervalMs, min: 1000 },
       { key: 'walletEventLedgerMaxRecentEvents', value: this.walletEventLedgerMaxRecentEvents, min: 1 },
       { key: 'telegramContextRefreshIntervalMs', value: this.telegramContextRefreshIntervalMs, min: 1000 },
@@ -1751,6 +2160,10 @@ class Config {
       }
     }
 
+    if (!['processed', 'confirmed', 'finalized'].includes(this.liveDryRunSimulationCommitment)) {
+      throw new Error(`Unsupported LIVE_DRY_RUN_SIMULATION_COMMITMENT: ${this.liveDryRunSimulationCommitment}`);
+    }
+
     // Validate wallet addresses
     if (!this.isValidSolanaAddress(this.coldWalletAddress)) {
       throw new Error('Invalid COLD_WALLET_ADDRESS format');
@@ -1758,6 +2171,16 @@ class Config {
 
     if (!['LIVE', 'DRY_RUN', 'PAPER'].includes(this.executionMode)) {
       throw new Error(`Unsupported EXECUTION_MODE: ${this.executionMode}`);
+    }
+
+    if (
+      this.executionMode === 'LIVE'
+      && !this.pumpBondingCurveRuntimeRpcEnabled
+      && !this.liveAllowDisabledBondingCurveRpc
+    ) {
+      throw new Error(
+        'LIVE mode requires PUMP_BONDING_CURVE_RUNTIME_RPC_ENABLED=true unless LIVE_ALLOW_DISABLED_BONDING_CURVE_RPC=true is explicitly set after a separate final-verification design is in place.'
+      );
     }
 
     this.validateProfitAllocationTiers(this.profitAllocationTiers);

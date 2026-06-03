@@ -11,6 +11,15 @@ class PumpPortalListener {
     this.logger = logger;
     this.handlers = handlers;
     this.ws = null;
+    this.backupOnly = config.pumpPortalBackupOnly === true;
+    this.useSplitSockets = config.pumpPortalSplitSockets === true;
+    this.postCloseTradestreamDelayMs = Number(config.pumpPortalPostCloseTradestreamDelayMs || 15000);
+    this.postCloseTradestreamGateUntilMs = 0;
+    const sharedConnection = this.createConnectionState('combined');
+    this.connections = {
+      discovery: this.useSplitSockets ? this.createConnectionState('discovery') : sharedConnection,
+      tradestream: this.useSplitSockets ? this.createConnectionState('tradestream') : sharedConnection
+    };
     this.running = false;
     this.reconnectDelayMs = Number(config.pumpPortalReconnectDelayMs || 5000);
     this.staleConnectionMs = Number(config.pumpPortalStaleConnectionMs || 90000);
@@ -22,17 +31,14 @@ class PumpPortalListener {
     this.reconnectResubscribeMaxMints = Number(config.pumpPortalReconnectResubscribeMaxMints || 25);
     this.reconnectResubscribeBatchSize = Number(config.pumpPortalReconnectResubscribeBatchSize || 10);
     this.reconnectResubscribeBatchDelayMs = Number(config.pumpPortalReconnectResubscribeBatchDelayMs || 1000);
+    for (const state of Object.values(this.connections)) {
+      state.currentReconnectDelayMs = this.reconnectDelayMs;
+    }
     this.eventHandlerConcurrency = Math.max(1, Number(config.pumpPortalEventHandlerConcurrency || 6));
     this.eventQueueMaxSize = Math.max(1, Number(config.pumpPortalEventQueueMaxSize || 10000));
     this.eventQueue = [];
     this.processingEvents = 0;
-    this.reconnectTimer = null;
-    this.reconnectDelayResetTimer = null;
-    this.resubscribeTimer = null;
-    this.pendingResubscribeMints = [];
     this.reconnectDelayResetAfterStableMs = 30000;
-    this.healthCheckTimer = null;
-    this.pingTimer = null;
     this.subscribedMints = new Set();
     this.subscribedMintMeta = new Map();
     this.skippedPaidStreamMints = new Set();
@@ -132,8 +138,148 @@ class PumpPortalListener {
       lastSubscriptionAckKind: null,
       maxSubscribedMints: this.maxSubscribedMints,
       tokenTradeSubscriptionTtlMs: this.tokenTradeSubscriptionTtlMs,
-      reconnectDelayMs: this.currentReconnectDelayMs
+      reconnectDelayMs: this.currentReconnectDelayMs,
+      splitSocketsEnabled: this.useSplitSockets,
+      backupOnly: this.backupOnly,
+      postCloseTradestreamDelayMs: this.postCloseTradestreamDelayMs,
+      postCloseTradestreamGateUntilMs: this.postCloseTradestreamGateUntilMs,
+      discovery: this.createRoleStats('discovery'),
+      tradestream: this.createRoleStats('tradestream'),
+      bothConnectionsDownCount: 0,
+      bothConnectionsDownMs: 0,
+      bothConnectionsDownStartedAt: null,
+      discoveryEventsWhileTradestreamDown: 0,
+      tradestreamEventsWhileDiscoveryDown: 0
     };
+  }
+
+  createConnectionState(role) {
+    return {
+      role,
+      ws: null,
+      reconnectTimer: null,
+      reconnectDelayResetTimer: null,
+      resubscribeTimer: null,
+      pendingResubscribeMints: [],
+      healthCheckTimer: null,
+      pingTimer: null,
+      currentReconnectDelayMs: this?.reconnectDelayMs || 5000,
+      connected: false,
+      lastConnectedAt: null,
+      lastDisconnectedAt: null,
+      lastMessageAt: null,
+      lastPongAt: null
+    };
+  }
+
+  createRoleStats(role) {
+    return {
+      role,
+      connected: false,
+      messages: 0,
+      newTokens: 0,
+      trades: 0,
+      accountTrades: 0,
+      migrations: 0,
+      reconnectAttempts: 0,
+      closeEvents: 0,
+      staleReconnects: 0,
+      lastConnectedAt: null,
+      lastDisconnectedAt: null,
+      lastMessageAt: null,
+      lastConnectionAgeMs: null,
+      lastCloseCode: null,
+      lastCloseReason: null,
+      lastErrorAt: null,
+      lastErrorMessage: null,
+      reconnectDelayStableResets: 0,
+      reconnectDelayMs: this?.reconnectDelayMs || 5000,
+      pingsSent: 0,
+      pongsReceived: 0,
+      lastPingAt: null,
+      lastPongAt: null,
+      controlFramesSent: 0,
+      subscriptionAckMessages: 0,
+      newTokenSubscriptionAcks: 0,
+      migrationSubscriptionAcks: 0,
+      tokenTradeSubscriptionAcks: 0,
+      accountTradeSubscriptionAcks: 0,
+      unknownSubscriptionAcks: 0,
+      pairSolEvents: 0,
+      pairUsdcEvents: 0,
+      pairUnknownEvents: 0,
+      tokenTradeSubscribeFrames: 0,
+      tokenTradeUnsubscribeFrames: 0,
+      subscribedMints: 0,
+      subscribedAccounts: 0
+    };
+  }
+
+  logicalRoles(connectionRole) {
+    return connectionRole === 'combined'
+      ? ['discovery', 'tradestream']
+      : [connectionRole].filter((role) => this.stats?.[role]);
+  }
+
+  forLogicalRoles(connectionRole, fn) {
+    for (const role of this.logicalRoles(connectionRole)) {
+      if (this.stats?.[role]) fn(this.stats[role], role);
+    }
+  }
+
+  markRoleConnected(connectionRole, now) {
+    for (const role of this.logicalRoles(connectionRole)) {
+      this.stats[role].connected = true;
+      this.stats[role].lastConnectedAt = now;
+      this.stats[role].lastCloseCode = null;
+      this.stats[role].lastCloseReason = null;
+    }
+  }
+
+  markRoleDisconnected(connectionRole, now) {
+    for (const role of this.logicalRoles(connectionRole)) {
+      this.stats[role].connected = false;
+      this.stats[role].lastDisconnectedAt = now;
+    }
+  }
+
+  incrementRoleClose(connectionRole) {
+    for (const role of this.logicalRoles(connectionRole)) {
+      this.stats[role].closeEvents += 1;
+    }
+  }
+
+  incrementRoleReconnect(connectionRole) {
+    for (const role of this.logicalRoles(connectionRole)) {
+      this.stats[role].reconnectAttempts += 1;
+    }
+  }
+
+  incrementRolePong(connectionRole, now) {
+    for (const role of this.logicalRoles(connectionRole)) {
+      this.stats[role].pongsReceived += 1;
+      this.stats[role].lastPongAt = now;
+    }
+  }
+
+  setRoleCloseReason(connectionRole, code, reason) {
+    for (const role of this.logicalRoles(connectionRole)) {
+      this.stats[role].lastCloseCode = code;
+      this.stats[role].lastCloseReason = reason;
+    }
+  }
+
+  setRoleLastConnectionAge(connectionRole, ageMs) {
+    for (const role of this.logicalRoles(connectionRole)) {
+      this.stats[role].lastConnectionAgeMs = ageMs;
+    }
+  }
+
+  setRoleError(connectionRole, now, message) {
+    for (const role of this.logicalRoles(connectionRole)) {
+      this.stats[role].lastErrorAt = now;
+      this.stats[role].lastErrorMessage = message;
+    }
   }
 
   async start() {
@@ -147,35 +293,35 @@ class PumpPortalListener {
     }
 
     this.running = true;
-    await this.connect();
+    if (this.useSplitSockets) {
+      await Promise.all([
+        this.connectRole('discovery'),
+        this.connectRole('tradestream')
+      ]);
+      return;
+    }
+
+    await this.connectRole('combined');
   }
 
   async stop() {
     this.running = false;
 
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
+    for (const state of Object.values(this.connections)) {
+      this.clearConnectionTimers(state);
     }
 
-    this.clearReconnectDelayResetTimer();
-    this.clearResubscribeTimer();
-
-    if (this.healthCheckTimer) {
-      clearInterval(this.healthCheckTimer);
-      this.healthCheckTimer = null;
-    }
-
-    this.stopHeartbeat();
     if (this.eventQueue.length > 0) {
       this.stats.eventQueueDiscardedOnStop += this.eventQueue.length;
     }
     this.eventQueue = [];
     this.stats.eventQueueDepth = 0;
 
-    if (this.ws) {
-      const socket = this.ws;
-      this.ws = null;
+    for (const state of Object.values(this.connections)) {
+      if (!state.ws) continue;
+      const socket = state.ws;
+      state.ws = null;
+      state.connected = false;
       socket.removeAllListeners();
       socket.on('error', () => {});
 
@@ -191,14 +337,26 @@ class PumpPortalListener {
 
     this.stats.connected = false;
     this.stats.lastDisconnectedAt = Date.now();
+    this.refreshConnectionState();
   }
 
   async connect() {
+    return this.connectRole(this.useSplitSockets ? 'discovery' : 'combined');
+  }
+
+  async connectRole(role) {
     if (!this.running) {
       return;
     }
 
-    this.logger.info('Connecting to PumpPortal websocket...');
+    const state = role === 'combined'
+      ? this.connections.discovery
+      : this.connections[role];
+    if (!state) {
+      throw new Error(`Unknown PumpPortal connection role: ${role}`);
+    }
+
+    this.logger.info('Connecting to PumpPortal websocket', { role });
     const socket = new WebSocket(this.getWebsocketUrl());
     socket.pumpPortalHeartbeat = {
       pingsSent: 0,
@@ -206,23 +364,43 @@ class PumpPortalListener {
       lastPingAt: null,
       lastPongAt: null
     };
-    socket.pumpPortalConnection = this.buildConnectionStats();
-    this.ws = socket;
+    socket.pumpPortalRole = role;
+    socket.pumpPortalConnection = this.buildConnectionStats(role);
+    state.ws = socket;
 
     socket.on('open', async () => {
-      this.stats.connected = true;
-      this.stats.lastConnectedAt = Date.now();
+      const now = Date.now();
+      state.connected = true;
+      state.lastConnectedAt = now;
+      state.lastDisconnectedAt = null;
+      this.markRoleConnected(role, now);
+      this.stats.lastConnectedAt = now;
       this.stats.lastCloseCode = null;
       this.stats.lastCloseReason = null;
-      this.scheduleReconnectDelayReset(socket);
-      this.logger.info('PumpPortal websocket connected');
-      this.send({ method: 'subscribeNewToken' });
-      this.send({ method: 'subscribeMigration' });
-      this.subscribeTrackedAccounts();
-      this.subscribeTrackedMints();
-      this.startHealthCheck();
-      this.startHeartbeat(socket);
+      this.refreshConnectionState();
+      this.scheduleReconnectDelayReset(state, socket);
+      this.logger.info('PumpPortal websocket connected', { role });
+      if (role === 'combined') {
+        this.send({ method: 'subscribeMigration' }, 'discovery');
+        if (!this.backupOnly) {
+          this.send({ method: 'subscribeNewToken' }, 'discovery');
+          this.subscribeTrackedAccounts();
+          this.subscribeTrackedMints();
+        }
+      } else if (role === 'discovery') {
+        this.send({ method: 'subscribeMigration' }, 'discovery');
+        if (!this.backupOnly) {
+          this.send({ method: 'subscribeNewToken' }, 'discovery');
+          this.subscribeTrackedAccounts();
+        }
+      } else if (role === 'tradestream') {
+        if (!this.backupOnly) this.subscribeTrackedMints();
+      }
+      this.startHealthCheck(state);
+      this.startHeartbeat(state, socket);
       this.emitLifecycle('provider.pumpportal.connected', {
+        role,
+        splitSocketsEnabled: this.useSplitSockets,
         subscribedMints: this.subscribedMints.size,
         subscribedAccounts: this.subscribedAccounts.size,
         pingIntervalMs: this.pingIntervalMs
@@ -230,11 +408,23 @@ class PumpPortalListener {
     });
 
     socket.on('message', (raw) => {
+      const now = Date.now();
       this.stats.messages += 1;
-      this.stats.lastMessageAt = Date.now();
+      this.stats.lastMessageAt = now;
+      state.lastMessageAt = now;
+      const connectionRole = role;
+      if (this.stats[connectionRole]) {
+        this.stats[connectionRole].messages += 1;
+        this.stats[connectionRole].lastMessageAt = now;
+      }
+      if (connectionRole === 'discovery' && !this.connections.tradestream.connected) {
+        this.stats.discoveryEventsWhileTradestreamDown += 1;
+      } else if (connectionRole === 'tradestream' && !this.connections.discovery.connected) {
+        this.stats.tradestreamEventsWhileDiscoveryDown += 1;
+      }
       if (socket.pumpPortalConnection) {
         socket.pumpPortalConnection.messages += 1;
-        socket.pumpPortalConnection.lastMessageAt = this.stats.lastMessageAt;
+        socket.pumpPortalConnection.lastMessageAt = now;
       }
 
       let payload;
@@ -246,28 +436,40 @@ class PumpPortalListener {
       }
 
       this.recordConnectionMessage(socket, payload);
-      this.enqueueMessage(payload);
+      this.enqueueMessage(payload, connectionRole);
     });
 
     socket.on('close', (code, reasonBuffer) => {
-      this.stats.connected = false;
-      this.stats.lastDisconnectedAt = Date.now();
+      const now = Date.now();
+      state.connected = false;
+      state.lastDisconnectedAt = now;
+      this.markRoleDisconnected(role, now);
       this.stats.closeEvents += 1;
-      this.stats.lastConnectionAgeMs = this.stats.lastConnectedAt
-        ? this.stats.lastDisconnectedAt - this.stats.lastConnectedAt
+      this.incrementRoleClose(role);
+      this.stats.lastDisconnectedAt = now;
+      this.stats.lastConnectionAgeMs = state.lastConnectedAt
+        ? now - state.lastConnectedAt
         : null;
+      this.setRoleLastConnectionAge(role, this.stats.lastConnectionAgeMs);
       this.stats.lastCloseCode = Number(code || 0) || 0;
       this.stats.lastCloseReason = reasonBuffer ? reasonBuffer.toString() : '';
+      this.setRoleCloseReason(role, this.stats.lastCloseCode, this.stats.lastCloseReason);
+      if (this.stats.lastCloseCode === 1006) {
+        this.postCloseTradestreamGateUntilMs = now + this.postCloseTradestreamDelayMs;
+        this.stats.postCloseTradestreamGateUntilMs = this.postCloseTradestreamGateUntilMs;
+      }
       const connectionStats = this.finalizeConnectionStats(socket);
-      this.stopHealthCheck();
-      this.stopHeartbeat();
-      this.clearReconnectDelayResetTimer();
-      this.clearResubscribeTimer();
+      this.stopHealthCheck(state);
+      this.stopHeartbeat(state);
+      this.clearReconnectDelayResetTimer(state);
+      this.clearResubscribeTimer(state);
       this.logger.warn('PumpPortal websocket closed', {
+        role,
+        splitSocketsEnabled: this.useSplitSockets,
         code: this.stats.lastCloseCode,
         reason: this.stats.lastCloseReason || 'none',
         connectionAgeMs: this.stats.lastConnectionAgeMs,
-        reconnectDelayMs: this.currentReconnectDelayMs,
+        reconnectDelayMs: state.currentReconnectDelayMs,
         connectionPingsSent: socket.pumpPortalHeartbeat?.pingsSent || 0,
         connectionPongsReceived: socket.pumpPortalHeartbeat?.pongsReceived || 0,
         connectionMessages: connectionStats.messages,
@@ -275,10 +477,12 @@ class PumpPortalListener {
         lastMessageAgeMsAtClose: connectionStats.lastMessageAgeMsAtClose
       });
       this.emitLifecycle('provider.pumpportal.closed', {
+        role,
+        splitSocketsEnabled: this.useSplitSockets,
         code: this.stats.lastCloseCode,
         reason: this.stats.lastCloseReason || 'none',
         connectionAgeMs: this.stats.lastConnectionAgeMs,
-        reconnectDelayMs: this.currentReconnectDelayMs,
+        reconnectDelayMs: state.currentReconnectDelayMs,
         subscribedMints: this.subscribedMints.size,
         subscribedAccounts: this.subscribedAccounts.size,
         connectionMessages: connectionStats.messages,
@@ -305,24 +509,33 @@ class PumpPortalListener {
         lastPingAt: this.stats.lastPingAt ? new Date(this.stats.lastPingAt).toISOString() : null,
         lastPongAt: this.stats.lastPongAt ? new Date(this.stats.lastPongAt).toISOString() : null
       });
-      if (this.ws === socket) {
-        this.ws = null;
+      if (state.ws === socket) {
+        state.ws = null;
       }
+      this.refreshConnectionState();
       if (this.running) {
         this.stats.reconnectAttempts += 1;
-        const delayMs = this.nextReconnectDelayMs();
-        this.reconnectTimer = setTimeout(() => {
-          this.reconnectTimer = null;
-          this.connect();
+        this.incrementRoleReconnect(role);
+        const delayMs = this.nextReconnectDelayMs(state);
+        state.reconnectTimer = setTimeout(() => {
+          state.reconnectTimer = null;
+          this.connectRole(role);
         }, delayMs);
+        if (typeof state.reconnectTimer.unref === 'function') {
+          state.reconnectTimer.unref();
+        }
       }
     });
 
     socket.on('error', (error) => {
-      this.stats.lastErrorAt = Date.now();
+      const now = Date.now();
+      this.stats.lastErrorAt = now;
       this.stats.lastErrorMessage = error.message;
-      this.logger.warn('PumpPortal websocket error', error.message);
+      this.setRoleError(role, now, error.message);
+      this.logger.warn('PumpPortal websocket error', { role, errorMessage: error.message });
       this.emitLifecycle('provider.pumpportal.websocket_error', {
+        role,
+        splitSocketsEnabled: this.useSplitSockets,
         errorMessage: error.message,
         subscribedMints: this.subscribedMints.size,
         subscribedAccounts: this.subscribedAccounts.size
@@ -330,9 +543,11 @@ class PumpPortalListener {
     });
 
     socket.on('pong', () => {
-      if (this.ws !== socket) return;
+      if (state.ws !== socket) return;
       this.stats.pongsReceived += 1;
       this.stats.lastPongAt = Date.now();
+      state.lastPongAt = this.stats.lastPongAt;
+      this.incrementRolePong(role, this.stats.lastPongAt);
       if (socket.pumpPortalHeartbeat) {
         socket.pumpPortalHeartbeat.pongsReceived += 1;
         socket.pumpPortalHeartbeat.lastPongAt = this.stats.lastPongAt;
@@ -340,14 +555,14 @@ class PumpPortalListener {
     });
   }
 
-  enqueueMessage(payload) {
+  enqueueMessage(payload, sourceRole = 'unknown') {
     if (this.eventQueue.length >= this.eventQueueMaxSize) {
       this.eventQueue.shift();
       this.stats.eventQueueDropped += 1;
       this.stats.eventQueueLastDroppedAt = Date.now();
     }
 
-    this.eventQueue.push(payload);
+    this.eventQueue.push({ payload, sourceRole });
     this.stats.eventQueueDepth = this.eventQueue.length;
     this.stats.eventQueueMaxDepth = Math.max(this.stats.eventQueueMaxDepth || 0, this.eventQueue.length);
     this.drainEventQueue();
@@ -355,13 +570,15 @@ class PumpPortalListener {
 
   drainEventQueue() {
     while (this.processingEvents < this.eventHandlerConcurrency && this.eventQueue.length > 0) {
-      const payload = this.eventQueue.shift();
+      const item = this.eventQueue.shift();
+      const payload = item?.payload ?? item;
+      const sourceRole = item?.sourceRole || 'unknown';
       this.stats.eventQueueDepth = this.eventQueue.length;
       this.processingEvents += 1;
       this.stats.eventQueueProcessingActive = this.processingEvents;
 
       Promise.resolve()
-        .then(() => this.handleMessage(payload))
+        .then(() => this.handleMessage(payload, sourceRole))
         .then(() => {
           this.stats.eventQueueProcessed += 1;
           this.stats.eventQueueLastProcessedAt = Date.now();
@@ -381,23 +598,32 @@ class PumpPortalListener {
     }
   }
 
-  async handleMessage(payload) {
-    this.recordSubscriptionAck(payload);
-
+  async handleMessage(payload, sourceRole = 'unknown') {
     const method = payload.method || payload.type || payload.txType || '';
     const mint = payload.mint || payload.token || payload.mintAddress;
     const account = payload.traderPublicKey || payload.wallet || payload.account;
+    const eventRole = sourceRole === 'combined' || sourceRole === 'unknown'
+      ? this.classifyPayloadRole(payload, method, mint, account)
+      : sourceRole;
+
+    if (this.stats[eventRole]) {
+      this.stats[eventRole].messages += 1;
+      this.stats[eventRole].lastMessageAt = Date.now();
+    }
+
+    this.recordSubscriptionAck(payload, eventRole);
 
     if (method === 'newToken' || method === 'subscribeNewToken' || payload.txType === 'create') {
       this.stats.newTokens += 1;
-      this.recordPairShape('newToken', payload);
+      if (this.stats[eventRole]) this.stats[eventRole].newTokens += 1;
+      this.recordPairShape('newToken', payload, eventRole);
       this.captureSample('newToken', payload);
 
       if (mint) {
         this.touchSubscribedMint(mint);
       }
 
-      if (mint && !this.subscribedMints.has(mint)) {
+      if (!this.backupOnly && mint && !this.subscribedMints.has(mint)) {
         if (this.canUsePaidTradeStreams() && this.reserveMintSubscriptionSlot(mint)) {
           this.subscribeTokenTrade(mint);
         } else if (!this.canUsePaidTradeStreams() && !this.skippedPaidStreamMints.has(mint)) {
@@ -407,7 +633,7 @@ class PumpPortalListener {
         }
       }
 
-      if (this.handlers.onNewToken) {
+      if (!this.backupOnly && this.handlers.onNewToken) {
         await this.handlers.onNewToken({
           ...payload,
           source: 'pumpportal_create'
@@ -419,7 +645,8 @@ class PumpPortalListener {
 
     if (this.isMigrationPayload(payload, method)) {
       this.stats.migrations += 1;
-      this.recordPairShape('migration', payload);
+      if (this.stats[eventRole]) this.stats[eventRole].migrations += 1;
+      this.recordPairShape('migration', payload, eventRole);
       this.captureSample('migration', payload);
       if (this.handlers.onMigration) {
         await this.handlers.onMigration({
@@ -432,14 +659,16 @@ class PumpPortalListener {
 
     if (account && this.subscribedAccounts.has(account)) {
       this.stats.accountTrades += 1;
+      if (this.stats[eventRole]) this.stats[eventRole].accountTrades += 1;
     }
 
-    if (mint) {
+      if (mint) {
       this.touchSubscribedMint(mint);
       this.stats.trades += 1;
-      this.recordPairShape('trade', payload);
+      if (this.stats[eventRole]) this.stats[eventRole].trades += 1;
+      this.recordPairShape('trade', payload, eventRole);
       this.captureSample('trade', payload);
-      if (this.handlers.onTrade) {
+      if (!this.backupOnly && this.handlers.onTrade) {
         await this.handlers.onTrade({
           ...payload,
           source: 'pumpportal_trade'
@@ -457,7 +686,28 @@ class PumpPortalListener {
       || txType === 'migration';
   }
 
-  recordSubscriptionAck(payload) {
+  classifyPayloadRole(payload = {}, method = '', mint = null, account = null) {
+    const message = typeof payload?.message === 'string' ? payload.message : '';
+    if (message && (message.toLowerCase().includes('subscribed') || message.toLowerCase().includes('unsubscribed'))) {
+      return this.roleForSubscriptionAckKind(this.classifySubscriptionAck(message, payload));
+    }
+    if (method === 'newToken' || method === 'subscribeNewToken' || payload.txType === 'create') {
+      return 'discovery';
+    }
+    if (this.isMigrationPayload(payload, method)) {
+      return 'discovery';
+    }
+    if (account && this.subscribedAccounts.has(account) && !mint) {
+      return 'discovery';
+    }
+    return mint ? 'tradestream' : 'discovery';
+  }
+
+  roleForSubscriptionAckKind(kind) {
+    return kind === 'token_trade' ? 'tradestream' : 'discovery';
+  }
+
+  recordSubscriptionAck(payload, sourceRole = 'unknown') {
     const message = typeof payload?.message === 'string' ? payload.message : '';
     if (!message) return;
 
@@ -467,26 +717,38 @@ class PumpPortalListener {
     }
 
     const kind = this.classifySubscriptionAck(message, payload);
+    const targetRole = this.stats[sourceRole]
+      ? sourceRole
+      : this.roleForSubscriptionAckKind(kind);
     this.stats.subscriptionAckMessages += 1;
     this.stats.lastSubscriptionAckAt = Date.now();
     this.stats.lastSubscriptionAckMessage = message;
     this.stats.lastSubscriptionAckKind = kind;
+    if (this.stats[targetRole]) {
+      this.stats[targetRole].subscriptionAckMessages += 1;
+    }
 
     if (kind === 'new_token') {
       this.stats.newTokenSubscriptionAcks += 1;
+      if (this.stats[targetRole]) this.stats[targetRole].newTokenSubscriptionAcks += 1;
     } else if (kind === 'migration') {
       this.stats.migrationSubscriptionAcks += 1;
+      if (this.stats[targetRole]) this.stats[targetRole].migrationSubscriptionAcks += 1;
     } else if (kind === 'token_trade') {
       this.stats.tokenTradeSubscriptionAcks += 1;
+      if (this.stats[targetRole]) this.stats[targetRole].tokenTradeSubscriptionAcks += 1;
     } else if (kind === 'account_trade') {
       this.stats.accountTradeSubscriptionAcks += 1;
+      if (this.stats[targetRole]) this.stats[targetRole].accountTradeSubscriptionAcks += 1;
     } else {
       this.stats.unknownSubscriptionAcks += 1;
+      if (this.stats[targetRole]) this.stats[targetRole].unknownSubscriptionAcks += 1;
     }
   }
 
-  buildConnectionStats() {
+  buildConnectionStats(role = 'unknown') {
     return {
+      role,
       openedAt: Date.now(),
       messages: 0,
       newTokens: 0,
@@ -533,9 +795,7 @@ class PumpPortalListener {
   finalizeConnectionStats(socket) {
     const connection = socket?.pumpPortalConnection || this.buildConnectionStats();
     const closedAt = Date.now();
-    const ageMs = Number.isFinite(this.stats.lastConnectionAgeMs)
-      ? this.stats.lastConnectionAgeMs
-      : closedAt - Number(connection.openedAt || closedAt);
+    const ageMs = closedAt - Number(connection.openedAt || closedAt);
     const minutes = ageMs > 0 ? ageMs / 60000 : 0;
     return {
       ...connection,
@@ -544,11 +804,12 @@ class PumpPortalListener {
     };
   }
 
-  recordPairShape(kind, payload = {}) {
+  recordPairShape(kind, payload = {}, sourceRole = 'unknown') {
     const pairBase = this.detectPairBase(payload);
     if (pairBase === 'USDC') {
       this.stats.pairUsdcEvents += 1;
       this.stats[`${kind}PairUsdcEvents`] += 1;
+      if (this.stats[sourceRole]) this.stats[sourceRole].pairUsdcEvents += 1;
       this.stats.lastDetectedPairBase = 'USDC';
       this.stats.lastDetectedPairAt = Date.now();
       this.captureSample('usdcPair', {
@@ -562,6 +823,7 @@ class PumpPortalListener {
     if (pairBase === 'SOL') {
       this.stats.pairSolEvents += 1;
       this.stats[`${kind}PairSolEvents`] += 1;
+      if (this.stats[sourceRole]) this.stats[sourceRole].pairSolEvents += 1;
       this.stats.lastDetectedPairBase = 'SOL';
       this.stats.lastDetectedPairAt = Date.now();
       return;
@@ -569,6 +831,7 @@ class PumpPortalListener {
 
     this.stats.pairUnknownEvents += 1;
     this.stats[`${kind}PairUnknownEvents`] += 1;
+    if (this.stats[sourceRole]) this.stats[sourceRole].pairUnknownEvents += 1;
     this.captureSample('unknownPair', {
       kind,
       detectedPairBase: pairBase,
@@ -731,8 +994,11 @@ class PumpPortalListener {
     const sent = this.send({
       method: 'subscribeTokenTrade',
       keys: [mint]
-    });
-    if (sent) this.stats.tokenTradeSubscribeFrames += 1;
+    }, 'tradestream');
+    if (sent) {
+      this.stats.tokenTradeSubscribeFrames += 1;
+      this.stats.tradestream.tokenTradeSubscribeFrames += 1;
+    }
   }
 
   unsubscribeTokenTrade(mint, reason = 'unknown') {
@@ -746,12 +1012,16 @@ class PumpPortalListener {
     if (reason === 'max_active') {
       this.stats.tokenTradeMaxActivePrunes += 1;
     }
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    const state = this.connections.tradestream;
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
       const sent = this.send({
         method: 'unsubscribeTokenTrade',
         keys: [mint]
-      });
-      if (sent) this.stats.tokenTradeUnsubscribeFrames += 1;
+      }, 'tradestream');
+      if (sent) {
+        this.stats.tokenTradeUnsubscribeFrames += 1;
+        this.stats.tradestream.tokenTradeUnsubscribeFrames += 1;
+      }
     }
   }
 
@@ -761,47 +1031,79 @@ class PumpPortalListener {
     this.skippedPaidStreamMints.delete(mint);
   }
 
-  resetReconnectDelay() {
-    this.currentReconnectDelayMs = this.reconnectDelayMs;
+  resetReconnectDelay(state = this.connections.discovery) {
+    state.currentReconnectDelayMs = this.reconnectDelayMs;
+    this.currentReconnectDelayMs = Math.max(...Object.values(this.connections).map((connection) => (
+      Number(connection.currentReconnectDelayMs || this.reconnectDelayMs)
+    )));
     this.stats.reconnectDelayMs = this.currentReconnectDelayMs;
+    this.forLogicalRoles(state.role, (roleStats) => {
+      roleStats.reconnectDelayMs = state.currentReconnectDelayMs;
+    });
   }
 
-  scheduleReconnectDelayReset(socket) {
-    this.clearReconnectDelayResetTimer();
+  scheduleReconnectDelayReset(state, socket) {
+    this.clearReconnectDelayResetTimer(state);
 
-    this.reconnectDelayResetTimer = setTimeout(() => {
-      this.reconnectDelayResetTimer = null;
-      if (!this.running || this.ws !== socket || socket.readyState !== WebSocket.OPEN) {
+    state.reconnectDelayResetTimer = setTimeout(() => {
+      state.reconnectDelayResetTimer = null;
+      if (!this.running || state.ws !== socket || socket.readyState !== WebSocket.OPEN) {
         return;
       }
 
-      this.resetReconnectDelay();
+      this.resetReconnectDelay(state);
       this.stats.reconnectDelayStableResets += 1;
+      this.forLogicalRoles(state.role, (roleStats) => {
+        roleStats.reconnectDelayStableResets += 1;
+      });
     }, this.reconnectDelayResetAfterStableMs);
 
-    if (typeof this.reconnectDelayResetTimer.unref === 'function') {
-      this.reconnectDelayResetTimer.unref();
+    if (typeof state.reconnectDelayResetTimer.unref === 'function') {
+      state.reconnectDelayResetTimer.unref();
     }
   }
 
-  clearReconnectDelayResetTimer() {
-    if (this.reconnectDelayResetTimer) {
-      clearTimeout(this.reconnectDelayResetTimer);
-      this.reconnectDelayResetTimer = null;
+  clearReconnectDelayResetTimer(state) {
+    if (state?.reconnectDelayResetTimer) {
+      clearTimeout(state.reconnectDelayResetTimer);
+      state.reconnectDelayResetTimer = null;
     }
   }
 
-  nextReconnectDelayMs() {
-    const base = Number.isFinite(this.currentReconnectDelayMs) && this.currentReconnectDelayMs > 0
-      ? this.currentReconnectDelayMs
+  nextReconnectDelayMs(state = this.connections.discovery) {
+    if (this.useSplitSockets && state.role === 'discovery') {
+      const base = Math.min(
+        2000,
+        Math.max(500, Number(this.reconnectDelayMs) || 1000)
+      );
+      const jitterMs = Math.floor(Math.random() * 500);
+      state.currentReconnectDelayMs = base;
+      this.currentReconnectDelayMs = Math.max(...Object.values(this.connections).map((connection) => (
+        Number(connection.currentReconnectDelayMs || this.reconnectDelayMs)
+      )));
+      this.stats.reconnectDelayMs = this.currentReconnectDelayMs;
+      this.forLogicalRoles(state.role, (roleStats) => {
+        roleStats.reconnectDelayMs = state.currentReconnectDelayMs;
+      });
+      return base + jitterMs;
+    }
+
+    const base = Number.isFinite(state.currentReconnectDelayMs) && state.currentReconnectDelayMs > 0
+      ? state.currentReconnectDelayMs
       : this.reconnectDelayMs;
     const maxDelay = Number.isFinite(this.maxReconnectDelayMs) && this.maxReconnectDelayMs > 0
       ? Math.max(base, this.maxReconnectDelayMs)
       : base;
     const jitterMs = Math.floor(Math.random() * Math.min(1000, base));
     const delayMs = Math.min(maxDelay, base + jitterMs);
-    this.currentReconnectDelayMs = Math.min(maxDelay, Math.max(this.reconnectDelayMs, base * 2));
+    state.currentReconnectDelayMs = Math.min(maxDelay, Math.max(this.reconnectDelayMs, base * 2));
+    this.currentReconnectDelayMs = Math.max(...Object.values(this.connections).map((connection) => (
+      Number(connection.currentReconnectDelayMs || this.reconnectDelayMs)
+    )));
     this.stats.reconnectDelayMs = this.currentReconnectDelayMs;
+    this.forLogicalRoles(state.role, (roleStats) => {
+      roleStats.reconnectDelayMs = state.currentReconnectDelayMs;
+    });
     return delayMs;
   }
 
@@ -815,15 +1117,11 @@ class PumpPortalListener {
     }
 
     for (const account of this.config.pumpPortalTrackedAccounts) {
-      if (this.subscribedAccounts.has(account)) {
-        continue;
-      }
-
       this.subscribedAccounts.add(account);
       this.send({
         method: 'subscribeAccountTrade',
         keys: [account]
-      });
+      }, 'discovery');
     }
   }
 
@@ -860,9 +1158,10 @@ class PumpPortalListener {
     }
 
     const scheduledMints = mints.length;
-    this.pendingResubscribeMints = mints;
+    const state = this.connections.tradestream;
+    state.pendingResubscribeMints = mints;
     this.stats.tokenTradeReconnectResubscribeScheduled += scheduledMints;
-    this.flushResubscribeBatch();
+    this.flushResubscribeBatch(state);
 
     this.logger.info('Scheduled PumpPortal trade stream re-subscriptions', {
       trackedMints: ranked.length,
@@ -873,26 +1172,35 @@ class PumpPortalListener {
     });
   }
 
-  clearResubscribeTimer() {
-    if (this.resubscribeTimer) {
-      clearTimeout(this.resubscribeTimer);
-      this.resubscribeTimer = null;
+  clearResubscribeTimer(state = this.connections.tradestream) {
+    if (state.resubscribeTimer) {
+      clearTimeout(state.resubscribeTimer);
+      state.resubscribeTimer = null;
     }
-    this.pendingResubscribeMints = [];
+    state.pendingResubscribeMints = [];
   }
 
-  flushResubscribeBatch() {
-    this.resubscribeTimer = null;
+  flushResubscribeBatch(state = this.connections.tradestream) {
+    state.resubscribeTimer = null;
 
-    if (!this.running || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      this.pendingResubscribeMints = [];
+    if (!this.running || !state.ws || state.ws.readyState !== WebSocket.OPEN) {
+      state.pendingResubscribeMints = [];
+      return;
+    }
+
+    const waitMs = this.postCloseTradestreamGateUntilMs - Date.now();
+    if (waitMs > 0) {
+      state.resubscribeTimer = setTimeout(() => this.flushResubscribeBatch(state), waitMs);
+      if (typeof state.resubscribeTimer.unref === 'function') {
+        state.resubscribeTimer.unref();
+      }
       return;
     }
 
     const batchSize = Number.isFinite(this.reconnectResubscribeBatchSize) && this.reconnectResubscribeBatchSize > 0
       ? this.reconnectResubscribeBatchSize
-      : this.pendingResubscribeMints.length;
-    const batch = this.pendingResubscribeMints.splice(0, batchSize);
+      : state.pendingResubscribeMints.length;
+    const batch = state.pendingResubscribeMints.splice(0, batchSize);
 
     for (const mint of batch) {
       if (!this.subscribedMints.has(mint)) continue;
@@ -900,57 +1208,61 @@ class PumpPortalListener {
       this.stats.tokenTradeReconnectResubscribeSent += 1;
     }
 
-    if (this.pendingResubscribeMints.length === 0) {
+    if (state.pendingResubscribeMints.length === 0) {
       return;
     }
 
     const delayMs = Number.isFinite(this.reconnectResubscribeBatchDelayMs) && this.reconnectResubscribeBatchDelayMs >= 0
       ? this.reconnectResubscribeBatchDelayMs
       : 0;
-    this.resubscribeTimer = setTimeout(() => this.flushResubscribeBatch(), delayMs);
-    if (typeof this.resubscribeTimer.unref === 'function') {
-      this.resubscribeTimer.unref();
+    state.resubscribeTimer = setTimeout(() => this.flushResubscribeBatch(state), delayMs);
+    if (typeof state.resubscribeTimer.unref === 'function') {
+      state.resubscribeTimer.unref();
     }
   }
 
-  startHealthCheck() {
-    this.stopHealthCheck();
+  startHealthCheck(state) {
+    this.stopHealthCheck(state);
 
     if (!Number.isFinite(this.healthCheckIntervalMs) || this.healthCheckIntervalMs <= 0) {
       return;
     }
 
-    this.healthCheckTimer = setInterval(() => {
-      this.checkConnectionHealth();
+    state.healthCheckTimer = setInterval(() => {
+      this.checkConnectionHealth(state);
     }, this.healthCheckIntervalMs);
 
-    if (typeof this.healthCheckTimer.unref === 'function') {
-      this.healthCheckTimer.unref();
+    if (typeof state.healthCheckTimer.unref === 'function') {
+      state.healthCheckTimer.unref();
     }
   }
 
-  stopHealthCheck() {
-    if (this.healthCheckTimer) {
-      clearInterval(this.healthCheckTimer);
-      this.healthCheckTimer = null;
+  stopHealthCheck(state) {
+    if (state?.healthCheckTimer) {
+      clearInterval(state.healthCheckTimer);
+      state.healthCheckTimer = null;
     }
   }
 
-  startHeartbeat(socket) {
-    this.stopHeartbeat();
+  startHeartbeat(state, socket) {
+    this.stopHeartbeat(state);
 
     if (!Number.isFinite(this.pingIntervalMs) || this.pingIntervalMs <= 0) {
       return;
     }
 
-    this.pingTimer = setInterval(() => {
-      if (!this.running || this.ws !== socket || socket.readyState !== WebSocket.OPEN) {
+    state.pingTimer = setInterval(() => {
+      if (!this.running || state.ws !== socket || socket.readyState !== WebSocket.OPEN) {
         return;
       }
       try {
         socket.ping();
         this.stats.pingsSent += 1;
         this.stats.lastPingAt = Date.now();
+        this.forLogicalRoles(state.role, (roleStats) => {
+          roleStats.pingsSent += 1;
+          roleStats.lastPingAt = this.stats.lastPingAt;
+        });
         if (socket.pumpPortalHeartbeat) {
           socket.pumpPortalHeartbeat.pingsSent += 1;
           socket.pumpPortalHeartbeat.lastPingAt = this.stats.lastPingAt;
@@ -958,93 +1270,172 @@ class PumpPortalListener {
       } catch (error) {
         this.stats.lastErrorAt = Date.now();
         this.stats.lastErrorMessage = error.message;
-        this.logger.warn('PumpPortal websocket ping failed', error.message);
+        this.forLogicalRoles(state.role, (roleStats) => {
+          roleStats.lastErrorAt = this.stats.lastErrorAt;
+          roleStats.lastErrorMessage = error.message;
+        });
+        this.logger.warn('PumpPortal websocket ping failed', { role: state.role, errorMessage: error.message });
       }
     }, this.pingIntervalMs);
 
-    if (typeof this.pingTimer.unref === 'function') {
-      this.pingTimer.unref();
+    if (typeof state.pingTimer.unref === 'function') {
+      state.pingTimer.unref();
     }
   }
 
-  stopHeartbeat() {
-    if (this.pingTimer) {
-      clearInterval(this.pingTimer);
-      this.pingTimer = null;
+  stopHeartbeat(state) {
+    if (state?.pingTimer) {
+      clearInterval(state.pingTimer);
+      state.pingTimer = null;
     }
   }
 
-  checkConnectionHealth() {
-    if (!this.running || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+  checkConnectionHealth(state) {
+    if (!this.running || !state?.ws || state.ws.readyState !== WebSocket.OPEN) {
       return;
     }
 
-    if (!Number.isFinite(this.staleConnectionMs) || this.staleConnectionMs <= 0) {
+    const staleConnectionMs = this.staleConnectionThresholdMs(state);
+    if (!Number.isFinite(staleConnectionMs) || staleConnectionMs <= 0) {
       return;
     }
 
     const baselineAt = Math.max(
-      Number(this.stats.lastMessageAt || 0),
-      Number(this.stats.lastPongAt || 0),
-      Number(this.stats.lastConnectedAt || 0)
+      Number(state.lastMessageAt || 0),
+      Number(state.lastPongAt || 0),
+      Number(state.lastConnectedAt || 0)
     );
     if (!baselineAt) {
       return;
     }
 
     const ageMs = Date.now() - baselineAt;
-    if (ageMs < this.staleConnectionMs) {
-      this.pruneMintSubscriptions();
+    if (ageMs < staleConnectionMs) {
+      if (state.role === 'tradestream') this.pruneMintSubscriptions();
       return;
     }
 
     this.stats.staleReconnects += 1;
+    this.forLogicalRoles(state.role, (roleStats) => {
+      roleStats.staleReconnects += 1;
+    });
     this.logger.warn('PumpPortal websocket stale; recycling connection', {
+      role: state.role,
       ageMs,
-      staleConnectionMs: this.staleConnectionMs,
+      staleConnectionMs,
       subscribedMints: this.subscribedMints.size
     });
     this.emitLifecycle('provider.pumpportal.stale_reconnect', {
+      role: state.role,
       ageMs,
-      staleConnectionMs: this.staleConnectionMs,
+      staleConnectionMs,
       subscribedMints: this.subscribedMints.size,
       subscribedAccounts: this.subscribedAccounts.size
     });
 
-    const socket = this.ws;
-    this.ws = null;
+    const socket = state.ws;
+    state.ws = null;
+    state.connected = false;
+    this.forLogicalRoles(state.role, (roleStats) => {
+      roleStats.connected = false;
+    });
     socket.removeAllListeners('close');
     socket.on('close', () => {});
     socket.terminate();
-    this.stats.connected = false;
     this.stats.lastDisconnectedAt = Date.now();
-    this.stats.lastConnectionAgeMs = this.stats.lastConnectedAt
-      ? this.stats.lastDisconnectedAt - this.stats.lastConnectedAt
+    state.lastDisconnectedAt = this.stats.lastDisconnectedAt;
+    this.stats.lastConnectionAgeMs = state.lastConnectedAt
+      ? this.stats.lastDisconnectedAt - state.lastConnectedAt
       : null;
-    this.stopHealthCheck();
-    this.stopHeartbeat();
+    this.forLogicalRoles(state.role, (roleStats) => {
+      roleStats.lastConnectionAgeMs = this.stats.lastConnectionAgeMs;
+    });
+    this.stopHealthCheck(state);
+    this.stopHeartbeat(state);
+    this.refreshConnectionState();
 
-    if (this.running && !this.reconnectTimer) {
+    if (this.running && !state.reconnectTimer) {
       this.stats.reconnectAttempts += 1;
-      const delayMs = this.nextReconnectDelayMs();
-      this.reconnectTimer = setTimeout(() => {
-        this.reconnectTimer = null;
-        this.connect();
+      this.forLogicalRoles(state.role, (roleStats) => {
+        roleStats.reconnectAttempts += 1;
+      });
+      const delayMs = this.nextReconnectDelayMs(state);
+      state.reconnectTimer = setTimeout(() => {
+        state.reconnectTimer = null;
+        this.connectRole(state.role);
       }, delayMs);
+      if (typeof state.reconnectTimer.unref === 'function') {
+        state.reconnectTimer.unref();
+      }
     }
   }
 
-  send(message) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+  staleConnectionThresholdMs(state) {
+    const configured = Number(this.staleConnectionMs);
+    if (!Number.isFinite(configured) || configured <= 0) {
+      return configured;
+    }
+    if (this.backupOnly) {
+      return Math.max(configured, 5 * 60 * 1000);
+    }
+    if (this.useSplitSockets && state?.role === 'discovery') {
+      return Math.max(configured, 5 * 60 * 1000);
+    }
+    return configured;
+  }
+
+  send(message, role = 'discovery') {
+    const state = this.connections[role] || this.connections.discovery;
+    if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
       return false;
     }
 
-    this.ws.send(JSON.stringify(message));
+    state.ws.send(JSON.stringify(message));
     this.stats.controlFramesSent += 1;
-    if (this.ws.pumpPortalConnection) {
-      this.ws.pumpPortalConnection.controlFramesSent += 1;
+    if (this.stats[role]) this.stats[role].controlFramesSent += 1;
+    if (state.ws.pumpPortalConnection) {
+      state.ws.pumpPortalConnection.controlFramesSent += 1;
     }
     return true;
+  }
+
+  clearConnectionTimers(state) {
+    if (!state) return;
+    if (state.reconnectTimer) {
+      clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = null;
+    }
+    this.clearReconnectDelayResetTimer(state);
+    this.clearResubscribeTimer(state);
+    this.stopHealthCheck(state);
+    this.stopHeartbeat(state);
+  }
+
+  refreshConnectionState() {
+    const sharedConnected = !this.useSplitSockets && this.connections.discovery.connected === true;
+    const discoveryConnected = this.useSplitSockets
+      ? this.connections.discovery.connected === true
+      : sharedConnected;
+    const tradestreamConnected = this.useSplitSockets
+      ? this.connections.tradestream.connected === true
+      : sharedConnected;
+    const anyConnected = discoveryConnected || tradestreamConnected;
+    const bothDown = !discoveryConnected && !tradestreamConnected;
+    const now = Date.now();
+
+    this.stats.connected = anyConnected;
+    this.stats.discovery.connected = discoveryConnected;
+    this.stats.tradestream.connected = tradestreamConnected;
+    this.stats.discovery.subscribedAccounts = this.subscribedAccounts.size;
+    this.stats.tradestream.subscribedMints = this.subscribedMints.size;
+
+    if (bothDown && this.running && !this.stats.bothConnectionsDownStartedAt) {
+      this.stats.bothConnectionsDownStartedAt = now;
+      this.stats.bothConnectionsDownCount += 1;
+    } else if (!bothDown && this.stats.bothConnectionsDownStartedAt) {
+      this.stats.bothConnectionsDownMs += now - this.stats.bothConnectionsDownStartedAt;
+      this.stats.bothConnectionsDownStartedAt = null;
+    }
   }
 
   emitLifecycle(type, payload = {}) {
@@ -1083,8 +1474,17 @@ class PumpPortalListener {
   }
 
   getStats() {
+    this.refreshConnectionState();
+    const bothConnectionsDownMs = this.stats.bothConnectionsDownStartedAt
+      ? this.stats.bothConnectionsDownMs + (Date.now() - this.stats.bothConnectionsDownStartedAt)
+      : this.stats.bothConnectionsDownMs;
     return {
       ...this.stats,
+      backupOnly: this.backupOnly,
+      bothConnectionsDownMs,
+      splitSocketsEnabled: this.useSplitSockets,
+      postCloseTradestreamDelayMs: this.postCloseTradestreamDelayMs,
+      postCloseTradestreamGateUntilMs: this.postCloseTradestreamGateUntilMs,
       subscribedMints: this.subscribedMints.size,
       subscribedAccounts: this.subscribedAccounts.size,
       skippedPaidStreamMints: this.skippedPaidStreamMints.size,

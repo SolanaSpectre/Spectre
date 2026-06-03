@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const AsyncJsonlWriter = require('./async-jsonl-writer');
 
 class LaunchIntelStore {
   constructor(config, logger) {
@@ -10,10 +11,12 @@ class LaunchIntelStore {
     this.historyFilePath = config.launchIntelHistoryFilePath;
     this.deployerIndexFilePath = config.launchIntelDeployerIndexFilePath;
     this.walletIndexFilePath = config.launchIntelWalletIndexFilePath;
+    this.runtimeFlushEnabled = config.launchIntelRuntimeFlushEnabled === true;
     this.walletIntelFilePath = config.walletIntelFilePath;
     this.kolscanLeaderboardFilePath = config.kolscanLeaderboardFilePath;
     this.manualKolWalletFilePath = config.manualKolWalletFilePath;
     this.flushIntervalMs = config.launchIntelFlushIntervalMs;
+    this.indexFlushIntervalMs = config.launchIntelIndexFlushIntervalMs;
     this.maxTrackedTokens = config.launchIntelMaxTrackedTokens;
     this.maxEarlyBuys = config.launchIntelMaxEarlyBuys;
     this.sniperWindowMs = config.launchIntelSniperWindowMs;
@@ -25,6 +28,7 @@ class LaunchIntelStore {
     this.walletIndex = new Map();
     this.kolWalletProfiles = new Map();
     this.lastFlushAt = 0;
+    this.lastIndexFlushAt = 0;
     this.dirty = false;
     this.isRehydrating = false;
 
@@ -36,6 +40,7 @@ class LaunchIntelStore {
     fs.mkdirSync(path.dirname(this.historyFilePath), { recursive: true });
     fs.mkdirSync(path.dirname(this.deployerIndexFilePath), { recursive: true });
     fs.mkdirSync(path.dirname(this.walletIndexFilePath), { recursive: true });
+    this.historyWriter = new AsyncJsonlWriter(this.historyFilePath, this.logger);
     this.loadKolWalletProfiles();
     this.loadExistingState();
   }
@@ -1148,7 +1153,9 @@ class LaunchIntelStore {
 
   markDirty() {
     this.dirty = true;
-    this.flush();
+    if (this.runtimeFlushEnabled) {
+      this.flush();
+    }
   }
 
   flush(force = false) {
@@ -1160,6 +1167,7 @@ class LaunchIntelStore {
     if (!force && now - this.lastFlushAt < this.flushIntervalMs) {
       return;
     }
+    const shouldFlushIndexes = force || now - this.lastIndexFlushAt >= this.indexFlushIntervalMs;
 
     const payload = {
       generatedAt: new Date().toISOString(),
@@ -1171,36 +1179,39 @@ class LaunchIntelStore {
 
     try {
       fs.writeFileSync(this.latestFilePath, JSON.stringify(payload, null, 2), 'utf8');
-      fs.writeFileSync(this.deployerIndexFilePath, JSON.stringify({
-        generatedAt: new Date().toISOString(),
-        items: [...this.deployerIndex.values()]
-          .map((entry) => ({
-            wallet: entry.wallet,
-            firstSeen: entry.firstSeen,
-            lastSeen: entry.lastSeen,
-            totalTokens: entry.totalTokens,
-            launches: entry.launches
-              .slice()
-              .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
-          }))
-          .sort((a, b) => (b.totalTokens || 0) - (a.totalTokens || 0))
-      }, null, 2), 'utf8');
-      fs.writeFileSync(this.walletIndexFilePath, JSON.stringify({
-        generatedAt: new Date().toISOString(),
-        items: [...this.walletIndex.values()]
-          .map((entry) => ({
-            wallet: entry.wallet,
-            firstSeen: entry.firstSeen,
-            lastSeen: entry.lastSeen,
-            totalLaunches: entry.totalLaunches,
-            totalBuyCount: entry.totalBuyCount,
-            totalVolumeSol: entry.totalVolumeSol,
-            launches: entry.launches
-              .slice()
-              .sort((a, b) => new Date(b.lastSeen || 0).getTime() - new Date(a.lastSeen || 0).getTime())
-          }))
-          .sort((a, b) => (b.totalLaunches || 0) - (a.totalLaunches || 0))
-      }, null, 2), 'utf8');
+      if (shouldFlushIndexes) {
+        fs.writeFileSync(this.deployerIndexFilePath, JSON.stringify({
+          generatedAt: new Date().toISOString(),
+          items: [...this.deployerIndex.values()]
+            .map((entry) => ({
+              wallet: entry.wallet,
+              firstSeen: entry.firstSeen,
+              lastSeen: entry.lastSeen,
+              totalTokens: entry.totalTokens,
+              launches: entry.launches
+                .slice()
+                .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+            }))
+            .sort((a, b) => (b.totalTokens || 0) - (a.totalTokens || 0))
+        }, null, 2), 'utf8');
+        fs.writeFileSync(this.walletIndexFilePath, JSON.stringify({
+          generatedAt: new Date().toISOString(),
+          items: [...this.walletIndex.values()]
+            .map((entry) => ({
+              wallet: entry.wallet,
+              firstSeen: entry.firstSeen,
+              lastSeen: entry.lastSeen,
+              totalLaunches: entry.totalLaunches,
+              totalBuyCount: entry.totalBuyCount,
+              totalVolumeSol: entry.totalVolumeSol,
+              launches: entry.launches
+                .slice()
+                .sort((a, b) => new Date(b.lastSeen || 0).getTime() - new Date(a.lastSeen || 0).getTime())
+            }))
+            .sort((a, b) => (b.totalLaunches || 0) - (a.totalLaunches || 0))
+        }, null, 2), 'utf8');
+        this.lastIndexFlushAt = now;
+      }
       this.lastFlushAt = now;
       this.dirty = false;
     } catch (error) {
@@ -1213,15 +1224,11 @@ class LaunchIntelStore {
       return;
     }
 
-    try {
-      fs.appendFileSync(
-        this.historyFilePath,
-        `${JSON.stringify({ type, timestamp: new Date().toISOString(), payload })}\n`,
-        'utf8'
-      );
-    } catch (error) {
-      this.logger.warn('Failed to append launch intel history', error.message);
-    }
+    this.historyWriter?.append({ type, timestamp: new Date().toISOString(), payload }, 'launch intel history');
+  }
+
+  async flushAsync() {
+    await this.historyWriter?.flush?.();
   }
 
   minIso(a, b) {

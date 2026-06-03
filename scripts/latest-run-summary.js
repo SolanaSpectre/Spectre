@@ -7,6 +7,9 @@ const DEFAULT_OUTPUT = path.join(REPO_ROOT, 'data', 'reports', 'latest-run-summa
 const FILES = {
   battlefield: 'data/reports/run-battlefield-latest.json',
   simpleRuntimeAiEvidence: 'data/reports/simple-runtime-ai-evidence-latest.json',
+  pumpDevCurveParity: 'data/reports/pumpdev-curve-parity-latest.json',
+  pumpDevTargetedCurveParity: 'data/reports/pumpdev-targeted-curve-parity-latest.json',
+  eventLoopLagDiagnostic: 'data/reports/event-loop-lag-diagnostic-latest.json',
   outcomeLedger: 'data/reports/outcome-ledger-latest.json',
   falseNegatives: 'data/watchlists/outcome-ledger-false-negative-latest.json',
   preMigrationOutcomes: 'data/reports/pre-migration-outcomes-latest.json',
@@ -21,6 +24,15 @@ const FILES = {
   preMigrationEntryTimingPressure: 'data/reports/pre-migration-entry-timing-pressure-latest.json',
   preMigrationRollingEntryTrend: 'data/reports/pre-migration-rolling-entry-trend-latest.json',
   preMigrationEntryShape: 'data/reports/pre-migration-entry-shape-latest.json',
+  preMigrationSkipFollowThrough: 'data/reports/pre-migration-skip-follow-through-latest.json',
+  preMigrationSkipNear90Watchlist: 'data/reports/pre-migration-skip-near-90-watchlist-latest.json',
+  preMigrationHighConvictionWatchFollowThrough: 'data/reports/pre-migration-high-conviction-watch-follow-through-latest.json',
+  preMigrationDryRunOutcome: 'data/reports/pre-migration-dry-run-outcome-latest.json',
+  preMigrationRelaxedGateReplay: 'data/reports/pre-migration-relaxed-gate-replay-latest.json',
+  preMigrationWalletConditionedRelaxedGateReplay: 'data/reports/pre-migration-wallet-conditioned-relaxed-gate-replay-latest.json',
+  preMigrationWalletRelaxedShadowOutcome: 'data/reports/pre-migration-wallet-relaxed-shadow-outcome-latest.json',
+  preMigrationWalletContextCoverage: 'data/reports/pre-migration-wallet-context-coverage-latest.json',
+  preMigrationWalletContextFollowThrough: 'data/reports/pre-migration-wallet-context-follow-through-latest.json',
   signalQuality: 'data/reports/pre-migration-signal-quality-latest.json',
   learning: 'data/reports/learning-orchestrator-latest.json',
   continuationPaper: 'data/reports/continuation-paper-latest.json',
@@ -55,7 +67,8 @@ const FILES = {
   walletPaperEntryConditional: 'data/reports/wallet-paper-entry-conditional-latest.json',
   walletFalseNegativeBridge: 'data/reports/wallet-false-negative-bridge-latest.json',
   walletFalseNegativeEntryReplay: 'data/reports/wallet-false-negative-entry-replay-latest.json',
-  walletFalseNegativeShape: 'data/reports/wallet-false-negative-shape-latest.json'
+  walletFalseNegativeShape: 'data/reports/wallet-false-negative-shape-latest.json',
+  rickSightingFollowThrough: 'data/reports/rick-sighting-follow-through-latest.json'
 };
 
 function parseArgs(argv) {
@@ -289,6 +302,33 @@ function summarizeNoPriorFollowThrough(item = {}) {
 function summarizeDelayedEntryReplay(item = {}) {
   const label = item.symbol || item.mint || 'UNKNOWN';
   return `${label} | delay=${item.delay || 'n/a'} | ${item.class || 'n/a'} | pnl=${item.pnlSol === null || item.pnlSol === undefined ? 'n/a' : sol(item.pnlSol, 6)} | hold=${item.holdSeconds ?? 'n/a'}s | curve@entry=${fmt(item.entryCurveProgress, 4)} | maxCurve=${fmt(item.maxCurveProgressInWindow, 4)}`;
+}
+
+function summarizeSkipFollowThrough(item = {}) {
+  const label = candidateLabel(item);
+  const w120 = item.window120s || {};
+  return `${label} | reason=${item.reason || 'n/a'} | class=${item.followThroughClass || 'n/a'} | curve=${fmt(item.curveProgress, 4)} | delta120=${fmt(w120.curveDelta, 4)} | max120=${fmt(w120.maxCurveProgress, 4)} | priceDelta120=${w120.maxPriceDeltaPct === null || w120.maxPriceDeltaPct === undefined ? 'n/a' : `${fmt(w120.maxPriceDeltaPct, 2)}%`}`;
+}
+
+function summarizeSkipNear90Watchlist(item = {}) {
+  const label = candidateLabel(item);
+  const reasons = Array.isArray(item.reasons) ? item.reasons.join('+') : item.reason || 'n/a';
+  const w120 = item.window120s || {};
+  const w300 = item.window300s || {};
+  return `${label} | reasons=${reasons} | curve=${fmt(item.curveProgress, 4)} | score=${fmt(item.score, 2)} | max120=${fmt(w120.maxCurveProgress, 4)} | cross90_120=${w120.crossed90AfterSkip === true} | priceDelta120=${w120.maxPriceDeltaPct === null || w120.maxPriceDeltaPct === undefined ? 'n/a' : `${fmt(w120.maxPriceDeltaPct, 2)}%`} | max300=${fmt(w300.maxCurveProgress, 4)}`;
+}
+
+function summarizeHighConvictionWatchFollowThrough(item = {}) {
+  const label = candidateLabel(item);
+  const w120 = item.window120s || {};
+  const w300 = item.window300s || {};
+  const tags = Array.isArray(item.tags) && item.tags.length ? ` | tags=${item.tags.slice(0, 4).join(',')}` : '';
+  return `${label} | verdict=${item.verdict || 'n/a'} | score=${fmt(item.score, 2)} | curve=${fmt(item.curveProgress, 4)} | max120=${fmt(w120.maxCurveProgress, 4)} | cross85/90_120=${w120.crossed85AfterWatch === true}/${w120.crossed90AfterWatch === true} | priceDelta120=${w120.maxPriceDeltaPct === null || w120.maxPriceDeltaPct === undefined ? 'n/a' : `${fmt(w120.maxPriceDeltaPct, 2)}%`} | max300=${fmt(w300.maxCurveProgress, 4)}${tags}`;
+}
+
+function summarizeRelaxedGateTrade(item = {}) {
+  const label = candidateLabel(item);
+  return `${label} | ${item.exitReason || 'n/a'} | pnl=${sol(item.pnlSol, 6)} | net=${fmt(item.netReturnPct, 2)}% | hold=${fmt(item.holdSeconds, 2)}s | curve=${fmt(item.entryCurveProgress, 4)}->${fmt(item.exitCurveProgress, 4)} | score=${fmt(item.score, 2)} | reason=${item.reasonAtEntry || 'n/a'}`;
 }
 
 function summarizeRunnerReject(item = {}) {
@@ -611,6 +651,51 @@ function readPumpPortalStatsFromTelemetry(battlefield = {}) {
     lastCloseCode: null,
     lastCloseReason: null
   };
+  const makeRoleLifecycle = () => ({
+    connected: 0,
+    closed: 0,
+    websocketErrors: 0,
+    staleReconnects: 0,
+    closeConnectionAgeMs: [],
+    closeSubscribedMints: [],
+    closeConnectionPingsSent: [],
+    closeConnectionPongsReceived: [],
+    closeConnectionMessages: [],
+    closeConnectionNewTokens: [],
+    closeConnectionTrades: [],
+    closeConnectionMigrations: [],
+    closeConnectionControlFrames: [],
+    closeConnectionMessagesPerMinute: [],
+    closeLastMessageAgeMs: [],
+    closeConnectionPairSolEvents: [],
+    closeConnectionPairUsdcEvents: [],
+    closeConnectionPairUnknownEvents: [],
+    lastCloseCode: null,
+    lastCloseReason: null
+  });
+  const lifecycleByRole = {
+    discovery: makeRoleLifecycle(),
+    tradestream: makeRoleLifecycle()
+  };
+  const pushCloseLifecycle = (target, payload) => {
+    target.closed += 1;
+    target.closeConnectionAgeMs.push(payload.connectionAgeMs);
+    target.closeSubscribedMints.push(payload.subscribedMints);
+    target.closeConnectionPingsSent.push(payload.connectionPingsSent);
+    target.closeConnectionPongsReceived.push(payload.connectionPongsReceived);
+    target.closeConnectionMessages.push(payload.connectionMessages);
+    target.closeConnectionNewTokens.push(payload.connectionNewTokens);
+    target.closeConnectionTrades.push(payload.connectionTrades);
+    target.closeConnectionMigrations.push(payload.connectionMigrations);
+    target.closeConnectionControlFrames.push(payload.connectionControlFramesSent);
+    target.closeConnectionMessagesPerMinute.push(payload.connectionMessagesPerMinute);
+    target.closeLastMessageAgeMs.push(payload.lastMessageAgeMsAtClose);
+    target.closeConnectionPairSolEvents.push(payload.connectionPairSolEvents);
+    target.closeConnectionPairUsdcEvents.push(payload.connectionPairUsdcEvents);
+    target.closeConnectionPairUnknownEvents.push(payload.connectionPairUnknownEvents);
+    target.lastCloseCode = payload.code ?? target.lastCloseCode;
+    target.lastCloseReason = payload.reason || target.lastCloseReason;
+  };
   try {
     const lines = fs.readFileSync(resolvedPath, 'utf8').split(/\r?\n/);
     for (const line of lines) {
@@ -619,29 +704,20 @@ function readPumpPortalStatsFromTelemetry(battlefield = {}) {
         const event = JSON.parse(line);
         if (event.type === 'provider.pumpportal.connected') {
           lifecycle.connected += 1;
-        } else if (event.type === 'provider.pumpportal.closed') {
-          lifecycle.closed += 1;
           const payload = event.payload || event.data || {};
-          lifecycle.closeConnectionAgeMs.push(payload.connectionAgeMs);
-          lifecycle.closeSubscribedMints.push(payload.subscribedMints);
-          lifecycle.closeConnectionPingsSent.push(payload.connectionPingsSent);
-          lifecycle.closeConnectionPongsReceived.push(payload.connectionPongsReceived);
-          lifecycle.closeConnectionMessages.push(payload.connectionMessages);
-          lifecycle.closeConnectionNewTokens.push(payload.connectionNewTokens);
-          lifecycle.closeConnectionTrades.push(payload.connectionTrades);
-          lifecycle.closeConnectionMigrations.push(payload.connectionMigrations);
-          lifecycle.closeConnectionControlFrames.push(payload.connectionControlFramesSent);
-          lifecycle.closeConnectionMessagesPerMinute.push(payload.connectionMessagesPerMinute);
-          lifecycle.closeLastMessageAgeMs.push(payload.lastMessageAgeMsAtClose);
-          lifecycle.closeConnectionPairSolEvents.push(payload.connectionPairSolEvents);
-          lifecycle.closeConnectionPairUsdcEvents.push(payload.connectionPairUsdcEvents);
-          lifecycle.closeConnectionPairUnknownEvents.push(payload.connectionPairUnknownEvents);
-          lifecycle.lastCloseCode = payload.code ?? lifecycle.lastCloseCode;
-          lifecycle.lastCloseReason = payload.reason || lifecycle.lastCloseReason;
+          if (lifecycleByRole[payload.role]) lifecycleByRole[payload.role].connected += 1;
+        } else if (event.type === 'provider.pumpportal.closed') {
+          const payload = event.payload || event.data || {};
+          pushCloseLifecycle(lifecycle, payload);
+          if (lifecycleByRole[payload.role]) pushCloseLifecycle(lifecycleByRole[payload.role], payload);
         } else if (event.type === 'provider.pumpportal.websocket_error') {
           lifecycle.websocketErrors += 1;
+          const payload = event.payload || event.data || {};
+          if (lifecycleByRole[payload.role]) lifecycleByRole[payload.role].websocketErrors += 1;
         } else if (event.type === 'provider.pumpportal.stale_reconnect') {
           lifecycle.staleReconnects += 1;
+          const payload = event.payload || event.data || {};
+          if (lifecycleByRole[payload.role]) lifecycleByRole[payload.role].staleReconnects += 1;
         }
         const pumpPortal = get(event, [
           'payload.stats.pumpPortal',
@@ -668,7 +744,8 @@ function readPumpPortalStatsFromTelemetry(battlefield = {}) {
     telemetryPath,
     error: stats ? null : 'pumpPortal stats not found',
     stats,
-    lifecycle
+    lifecycle,
+    lifecycleByRole
   };
 }
 
@@ -722,14 +799,41 @@ function buildPumpPortalHealth(battlefield = {}) {
   const telemetry = readPumpPortalStatsFromTelemetry(battlefield);
   const stats = telemetry.stats || {};
   const lifecycle = telemetry.lifecycle || {};
-  const closeAgeStats = numericStats(lifecycle.closeConnectionAgeMs || []);
-  const closeAgeBuckets = bucketCounts(lifecycle.closeConnectionAgeMs || [], [
+  const closeAgeBucketsFor = (values) => bucketCounts(values || [], [
     { label: '<30s', min: null, max: 30_000 },
     { label: '30-90s', min: 30_000, max: 90_000 },
     { label: '90-180s', min: 90_000, max: 180_000 },
     { label: '180-300s', min: 180_000, max: 300_000 },
     { label: '>300s', min: 300_000, max: null }
   ]);
+  const lifecycleSummary = (source = {}) => ({
+    connected: number(source.connected, 0),
+    closed: number(source.closed, 0),
+    websocketErrors: number(source.websocketErrors, 0),
+    staleReconnects: number(source.staleReconnects, 0),
+    closeAgeStats: numericStats(source.closeConnectionAgeMs || []),
+    closeAgeBuckets: closeAgeBucketsFor(source.closeConnectionAgeMs || []),
+    closeSubscribedMintStats: numericStats(source.closeSubscribedMints || []),
+    closeConnectionPingStats: numericStats(source.closeConnectionPingsSent || []),
+    closeConnectionPongStats: numericStats(source.closeConnectionPongsReceived || []),
+    closeConnectionMessageStats: numericStats(source.closeConnectionMessages || []),
+    closeConnectionNewTokenStats: numericStats(source.closeConnectionNewTokens || []),
+    closeConnectionTradeStats: numericStats(source.closeConnectionTrades || []),
+    closeConnectionMigrationStats: numericStats(source.closeConnectionMigrations || []),
+    closeConnectionControlFrameStats: numericStats(source.closeConnectionControlFrames || []),
+    closeConnectionMessagesPerMinuteStats: numericStats(source.closeConnectionMessagesPerMinute || []),
+    closeLastMessageAgeStats: numericStats(source.closeLastMessageAgeMs || []),
+    closeConnectionPairSolStats: numericStats(source.closeConnectionPairSolEvents || []),
+    closeConnectionPairUsdcStats: numericStats(source.closeConnectionPairUsdcEvents || []),
+    closeConnectionPairUnknownStats: numericStats(source.closeConnectionPairUnknownEvents || [])
+  });
+  const aggregateLifecycle = lifecycleSummary(lifecycle);
+  const roleLifecycle = {
+    discovery: lifecycleSummary(telemetry.lifecycleByRole?.discovery || {}),
+    tradestream: lifecycleSummary(telemetry.lifecycleByRole?.tradestream || {})
+  };
+  const closeAgeStats = aggregateLifecycle.closeAgeStats;
+  const closeAgeBuckets = aggregateLifecycle.closeAgeBuckets;
   const closeSubscribedMintStats = numericStats(lifecycle.closeSubscribedMints || []);
   const closeConnectionPingStats = numericStats(lifecycle.closeConnectionPingsSent || []);
   const closeConnectionPongStats = numericStats(lifecycle.closeConnectionPongsReceived || []);
@@ -786,6 +890,12 @@ function buildPumpPortalHealth(battlefield = {}) {
   const reconnectResubscribeMaxMints = number(stats.reconnectResubscribeMaxMints, 0);
   const reconnectResubscribeBatchSize = number(stats.reconnectResubscribeBatchSize, 0);
   const reconnectResubscribeBatchDelayMs = number(stats.reconnectResubscribeBatchDelayMs, 0);
+  const splitSocketsEnabled = Object.prototype.hasOwnProperty.call(stats, 'splitSocketsEnabled')
+    ? stats.splitSocketsEnabled === true
+    : null;
+  const backupOnly = stats.backupOnly === true;
+  const postCloseTradestreamDelayMs = number(stats.postCloseTradestreamDelayMs, 0);
+  const postCloseTradestreamGateUntilMs = number(stats.postCloseTradestreamGateUntilMs, 0);
   const eventHandlerConcurrency = number(stats.eventHandlerConcurrency, 0);
   const eventQueueMaxSize = number(stats.eventQueueMaxSize, 0);
   const eventQueueDepth = number(stats.eventQueueDepth, 0);
@@ -905,6 +1015,10 @@ function buildPumpPortalHealth(battlefield = {}) {
     reconnectResubscribeMaxMints,
     reconnectResubscribeBatchSize,
     reconnectResubscribeBatchDelayMs,
+    splitSocketsEnabled,
+    backupOnly,
+    postCloseTradestreamDelayMs,
+    postCloseTradestreamGateUntilMs,
     eventHandlerConcurrency,
     eventQueueMaxSize,
     eventQueueDepth,
@@ -951,6 +1065,22 @@ function buildPumpPortalHealth(battlefield = {}) {
       closeConnectionPairUsdcStats,
       closeConnectionPairUnknownStats
     },
+    roles: {
+      discovery: {
+        ...(stats.discovery || {}),
+        lifecycle: roleLifecycle.discovery
+      },
+      tradestream: {
+        ...(stats.tradestream || {}),
+        lifecycle: roleLifecycle.tradestream
+      }
+    },
+    crossSocket: {
+      bothConnectionsDownCount: number(stats.bothConnectionsDownCount, 0),
+      bothConnectionsDownMs: number(stats.bothConnectionsDownMs, 0),
+      discoveryEventsWhileTradestreamDown: number(stats.discoveryEventsWhileTradestreamDown, 0),
+      tradestreamEventsWhileDiscoveryDown: number(stats.tradestreamEventsWhileDiscoveryDown, 0)
+    },
     connected,
     paidTradeStreamsEnabled,
     lastCloseCode,
@@ -965,18 +1095,364 @@ function buildPumpPortalHealth(battlefield = {}) {
   };
 }
 
+function readPumpDevStatsFromTelemetry(battlefield = {}) {
+  const telemetryPath = battlefield.telemetryPath || battlefield.files?.telemetryPath;
+  let stats = readRuntimeStatsFromTelemetry(battlefield).stats?.pumpDev || null;
+  const aggregate = {
+    enabled: false,
+    connected: false,
+    messages: 0,
+    newTokens: 0,
+    trades: 0,
+    migrations: 0,
+    mintEvents: 0,
+    pairSolEvents: 0,
+    pairUsdcEvents: 0,
+    pairUnknownEvents: 0,
+    newTokenPairSolEvents: 0,
+    newTokenPairUsdcEvents: 0,
+    newTokenPairUnknownEvents: 0,
+    tradePairSolEvents: 0,
+    tradePairUsdcEvents: 0,
+    tradePairUnknownEvents: 0,
+    mintEventPairSolEvents: 0,
+    mintEventPairUsdcEvents: 0,
+    mintEventPairUnknownEvents: 0,
+    openEvents: 0,
+    closeEvents: 0,
+    errorEvents: 0,
+    feedMode: 'unknown',
+    drivesPreMigration: false,
+    providerCurveSnapshots: 0,
+    providerCurveSolSnapshots: 0,
+    providerCurveUsdcSnapshots: 0
+  };
+  const lifecycle = {
+    connected: 0,
+    closed: 0,
+    websocketErrors: 0,
+    closeConnectionAgeMs: [],
+    closeSubscribedMints: [],
+    closeConnectionMessages: [],
+    closeConnectionNewTokens: [],
+    closeConnectionTrades: [],
+    closeConnectionMintEvents: [],
+    closeConnectionControlFrames: [],
+    closeConnectionMessagesPerMinute: [],
+    closeLastMessageAgeMs: [],
+    lastCloseCode: null,
+    lastCloseReason: null
+  };
+
+  if (telemetryPath && fs.existsSync(telemetryPath)) {
+    try {
+      const lines = fs.readFileSync(telemetryPath, 'utf8').split(/\r?\n/);
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let event;
+        try {
+          event = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        const payload = event.payload || event.data || {};
+        if (event.type === 'provider.pumpdev.connected') {
+          lifecycle.connected += 1;
+          aggregate.enabled = true;
+          aggregate.connected = true;
+          aggregate.openEvents += 1;
+        } else if (event.type === 'provider.pumpdev.closed') {
+          lifecycle.closed += 1;
+          aggregate.enabled = true;
+          aggregate.connected = false;
+          aggregate.closeEvents += 1;
+          lifecycle.closeConnectionAgeMs.push(payload.connectionAgeMs);
+          lifecycle.closeSubscribedMints.push(payload.subscribedMints);
+          lifecycle.closeConnectionMessages.push(payload.connectionMessages);
+          lifecycle.closeConnectionNewTokens.push(payload.connectionNewTokens);
+          lifecycle.closeConnectionTrades.push(payload.connectionTrades);
+          lifecycle.closeConnectionMintEvents.push(payload.connectionMintEvents);
+          lifecycle.closeConnectionControlFrames.push(payload.connectionControlFramesSent);
+          lifecycle.closeConnectionMessagesPerMinute.push(payload.connectionMessagesPerMinute);
+          lifecycle.closeLastMessageAgeMs.push(payload.lastMessageAgeMsAtClose);
+          lifecycle.lastCloseCode = payload.code ?? lifecycle.lastCloseCode;
+          lifecycle.lastCloseReason = payload.reason || lifecycle.lastCloseReason;
+        } else if (event.type === 'provider.pumpdev.websocket_error') {
+          lifecycle.websocketErrors += 1;
+          aggregate.enabled = true;
+          aggregate.errorEvents += 1;
+        } else if (String(event.type || '').startsWith('provider.pumpdev.')) {
+          aggregate.enabled = true;
+          if (event.type === 'provider.pumpdev.runtime_new_token') {
+            aggregate.drivesPreMigration = true;
+            aggregate.feedMode = 'primary';
+          } else if (event.type === 'provider.pumpdev.runtime_trade') {
+            aggregate.drivesPreMigration = true;
+            aggregate.feedMode = 'primary';
+          }
+          if (Number.isFinite(Number(payload.providerCurveProgress))) {
+            aggregate.providerCurveSnapshots += 1;
+            const providerPairBase = String(payload.pairBase || '').toUpperCase();
+            if (providerPairBase === 'SOL') aggregate.providerCurveSolSnapshots += 1;
+            else if (providerPairBase === 'USDC') aggregate.providerCurveUsdcSnapshots += 1;
+          }
+          if (event.type === 'provider.pumpdev.shadow_new_token') {
+            aggregate.messages += 1;
+            aggregate.newTokens += 1;
+            const pairBase = String(payload.pairBase || '').toUpperCase();
+            if (pairBase === 'SOL') {
+              aggregate.pairSolEvents += 1;
+              aggregate.newTokenPairSolEvents += 1;
+            } else if (pairBase === 'USDC') {
+              aggregate.pairUsdcEvents += 1;
+              aggregate.newTokenPairUsdcEvents += 1;
+            } else {
+              aggregate.pairUnknownEvents += 1;
+              aggregate.newTokenPairUnknownEvents += 1;
+            }
+          } else if (event.type === 'provider.pumpdev.shadow_trade') {
+            aggregate.messages += 1;
+            aggregate.trades += 1;
+            const pairBase = String(payload.pairBase || '').toUpperCase();
+            if (pairBase === 'SOL') {
+              aggregate.pairSolEvents += 1;
+              aggregate.tradePairSolEvents += 1;
+            } else if (pairBase === 'USDC') {
+              aggregate.pairUsdcEvents += 1;
+              aggregate.tradePairUsdcEvents += 1;
+            } else {
+              aggregate.pairUnknownEvents += 1;
+              aggregate.tradePairUnknownEvents += 1;
+            }
+          } else if (event.type === 'provider.pumpdev.shadow_mint_event') {
+            aggregate.messages += 1;
+            aggregate.mintEvents += 1;
+            const pairBase = String(payload.pairBase || '').toUpperCase();
+            if (pairBase === 'SOL') {
+              aggregate.pairSolEvents += 1;
+              aggregate.mintEventPairSolEvents += 1;
+            } else if (pairBase === 'USDC') {
+              aggregate.pairUsdcEvents += 1;
+              aggregate.mintEventPairUsdcEvents += 1;
+            } else {
+              aggregate.pairUnknownEvents += 1;
+              aggregate.mintEventPairUnknownEvents += 1;
+            }
+          } else if (event.type === 'provider.pumpdev.shadow_migration') {
+            aggregate.messages += 1;
+            aggregate.migrations += 1;
+          }
+        }
+        const pumpDev = get(event, [
+          'payload.stats.pumpDev',
+          'data.stats.pumpDev',
+          'payload.pumpDev',
+          'data.pumpDev'
+        ]);
+        if (pumpDev) stats = pumpDev;
+      }
+    } catch {}
+  }
+
+  if (aggregate.enabled) {
+    stats = {
+      ...(stats || {}),
+      enabled: true,
+      connected: stats?.connected === true,
+      feedMode: aggregate.feedMode !== 'unknown' ? aggregate.feedMode : (stats?.feedMode || 'shadow'),
+      drivesPreMigration: Boolean(stats?.drivesPreMigration || aggregate.drivesPreMigration),
+      messages: Math.max(number(stats?.messages, 0), aggregate.messages),
+      newTokens: Math.max(number(stats?.newTokens, 0), aggregate.newTokens),
+      trades: Math.max(number(stats?.trades, 0), aggregate.trades),
+      migrations: Math.max(number(stats?.migrations, 0), aggregate.migrations),
+      mintEvents: Math.max(number(stats?.mintEvents, 0), aggregate.mintEvents),
+      pairSolEvents: Math.max(number(stats?.pairSolEvents, 0), aggregate.pairSolEvents),
+      pairUsdcEvents: Math.max(number(stats?.pairUsdcEvents, 0), aggregate.pairUsdcEvents),
+      pairUnknownEvents: Math.max(number(stats?.pairUnknownEvents, 0), aggregate.pairUnknownEvents),
+      newTokenPairSolEvents: Math.max(number(stats?.newTokenPairSolEvents, 0), aggregate.newTokenPairSolEvents),
+      newTokenPairUsdcEvents: Math.max(number(stats?.newTokenPairUsdcEvents, 0), aggregate.newTokenPairUsdcEvents),
+      newTokenPairUnknownEvents: Math.max(number(stats?.newTokenPairUnknownEvents, 0), aggregate.newTokenPairUnknownEvents),
+      tradePairSolEvents: Math.max(number(stats?.tradePairSolEvents, 0), aggregate.tradePairSolEvents),
+      tradePairUsdcEvents: Math.max(number(stats?.tradePairUsdcEvents, 0), aggregate.tradePairUsdcEvents),
+      tradePairUnknownEvents: Math.max(number(stats?.tradePairUnknownEvents, 0), aggregate.tradePairUnknownEvents),
+      mintEventPairSolEvents: Math.max(number(stats?.mintEventPairSolEvents, 0), aggregate.mintEventPairSolEvents),
+      mintEventPairUsdcEvents: Math.max(number(stats?.mintEventPairUsdcEvents, 0), aggregate.mintEventPairUsdcEvents),
+      mintEventPairUnknownEvents: Math.max(number(stats?.mintEventPairUnknownEvents, 0), aggregate.mintEventPairUnknownEvents),
+      openEvents: Math.max(number(stats?.openEvents, 0), aggregate.openEvents),
+      closeEvents: Math.max(number(stats?.closeEvents, 0), aggregate.closeEvents),
+      errorEvents: Math.max(number(stats?.errorEvents, 0), aggregate.errorEvents),
+      providerCurveSnapshots: Math.max(number(stats?.providerCurveSnapshots, 0), aggregate.providerCurveSnapshots),
+      providerCurveSolSnapshots: Math.max(number(stats?.providerCurveSolSnapshots, 0), aggregate.providerCurveSolSnapshots),
+      providerCurveUsdcSnapshots: Math.max(number(stats?.providerCurveUsdcSnapshots, 0), aggregate.providerCurveUsdcSnapshots)
+    };
+  }
+
+  return {
+    telemetryPath,
+    stats,
+    lifecycle,
+    error: stats ? null : 'pumpDev stats not found'
+  };
+}
+
+function buildPumpDevHealth(battlefield = {}) {
+  const telemetry = readPumpDevStatsFromTelemetry(battlefield);
+  const stats = telemetry.stats || {};
+  const lifecycle = telemetry.lifecycle || {};
+  const eventCounts = battlefield.eventCounts || {};
+  const newTokens = number(stats.newTokens, number(eventCounts['provider.pumpdev.shadow_new_token'], 0));
+  const trades = number(stats.trades, number(eventCounts['provider.pumpdev.shadow_trade'], 0));
+  const migrations = number(stats.migrations, number(eventCounts['provider.pumpdev.shadow_migration'], 0));
+  const mintEvents = number(stats.mintEvents, number(eventCounts['provider.pumpdev.shadow_mint_event'], 0));
+  const closeAgeBuckets = bucketCounts(lifecycle.closeConnectionAgeMs || [], [
+    { label: '<30s', min: null, max: 30_000 },
+    { label: '30-90s', min: 30_000, max: 90_000 },
+    { label: '90-180s', min: 90_000, max: 180_000 },
+    { label: '180-300s', min: 180_000, max: 300_000 },
+    { label: '>300s', min: 300_000, max: null }
+  ]);
+  const closed = number(lifecycle.closed, number(stats.closeEvents, 0));
+  const errors = number(lifecycle.websocketErrors, number(stats.errorEvents, 0));
+  const connected = stats.connected === true;
+  const enabled = stats.enabled === true || newTokens > 0 || trades > 0 || mintEvents > 0 || migrations > 0;
+  const status = !enabled
+    ? 'disabled'
+    : errors > 0 || closed > 0
+      ? 'churn'
+      : connected || newTokens > 0 || trades > 0
+        ? 'healthy'
+        : 'idle';
+  let interpretation = 'PumpDev shadow feed is disabled.';
+  const drivesPreMigration = stats.drivesPreMigration === true
+    || number(eventCounts['provider.pumpdev.runtime_new_token'], 0) > 0
+    || number(eventCounts['provider.pumpdev.runtime_trade'], 0) > 0;
+  const feedMode = stats.feedMode || (drivesPreMigration ? 'primary' : 'shadow');
+  const label = drivesPreMigration ? 'primary' : 'shadow';
+  const primarySilenceTimeouts = number(eventCounts['provider.pumpdev.primary_silence_timeout'], 0);
+  const marketEvents = newTokens + trades + migrations + mintEvents;
+  if (enabled && errors === 0 && closed === 0 && newTokens > 0 && trades > 0) {
+    interpretation = `PumpDev ${label} feed delivered new-token and token-trade events without connection failure.`;
+  } else if (primarySilenceTimeouts > 0) {
+    interpretation = `PumpDev ${label} feed produced no market events before the fail-fast silence timeout; treat this run as a provider/feed-health test, not strategy evidence.`;
+  } else if (enabled && closed > 0) {
+    interpretation = `PumpDev ${label} feed closed during the run; compare closeAge and close traffic against PumpPortal.`;
+  } else if (enabled && newTokens > 0 && trades === 0) {
+    interpretation = `PumpDev ${label} new-token stream is working, but token-trade sampling did not produce trades.`;
+  } else if (enabled && marketEvents === 0 && number(stats.systemMessages, 0) > 0) {
+    interpretation = `PumpDev ${label} websocket opened but delivered only system/subscription messages; no strategy conclusions should be drawn.`;
+  }
+
+  return {
+    ok: Boolean(stats),
+    error: telemetry.error,
+    status,
+    enabled,
+    feedMode,
+    drivesPreMigration,
+    connected,
+    messages: number(stats.messages, 0),
+    systemMessages: number(stats.systemMessages, 0),
+    newTokens,
+    trades,
+    migrations,
+    mintEvents,
+    unknownMessages: number(stats.unknownMessages, 0),
+    knownMints: number(stats.knownMints, 0),
+    subscribedMints: number(stats.subscribedMints, 0),
+    maxSubscribedMints: number(stats.maxSubscribedMints, 0),
+    controlFramesSent: number(stats.controlFramesSent, 0),
+    tokenTradeSubscribeFrames: number(stats.tokenTradeSubscribeFrames, 0),
+    eventQueueActive: number(stats.eventQueueActive, 0),
+    eventQueueDepth: number(stats.eventQueueDepth, 0),
+    eventQueueMaxDepth: number(stats.eventQueueMaxDepth, 0),
+    eventQueueMaxSize: number(stats.eventQueueMaxSize, 0),
+    eventHandlerConcurrency: number(stats.eventHandlerConcurrency, 0),
+    eventQueueProcessed: number(stats.eventQueueProcessed, 0),
+    eventQueueDropped: number(stats.eventQueueDropped, 0),
+    eventQueueDiscardedOnStop: number(stats.eventQueueDiscardedOnStop, 0),
+    eventQueueErrors: number(stats.eventQueueErrors, 0),
+    pairSolEvents: number(stats.pairSolEvents, 0),
+    pairUsdcEvents: number(stats.pairUsdcEvents, 0),
+    pairUnknownEvents: number(stats.pairUnknownEvents, 0),
+    newTokenPairSolEvents: number(stats.newTokenPairSolEvents, 0),
+    newTokenPairUsdcEvents: number(stats.newTokenPairUsdcEvents, 0),
+    newTokenPairUnknownEvents: number(stats.newTokenPairUnknownEvents, 0),
+    tradePairSolEvents: number(stats.tradePairSolEvents, 0),
+    tradePairUsdcEvents: number(stats.tradePairUsdcEvents, 0),
+    tradePairUnknownEvents: number(stats.tradePairUnknownEvents, 0),
+    mintEventPairSolEvents: number(stats.mintEventPairSolEvents, 0),
+    mintEventPairUsdcEvents: number(stats.mintEventPairUsdcEvents, 0),
+    mintEventPairUnknownEvents: number(stats.mintEventPairUnknownEvents, 0),
+    providerCurveSnapshots: number(stats.providerCurveSnapshots, 0),
+    providerCurveSolSnapshots: number(stats.providerCurveSolSnapshots, 0),
+    providerCurveUsdcSnapshots: number(stats.providerCurveUsdcSnapshots, 0),
+    primarySilenceFailFastEnabled: stats.primarySilenceFailFastEnabled === true,
+    primarySilenceTimeoutMs: number(stats.primarySilenceTimeoutMs, 0),
+    primarySilenceElapsedMs: number(stats.primarySilenceElapsedMs, null),
+    primarySilenceTripped: stats.primarySilenceTripped === true || primarySilenceTimeouts > 0,
+    primarySilenceTimeouts,
+    pingsSent: number(stats.pingsSent, 0),
+    pongsReceived: number(stats.pongsReceived, 0),
+    pingIntervalMs: number(stats.pingIntervalMs, 0),
+    reconnectAttempts: number(stats.reconnectAttempts, 0),
+    closeEvents: closed,
+    errorEvents: errors,
+    lastCloseCode: stats.lastCloseCode ?? lifecycle.lastCloseCode ?? null,
+    lastCloseReason: stats.lastCloseReason || lifecycle.lastCloseReason || null,
+    lastErrorMessage: stats.lastErrorMessage || null,
+    lifecycle: {
+      connected: number(lifecycle.connected, 0),
+      closed,
+      websocketErrors: errors,
+      closeAgeStats: numericStats(lifecycle.closeConnectionAgeMs || []),
+      closeAgeBuckets,
+      closeSubscribedMintStats: numericStats(lifecycle.closeSubscribedMints || []),
+      closeConnectionMessageStats: numericStats(lifecycle.closeConnectionMessages || []),
+      closeConnectionNewTokenStats: numericStats(lifecycle.closeConnectionNewTokens || []),
+      closeConnectionTradeStats: numericStats(lifecycle.closeConnectionTrades || []),
+      closeConnectionMintEventStats: numericStats(lifecycle.closeConnectionMintEvents || []),
+      closeConnectionControlFrameStats: numericStats(lifecycle.closeConnectionControlFrames || []),
+      closeConnectionMessagesPerMinuteStats: numericStats(lifecycle.closeConnectionMessagesPerMinute || []),
+      closeLastMessageAgeStats: numericStats(lifecycle.closeLastMessageAgeMs || [])
+    },
+    eventCounts: {
+      newTokens: number(eventCounts['provider.pumpdev.shadow_new_token'], newTokens),
+      trades: number(eventCounts['provider.pumpdev.shadow_trade'], trades),
+      migrations: number(eventCounts['provider.pumpdev.shadow_migration'], migrations),
+      mintEvents: number(eventCounts['provider.pumpdev.shadow_mint_event'], mintEvents),
+      runtimeNewTokens: number(eventCounts['provider.pumpdev.runtime_new_token'], 0),
+      runtimeTrades: number(eventCounts['provider.pumpdev.runtime_trade'], 0)
+    },
+    interpretation
+  };
+}
+
 function buildBondingCurvePressure(battlefield = {}) {
   const telemetry = readRuntimeStatsFromTelemetry(battlefield);
   const stats = telemetry.stats?.pumpBondingCurveLane || {};
+  const eventCounts = battlefield.eventCounts || {};
+  const updateEvents = number(eventCounts['pump_bonding_curve.updated'], 0);
+  const providerSnapshotEvents = number(eventCounts['pump_bonding_curve.provider_snapshot'], 0);
+  const completeEvents = number(eventCounts['pump_bonding_curve.complete'], 0)
+    + number(eventCounts['pump_bonding_curve.synthetic_migration'], 0);
   return {
     ok: telemetry.ok && Boolean(telemetry.stats?.pumpBondingCurveLane),
-    error: telemetry.ok ? null : telemetry.error,
-    fetches: number(stats.fetches, 0),
-    updates: number(stats.updates, 0),
+      error: telemetry.ok ? null : telemetry.error,
+      fetches: number(stats.fetches, 0),
+      rpcBatches: number(stats.rpcBatches, 0),
+      batchAccounts: number(stats.batchAccounts, 0),
+      batchDedupedRequests: number(stats.batchDedupedRequests, 0),
+      batchFetchEnabled: stats.batchFetchEnabled === true,
+      batchFlushMs: number(stats.batchFlushMs, 0),
+      batchMaxAccounts: number(stats.batchMaxAccounts, 0),
+      rpcCommitment: stats.rpcCommitment || 'unknown',
+      pendingAccountFetches: number(stats.pendingAccountFetches, 0),
+      updates: number(stats.updates, updateEvents),
+    providerSnapshots: providerSnapshotEvents,
     errors: number(stats.errors, 0),
     missingAccounts: number(stats.missingAccounts, 0),
     invalidAccounts: number(stats.invalidAccounts, 0),
-    completeMintsObserved: number(stats.completeMintsObserved, 0),
+    completeMintsObserved: number(stats.completeMintsObserved, completeEvents),
     lastCompleteMint: stats.lastCompleteMint || null,
     lastCompleteAt: stats.lastCompleteAt || null,
     skippedGlobalBackoff: number(stats.skippedGlobalBackoff, 0),
@@ -987,22 +1463,60 @@ function buildBondingCurvePressure(battlefield = {}) {
     lastGlobalBackoffActivatedAt: stats.lastGlobalBackoffActivatedAt || null,
     lastGlobalBackoffErrorsInWindow: number(stats.lastGlobalBackoffErrorsInWindow, 0),
     recentFailuresInWindow: number(stats.recentFailuresInWindow, 0),
-    inFlight: number(stats.inFlight, 0)
-  };
-}
+    inFlight: number(stats.inFlight, 0),
+      engineQueueSize: number(stats.engineQueueSize, 0),
+      enginePendingSyncs: number(stats.enginePendingSyncs, 0),
+      pumpDevTargetedCurveParitySamples: number(stats.pumpDevTargetedCurveParitySamples, 0),
+      pumpDevTargetedCurveParityInFlight: number(stats.pumpDevTargetedCurveParityInFlight, 0),
+      pumpDevTargetedCurveParitySampleWatchEnabled: stats.pumpDevTargetedCurveParitySampleWatchEnabled === true,
+      pumpDevTargetedCurveParitySampleSkipsEnabled: stats.pumpDevTargetedCurveParitySampleSkipsEnabled === true,
+      pumpDevTargetedCurveParitySampleEligibleEnabled: stats.pumpDevTargetedCurveParitySampleEligibleEnabled !== false
+    };
+  }
 
 function buildSolanaRpcPressure(battlefield = {}) {
   const telemetry = readRuntimeStatsFromTelemetry(battlefield);
+  const callTelemetry = readSolanaRpcCallTelemetry(battlefield);
   const stats = telemetry.stats?.solanaRpc || {};
   const queue = stats.queue || {};
   const callStats = stats.stats || {};
+  const breaker = stats.circuitBreaker || {};
+  const transport = stats.transport || {};
   return {
     ok: telemetry.ok && Boolean(telemetry.stats?.solanaRpc),
     error: telemetry.ok ? null : telemetry.error,
     primaryProvider: stats.primary?.httpUrl?.provider || null,
     fallbackProvider: stats.fallback?.httpUrl?.provider || null,
+    httpAgentMode: transport.httpAgentMode || 'unknown',
+    accountReadTransport: transport.accountReadTransport || 'unknown',
+    accountReadProvider: transport.accountReadUrl?.provider || null,
+    accountReadOverride: transport.accountReadUrl?.redacted || null,
+    httpAgentConfigured: transport.httpAgentConfigured === true,
+    httpAgentKeepAliveMsecs: number(transport.keepAliveMsecs, 0),
+    httpAgentMaxSockets: number(transport.maxSockets, 0),
+    httpAgentMaxFreeSockets: number(transport.maxFreeSockets, 0),
+    httpAgentTimeoutMs: number(transport.timeoutMs, 0),
+    httpAgentScheduling: transport.scheduling || 'unknown',
     primaryDegraded: stats.primaryDegraded === true,
     primaryDegradedUntil: stats.primaryDegradedUntil || null,
+    fallbackDegraded: stats.fallbackDegraded === true,
+    fallbackDegradedUntil: stats.fallbackDegradedUntil || null,
+    sameVendorFallback: breaker.sameVendorFallback === true
+      || (stats.primary?.httpUrl?.provider && stats.primary?.httpUrl?.provider === stats.fallback?.httpUrl?.provider),
+    sameVendorFallbackEnabled: breaker.sameVendorFallbackEnabled === true,
+    primaryFailureStreak: number(breaker.primaryFailureStreak, 0),
+    fallbackFailureStreak: number(breaker.fallbackFailureStreak, 0),
+    primaryFailureThreshold: number(breaker.primaryFailureThreshold, 0),
+    fallbackFailureThreshold: number(breaker.fallbackFailureThreshold, 0),
+    primaryDowngradeLevel: number(breaker.primaryDowngradeLevel, 0),
+    fallbackDowngradeLevel: number(breaker.fallbackDowngradeLevel, 0),
+    lastPrimaryFailureAt: stats.lastPrimaryFailureAt || null,
+    lastPrimaryFailureReason: stats.lastPrimaryFailureReason || null,
+    lastFallbackFailureAt: stats.lastFallbackFailureAt || null,
+    lastFallbackFailureReason: stats.lastFallbackFailureReason || null,
+    accountInfoCacheTtlMs: number(queue.accountInfoCacheTtlMs, 0),
+    accountInfoCacheSize: number(queue.accountInfoCacheSize, 0),
+    accountInfoInFlight: number(queue.accountInfoInFlight, 0),
     active: number(queue.active, 0),
     pending: number(queue.pending, 0),
     maxConcurrentRequests: number(queue.maxConcurrentRequests, 0),
@@ -1010,16 +1524,467 @@ function buildSolanaRpcPressure(battlefield = {}) {
     primaryCalls: number(callStats.primaryCalls, 0),
     fallbackCalls: number(callStats.fallbackCalls, 0),
     primaryFailures: number(callStats.primaryFailures, 0),
+    primaryDegradations: number(callStats.primaryDegradations, 0),
+    primaryFailuresSuppressed: number(callStats.primaryFailuresSuppressed, 0),
     fallbackSuccesses: number(callStats.fallbackSuccesses, 0),
     fallbackFailures: number(callStats.fallbackFailures, 0),
+    fallbackDegradations: number(callStats.fallbackDegradations, 0),
+    fallbackFailuresSuppressed: number(callStats.fallbackFailuresSuppressed, 0),
+    failureClasses: callStats.failureClasses || {},
+    startedByMethod: callTelemetry.startedByMethod,
+    completedByMethod: callTelemetry.completedByMethod,
+    failedByMethod: callTelemetry.failedByMethod,
+    failedByCommitment: callTelemetry.failedByCommitment,
+    callTelemetryStarted: number(callStats.callTelemetryStarted, 0),
+    callTelemetryCompleted: number(callStats.callTelemetryCompleted, 0),
+    callTelemetryFailed: number(callStats.callTelemetryFailed, 0),
+    accountInfoCacheHits: number(callStats.accountInfoCacheHits, 0),
+    accountInfoInFlightHits: number(callStats.accountInfoInFlightHits, 0),
+    accountInfoCacheWrites: number(callStats.accountInfoCacheWrites, 0),
     queuedCalls: number(callStats.queuedCalls, 0),
     maxQueueDepth: number(callStats.maxQueueDepth, 0)
   };
 }
 
+function readSolanaRpcCallTelemetry(battlefield = {}) {
+  const telemetryPath = get(battlefield, 'files.telemetryPath', null);
+  const resolvedPath = resolveRepoFile(telemetryPath);
+  const summary = {
+    startedByMethod: {},
+    completedByMethod: {},
+    failedByMethod: {},
+    failedByCommitment: {}
+  };
+
+  if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+    return summary;
+  }
+
+  const bump = (target, key) => {
+    const label = key || 'unknown';
+    target[label] = (target[label] || 0) + 1;
+  };
+
+  try {
+    const lines = fs.readFileSync(resolvedPath, 'utf8').split(/\r?\n/);
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch (_) {
+        continue;
+      }
+
+      if (!String(event.type || '').startsWith('solana_rpc.call_')) {
+        continue;
+      }
+
+      const payload = event.payload || event.data || {};
+      if (event.type === 'solana_rpc.call_started') {
+        bump(summary.startedByMethod, payload.methodName);
+      } else if (event.type === 'solana_rpc.call_completed') {
+        bump(summary.completedByMethod, payload.methodName);
+      } else if (event.type === 'solana_rpc.call_failed') {
+        bump(summary.failedByMethod, payload.methodName);
+        bump(summary.failedByCommitment, payload.commitment);
+      }
+    }
+  } catch (_) {
+    return summary;
+  }
+
+  return summary;
+}
+
+function readFinalistAccountVerifierTelemetry(battlefield = {}) {
+  const telemetryPath = get(battlefield, 'files.telemetryPath', null);
+  const resolvedPath = resolveRepoFile(telemetryPath);
+  const summary = {
+    subscribed: 0,
+    skipped: 0,
+    subscribeErrors: 0,
+    updates: 0,
+    invalidUpdates: 0,
+    initialSnapshots: 0,
+    initialSnapshotMissing: 0,
+    initialSnapshotErrors: 0,
+    initialSnapshotMethods: {},
+    unsubscribed: 0,
+    uniqueSubscribedMints: 0,
+    uniqueUpdatedMints: 0,
+    uniqueInvalidMints: 0,
+    selectionClassCounts: {},
+    skipReasons: {},
+    invalidReasons: {},
+    updateStages: {},
+    updateSources: {},
+    shadowGateChecks: 0,
+    shadowGateReady: 0,
+    shadowGateBlocked: 0,
+    shadowGateStatuses: {},
+    shadowGateBlockedReasons: {},
+    shadowGateByDecision: {},
+    firstUpdateLatencyMs: { count: 0, min: null, median: null, p90: null, max: null },
+    subscribedWithoutUpdate: 0,
+    updatesPerMint: {},
+    latestUpdates: [],
+    latestInvalidUpdates: [],
+    latestShadowGateRows: [],
+    latestSkips: [],
+    stopStats: null,
+    rawUpdatesProcessed: 0,
+    updateTelemetrySuppressed: 0,
+    updateTelemetryMinIntervalMs: 0,
+    updateTelemetryMinCurveDelta: 0
+  };
+
+  if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+    return summary;
+  }
+
+  const subscribedMints = new Set();
+  const updatedMints = new Set();
+  const invalidMints = new Set();
+  const subscribedAtByMint = new Map();
+  const firstUpdateLatencyValues = [];
+  const updateCountsByMint = {};
+  const bump = (target, key) => {
+    const label = key || 'unknown';
+    target[label] = (target[label] || 0) + 1;
+  };
+  const pushLimited = (target, item, limit = 6) => {
+    target.push(item);
+    if (target.length > limit) target.shift();
+  };
+
+  try {
+    const lines = fs.readFileSync(resolvedPath, 'utf8').split(/\r?\n/);
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch (_) {
+        continue;
+      }
+
+      const type = String(event.type || '');
+      if (type === 'session.stopping' || type === 'session.stopped') {
+        const stopStats = event.payload?.stats?.finalistAccountVerifier || null;
+        if (stopStats) summary.stopStats = stopStats;
+      }
+      if (!type.startsWith('finalist_account_verifier.')) continue;
+      const payload = event.payload || event.data || {};
+      const mint = payload.mint || null;
+      const symbol = payload.symbol || null;
+
+      if (type === 'finalist_account_verifier.subscribed') {
+        summary.subscribed += 1;
+        if (mint) subscribedMints.add(mint);
+        if (mint) {
+          const subscribedAtMs = Date.parse(event.timestamp || payload.subscribedAt || '');
+          if (Number.isFinite(subscribedAtMs)) subscribedAtByMint.set(mint, subscribedAtMs);
+        }
+        bump(summary.selectionClassCounts, payload.selectionClass);
+      } else if (type === 'finalist_account_verifier.skipped') {
+        summary.skipped += 1;
+        bump(summary.selectionClassCounts, payload.selectionClass);
+        bump(summary.skipReasons, payload.reason);
+        pushLimited(summary.latestSkips, {
+          mint,
+          symbol,
+          reason: payload.reason || null,
+          selectionClass: payload.selectionClass || null
+        });
+      } else if (type === 'finalist_account_verifier.subscribe_error') {
+        summary.subscribeErrors += 1;
+        bump(summary.selectionClassCounts, payload.selectionClass);
+      } else if (type === 'finalist_account_verifier.initial_snapshot') {
+        summary.initialSnapshots += 1;
+        bump(summary.initialSnapshotMethods, payload.method);
+      } else if (type === 'finalist_account_verifier.initial_snapshot_missing') {
+        summary.initialSnapshotMissing += 1;
+        bump(summary.initialSnapshotMethods, payload.method);
+      } else if (type === 'finalist_account_verifier.initial_snapshot_error') {
+        summary.initialSnapshotErrors += 1;
+        bump(summary.initialSnapshotMethods, payload.method);
+      } else if (type === 'finalist_account_verifier.update') {
+        summary.updates += 1;
+        if (mint) updatedMints.add(mint);
+        if (mint) {
+          updateCountsByMint[mint] = (updateCountsByMint[mint] || 0) + 1;
+          if (updateCountsByMint[mint] === 1 && subscribedAtByMint.has(mint)) {
+            const updateAtMs = Number(payload.receivedAtMs) || Date.parse(event.timestamp || payload.receivedAt || '');
+            const latencyMs = updateAtMs - subscribedAtByMint.get(mint);
+            if (Number.isFinite(latencyMs) && latencyMs >= 0) {
+              firstUpdateLatencyValues.push(latencyMs);
+            }
+          }
+        }
+        bump(summary.updateStages, payload.bondingStage);
+        bump(summary.updateSources, payload.updateSource);
+        pushLimited(summary.latestUpdates, {
+          mint,
+          symbol,
+          slot: payload.slot ?? null,
+          curveProgress: payload.curveProgress ?? null,
+          providerCurveProgressAtSubscribe: payload.providerCurveProgressAtSubscribe ?? null,
+          subscriptionCurveDelta: payload.subscriptionCurveDelta ?? null,
+          updateSource: payload.updateSource || null,
+          priceSol: payload.priceSol ?? null,
+          bondingStage: payload.bondingStage || null,
+          complete: payload.complete === true
+        });
+      } else if (type === 'finalist_account_verifier.update_invalid') {
+        summary.invalidUpdates += 1;
+        if (mint) invalidMints.add(mint);
+        bump(summary.invalidReasons, payload.reason);
+        pushLimited(summary.latestInvalidUpdates, {
+          mint,
+          symbol,
+          slot: payload.slot ?? null,
+          reason: payload.reason || null,
+          owner: payload.owner || null
+        });
+      } else if (type === 'finalist_account_verifier.unsubscribed') {
+        summary.unsubscribed += 1;
+      } else if (type === 'finalist_account_verifier.shadow_live_gate') {
+        summary.shadowGateChecks += 1;
+        if (payload.status === 'LIVE_SHADOW_READY_FRESH_ACCOUNT_STATE') {
+          summary.shadowGateReady += 1;
+        } else {
+          summary.shadowGateBlocked += 1;
+        }
+        bump(summary.shadowGateStatuses, payload.status);
+        if (payload.blockedReason) {
+          bump(summary.shadowGateBlockedReasons, payload.blockedReason);
+        }
+        bump(summary.shadowGateByDecision, payload.decision);
+        pushLimited(summary.latestShadowGateRows, {
+          mint,
+          symbol,
+          decision: payload.decision || null,
+          reason: payload.reason || null,
+          status: payload.status || null,
+          blockedReason: payload.blockedReason || null,
+          accountAgeMs: payload.accountAgeMs ?? null,
+          paperCurveProgress: payload.paperCurveProgress ?? null,
+          accountCurveProgress: payload.accountCurveProgress ?? null,
+          curveDelta: payload.curveDelta ?? null,
+          absCurveDelta: payload.absCurveDelta ?? null,
+          maxCurveDelta: payload.maxCurveDelta ?? null
+        });
+      }
+    }
+  } catch (_) {
+    return summary;
+  }
+
+  summary.uniqueSubscribedMints = subscribedMints.size;
+  summary.uniqueUpdatedMints = updatedMints.size;
+  summary.uniqueInvalidMints = invalidMints.size;
+  summary.firstUpdateLatencyMs = numericStats(firstUpdateLatencyValues);
+  summary.subscribedWithoutUpdate = Array.from(subscribedMints).filter((mint) => !updatedMints.has(mint)).length;
+  summary.updatesPerMint = updateCountsByMint;
+  if (summary.stopStats) {
+    summary.rawUpdatesProcessed = Number(summary.stopStats.updates || summary.updates || 0);
+    summary.updateTelemetrySuppressed = Number(summary.stopStats.updateTelemetrySuppressed || 0);
+    summary.updateTelemetryMinIntervalMs = Number(summary.stopStats.updateTelemetryMinIntervalMs || 0);
+    summary.updateTelemetryMinCurveDelta = Number(summary.stopStats.updateTelemetryMinCurveDelta || 0);
+  } else {
+    summary.rawUpdatesProcessed = summary.updates;
+  }
+  return summary;
+}
+
+function readLiveExecutionDryRunTelemetry(battlefield = {}) {
+  const telemetryPath = get(battlefield, 'files.telemetryPath', null);
+  const resolvedPath = resolveRepoFile(telemetryPath);
+  const summary = {
+    attempts: 0,
+    wouldSend: 0,
+    wouldBlock: 0,
+    skipped: 0,
+    errors: 0,
+    uniqueMints: 0,
+    blockReasons: {},
+    skipReasons: {},
+    byDecision: {},
+    txBuildStatuses: {},
+    blockhashOk: { true: 0, false: 0 },
+    simulationOk: { true: 0, false: 0, null: 0 },
+    simulationErrors: {},
+    simulationMissingAccounts: {},
+    accountAgeMs: { count: 0, min: null, median: null, p90: null, max: null },
+    priceImpactPct: { count: 0, min: null, median: null, p90: null, max: null },
+    postTradePriceMovePct: { count: 0, min: null, median: null, p90: null, max: null },
+    blockhashLatencyMs: { count: 0, min: null, median: null, p90: null, max: null },
+    latestRows: []
+  };
+
+  if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+    return summary;
+  }
+
+  const mints = new Set();
+  const accountAges = [];
+  const priceImpacts = [];
+  const postTradeMoves = [];
+  const blockhashLatencies = [];
+  const bump = (target, key) => {
+    const label = key === true || key === false ? String(key) : (key || 'unknown');
+    target[label] = (target[label] || 0) + 1;
+  };
+  const pushLimited = (target, item, limit = 8) => {
+    target.push(item);
+    if (target.length > limit) target.shift();
+  };
+
+  try {
+    const lines = fs.readFileSync(resolvedPath, 'utf8').split(/\r?\n/);
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch (_) {
+        continue;
+      }
+      const type = String(event.type || '');
+      if (!type.startsWith('live_dry_run.')) continue;
+      const payload = event.payload || event.data || {};
+      const mint = payload.mint || null;
+      if (mint) mints.add(mint);
+
+      if (type === 'live_dry_run.would_send') {
+        summary.attempts += 1;
+        summary.wouldSend += 1;
+      } else if (type === 'live_dry_run.would_block') {
+        summary.attempts += 1;
+        summary.wouldBlock += 1;
+        bump(summary.blockReasons, payload.reason);
+      } else if (type === 'live_dry_run.skipped') {
+        summary.skipped += 1;
+        bump(summary.skipReasons, payload.reason);
+      } else if (type === 'live_dry_run.error') {
+        summary.errors += 1;
+      }
+
+      bump(summary.byDecision, payload.sourceDecision);
+      bump(summary.txBuildStatuses, payload.txBuildStatus);
+      if (payload.blockhashOk === true || payload.blockhashOk === false) {
+        bump(summary.blockhashOk, payload.blockhashOk);
+      }
+      if (payload.simulationOk === true || payload.simulationOk === false) {
+        bump(summary.simulationOk, payload.simulationOk);
+        if (payload.simulationOk === false) bump(summary.simulationErrors, payload.simulationError || payload.reason || 'SIMULATION_FAILED');
+      } else if (type === 'live_dry_run.would_send' || type === 'live_dry_run.would_block') {
+        bump(summary.simulationOk, 'null');
+      }
+      const missingAccounts = payload.simulationAccountDiagnostic?.missingAccounts;
+      if (Array.isArray(missingAccounts)) {
+        for (const account of missingAccounts) {
+          bump(summary.simulationMissingAccounts, account?.name || account?.pubkey || 'unknown');
+        }
+      }
+
+      const accountAge = Number(payload.accountAgeMs);
+      if (Number.isFinite(accountAge)) accountAges.push(accountAge);
+      const priceImpact = Number(payload.quote?.priceImpactPct ?? payload.priceImpactPct);
+      if (Number.isFinite(priceImpact)) priceImpacts.push(priceImpact);
+      const postTradeMove = Number(payload.quote?.postTradePriceMovePct ?? payload.postTradePriceMovePct);
+      if (Number.isFinite(postTradeMove)) postTradeMoves.push(postTradeMove);
+      const blockhashLatency = Number(payload.blockhashLatencyMs);
+      if (Number.isFinite(blockhashLatency)) blockhashLatencies.push(blockhashLatency);
+
+      if (type === 'live_dry_run.would_send' || type === 'live_dry_run.would_block') {
+        pushLimited(summary.latestRows, {
+          mint,
+          symbol: payload.symbol || null,
+          eventType: type,
+          reason: payload.reason || null,
+          sourceDecision: payload.sourceDecision || null,
+          accountAgeMs: payload.accountAgeMs ?? null,
+          accountCurveProgress: payload.accountCurveProgress ?? null,
+          amountSol: payload.amountSol ?? null,
+          priceImpactPct: payload.quote?.priceImpactPct ?? null,
+          postTradePriceMovePct: payload.quote?.postTradePriceMovePct ?? null,
+          estimatedTokensOut: payload.quote?.estimatedTokensOut ?? null,
+          blockhashOk: payload.blockhashOk ?? null,
+          blockhashLatencyMs: payload.blockhashLatencyMs ?? null,
+          simulationOk: payload.simulationOk ?? null,
+          simulationError: payload.simulationError || null,
+          simulationLogs: Array.isArray(payload.simulationLogs) ? payload.simulationLogs.slice(-4) : [],
+          missingAccounts: Array.isArray(payload.simulationAccountDiagnostic?.missingAccounts)
+            ? payload.simulationAccountDiagnostic.missingAccounts.slice(0, 6)
+            : [],
+          txBuildStatus: payload.txBuildStatus || null
+        });
+      }
+    }
+  } catch (_) {
+    return summary;
+  }
+
+  summary.uniqueMints = mints.size;
+  summary.accountAgeMs = numericStats(accountAges);
+  summary.priceImpactPct = numericStats(priceImpacts);
+  summary.postTradePriceMovePct = numericStats(postTradeMoves);
+  summary.blockhashLatencyMs = numericStats(blockhashLatencies);
+  return summary;
+}
+
+function readRuntimeHealthTelemetry(battlefield = {}) {
+  const telemetryPath = get(battlefield, 'files.telemetryPath', null);
+  const resolvedPath = resolveRepoFile(telemetryPath);
+  const summary = {
+    eventLoopLagEvents: 0,
+    eventLoopLagStats: { count: 0, min: null, median: null, p90: null, max: null },
+    eventLoopSummary: null
+  };
+
+  if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+    return summary;
+  }
+
+  const lagValues = [];
+  try {
+    const lines = fs.readFileSync(resolvedPath, 'utf8').split(/\r?\n/);
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch (_) {
+        continue;
+      }
+
+      const type = String(event.type || '');
+      const payload = event.payload || event.data || {};
+      if (type === 'runtime.event_loop_lag') {
+        summary.eventLoopLagEvents += 1;
+        if (Number.isFinite(Number(payload.lagMs))) {
+          lagValues.push(Number(payload.lagMs));
+        }
+      } else if (type === 'runtime.event_loop_monitor_summary') {
+        summary.eventLoopSummary = payload;
+      }
+    }
+  } catch (_) {
+    return summary;
+  }
+
+  summary.eventLoopLagStats = numericStats(lagValues);
+  return summary;
+}
+
 function buildSummary(docs) {
   const battlefield = docs.battlefield.data || {};
   const simpleRuntimeAiEvidence = docs.simpleRuntimeAiEvidence.data || {};
+  const pumpDevCurveParity = docs.pumpDevCurveParity.data || {};
+  const pumpDevTargetedCurveParity = docs.pumpDevTargetedCurveParity.data || {};
+  const eventLoopLagDiagnostic = docs.eventLoopLagDiagnostic.data || {};
   const ledger = docs.outcomeLedger.data || {};
   const falseNeg = docs.falseNegatives.data || {};
   const preOutcomes = docs.preMigrationOutcomes.data || {};
@@ -1034,6 +1999,15 @@ function buildSummary(docs) {
   const entryTimingPressure = docs.preMigrationEntryTimingPressure.data || {};
   const rollingEntryTrend = docs.preMigrationRollingEntryTrend.data || {};
   const entryShape = docs.preMigrationEntryShape.data || {};
+  const skipFollowThrough = docs.preMigrationSkipFollowThrough.data || {};
+  const skipNear90Watchlist = docs.preMigrationSkipNear90Watchlist.data || {};
+  const highConvictionWatchFollowThrough = docs.preMigrationHighConvictionWatchFollowThrough.data || {};
+  const dryRunOutcome = docs.preMigrationDryRunOutcome.data || {};
+  const relaxedGateReplay = docs.preMigrationRelaxedGateReplay.data || {};
+  const walletConditionedRelaxedGateReplay = docs.preMigrationWalletConditionedRelaxedGateReplay.data || {};
+  const walletRelaxedShadowOutcome = docs.preMigrationWalletRelaxedShadowOutcome.data || {};
+  const walletContextCoverage = docs.preMigrationWalletContextCoverage.data || {};
+  const walletContextFollowThrough = docs.preMigrationWalletContextFollowThrough.data || {};
   const signal = docs.signalQuality.data || {};
   const learning = docs.learning.data || {};
   const continuation = docs.continuationPaper.data || {};
@@ -1069,6 +2043,10 @@ function buildSummary(docs) {
   const walletFalseNegativeBridge = docs.walletFalseNegativeBridge.data || {};
   const walletFalseNegativeEntryReplay = docs.walletFalseNegativeEntryReplay.data || {};
   const walletFalseNegativeShape = docs.walletFalseNegativeShape.data || {};
+  const rickSightingFollowThrough = docs.rickSightingFollowThrough.data || {};
+  const finalistAccountVerifierTelemetry = readFinalistAccountVerifierTelemetry(battlefield);
+  const liveExecutionDryRunTelemetry = readLiveExecutionDryRunTelemetry(battlefield);
+  const runtimeHealthTelemetry = readRuntimeHealthTelemetry(battlefield);
   const lines = [];
 
   const generatedAt = new Date().toISOString();
@@ -1118,6 +2096,7 @@ function buildSummary(docs) {
   const aiReachability = buildAiReachability(battlefield);
   const aiHistoricalSummary = simpleRuntimeAiEvidence.summary || {};
   const pumpPortalHealth = buildPumpPortalHealth(battlefield);
+  const pumpDevHealth = buildPumpDevHealth(battlefield);
   const bondingCurvePressure = buildBondingCurvePressure(battlefield);
   const solanaRpcPressure = buildSolanaRpcPressure(battlefield);
   const runnerLifecycle = battlefield.runnerLane?.simpleRuntimeAiLifecycle || {};
@@ -1162,6 +2141,7 @@ function buildSummary(docs) {
   lines.push(`  - paid trade streams enabled / skipped mints / skipped accounts: ${pumpPortalHealth.paidTradeStreamsEnabled} / ${pumpPortalHealth.tradeSubscriptionsSkippedNoApiKey || pumpPortalHealth.skippedPaidStreamMints} / ${pumpPortalHealth.accountSubscriptionsSkippedNoApiKey}`);
   lines.push(`  - token trade subscription load: active=${pumpPortalHealth.subscribedMints}, max=${pumpPortalHealth.maxSubscribedMints || 'n/a'}, ttl=${pumpPortalHealth.tokenTradeSubscriptionTtlMs ? `${pumpPortalHealth.tokenTradeSubscriptionTtlMs}ms` : 'n/a'}, pruned=${pumpPortalHealth.tokenTradeSubscriptionPrunes || 0} (ttl=${pumpPortalHealth.tokenTradeTtlPrunes || 0}, max=${pumpPortalHealth.tokenTradeMaxActivePrunes || 0}), skippedMax=${pumpPortalHealth.tradeSubscriptionsSkippedMaxActive || 0}`);
   lines.push(`  - control frames sent / token subscribe / token unsubscribe: ${pumpPortalHealth.controlFramesSent || 0} / ${pumpPortalHealth.tokenTradeSubscribeFrames || 0} / ${pumpPortalHealth.tokenTradeUnsubscribeFrames || 0}`);
+  lines.push(`  - split sockets enabled / backup-only / post-1006 tradestream delay: ${pumpPortalHealth.splitSocketsEnabled === null ? 'unknown' : pumpPortalHealth.splitSocketsEnabled === true} / ${pumpPortalHealth.backupOnly === true} / ${pumpPortalHealth.postCloseTradestreamDelayMs || 0}ms`);
   lines.push(`  - pair-base detection total SOL/USDC/unknown: ${pumpPortalHealth.pairSolEvents || 0} / ${pumpPortalHealth.pairUsdcEvents || 0} / ${pumpPortalHealth.pairUnknownEvents || 0}${pumpPortalHealth.lastDetectedPairBase ? ` (last=${pumpPortalHealth.lastDetectedPairBase}${pumpPortalHealth.lastDetectedPairAt ? ` at ${pumpPortalHealth.lastDetectedPairAt}` : ''})` : ''}`);
   lines.push(`  - pair-base by event newToken SOL/USDC/unknown: ${pumpPortalHealth.newTokenPairSolEvents || 0} / ${pumpPortalHealth.newTokenPairUsdcEvents || 0} / ${pumpPortalHealth.newTokenPairUnknownEvents || 0}`);
   lines.push(`  - pair-base by event trade SOL/USDC/unknown: ${pumpPortalHealth.tradePairSolEvents || 0} / ${pumpPortalHealth.tradePairUsdcEvents || 0} / ${pumpPortalHealth.tradePairUnknownEvents || 0}; migration SOL/USDC/unknown: ${pumpPortalHealth.migrationPairSolEvents || 0} / ${pumpPortalHealth.migrationPairUsdcEvents || 0} / ${pumpPortalHealth.migrationPairUnknownEvents || 0}`);
@@ -1193,6 +2173,18 @@ function buildSummary(docs) {
     lines.push(`  - close connection traffic median messages/trades/controlFrames/msgPerMin/lastMsgAge: ${closeMessages.median === null ? 'n/a' : fmt(closeMessages.median, 0)} / ${closeTrades.median === null ? 'n/a' : fmt(closeTrades.median, 0)} / ${closeControlFrames.median === null ? 'n/a' : fmt(closeControlFrames.median, 0)} / ${closeMessagesPerMinute.median === null ? 'n/a' : fmt(closeMessagesPerMinute.median, 2)} / ${closeLastMessageAge.median === null ? 'n/a' : `${fmt(closeLastMessageAge.median, 0)}ms`}`);
     lines.push(`  - close pair-base median USDC/unknown events: ${closeUsdc.median === null ? 'n/a' : fmt(closeUsdc.median, 0)} / ${closeUnknownPair.median === null ? 'n/a' : fmt(closeUnknownPair.median, 0)}`);
   }
+  lines.push('  - split-socket roles:');
+  ['discovery', 'tradestream'].forEach((role) => {
+    const roleStats = pumpPortalHealth.roles?.[role] || {};
+    const roleLifecycle = roleStats.lifecycle || {};
+    const age = roleLifecycle.closeAgeStats || {};
+    const buckets = roleLifecycle.closeAgeBuckets || {};
+    const messagesAtClose = roleLifecycle.closeConnectionMessageStats || {};
+    const tradesAtClose = roleLifecycle.closeConnectionTradeStats || {};
+    const controlAtClose = roleLifecycle.closeConnectionControlFrameStats || {};
+    lines.push(`    - ${role}: connected=${roleStats.connected === true}, messages/new/trade/migration=${roleStats.messages || 0} / ${roleStats.newTokens || 0} / ${roleStats.trades || 0} / ${roleStats.migrations || 0}, closes/errors/stale=${roleLifecycle.closed || roleStats.closeEvents || 0} / ${roleLifecycle.websocketErrors || 0} / ${roleLifecycle.staleReconnects || roleStats.staleReconnects || 0}, closeAge median/p90/max=${age.median === null || age.median === undefined ? 'n/a' : `${fmt(age.median, 0)}ms`} / ${age.p90 === null || age.p90 === undefined ? 'n/a' : `${fmt(age.p90, 0)}ms`} / ${age.max === null || age.max === undefined ? 'n/a' : `${fmt(age.max, 0)}ms`}, buckets=${buckets['<30s'] || 0}/${buckets['30-90s'] || 0}/${buckets['90-180s'] || 0}/${buckets['180-300s'] || 0}/${buckets['>300s'] || 0}, close median msg/trade/control=${messagesAtClose.median === null || messagesAtClose.median === undefined ? 'n/a' : fmt(messagesAtClose.median, 0)} / ${tradesAtClose.median === null || tradesAtClose.median === undefined ? 'n/a' : fmt(tradesAtClose.median, 0)} / ${controlAtClose.median === null || controlAtClose.median === undefined ? 'n/a' : fmt(controlAtClose.median, 0)}`);
+  });
+  lines.push(`  - split-socket isolation: bothDown count/ms=${pumpPortalHealth.crossSocket?.bothConnectionsDownCount || 0} / ${pumpPortalHealth.crossSocket?.bothConnectionsDownMs || 0}, discoveryEventsWhileTradestreamDown=${pumpPortalHealth.crossSocket?.discoveryEventsWhileTradestreamDown || 0}, tradestreamEventsWhileDiscoveryDown=${pumpPortalHealth.crossSocket?.tradestreamEventsWhileDiscoveryDown || 0}`);
   lines.push(`  - current/max reconnect backoff delay: ${pumpPortalHealth.reconnectDelayMs ? `${pumpPortalHealth.reconnectDelayMs}ms` : 'n/a'} / ${pumpPortalHealth.maxReconnectDelayMs ? `${pumpPortalHealth.maxReconnectDelayMs}ms` : 'n/a'}`);
   lines.push(`  - stable reconnect resets / reset window: ${pumpPortalHealth.reconnectDelayStableResets} / ${pumpPortalHealth.reconnectDelayResetAfterStableMs ? `${pumpPortalHealth.reconnectDelayResetAfterStableMs}ms` : 'n/a'}`);
   lines.push(`  - connected at stop: ${pumpPortalHealth.connected}`);
@@ -1200,17 +2192,194 @@ function buildSummary(docs) {
   lines.push(`  - last websocket error: ${pumpPortalHealth.lastErrorMessage || 'none'}`);
   lines.push(`  - event counts new_token/trade/migration/synthetic_migration: ${pumpPortalHealth.eventCounts.newTokens} / ${pumpPortalHealth.eventCounts.trades} / ${pumpPortalHealth.eventCounts.migrations} / ${pumpPortalHealth.eventCounts.syntheticMigrations}`);
   lines.push(`  - interpretation: ${pumpPortalHealth.interpretation}`);
+  lines.push('- PumpDev shadow feed health:');
+  lines.push(`  - status / enabled / connected / mode / drivesPreMigration: ${pumpDevHealth.status} / ${pumpDevHealth.enabled} / ${pumpDevHealth.connected} / ${pumpDevHealth.feedMode} / ${pumpDevHealth.drivesPreMigration}`);
+  lines.push(`  - messages / new tokens / trades / mint events / migrations: ${pumpDevHealth.messages} / ${pumpDevHealth.newTokens} / ${pumpDevHealth.trades} / ${pumpDevHealth.mintEvents} / ${pumpDevHealth.migrations}`);
+  lines.push(`  - reconnects / closes / errors: ${pumpDevHealth.reconnectAttempts} / ${pumpDevHealth.closeEvents} / ${pumpDevHealth.errorEvents}`);
+  lines.push(`  - token trade subscription load: active=${pumpDevHealth.subscribedMints}, max=${pumpDevHealth.maxSubscribedMints || 'n/a'}, subscribeFrames=${pumpDevHealth.tokenTradeSubscribeFrames || 0}, controlFrames=${pumpDevHealth.controlFramesSent || 0}`);
+  lines.push(`  - message handler queue: active=${pumpDevHealth.eventQueueActive}, depth/max=${pumpDevHealth.eventQueueDepth} / ${pumpDevHealth.eventQueueMaxDepth}, processed/dropped/coalesced/stop-discarded/errors=${pumpDevHealth.eventQueueProcessed} / ${pumpDevHealth.eventQueueDropped} / ${pumpDevHealth.eventQueueTradeCoalesced || 0} / ${pumpDevHealth.eventQueueDiscardedOnStop} / ${pumpDevHealth.eventQueueErrors}, concurrency=${pumpDevHealth.eventHandlerConcurrency || 'n/a'}, max=${pumpDevHealth.eventQueueMaxSize || 'n/a'}`);
+  lines.push(`  - pair-base total SOL/USDC/unknown: ${pumpDevHealth.pairSolEvents || 0} / ${pumpDevHealth.pairUsdcEvents || 0} / ${pumpDevHealth.pairUnknownEvents || 0}`);
+  lines.push(`  - pair-base by event newToken SOL/USDC/unknown: ${pumpDevHealth.newTokenPairSolEvents || 0} / ${pumpDevHealth.newTokenPairUsdcEvents || 0} / ${pumpDevHealth.newTokenPairUnknownEvents || 0}`);
+  lines.push(`  - pair-base by event trade SOL/USDC/unknown: ${pumpDevHealth.tradePairSolEvents || 0} / ${pumpDevHealth.tradePairUsdcEvents || 0} / ${pumpDevHealth.tradePairUnknownEvents || 0}; mintEvent SOL/USDC/unknown: ${pumpDevHealth.mintEventPairSolEvents || 0} / ${pumpDevHealth.mintEventPairUsdcEvents || 0} / ${pumpDevHealth.mintEventPairUnknownEvents || 0}`);
+  lines.push(`  - provider curve snapshots total/SOL/USDC: ${pumpDevHealth.providerCurveSnapshots || 0} / ${pumpDevHealth.providerCurveSolSnapshots || 0} / ${pumpDevHealth.providerCurveUsdcSnapshots || 0}`);
+  lines.push(`  - websocket heartbeat: pingInterval=${pumpDevHealth.pingIntervalMs ? `${pumpDevHealth.pingIntervalMs}ms` : 'off'}, pings/pongs=${pumpDevHealth.pingsSent || 0} / ${pumpDevHealth.pongsReceived || 0}`);
+  lines.push(`  - primary silence fail-fast: enabled=${pumpDevHealth.primarySilenceFailFastEnabled} timeout=${pumpDevHealth.primarySilenceTimeoutMs || 0}ms tripped=${pumpDevHealth.primarySilenceTripped} events=${pumpDevHealth.primarySilenceTimeouts || 0} elapsed=${pumpDevHealth.primarySilenceElapsedMs === null ? 'n/a' : `${fmt(pumpDevHealth.primarySilenceElapsedMs, 0)}ms`}`);
+  if ((pumpDevHealth.lifecycle?.closed || 0) > 0) {
+    const age = pumpDevHealth.lifecycle.closeAgeStats || {};
+    const ageBuckets = pumpDevHealth.lifecycle.closeAgeBuckets || {};
+    const closeMessages = pumpDevHealth.lifecycle.closeConnectionMessageStats || {};
+    const closeTrades = pumpDevHealth.lifecycle.closeConnectionTradeStats || {};
+    const closeControlFrames = pumpDevHealth.lifecycle.closeConnectionControlFrameStats || {};
+    const closeMessagesPerMinute = pumpDevHealth.lifecycle.closeConnectionMessagesPerMinuteStats || {};
+    const closeLastMessageAge = pumpDevHealth.lifecycle.closeLastMessageAgeStats || {};
+    lines.push(`  - structured close lifecycle: connected/closed/errors=${pumpDevHealth.lifecycle.connected} / ${pumpDevHealth.lifecycle.closed} / ${pumpDevHealth.lifecycle.websocketErrors}, closeAge median/p90/max=${age.median === null ? 'n/a' : `${fmt(age.median, 0)}ms`} / ${age.p90 === null ? 'n/a' : `${fmt(age.p90, 0)}ms`} / ${age.max === null ? 'n/a' : `${fmt(age.max, 0)}ms`}`);
+    lines.push(`  - closeAge buckets <30s/30-90s/90-180s/180-300s/>300s: ${ageBuckets['<30s'] || 0} / ${ageBuckets['30-90s'] || 0} / ${ageBuckets['90-180s'] || 0} / ${ageBuckets['180-300s'] || 0} / ${ageBuckets['>300s'] || 0}`);
+    lines.push(`  - close connection traffic median messages/trades/controlFrames/msgPerMin/lastMsgAge: ${closeMessages.median === null ? 'n/a' : fmt(closeMessages.median, 0)} / ${closeTrades.median === null ? 'n/a' : fmt(closeTrades.median, 0)} / ${closeControlFrames.median === null ? 'n/a' : fmt(closeControlFrames.median, 0)} / ${closeMessagesPerMinute.median === null ? 'n/a' : fmt(closeMessagesPerMinute.median, 2)} / ${closeLastMessageAge.median === null ? 'n/a' : `${fmt(closeLastMessageAge.median, 0)}ms`}`);
+  }
+  lines.push(`  - event counts shadow_new/trade/mint/migration: ${pumpDevHealth.eventCounts.newTokens} / ${pumpDevHealth.eventCounts.trades} / ${pumpDevHealth.eventCounts.mintEvents} / ${pumpDevHealth.eventCounts.migrations}; runtime_new/trade=${pumpDevHealth.eventCounts.runtimeNewTokens} / ${pumpDevHealth.eventCounts.runtimeTrades}`);
+  lines.push(`  - interpretation: ${pumpDevHealth.interpretation}`);
+  lines.push('- PumpDev curve parity:');
+  lines.push(`  - verdict: ${pumpDevCurveParity.verdict || 'n/a'}`);
+  lines.push(`  - provider snapshots / on-chain updates / matched pairs: ${get(pumpDevCurveParity, 'counts.providerSnapshots', 0)} / ${get(pumpDevCurveParity, 'counts.onchainUpdates', 0)} / ${get(pumpDevCurveParity, 'counts.matchedPairs', 0)}`);
+  lines.push(`  - completion-race / non-completion matched pairs: ${get(pumpDevCurveParity, 'counts.completionRaceMatches', 'n/a')} / ${get(pumpDevCurveParity, 'counts.nonCompletionRaceMatches', 'n/a')}`);
+  lines.push(`  - match window / provider->onchain median age: ${pumpDevCurveParity.matchWindowMs || 'n/a'}ms / ${get(pumpDevCurveParity, 'deltas.providerToOnchainAgeMs.median', 'n/a')}ms`);
+  lines.push(`  - abs curve delta median/p90/max: ${get(pumpDevCurveParity, 'deltas.absCurveDelta.median', 'n/a')} / ${get(pumpDevCurveParity, 'deltas.absCurveDelta.p90', 'n/a')} / ${get(pumpDevCurveParity, 'deltas.absCurveDelta.max', 'n/a')}`);
+  lines.push(`  - non-completion abs curve delta median/p90/max: ${get(pumpDevCurveParity, 'deltas.nonCompletionRaceAbsCurveDelta.median', 'n/a')} / ${get(pumpDevCurveParity, 'deltas.nonCompletionRaceAbsCurveDelta.p90', 'n/a')} / ${get(pumpDevCurveParity, 'deltas.nonCompletionRaceAbsCurveDelta.max', 'n/a')}`);
+  lines.push(`  - virtual-reserve formula abs delta median/p90/max: ${get(pumpDevCurveParity, 'deltas.virtualReserveAbsCurveDelta.median', 'n/a')} / ${get(pumpDevCurveParity, 'deltas.virtualReserveAbsCurveDelta.p90', 'n/a')} / ${get(pumpDevCurveParity, 'deltas.virtualReserveAbsCurveDelta.max', 'n/a')}`);
+  lines.push(`  - abs price delta pct median/p90/max: ${get(pumpDevCurveParity, 'deltas.absPriceDeltaPct.median', 'n/a')} / ${get(pumpDevCurveParity, 'deltas.absPriceDeltaPct.p90', 'n/a')} / ${get(pumpDevCurveParity, 'deltas.absPriceDeltaPct.max', 'n/a')}`);
+  if (Array.isArray(pumpDevCurveParity.recommendations) && pumpDevCurveParity.recommendations.length) {
+    lines.push(`  - recommendation: ${pumpDevCurveParity.recommendations[0]}`);
+  }
+  const targetedParitySummary = pumpDevTargetedCurveParity.summary || {};
+  lines.push('- PumpDev targeted curve parity:');
+  lines.push(`  - mode: ${pumpDevTargetedCurveParity.mode || 'n/a'}`);
+  lines.push(`  - runtime decision-time samples: ${get(pumpDevTargetedCurveParity, 'inputs.runtimeSamples', 0)}`);
+  lines.push(`  - candidate targets / sampled / comparable/fresh/stale: ${targetedParitySummary.candidateTargets ?? 'n/a'} / ${targetedParitySummary.sampledTargets ?? 'n/a'} / ${targetedParitySummary.comparableRows ?? 'n/a'} / ${targetedParitySummary.freshComparableRows ?? 'n/a'} / ${targetedParitySummary.staleComparableRows ?? 'n/a'}`);
+  lines.push(`  - accountFound / missingProvider / fetchErrors: ${targetedParitySummary.accountFound ?? 'n/a'} / ${targetedParitySummary.missingProvider ?? 'n/a'} / ${targetedParitySummary.fetchErrors ?? 'n/a'}`);
+  lines.push(`  - bonding-curve validated / invalid / unvalidated: ${targetedParitySummary.validatedBondingCurveRows ?? 'n/a'} / ${targetedParitySummary.invalidBondingCurveRows ?? 'n/a'} / ${targetedParitySummary.unvalidatedBondingCurveRows ?? 'n/a'}`);
+  lines.push(`  - fresh abs curve delta median/p90/max (age<=${targetedParitySummary.maxFreshProviderToOnchainAgeMs ?? 'n/a'}ms): ${get(targetedParitySummary, 'freshAbsCurveDelta.median', 'n/a')} / ${get(targetedParitySummary, 'freshAbsCurveDelta.p90', 'n/a')} / ${get(targetedParitySummary, 'freshAbsCurveDelta.max', 'n/a')}`);
+  lines.push(`  - abs curve delta median/p90/max: ${get(targetedParitySummary, 'absCurveDelta.median', 'n/a')} / ${get(targetedParitySummary, 'absCurveDelta.p90', 'n/a')} / ${get(targetedParitySummary, 'absCurveDelta.max', 'n/a')}`);
+  lines.push(`  - fresh virtual-reserve formula abs delta median/p90/max: ${get(targetedParitySummary, 'freshVirtualReserveAbsCurveDelta.median', 'n/a')} / ${get(targetedParitySummary, 'freshVirtualReserveAbsCurveDelta.p90', 'n/a')} / ${get(targetedParitySummary, 'freshVirtualReserveAbsCurveDelta.max', 'n/a')}`);
+  lines.push(`  - virtual-reserve formula abs delta median/p90/max: ${get(targetedParitySummary, 'virtualReserveAbsCurveDelta.median', 'n/a')} / ${get(targetedParitySummary, 'virtualReserveAbsCurveDelta.p90', 'n/a')} / ${get(targetedParitySummary, 'virtualReserveAbsCurveDelta.max', 'n/a')}`);
+  lines.push(`  - provider->onchain age median/p90/max: ${get(targetedParitySummary, 'providerToOnchainAgeMs.median', 'n/a')} / ${get(targetedParitySummary, 'providerToOnchainAgeMs.p90', 'n/a')} / ${get(targetedParitySummary, 'providerToOnchainAgeMs.max', 'n/a')}ms`);
+  lines.push(`  - virtual token reserve delta pct median/p90/max: ${get(targetedParitySummary, 'providerToOnchainVirtualTokenReserveDeltaPct.median', 'n/a')} / ${get(targetedParitySummary, 'providerToOnchainVirtualTokenReserveDeltaPct.p90', 'n/a')} / ${get(targetedParitySummary, 'providerToOnchainVirtualTokenReserveDeltaPct.max', 'n/a')}`);
+  lines.push(`  - formula curve delta provider/onchain median: ${get(targetedParitySummary, 'providerFormulaCurveDelta.median', 'n/a')} / ${get(targetedParitySummary, 'onchainFormulaCurveDelta.median', 'n/a')}`);
+  lines.push(`  - high delta rows >0.05 fresh/all: ${targetedParitySummary.freshHighDeltaCountGt005 ?? 'n/a'} / ${targetedParitySummary.highDeltaCountGt005 ?? 'n/a'}`);
+  objectLines(targetedParitySummary.targetClassCounts, 5).forEach((line) => lines.push(`  - target class: ${line}`));
+  objectLines(targetedParitySummary.semanticDiagnosisCounts, 6).forEach((line) => lines.push(`  - semantic diagnosis: ${line}`));
+  const targetedHighDeltas = topArray(
+    (pumpDevTargetedCurveParity.freshHighDeltaRows || []).length
+      ? pumpDevTargetedCurveParity.freshHighDeltaRows
+      : pumpDevTargetedCurveParity.highDeltaRows,
+    5
+  );
+  if (targetedHighDeltas.length) {
+    lines.push(`  - largest targeted deltas${(pumpDevTargetedCurveParity.freshHighDeltaRows || []).length ? '' : ' (stale post-run samples)' }:`);
+    targetedHighDeltas.forEach((item, index) => {
+      lines.push(`    ${index + 1}. ${candidateLabel(item)} | classes=${Array.isArray(item.targetClasses) ? item.targetClasses.join('+') : 'n/a'} | provider=${fmt(item.providerCurveProgress, 4)} | onchain=${fmt(item.onchainCurveProgress, 4)} | virtualFormula=${fmt(item.onchainCurveProgressByVirtualTokenReserves, 4)} | absDelta=${fmt(item.absCurveDelta, 4)} | reserveDelta=${fmt(item.providerToOnchainVirtualTokenReserveDeltaPct, 2)}% | age=${item.providerToOnchainAgeMs ?? 'n/a'}ms | diagnosis=${item.semanticDiagnosis || 'n/a'} | validated=${item.bondingCurveValidated === true} | complete=${item.complete === true}`);
+    });
+  }
+  lines.push('- PumpPortal vs PumpDev shadow comparison:');
+  lines.push(`  - new tokens / trades / migrations-or-mint-events: ${pumpPortalHealth.newTokens} vs ${pumpDevHealth.newTokens} / ${pumpPortalHealth.trades} vs ${pumpDevHealth.trades} / ${pumpPortalHealth.migrations} vs ${pumpDevHealth.mintEvents}`);
+  lines.push(`  - closes / errors: ${pumpPortalHealth.closeEvents} / ${pumpPortalHealth.lifecycle?.websocketErrors || 0} vs ${pumpDevHealth.closeEvents} / ${pumpDevHealth.errorEvents}`);
+  lines.push(`  - USDC pair events: ${pumpPortalHealth.pairUsdcEvents || 0} vs ${pumpDevHealth.pairUsdcEvents || 0}`);
   lines.push('- Bonding curve pressure:');
   lines.push(`  - fetches / updates / errors: ${bondingCurvePressure.fetches} / ${bondingCurvePressure.updates} / ${bondingCurvePressure.errors}`);
+  lines.push(`  - batched RPC: enabled=${bondingCurvePressure.batchFetchEnabled} commitment=${bondingCurvePressure.rpcCommitment} batches/accounts/deduped/pending=${bondingCurvePressure.rpcBatches} / ${bondingCurvePressure.batchAccounts} / ${bondingCurvePressure.batchDedupedRequests} / ${bondingCurvePressure.pendingAccountFetches} (flush=${bondingCurvePressure.batchFlushMs}ms max=${bondingCurvePressure.batchMaxAccounts})`);
+  lines.push(`  - provider reserve snapshots: ${bondingCurvePressure.providerSnapshots || 0}`);
   lines.push(`  - missing / invalid accounts: ${bondingCurvePressure.missingAccounts} / ${bondingCurvePressure.invalidAccounts}`);
   lines.push(`  - unique complete mints observed / last complete: ${bondingCurvePressure.completeMintsObserved || 0} / ${bondingCurvePressure.lastCompleteMint || 'none'}${bondingCurvePressure.lastCompleteAt ? ` at ${bondingCurvePressure.lastCompleteAt}` : ''}`);
   lines.push(`  - global backoff activations / skipped / high-curve bypasses: ${bondingCurvePressure.globalBackoffActivations} / ${bondingCurvePressure.skippedGlobalBackoff} / ${bondingCurvePressure.skippedGlobalBackoffHighCurveBypass}`);
+  lines.push(`  - engine queue / pending syncs: ${bondingCurvePressure.engineQueueSize} / ${bondingCurvePressure.enginePendingSyncs}`);
+  lines.push(`  - targeted parity runtime scope: samples/inFlight=${bondingCurvePressure.pumpDevTargetedCurveParitySamples} / ${bondingCurvePressure.pumpDevTargetedCurveParityInFlight}, watch=${bondingCurvePressure.pumpDevTargetedCurveParitySampleWatchEnabled}, skips=${bondingCurvePressure.pumpDevTargetedCurveParitySampleSkipsEnabled}, eligible=${bondingCurvePressure.pumpDevTargetedCurveParitySampleEligibleEnabled}`);
   lines.push(`  - active / remaining: ${bondingCurvePressure.globalBackoffActive} / ${bondingCurvePressure.globalBackoffRemainingMs}ms`);
   lines.push(`  - last activation: ${bondingCurvePressure.lastGlobalBackoffActivatedAt || 'none'} (${bondingCurvePressure.lastGlobalBackoffErrorsInWindow} errors in window)`);
   lines.push('- Solana RPC pressure:');
   lines.push(`  - primary/fallback providers: ${solanaRpcPressure.primaryProvider || 'n/a'} / ${solanaRpcPressure.fallbackProvider || 'none'}`);
+  lines.push(`  - HTTP agent: mode=${solanaRpcPressure.httpAgentMode}, accountReadTransport=${solanaRpcPressure.accountReadTransport}, accountReadProvider=${solanaRpcPressure.accountReadProvider || 'primary'}, configured=${solanaRpcPressure.httpAgentConfigured}, keepAlive=${solanaRpcPressure.httpAgentKeepAliveMsecs}ms, maxSockets=${solanaRpcPressure.httpAgentMaxSockets}, maxFree=${solanaRpcPressure.httpAgentMaxFreeSockets}, socketTimeout=${solanaRpcPressure.httpAgentTimeoutMs}ms, scheduling=${solanaRpcPressure.httpAgentScheduling}`);
   lines.push(`  - calls primary/fallback: ${solanaRpcPressure.primaryCalls} / ${solanaRpcPressure.fallbackCalls}; failures primary/fallback: ${solanaRpcPressure.primaryFailures} / ${solanaRpcPressure.fallbackFailures}`);
+  lines.push(`  - degraded primary/fallback: ${solanaRpcPressure.primaryDegraded} / ${solanaRpcPressure.fallbackDegraded}; same-vendor fallback=${solanaRpcPressure.sameVendorFallback}; same-vendor enabled=${solanaRpcPressure.sameVendorFallbackEnabled}`);
+  lines.push(`  - breaker streaks primary/fallback: ${solanaRpcPressure.primaryFailureStreak}/${solanaRpcPressure.primaryFailureThreshold} / ${solanaRpcPressure.fallbackFailureStreak}/${solanaRpcPressure.fallbackFailureThreshold}; levels=${solanaRpcPressure.primaryDowngradeLevel}/${solanaRpcPressure.fallbackDowngradeLevel}`);
+  lines.push(`  - degradations primary/fallback: ${solanaRpcPressure.primaryDegradations} / ${solanaRpcPressure.fallbackDegradations}; suppressed primary/fallback failures: ${solanaRpcPressure.primaryFailuresSuppressed} / ${solanaRpcPressure.fallbackFailuresSuppressed}`);
+  objectLines(solanaRpcPressure.failureClasses, 6).forEach((line) => lines.push(`  - failure class: ${line}`));
+  lines.push(`  - last primary failure: ${solanaRpcPressure.lastPrimaryFailureAt || 'none'} | ${solanaRpcPressure.lastPrimaryFailureReason || 'n/a'}`);
+  lines.push(`  - last fallback failure: ${solanaRpcPressure.lastFallbackFailureAt || 'none'} | ${solanaRpcPressure.lastFallbackFailureReason || 'n/a'}`);
+  lines.push(`  - call telemetry started/completed/failed: ${solanaRpcPressure.callTelemetryStarted} / ${solanaRpcPressure.callTelemetryCompleted} / ${solanaRpcPressure.callTelemetryFailed}`);
+  objectLines(solanaRpcPressure.startedByMethod, 4).forEach((line) => lines.push(`  - started method: ${line}`));
+  objectLines(solanaRpcPressure.completedByMethod, 4).forEach((line) => lines.push(`  - completed method: ${line}`));
+  objectLines(solanaRpcPressure.failedByMethod, 4).forEach((line) => lines.push(`  - failed method: ${line}`));
+  objectLines(solanaRpcPressure.failedByCommitment, 4).forEach((line) => lines.push(`  - failed commitment: ${line}`));
   lines.push(`  - queue active/pending/maxDepth: ${solanaRpcPressure.active} / ${solanaRpcPressure.pending} / ${solanaRpcPressure.maxQueueDepth}; limits maxConcurrent=${solanaRpcPressure.maxConcurrentRequests || 'n/a'}, minInterval=${solanaRpcPressure.minRequestIntervalMs || 0}ms`);
+  lines.push(`  - accountInfo cache hits/inFlightHits/writes/size/ttl: ${solanaRpcPressure.accountInfoCacheHits} / ${solanaRpcPressure.accountInfoInFlightHits} / ${solanaRpcPressure.accountInfoCacheWrites} / ${solanaRpcPressure.accountInfoCacheSize} / ${solanaRpcPressure.accountInfoCacheTtlMs}ms`);
+  lines.push('- Runtime event-loop health:');
+  const eventLoopSummary = runtimeHealthTelemetry.eventLoopSummary || {};
+  lines.push(`  - monitor samples / lag events / max lag: ${eventLoopSummary.samples ?? 'n/a'} / ${eventLoopSummary.lagEvents ?? runtimeHealthTelemetry.eventLoopLagEvents} / ${ms(eventLoopSummary.maxLagMs ?? runtimeHealthTelemetry.eventLoopLagStats?.max)}`);
+  lines.push(`  - lag event median/p90/max: ${ms(runtimeHealthTelemetry.eventLoopLagStats?.median)} / ${ms(runtimeHealthTelemetry.eventLoopLagStats?.p90)} / ${ms(runtimeHealthTelemetry.eventLoopLagStats?.max)} (n=${runtimeHealthTelemetry.eventLoopLagStats?.count ?? 0})`);
+  if (eventLoopLagDiagnostic.summary) {
+    const lagDiag = eventLoopLagDiagnostic.summary;
+    const topGap = Object.entries(lagDiag.lagGapSecondBuckets || {})[0];
+    lines.push(`  - diagnostic: ${lagDiag.diagnosis || 'n/a'}; 15s cadence share=${pct(lagDiag.fifteenSecondCadenceShare, 1)} (${lagDiag.fifteenSecondGapCount ?? 'n/a'} / ${lagDiag.lagGapCount ?? 'n/a'} gaps); top gap=${topGap ? `${topGap[0]}=${topGap[1]}` : 'n/a'}`);
+    const preceding = Object.entries(lagDiag.topPrecedingEventTypes5s || {}).slice(0, 5);
+    if (preceding.length) {
+      lines.push(`  - top event types in 5s before lag: ${preceding.map(([type, count]) => `${type}=${count}`).join(', ')}`);
+    }
+  }
+  lines.push('- Finalist account verifier:');
+  lines.push('  - Mode: report-only accountSubscribe lane for near-finalist bonding curves; does not drive decisions.');
+  lines.push(`  - subscribed/updates/invalid/skipped/errors/unsubscribed: ${finalistAccountVerifierTelemetry.subscribed} / ${finalistAccountVerifierTelemetry.updates} / ${finalistAccountVerifierTelemetry.invalidUpdates} / ${finalistAccountVerifierTelemetry.skipped} / ${finalistAccountVerifierTelemetry.subscribeErrors} / ${finalistAccountVerifierTelemetry.unsubscribed}`);
+  lines.push(`  - raw updates processed / telemetry emitted / suppressed: ${finalistAccountVerifierTelemetry.rawUpdatesProcessed} / ${finalistAccountVerifierTelemetry.updates} / ${finalistAccountVerifierTelemetry.updateTelemetrySuppressed} (minInterval=${finalistAccountVerifierTelemetry.updateTelemetryMinIntervalMs || 'n/a'}ms, minCurveDelta=${fmt(finalistAccountVerifierTelemetry.updateTelemetryMinCurveDelta, 4)})`);
+  lines.push(`  - initial snapshots/missing/errors: ${finalistAccountVerifierTelemetry.initialSnapshots} / ${finalistAccountVerifierTelemetry.initialSnapshotMissing} / ${finalistAccountVerifierTelemetry.initialSnapshotErrors}`);
+  objectLines(finalistAccountVerifierTelemetry.initialSnapshotMethods, 3).forEach((line) => lines.push(`  - initial snapshot method: ${line}`));
+  lines.push(`  - unique subscribed/updated/invalid mints: ${finalistAccountVerifierTelemetry.uniqueSubscribedMints} / ${finalistAccountVerifierTelemetry.uniqueUpdatedMints} / ${finalistAccountVerifierTelemetry.uniqueInvalidMints}`);
+  lines.push(`  - subscribed without account update: ${finalistAccountVerifierTelemetry.subscribedWithoutUpdate}`);
+  lines.push(`  - first account update latency median/p90/max: ${ms(finalistAccountVerifierTelemetry.firstUpdateLatencyMs?.median)} / ${ms(finalistAccountVerifierTelemetry.firstUpdateLatencyMs?.p90)} / ${ms(finalistAccountVerifierTelemetry.firstUpdateLatencyMs?.max)} (n=${finalistAccountVerifierTelemetry.firstUpdateLatencyMs?.count ?? 0})`);
+  lines.push(`  - shadow live-gate ready/blocked/checks: ${finalistAccountVerifierTelemetry.shadowGateReady} / ${finalistAccountVerifierTelemetry.shadowGateBlocked} / ${finalistAccountVerifierTelemetry.shadowGateChecks}`);
+  objectLines(finalistAccountVerifierTelemetry.selectionClassCounts, 5).forEach((line) => lines.push(`  - selection class: ${line}`));
+  objectLines(finalistAccountVerifierTelemetry.updateStages, 5).forEach((line) => lines.push(`  - update stage: ${line}`));
+  objectLines(finalistAccountVerifierTelemetry.updateSources, 5).forEach((line) => lines.push(`  - update source: ${line}`));
+  objectLines(finalistAccountVerifierTelemetry.shadowGateStatuses, 5).forEach((line) => lines.push(`  - shadow gate status: ${line}`));
+  objectLines(finalistAccountVerifierTelemetry.shadowGateBlockedReasons, 5).forEach((line) => lines.push(`  - shadow gate block: ${line}`));
+  objectLines(finalistAccountVerifierTelemetry.shadowGateByDecision, 5).forEach((line) => lines.push(`  - shadow gate decision: ${line}`));
+  objectLines(finalistAccountVerifierTelemetry.skipReasons, 5).forEach((line) => lines.push(`  - skip reason: ${line}`));
+  objectLines(finalistAccountVerifierTelemetry.invalidReasons, 5).forEach((line) => lines.push(`  - invalid reason: ${line}`));
+  if (finalistAccountVerifierTelemetry.latestUpdates.length) {
+    lines.push('  - latest account updates:');
+    finalistAccountVerifierTelemetry.latestUpdates.slice(-5).forEach((item, index) => {
+      const label = `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim();
+      lines.push(`    ${index + 1}. ${label} | source=${item.updateSource || 'n/a'} | slot=${item.slot ?? 'n/a'} | subCurve=${fmt(item.providerCurveProgressAtSubscribe, 4)} | wsCurve=${fmt(item.curveProgress, 4)} | delta=${fmt(item.subscriptionCurveDelta, 4)} | stage=${item.bondingStage || 'n/a'} | complete=${item.complete === true}`);
+    });
+  }
+  if (finalistAccountVerifierTelemetry.latestShadowGateRows.length) {
+    lines.push('  - latest shadow gate rows:');
+    finalistAccountVerifierTelemetry.latestShadowGateRows.slice(-5).forEach((item, index) => {
+      const label = `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim();
+      lines.push(`    ${index + 1}. ${label} | decision=${item.decision || 'n/a'} | status=${item.status || 'n/a'} | block=${item.blockedReason || 'none'} | age=${ms(item.accountAgeMs)} | paperCurve=${fmt(item.paperCurveProgress, 4)} | accountCurve=${fmt(item.accountCurveProgress, 4)} | delta=${fmt(item.curveDelta, 4)} | absDelta=${fmt(item.absCurveDelta, 4)} | maxDelta=${fmt(item.maxCurveDelta, 4)}`);
+    });
+  }
+  lines.push('- Live execution dry-run:');
+  lines.push('  - Mode: report-only; verifies finalist account state and economics, never broadcasts.');
+  lines.push(`  - attempts / would_send / would_block / skipped / errors / unique mints: ${liveExecutionDryRunTelemetry.attempts} / ${liveExecutionDryRunTelemetry.wouldSend} / ${liveExecutionDryRunTelemetry.wouldBlock} / ${liveExecutionDryRunTelemetry.skipped} / ${liveExecutionDryRunTelemetry.errors} / ${liveExecutionDryRunTelemetry.uniqueMints}`);
+  lines.push(`  - account age median/p90/max: ${ms(liveExecutionDryRunTelemetry.accountAgeMs?.median)} / ${ms(liveExecutionDryRunTelemetry.accountAgeMs?.p90)} / ${ms(liveExecutionDryRunTelemetry.accountAgeMs?.max)} (n=${liveExecutionDryRunTelemetry.accountAgeMs?.count ?? 0})`);
+  lines.push(`  - price impact pct median/p90/max: ${fmt(liveExecutionDryRunTelemetry.priceImpactPct?.median, 4)}% / ${fmt(liveExecutionDryRunTelemetry.priceImpactPct?.p90, 4)}% / ${fmt(liveExecutionDryRunTelemetry.priceImpactPct?.max, 4)}% (n=${liveExecutionDryRunTelemetry.priceImpactPct?.count ?? 0})`);
+  lines.push(`  - post-trade price move pct median/p90/max: ${fmt(liveExecutionDryRunTelemetry.postTradePriceMovePct?.median, 4)}% / ${fmt(liveExecutionDryRunTelemetry.postTradePriceMovePct?.p90, 4)}% / ${fmt(liveExecutionDryRunTelemetry.postTradePriceMovePct?.max, 4)}% (n=${liveExecutionDryRunTelemetry.postTradePriceMovePct?.count ?? 0})`);
+  lines.push(`  - blockhash ok true/false; latency median/p90/max: ${liveExecutionDryRunTelemetry.blockhashOk.true || 0} / ${liveExecutionDryRunTelemetry.blockhashOk.false || 0}; ${ms(liveExecutionDryRunTelemetry.blockhashLatencyMs?.median)} / ${ms(liveExecutionDryRunTelemetry.blockhashLatencyMs?.p90)} / ${ms(liveExecutionDryRunTelemetry.blockhashLatencyMs?.max)}`);
+  lines.push(`  - simulation ok true/false/null: ${liveExecutionDryRunTelemetry.simulationOk.true || 0} / ${liveExecutionDryRunTelemetry.simulationOk.false || 0} / ${liveExecutionDryRunTelemetry.simulationOk.null || 0}`);
+  objectLines(liveExecutionDryRunTelemetry.simulationErrors, 4).forEach((line) => lines.push(`  - simulation error: ${line}`));
+  objectLines(liveExecutionDryRunTelemetry.simulationMissingAccounts, 8).forEach((line) => lines.push(`  - simulation missing account: ${line}`));
+  objectLines(liveExecutionDryRunTelemetry.blockReasons, 6).forEach((line) => lines.push(`  - would_block reason: ${line}`));
+  objectLines(liveExecutionDryRunTelemetry.skipReasons, 4).forEach((line) => lines.push(`  - skipped reason: ${line}`));
+  objectLines(liveExecutionDryRunTelemetry.byDecision, 5).forEach((line) => lines.push(`  - source decision: ${line}`));
+  objectLines(liveExecutionDryRunTelemetry.txBuildStatuses, 4).forEach((line) => lines.push(`  - tx build status: ${line}`));
+  if (liveExecutionDryRunTelemetry.latestRows.length) {
+    lines.push('  - latest dry-run rows:');
+    liveExecutionDryRunTelemetry.latestRows.slice(-5).forEach((item, index) => {
+      const label = `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim();
+      lines.push(`    ${index + 1}. ${label} | event=${item.eventType || 'n/a'} | reason=${item.reason || 'none'} | decision=${item.sourceDecision || 'n/a'} | age=${ms(item.accountAgeMs)} | curve=${fmt(item.accountCurveProgress, 4)} | amount=${fmt(item.amountSol, 4)} SOL | impact=${fmt(item.priceImpactPct, 4)}% | postMove=${fmt(item.postTradePriceMovePct, 4)}% | blockhash=${item.blockhashOk === true} | sim=${item.simulationOk === null ? 'n/a' : item.simulationOk === true} | tx=${item.txBuildStatus || 'n/a'}`);
+      if (item.simulationError) lines.push(`       simError=${item.simulationError}`);
+      if (item.missingAccounts?.length) lines.push(`       missing=${item.missingAccounts.map((account) => account.name || account.pubkey).join(', ')}`);
+      if (item.simulationLogs?.length) lines.push(`       simLogs=${item.simulationLogs.join(' | ')}`);
+    });
+  }
+  if (dryRunOutcome.summary) {
+    const dryRunOutcomeSummary = dryRunOutcome.summary || {};
+    const dryRunWindow120 = dryRunOutcomeSummary.windowSummary?.['120s'] || {};
+    const dryRunWindow300 = dryRunOutcomeSummary.windowSummary?.['300s'] || {};
+    lines.push('  - dry-run outcome follow-through:');
+    lines.push(`    - would_send attempts / unique mints: ${dryRunOutcomeSummary.wouldSend ?? 'n/a'} / ${dryRunOutcomeSummary.uniqueWouldSendMints ?? 'n/a'}`);
+    lines.push(`    - crossed 85/90 within 120s: ${dryRunWindow120.crossed85 ?? 'n/a'} / ${dryRunWindow120.crossed90 ?? 'n/a'}; uniqueCross85/90=${dryRunWindow120.uniqueCrossed85 ?? 'n/a'} / ${dryRunWindow120.uniqueCrossed90 ?? 'n/a'}`);
+    lines.push(`    - crossed 85/90 within 300s: ${dryRunWindow300.crossed85 ?? 'n/a'} / ${dryRunWindow300.crossed90 ?? 'n/a'}; uniqueCross85/90=${dryRunWindow300.uniqueCrossed85 ?? 'n/a'} / ${dryRunWindow300.uniqueCrossed90 ?? 'n/a'}`);
+    lines.push(`    - curve delta 120s median/p90/max: ${fmt(dryRunWindow120.curveDelta?.median, 4)} / ${fmt(dryRunWindow120.curveDelta?.p90, 4)} / ${fmt(dryRunWindow120.curveDelta?.max, 4)}`);
+    lines.push(`    - price delta 120s median/p90/max: ${fmt(dryRunWindow120.maxPriceDeltaPct?.median, 2)}% / ${fmt(dryRunWindow120.maxPriceDeltaPct?.p90, 2)}% / ${fmt(dryRunWindow120.maxPriceDeltaPct?.max, 2)}%`);
+    objectLines(dryRunOutcomeSummary.sourceReasonCounts, 4).forEach((line) => lines.push(`    - source reason: ${line}`));
+    const topDryRunFollowThrough = topArray(dryRunOutcome.topWouldSendFollowThrough, 5);
+    if (topDryRunFollowThrough.length) {
+      lines.push('    - top would_send follow-through:');
+      topDryRunFollowThrough.forEach((item, index) => {
+        const label = `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim();
+        lines.push(`      ${index + 1}. ${label} | reason=${item.sourceReason || 'n/a'} | curve=${fmt(item.accountCurveProgress, 4)} | max120=${fmt(item.max120, 4)} | max300=${fmt(item.max300, 4)} | delta120=${fmt(item.curveDelta120s, 4)} | priceDelta120=${fmt(item.priceDelta120sPct, 2)}% | cross90_120=${item.crossed90Within120s === true}`);
+      });
+    }
+  }
   lines.push('');
 
   const runnerNearMiss = battlefield.runnerLane?.nearMissDiagnostic || {};
@@ -1622,6 +2791,13 @@ function buildSummary(docs) {
     lines.push(`  - Sim / actual / matched / delayed / sim-only / actual-only: ${entryParitySummary.simulatedEntries ?? 'n/a'} / ${entryParitySummary.actualEntries ?? 'n/a'} / ${entryParitySummary.matchedEntries ?? 'n/a'} / ${entryParitySummary.delayedSameMintEntries ?? entryParitySummary.sameMintLaterRuntimeEntries ?? 'n/a'} / ${entryParitySummary.simOnlyEntries ?? 'n/a'} / ${entryParitySummary.actualOnlyEntries ?? 'n/a'}`);
     lines.push(`  - Same-mint later runtime entries: ${entryParitySummary.sameMintLaterRuntimeEntries ?? 'n/a'}`);
     lines.push(`  - Sim-only PnL: ${entryParitySummary.simOnlyPnl?.totalPnlSol === null || entryParitySummary.simOnlyPnl?.totalPnlSol === undefined ? 'n/a' : sol(entryParitySummary.simOnlyPnl.totalPnlSol, 6)} | actual-only PnL: ${entryParitySummary.actualOnlyPnl?.totalPnlSol === null || entryParitySummary.actualOnlyPnl?.totalPnlSol === undefined ? 'n/a' : sol(entryParitySummary.actualOnlyPnl.totalPnlSol, 6)}`);
+    objectLines(entryParitySummary.liveReadinessCounts, 6).forEach((line) => lines.push(`  - Live readiness: ${line}`));
+    topArray(entryParity.actualEntries, 5).forEach((item) => {
+      lines.push(`  - Actual entry live gate: ${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim()
+        + ` | ${item.liveReadiness || 'n/a'}`
+        + ` | ${item.liveReadinessReason || 'n/a'}`
+        + ` | pnl=${item.pnlSol === null || item.pnlSol === undefined ? 'n/a' : sol(item.pnlSol, 6)}`);
+    });
     const topSimOnly = topArray(entryParity.simOnlyEntries, 3);
     if (topSimOnly.length) {
       topSimOnly.forEach((item) => {
@@ -1925,6 +3101,314 @@ function buildSummary(docs) {
     delayedLosers.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeDelayedEntryReplay(item)}`));
   } else {
     lines.push('- Top would-losers: none');
+  }
+  lines.push('');
+
+  const skipFollowSummary = skipFollowThrough.summary || {};
+  const skipReasonSummaries = topArray(skipFollowThrough.reasonSummaries, 8);
+  const skipTopWakeups = topArray(skipFollowThrough.topWakeups, 8);
+
+  lines.push('9b. Pre-Migration Skip Follow-through');
+  lines.push('-------------------------------------');
+  lines.push('- Mode: report-only; joins every PAPER_SKIPPED reason to later PumpDev curve/price snapshots.');
+  lines.push(`- Skip decisions / unique mints: ${skipFollowSummary.skipDecisionCount ?? 'n/a'} / ${skipFollowSummary.uniqueSkippedMints ?? 'n/a'}`);
+  lines.push(`- Reasons with any 85/90 curve cross within 120s: ${Array.isArray(skipFollowSummary.reasonsWithAnyCross85Within120s) ? skipFollowSummary.reasonsWithAnyCross85Within120s.join(', ') || 'none' : 'n/a'} / ${Array.isArray(skipFollowSummary.reasonsWithAnyCross90Within120s) ? skipFollowSummary.reasonsWithAnyCross90Within120s.join(', ') || 'none' : 'n/a'}`);
+  lines.push('- Skip reason counts:');
+  objectLines(skipFollowSummary.skipReasonCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Follow-through classes:');
+  objectLines(skipFollowSummary.followThroughClassCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  if (skipReasonSummaries.length) {
+    lines.push('- Reason summaries:');
+    skipReasonSummaries.forEach((item) => {
+      lines.push(`  - ${item.reason}: decisions=${item.decisionCount ?? 'n/a'}, unique=${item.uniqueMints ?? 'n/a'}, future120=${item.decisionsWithFuture120s ?? 'n/a'}, crossed85/90/95/100=${item.crossed85Within120s ?? 'n/a'}/${item.crossed90Within120s ?? 'n/a'}/${item.crossed95Within120s ?? 'n/a'}/${item.crossed100Within120s ?? 'n/a'}, uniqueCross85/90=${item.uniqueMintsCrossed85Within120s ?? 'n/a'}/${item.uniqueMintsCrossed90Within120s ?? 'n/a'}, delta120 median/p90/max=${fmt(item.curveDelta120s?.median, 4)}/${fmt(item.curveDelta120s?.p90, 4)}/${fmt(item.curveDelta120s?.max, 4)}`);
+    });
+  }
+  if (skipTopWakeups.length) {
+    lines.push('- Top post-skip wakeups:');
+    skipTopWakeups.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeSkipFollowThrough(item)}`));
+  } else {
+    lines.push('- Top post-skip wakeups: none');
+  }
+  lines.push('');
+
+  const skipNear90Summary = skipNear90Watchlist.summary || {};
+  const skipNear90Top = topArray(skipNear90Watchlist.topWakeups, 8);
+  const skipNear90Crossed = topArray(skipNear90Watchlist.crossed90Within120s, 8);
+
+  lines.push('9c. LOW_SCORE / FIRST_SIGHT Near-90 Watchlist');
+  lines.push('---------------------------------------------');
+  lines.push('- Mode: report-only; dedupes LOW_SCORE and FIRST_SIGHT_REQUIRES_GUARD_OVERRIDE skips by run + mint.');
+  lines.push(`- Telemetry files / runs with target skips: ${skipNear90Watchlist.inputs?.telemetryFilesRead ?? 'n/a'} / ${skipNear90Summary.runCountWithTargetSkips ?? 'n/a'}`);
+  lines.push(`- Raw decisions / deduped run-mints / unique mints: ${skipNear90Summary.rawDecisionCount ?? 'n/a'} / ${skipNear90Summary.dedupedRunMintCount ?? 'n/a'} / ${skipNear90Summary.uniqueMints ?? 'n/a'}`);
+  lines.push(`- Unique crossed 90 within 120s / 300s: ${skipNear90Summary.uniqueCross90Within120s ?? 'n/a'} / ${skipNear90Summary.uniqueCross90Within300s ?? 'n/a'}`);
+  lines.push(`- Curve delta 120s median/p90/max: ${fmt(skipNear90Summary.curveDelta120s?.median, 4)} / ${fmt(skipNear90Summary.curveDelta120s?.p90, 4)} / ${fmt(skipNear90Summary.curveDelta120s?.max, 4)}`);
+  lines.push(`- Price delta 120s median/p90/max: ${fmt(skipNear90Summary.maxPriceDeltaPct120s?.median, 2)}% / ${fmt(skipNear90Summary.maxPriceDeltaPct120s?.p90, 2)}% / ${fmt(skipNear90Summary.maxPriceDeltaPct120s?.max, 2)}%`);
+  lines.push('- Target reason counts, raw:');
+  objectLines(skipNear90Summary.reasonCountsRaw, 4).forEach((line) => lines.push(`  - ${line}`));
+  if (skipNear90Crossed.length) {
+    lines.push('- Crossed 90 within 120s:');
+    skipNear90Crossed.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeSkipNear90Watchlist(item)}`));
+  } else {
+    lines.push('- Crossed 90 within 120s: none');
+  }
+  if (skipNear90Top.length) {
+    lines.push('- Top near-90 wakeups:');
+    skipNear90Top.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeSkipNear90Watchlist(item)}`));
+  } else {
+    lines.push('- Top near-90 wakeups: none');
+  }
+  lines.push('');
+
+  const relaxedRanking = topArray(relaxedGateReplay.ranking, 8);
+  const bestRelaxedProfileName = relaxedRanking[0]?.name;
+  const bestRelaxedProfile = bestRelaxedProfileName ? relaxedGateReplay.profiles?.[bestRelaxedProfileName] : null;
+
+  lines.push('9c2. Relaxed-Gate Replay');
+  lines.push('------------------------');
+  lines.push('- Mode: report-only; replays relaxed LOW_SCORE/FIRST_SIGHT entry archetypes from historical skips. Does not alter runtime gates.');
+  lines.push(`- Telemetry files / target reasons: ${relaxedGateReplay.inputs?.telemetryFilesRead ?? 'n/a'} / ${Array.isArray(relaxedGateReplay.inputs?.targetReasons) ? relaxedGateReplay.inputs.targetReasons.join(', ') : 'n/a'}`);
+  lines.push(`- Base trade: amount=${fmt(relaxedGateReplay.inputs?.baseTrade?.amountSol, 4)} SOL, entry/exit slippage=${fmt(relaxedGateReplay.inputs?.baseTrade?.entrySlippagePct, 2)}% / ${fmt(relaxedGateReplay.inputs?.baseTrade?.exitSlippagePct, 2)}%`);
+  if (relaxedRanking.length) {
+    lines.push('- Profile ranking:');
+    relaxedRanking.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.name}: trades=${item.trades ?? 'n/a'}, wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}, winRate=${pct(item.winRate, 1)}, pnl=${sol(item.totalPnlSol, 6)}, avg=${sol(item.averagePnlSol, 6)}, exits=${Object.entries(item.exitReasonCounts || {}).map(([key, value]) => `${key}=${value}`).join(', ') || 'n/a'}`);
+    });
+  } else {
+    lines.push('- Profile ranking: none');
+  }
+  if (bestRelaxedProfile) {
+    const bestWinners = topArray(bestRelaxedProfile.topWinners, 5);
+    const bestLosers = topArray(bestRelaxedProfile.topLosers, 5);
+    lines.push(`- Best profile detail: ${bestRelaxedProfileName} | ${bestRelaxedProfile.profile?.description || 'n/a'}`);
+    if (bestWinners.length) {
+      lines.push('- Best-profile top winners:');
+      bestWinners.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRelaxedGateTrade(item)}`));
+    }
+    if (bestLosers.length) {
+      lines.push('- Best-profile top losers:');
+      bestLosers.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRelaxedGateTrade(item)}`));
+    }
+  }
+  lines.push('');
+
+  const walletConditionedRanking = topArray(walletConditionedRelaxedGateReplay.ranking, 10);
+  const walletConditionedSummary = walletConditionedRelaxedGateReplay.summary || {};
+  const walletAvoidLift = topArray(walletConditionedRelaxedGateReplay.avoidNegativeLift, 8);
+  const walletPositiveControls = Object.values(walletConditionedRelaxedGateReplay.slices || {})
+    .filter((slice) => ['tracked_first_touch_buy_avoid_only', 'tracked_first_touch_buy_negative_only'].includes(slice.condition))
+    .sort((a, b) => Number(b.trades || 0) - Number(a.trades || 0))
+    .slice(0, 8);
+  const walletProfiles = Array.isArray(walletConditionedRelaxedGateReplay.inputs?.profiles)
+    ? walletConditionedRelaxedGateReplay.inputs.profiles.join(', ')
+    : 'n/a';
+
+  lines.push('9c3. Wallet-Conditioned Relaxed-Gate Replay');
+  lines.push('--------------------------------------------');
+  lines.push('- Mode: report-only; slices all relaxed-gate replay profiles by wallet-touch conditions. Does not alter runtime gates or live broadcast.');
+  lines.push(`- Profiles: ${walletProfiles}`);
+  lines.push(`- Total base trades / wallet events: ${walletConditionedRelaxedGateReplay.inputs?.totalBaseTrades ?? 'n/a'} / ${walletConditionedRelaxedGateReplay.inputs?.walletEvents ?? 'n/a'}`);
+  lines.push(`- Slice verdicts: promising=${walletConditionedSummary.promisingSlices ?? 'n/a'}, inconclusive=${walletConditionedSummary.inconclusiveSlices ?? 'n/a'}, negative=${walletConditionedSummary.negativeSlices ?? 'n/a'}, insufficient=${walletConditionedSummary.insufficientSampleSlices ?? 'n/a'}, shadowEligible=${walletConditionedSummary.shadowLaneEligibleSlices ?? 'n/a'}`);
+  lines.push(`- Avoid/negative exclusion improved/worsened profiles by stressed PnL: ${walletConditionedSummary.avoidNegativeImprovedProfiles ?? 'n/a'} / ${walletConditionedSummary.avoidNegativeWorsenedProfiles ?? 'n/a'}`);
+  if (walletAvoidLift.length) {
+    lines.push('- Avoid/negative exclusion lift by profile:');
+    walletAvoidLift.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.profileName}: base=${item.baselineTrades ?? 'n/a'} -> kept=${item.conditionedTrades ?? 'n/a'} removed=${item.removedTrades ?? 'n/a'}, pnlDelta=${sol(item.pnlDeltaSol, 6)}, stressedDelta=${sol(item.stressedDeltaSol, 6)}, winRateDelta=${pct(item.winRateDelta, 1)}, verdict=${item.baselineVerdict || 'n/a'} -> ${item.conditionedVerdict || 'n/a'}`);
+    });
+  }
+  if (walletPositiveControls.length) {
+    lines.push('- AVOID/NEGATIVE first-touch-buy positive-control slices:');
+    walletPositiveControls.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.name}: verdict=${item.verdict || 'n/a'}, trades=${item.trades ?? 'n/a'}, unique=${item.uniqueMints ?? 'n/a'}, wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}, pnl=${sol(item.totalPnlSol, 6)}, stressed=${sol(item.stressedPnlSol, 6)}`);
+    });
+  }
+  if (walletConditionedRanking.length) {
+    lines.push('- Slice ranking:');
+    walletConditionedRanking.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.name}: verdict=${item.verdict || 'n/a'}, eligible=${item.shadowLaneEligible ? 'yes' : 'no'}, trades=${item.trades ?? 'n/a'}, unique=${item.uniqueMints ?? 'n/a'}, wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}, winRate=${pct(item.winRate, 1)}, pnl=${sol(item.totalPnlSol, 6)}, pnl/trade=${sol(item.averagePnlSol, 6)}, stressed=${sol(item.stressedPnlSol, 6)}, halves=${sol(item.firstHalfPnlSol, 6)} / ${sol(item.secondHalfPnlSol, 6)}, top3Removed=${sol(item.top3RemovedPnlSol, 6)}`);
+    });
+  } else {
+    lines.push('- Slice ranking: none');
+  }
+  lines.push('');
+
+  const walletShadowSummary = walletRelaxedShadowOutcome.summary || {};
+  const walletShadowWindow120 = walletShadowSummary.windowSummary?.['120s'] || {};
+  const walletShadowWindow300 = walletShadowSummary.windowSummary?.['300s'] || {};
+  const walletShadowTop = topArray(walletRelaxedShadowOutcome.topWouldEnterFollowThrough, 8);
+
+  lines.push('9c4. Wallet-Relaxed Shadow Outcome');
+  lines.push('-----------------------------------');
+  lines.push('- Mode: report-only; follows prospective wallet-conditioned LOW_SCORE/FIRST_SIGHT shadow would-enter rows. Does not alter runtime gates or live broadcast.');
+  lines.push(`- Shadow attempts / would_enter / would_skip / unique would_enter mints: ${walletShadowSummary.attempts ?? 'n/a'} / ${walletShadowSummary.wouldEnter ?? 'n/a'} / ${walletShadowSummary.wouldSkip ?? 'n/a'} / ${walletShadowSummary.uniqueWouldEnterMints ?? 'n/a'}`);
+  lines.push(`- Wallet context coverage any/no-touch/qualifying-first-touch/positive-or-proven/avoid: ${walletShadowSummary.contextCoverage?.withAnyWalletTouch ?? 'n/a'} / ${walletShadowSummary.contextCoverage?.withNoWalletTouch ?? 'n/a'} / ${walletShadowSummary.contextCoverage?.withQualifyingFirstTouch ?? 'n/a'} / ${walletShadowSummary.contextCoverage?.withPositiveOrProvenTouch ?? 'n/a'} / ${walletShadowSummary.contextCoverage?.withAvoidTouch ?? 'n/a'}`);
+  lines.push(`- Crossed 85/90 within 120s: ${walletShadowWindow120.crossed85 ?? 'n/a'} / ${walletShadowWindow120.crossed90 ?? 'n/a'}; uniqueCross85/90=${walletShadowWindow120.uniqueCrossed85 ?? 'n/a'} / ${walletShadowWindow120.uniqueCrossed90 ?? 'n/a'}`);
+  lines.push(`- Crossed 85/90 within 300s: ${walletShadowWindow300.crossed85 ?? 'n/a'} / ${walletShadowWindow300.crossed90 ?? 'n/a'}; uniqueCross85/90=${walletShadowWindow300.uniqueCrossed85 ?? 'n/a'} / ${walletShadowWindow300.uniqueCrossed90 ?? 'n/a'}`);
+  lines.push(`- Curve delta 120s median/p90/max: ${fmt(walletShadowWindow120.curveDelta?.median, 4)} / ${fmt(walletShadowWindow120.curveDelta?.p90, 4)} / ${fmt(walletShadowWindow120.curveDelta?.max, 4)}`);
+  lines.push(`- Price delta 120s median/p90/max: ${fmt(walletShadowWindow120.maxPriceDeltaPct?.median, 2)}% / ${fmt(walletShadowWindow120.maxPriceDeltaPct?.p90, 2)}% / ${fmt(walletShadowWindow120.maxPriceDeltaPct?.max, 2)}%`);
+  lines.push('- Source reasons:');
+  objectLines(walletShadowSummary.sourceReasonCounts, 4).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Wallet context sources:');
+  objectLines(walletShadowSummary.contextCoverage?.walletContextSources, 4).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Positive first-touch review tiers:');
+  objectLines(walletShadowSummary.positiveFirstTouchReviewTierCounts, 4).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Positive first-touch evidence tiers:');
+  objectLines(walletShadowSummary.positiveFirstTouchEvidenceTierCounts, 4).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Qualifying first-touch review tiers:');
+  objectLines(walletShadowSummary.qualifyingFirstTouchReviewTierCounts, 4).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Qualifying first-touch evidence tiers:');
+  objectLines(walletShadowSummary.qualifyingFirstTouchEvidenceTierCounts, 4).forEach((line) => lines.push(`  - ${line}`));
+  if (walletShadowTop.length) {
+    lines.push('- Top wallet-relaxed shadow follow-through:');
+    walletShadowTop.forEach((item, index) => {
+      const label = `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim();
+      const firstTouchRow = item.qualifyingFirstTouch || item.positiveFirstTouch;
+      const firstTouch = firstTouchRow
+        ? `${firstTouchRow.name || firstTouchRow.wallet || 'wallet'}:${firstTouchRow.reviewTier || firstTouchRow.evidenceTier || 'tier?'}/${firstTouchRow.side || 'side?'}`
+        : 'none';
+      lines.push(`  ${index + 1}. ${label} | reason=${item.sourceReason || 'n/a'} | curve=${fmt(item.curveProgress, 4)} | max120=${fmt(item.max120, 4)} | max300=${fmt(item.max300, 4)} | delta120=${fmt(item.curveDelta120s, 4)} | priceDelta120=${fmt(item.priceDelta120sPct, 2)}% | cross90_120=${item.crossed90Within120s === true} | firstTouch=${firstTouch}`);
+    });
+  } else {
+    lines.push('- Top wallet-relaxed shadow follow-through: none');
+  }
+  lines.push('');
+
+  const walletContextRuntime = walletContextCoverage.runtime || {};
+  const walletContextRuntimeEvents = walletContextRuntime.walletEvents || {};
+  const walletContextDecision = walletContextRuntime.decisionCoverage || {};
+  const walletContextOverlap = walletContextRuntime.walletDecisionMintOverlap || {};
+  const walletContextShadow = walletContextRuntime.walletRelaxedShadowCoverage || {};
+  const walletContextLedger = walletContextCoverage.historicalLedger || {};
+  const walletRuntimeToHistoricalRatio = Number(walletContextLedger.uniqueWallets) > 0 && Number(walletContextRuntimeEvents.uniqueWallets) >= 0
+    ? Number(walletContextRuntimeEvents.uniqueWallets) / Number(walletContextLedger.uniqueWallets)
+    : null;
+  const walletHistoricalToRuntimeRatio = Number(walletContextRuntimeEvents.uniqueWallets) > 0 && Number(walletContextLedger.uniqueWallets) >= 0
+    ? Number(walletContextLedger.uniqueWallets) / Number(walletContextRuntimeEvents.uniqueWallets)
+    : null;
+  const walletContextByReason = Object.entries(walletContextDecision.byReason || {})
+    .sort((a, b) => Number(b[1]?.decisions || 0) - Number(a[1]?.decisions || 0))
+    .slice(0, 6);
+
+  lines.push('9c5. Wallet Context Coverage');
+  lines.push('----------------------------');
+  lines.push('- Mode: report-only; audits whether wallet-conditioned replay signals are actually present in current runtime decisions.');
+  lines.push(`- Verdict: ${walletContextCoverage.verdict || 'n/a'}`);
+  lines.push(`- Historical ledger events / wallets / mints: ${walletContextLedger.rows ?? 'n/a'} / ${walletContextLedger.uniqueWallets ?? 'n/a'} / ${walletContextLedger.uniqueMints ?? 'n/a'}`);
+  lines.push(`- Runtime wallet touches rows / wallets / mints: ${walletContextRuntimeEvents.rows ?? 'n/a'} / ${walletContextRuntimeEvents.uniqueWallets ?? 'n/a'} / ${walletContextRuntimeEvents.uniqueMints ?? 'n/a'}`);
+  lines.push(`- Runtime-vs-historical wallet coverage: ${pct(walletRuntimeToHistoricalRatio, 1)} of tracked historical wallets active this run; historical/runtime wallet ratio=${fmt(walletHistoricalToRuntimeRatio, 1)}x`);
+  lines.push(`- Runtime promoted rows positive-or-proven / avoid / any promotion: ${walletContextRuntimeEvents.promotionCoverage?.positiveOrProvenRows ?? 'n/a'} / ${walletContextRuntimeEvents.promotionCoverage?.avoidRows ?? 'n/a'} / ${walletContextRuntimeEvents.promotionCoverage?.rowsWithPromotion ?? 'n/a'}`);
+  lines.push(`- Paper decision wallet context any / positive-or-proven / avoid: ${walletContextDecision.withAnyWalletTouch ?? 'n/a'} / ${walletContextDecision.withPositiveOrProvenTouch ?? 'n/a'} / ${walletContextDecision.withAvoidTouch ?? 'n/a'} of ${walletContextDecision.decisions ?? 'n/a'} decisions`);
+  lines.push(`- Wallet-event mints / decision mints / overlap: ${walletContextOverlap.uniqueWalletEventMints ?? 'n/a'} / ${walletContextOverlap.uniqueDecisionMints ?? 'n/a'} / ${walletContextOverlap.overlapMints ?? 'n/a'}`);
+  lines.push(`- Wallet-relaxed shadow coverage attempts / withAny / positive-or-proven / avoid: ${walletContextShadow.attempts ?? 'n/a'} / ${walletContextShadow.withAnyWalletTouch ?? 'n/a'} / ${walletContextShadow.withPositiveOrProvenTouch ?? 'n/a'} / ${walletContextShadow.withAvoidTouch ?? 'n/a'}`);
+  lines.push('- Decision context by reason:');
+  if (walletContextByReason.length) {
+    walletContextByReason.forEach(([reason, item]) => {
+      lines.push(`  - ${reason}: decisions=${item.decisions ?? 'n/a'}, unique=${item.uniqueMints ?? 'n/a'}, any=${item.withAnyWalletTouch ?? 'n/a'}, positive=${item.withPositiveOrProvenTouch ?? 'n/a'}, avoid=${item.withAvoidTouch ?? 'n/a'}`);
+    });
+  } else {
+    lines.push('  - none');
+  }
+  lines.push('- Runtime wallet promotion tiers:');
+  objectLines(walletContextRuntimeEvents.promotionCoverage?.reviewTierCounts, 5).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('');
+
+  const walletFollowSummary = walletContextFollowThrough.summary || {};
+  const walletFollowAll = walletFollowSummary.all || {};
+  const walletFollowAll120 = walletFollowAll.windowSummary?.['120s'] || {};
+  const walletFollowLowScoreFirstSight = walletContextFollowThrough.lowScoreFirstSightSummary || {};
+  const walletFollowLowScoreFirstSight120 = walletFollowLowScoreFirstSight.windowSummary?.['120s'] || {};
+  const walletFollowReasons = Object.entries(walletFollowSummary.byReason || {})
+    .sort((a, b) => Number(b[1]?.decisions || 0) - Number(a[1]?.decisions || 0))
+    .slice(0, 6);
+  const walletFollowTop = topArray(walletFollowSummary.topFollowThrough, 8);
+
+  lines.push('9c6. Wallet Context Follow-through');
+  lines.push('-----------------------------------');
+  lines.push('- Mode: report-only; follows paper decisions with wallet context by skip/decision reason. Does not alter runtime gates or live broadcast.');
+  lines.push(`- Wallet-context decisions / unique mints / positive-or-proven / avoid: ${walletFollowAll.decisions ?? 'n/a'} / ${walletFollowAll.uniqueMints ?? 'n/a'} / ${walletFollowAll.withPositiveOrProvenTouch ?? 'n/a'} / ${walletFollowAll.withAvoidTouch ?? 'n/a'}`);
+  lines.push(`- All wallet-context crossed 85/90 within 120s: ${walletFollowAll120.crossed85 ?? 'n/a'} / ${walletFollowAll120.crossed90 ?? 'n/a'}; uniqueCross85/90=${walletFollowAll120.uniqueCrossed85 ?? 'n/a'} / ${walletFollowAll120.uniqueCrossed90 ?? 'n/a'}`);
+  lines.push(`- 120s marker rows / unique mints / unique events: dryRunWouldSend=${walletFollowAll120.dryRunWouldSend ?? 'n/a'} / ${walletFollowAll120.uniqueDryRunWouldSendMints ?? 'n/a'} / ${walletFollowAll120.uniqueDryRunWouldSendEvents ?? 'n/a'}; paperEntry=${walletFollowAll120.paperEntry ?? 'n/a'} / ${walletFollowAll120.uniquePaperEntryMints ?? 'n/a'} / ${walletFollowAll120.uniquePaperEntryEvents ?? 'n/a'}`);
+  lines.push(`- LOW_SCORE/FIRST_SIGHT wallet-context decisions / unique / crossed90_120 / dryRun rows/mints/events_120: ${walletFollowLowScoreFirstSight.decisions ?? 'n/a'} / ${walletFollowLowScoreFirstSight.uniqueMints ?? 'n/a'} / ${walletFollowLowScoreFirstSight120.uniqueCrossed90 ?? 'n/a'} / ${walletFollowLowScoreFirstSight120.dryRunWouldSend ?? 'n/a'} / ${walletFollowLowScoreFirstSight120.uniqueDryRunWouldSendMints ?? 'n/a'} / ${walletFollowLowScoreFirstSight120.uniqueDryRunWouldSendEvents ?? 'n/a'}`);
+  lines.push('- Wallet-context follow-through by reason:');
+  if (walletFollowReasons.length) {
+    walletFollowReasons.forEach(([reason, item]) => {
+      const win120 = item.windowSummary?.['120s'] || {};
+      lines.push(`  - ${reason}: decisions=${item.decisions ?? 'n/a'}, unique=${item.uniqueMints ?? 'n/a'}, positive=${item.withPositiveOrProvenTouch ?? 'n/a'}, avoid=${item.withAvoidTouch ?? 'n/a'}, cross85/90_120=${win120.uniqueCrossed85 ?? 'n/a'} / ${win120.uniqueCrossed90 ?? 'n/a'}, dryRun rows/mints/events=${win120.dryRunWouldSend ?? 'n/a'} / ${win120.uniqueDryRunWouldSendMints ?? 'n/a'} / ${win120.uniqueDryRunWouldSendEvents ?? 'n/a'}, entry rows/mints/events=${win120.paperEntry ?? 'n/a'} / ${win120.uniquePaperEntryMints ?? 'n/a'} / ${win120.uniquePaperEntryEvents ?? 'n/a'}, delta120 med/max=${fmt(win120.curveDelta?.median, 4)} / ${fmt(win120.curveDelta?.max, 4)}`);
+    });
+  } else {
+    lines.push('  - none');
+  }
+  if (walletFollowTop.length) {
+    lines.push('- Top wallet-context follow-through:');
+    walletFollowTop.forEach((item, index) => {
+      const firstTouch = item.firstTouch
+        ? `${item.firstTouch.name || item.firstTouch.wallet || 'wallet'}:${item.firstTouch.reviewTier || item.firstTouch.evidenceTier || 'tier?'}/${item.firstTouch.side || 'side?'}`
+        : 'none';
+      lines.push(`  ${index + 1}. ${item.symbol || 'UNKNOWN'} ${item.mint || ''} | reason=${item.reason || 'n/a'} | curve=${fmt(item.curveProgress, 4)} | max120=${fmt(item.max120, 4)} | delta120=${fmt(item.delta120, 4)} | cross90_120=${item.crossed90Within120s === true} | dryRun120=${item.dryRunWouldSendWithin120s === true} | entry120=${item.paperEntryWithin120s === true} | firstTouch=${firstTouch}`);
+    });
+  } else {
+    lines.push('- Top wallet-context follow-through: none');
+  }
+  lines.push('');
+
+  const rickSummary = rickSightingFollowThrough.summary || {};
+  const rickTop = topArray(rickSightingFollowThrough.topCollisionCleanFollowThrough, 8);
+  const rickByReportType = Object.entries(rickSightingFollowThrough.byReportType || {})
+    .sort((a, b) => Number(b[1]?.collisionCleanSightings || 0) - Number(a[1]?.collisionCleanSightings || 0))
+    .slice(0, 5);
+
+  lines.push('9c7. Rick Sighting Follow-through');
+  lines.push('----------------------------------');
+  lines.push('- Mode: report-only; joins Rick token mentions to Spectre telemetry/dossiers/actions with match-tier collision controls. Does not alter runtime gates.');
+  lines.push(`- Rick generated / sightings / matched / collision-clean: ${rickSightingFollowThrough.sources?.rickGeneratedAt || 'n/a'} / ${rickSummary.sightings ?? 'n/a'} / ${rickSummary.matchedSightings ?? 'n/a'} / ${rickSummary.collisionCleanSightings ?? 'n/a'}`);
+  lines.push(`- Collision-clean cross90 within 300m: ${rickSummary.collisionCleanCross90Within300m ?? 'n/a'} / ${rickSummary.collisionCleanSightings ?? 'n/a'} (${rickSummary.collisionCleanCross90Within300mRate === null || rickSummary.collisionCleanCross90Within300mRate === undefined ? 'n/a' : pct(rickSummary.collisionCleanCross90Within300mRate, 1)})`);
+  lines.push(`- Collision-clean paper entry/skipped after sighting: ${rickSummary.collisionCleanPaperEntryAfterSighting ?? 'n/a'} / ${rickSummary.collisionCleanPaperSkippedAfterSighting ?? 'n/a'}; median lead=${fmt(rickSummary.medianLeadTimeMinutes, 2)}m`);
+  lines.push('- Match tiers:');
+  objectLines(rickSummary.matchTierCounts, 7).forEach((line) => lines.push(`  - ${line}`));
+  if (rickByReportType.length) {
+    lines.push('- By Rick report type:');
+    rickByReportType.forEach(([reportType, item]) => {
+      lines.push(`  - ${reportType}: sightings=${item.sightings ?? 'n/a'}, clean=${item.collisionCleanSightings ?? 'n/a'}, cleanCross90_300m=${item.collisionCleanCross90Within300m ?? 'n/a'}, rate=${item.collisionCleanCross90Within300mRate === null || item.collisionCleanCross90Within300mRate === undefined ? 'n/a' : pct(item.collisionCleanCross90Within300mRate, 1)}`);
+    });
+  }
+  if (rickTop.length) {
+    lines.push('- Top collision-clean Rick follow-through:');
+    rickTop.forEach((item, index) => {
+      const id = item.identification || {};
+      const d = item.derivedFlags || {};
+      lines.push(`  ${index + 1}. ${id.symbol || id.symbolKey || 'UNKNOWN'} | report=${id.reportType || 'n/a'} | tier=${item.matchTier || 'n/a'} | mints=${item.matchedMintCount ?? 'n/a'} | class=${d.classification || 'n/a'} | max300=${fmt(d.maxCurveProgress300m, 4)} | price300=${fmt(d.maxPriceDeltaPct300m, 2)}% | cross90=${d.crossed90Within300m === true}`);
+    });
+  } else {
+    lines.push('- Top collision-clean Rick follow-through: none');
+  }
+  lines.push('');
+
+  const highConvictionWatchSummary = highConvictionWatchFollowThrough.summary || {};
+  const highConvictionWatchTop = topArray(highConvictionWatchFollowThrough.topFollowThrough, 8);
+  const highConvictionWatchCross90 = topArray(highConvictionWatchFollowThrough.crossed90Within120s, 8);
+
+  lines.push('9d. High-Conviction Watch Follow-through');
+  lines.push('-----------------------------------------');
+  lines.push('- Mode: report-only; joins confirmed/high-conviction watch rows to later PumpDev curve/price snapshots.');
+  lines.push(`- Raw watch rows / unique mints: ${highConvictionWatchSummary.rawWatchRows ?? 'n/a'} / ${highConvictionWatchSummary.uniqueMints ?? 'n/a'}`);
+  lines.push(`- Crossed 85/90 within 120s: ${highConvictionWatchSummary.crossed85Within120s ?? 'n/a'} / ${highConvictionWatchSummary.crossed90Within120s ?? 'n/a'}`);
+  lines.push(`- Crossed 85/90 within 300s: ${highConvictionWatchSummary.crossed85Within300s ?? 'n/a'} / ${highConvictionWatchSummary.crossed90Within300s ?? 'n/a'}`);
+  lines.push(`- Curve delta 120s median/p90/max: ${fmt(highConvictionWatchSummary.curveDelta120s?.median, 4)} / ${fmt(highConvictionWatchSummary.curveDelta120s?.p90, 4)} / ${fmt(highConvictionWatchSummary.curveDelta120s?.max, 4)}`);
+  lines.push(`- Price delta 120s median/p90/max: ${fmt(highConvictionWatchSummary.maxPriceDeltaPct120s?.median, 2)}% / ${fmt(highConvictionWatchSummary.maxPriceDeltaPct120s?.p90, 2)}% / ${fmt(highConvictionWatchSummary.maxPriceDeltaPct120s?.max, 2)}%`);
+  lines.push('- Selection classes:');
+  objectLines(highConvictionWatchSummary.selectionClassCounts, 4).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Verdict counts:');
+  objectLines(highConvictionWatchSummary.verdictCounts, 4).forEach((line) => lines.push(`  - ${line}`));
+  if (highConvictionWatchCross90.length) {
+    lines.push('- Crossed 90 within 120s:');
+    highConvictionWatchCross90.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeHighConvictionWatchFollowThrough(item)}`));
+  } else {
+    lines.push('- Crossed 90 within 120s: none');
+  }
+  if (highConvictionWatchTop.length) {
+    lines.push('- Top high-conviction watch follow-through:');
+    highConvictionWatchTop.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeHighConvictionWatchFollowThrough(item)}`));
+  } else {
+    lines.push('- Top high-conviction watch follow-through: none');
   }
   lines.push('');
 

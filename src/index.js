@@ -68,6 +68,9 @@ class SolanaTradingBot {
     this.shutdownInProgress = false;
     this.sessionExitTimer = null;
     this.forceExitTimer = null;
+    this.processSessionDeadlineAt = null;
+    this.statusLoopCount = 0;
+    this.lastStatusSnapshot = null;
   }
 
   async start() {
@@ -120,10 +123,12 @@ class SolanaTradingBot {
 
     const durationMinutes = Number(this.config.sessionDurationMinutes || 0);
     if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+      this.processSessionDeadlineAt = null;
       return;
     }
 
     const timeoutMs = Math.max(1, durationMinutes * 60 * 1000);
+    this.processSessionDeadlineAt = Date.now() + timeoutMs;
     this.sessionExitTimer = setTimeout(() => {
       const message = 'Process session duration reached; shutting down bot process';
       if (this.logger) {
@@ -160,7 +165,7 @@ class SolanaTradingBot {
     }, 20000);
 
     try {
-      if (this.tradingEngine) {
+      if (this.tradingEngine?.active) {
         await Promise.race([
           this.tradingEngine.stop(signal),
           this.sleep(15000)
@@ -182,15 +187,36 @@ class SolanaTradingBot {
   }
 
   async monitoringLoop() {
+    const statusIntervalMs = Math.max(1000, Number(this.config.runtimeStatusIntervalMs || 60000));
     while (this.running) {
       try {
-        await this.sleep(15000);
+        await this.sleep(statusIntervalMs);
+
+        if (
+          this.processSessionDeadlineAt
+          && Date.now() >= this.processSessionDeadlineAt
+          && !this.shutdownInProgress
+        ) {
+          this.logger.info('Process session deadline reached from monitoring loop; shutting down bot process');
+          await this.shutdown('SESSION_DURATION_EXCEEDED');
+          break;
+        }
 
         if (!this.tradingEngine) {
           continue;
         }
 
         const stats = this.tradingEngine.getStats();
+        this.statusLoopCount += 1;
+
+        if (!this.shouldPrintDetailedStatus(stats)) {
+          this.printCompactStatus(stats);
+          if (!this.tradingEngine.active || stats.session.state === 'STOPPED') {
+            this.logger.info('Trading session finished; exiting bot process');
+            await this.shutdown('SESSION_CLOSED');
+          }
+          continue;
+        }
 
         console.log('\nBot Status:');
         console.log(`   Mode: ${stats.mode}`);
@@ -209,11 +235,15 @@ class SolanaTradingBot {
         console.log(`   Total Equity: ${stats.totalEquitySol.toFixed(4)} SOL`);
         console.log(`   Telemetry Events: ${stats.telemetry.totalEvents}`);
         console.log(`   PumpPortal: ${stats.pumpPortal.messages} msgs | ${stats.pumpPortal.newTokens} new | ${stats.pumpPortal.trades} trades | ${stats.pumpPortal.migrations} migrations`);
+        if (stats.pumpDev?.enabled) {
+          const pumpDevLabel = stats.pumpDev.drivesPreMigration ? 'PumpDev Primary' : 'PumpDev Shadow';
+          console.log(`   ${pumpDevLabel}: ${stats.pumpDev.messages} msgs | ${stats.pumpDev.newTokens} new | ${stats.pumpDev.trades} trades | ${stats.pumpDev.mintEvents} mintEvents | ${stats.pumpDev.pairUsdcEvents} USDC`);
+        }
         if (stats.poolStateLane?.enabled) {
           console.log(`   Pool State: ${stats.poolStateLane.trackedMints} tracked | ${stats.poolStateLane.updates} updates | ${stats.poolStateLane.discoveries} discoveries`);
         }
         if (stats.pumpBondingCurveLane?.enabled) {
-          console.log(`   Pump Curve: ${stats.pumpBondingCurveLane.trackedMints} tracked | ${stats.pumpBondingCurveLane.decoded} decoded | ${stats.pumpBondingCurveLane.missingAccounts} missing | ${stats.pumpBondingCurveLane.errors} errors`);
+          console.log(`   Pump Curve: ${stats.pumpBondingCurveLane.trackedMints} tracked | ${stats.pumpBondingCurveLane.decoded} decoded | ${stats.pumpBondingCurveLane.missingAccounts} missing | ${stats.pumpBondingCurveLane.errors} errors | ${stats.pumpBondingCurveLane.rpcBatches || 0} rpc batches / ${stats.pumpBondingCurveLane.batchAccounts || 0} accounts`);
         }
         if (stats.preMigrationWatch?.enabled) {
           console.log(`   Pre-Migration Watch: ${stats.preMigrationWatch.trackedMints} tracked | ${stats.preMigrationWatch.observedSignals || 0} observed | ${stats.preMigrationWatch.confirmedFlags || 0} confirmed | ${stats.preMigrationWatch.flags} flags | ${stats.preMigrationWatch.migrations} migrations`);
@@ -387,6 +417,52 @@ class SolanaTradingBot {
         this.logger.error('Error in monitoring loop', error.message);
       }
     }
+  }
+
+  shouldPrintDetailedStatus(stats) {
+    const every = Math.max(1, Number(this.config.runtimeStatusDetailEvery || 5));
+    const previous = this.lastStatusSnapshot;
+    const current = {
+      totalTrades: Number(stats.totalTrades || 0),
+      currentPositions: Number(stats.currentPositions || 0),
+      rejectedTrades: Number(stats.rejectedTrades || 0),
+      paperClosedTrades: Number(stats.preMigrationPaper?.closedTrades || 0),
+      paperOpenPositions: Number(stats.preMigrationPaper?.openPositions || 0),
+      paperDecisionCount: Object.values(stats.preMigrationPaper?.decisionCounts || {})
+        .reduce((total, count) => total + Number(count || 0), 0),
+      pumpDevMessages: Number(stats.pumpDev?.messages || 0),
+      telemetryEvents: Number(stats.telemetry?.totalEvents || 0),
+      sessionState: stats.session?.state || null
+    };
+
+    this.lastStatusSnapshot = current;
+
+    if (!previous) return true;
+    if (this.statusLoopCount % every === 0) return true;
+    if (current.sessionState !== previous.sessionState) return true;
+    if (current.totalTrades !== previous.totalTrades) return true;
+    if (current.currentPositions !== previous.currentPositions) return true;
+    if (current.paperClosedTrades !== previous.paperClosedTrades) return true;
+    if (current.paperOpenPositions !== previous.paperOpenPositions) return true;
+    return false;
+  }
+
+  printCompactStatus(stats) {
+    const paper = stats.preMigrationPaper || {};
+    const pumpDev = stats.pumpDev || {};
+    const eventLoop = stats.eventLoopMonitor || stats.runtime?.eventLoopMonitor || {};
+    const parts = [
+      `mode=${stats.mode}`,
+      `state=${stats.session?.state || 'n/a'}`,
+      `telemetry=${stats.telemetry?.totalEvents ?? 'n/a'}`,
+      `paper=${paper.openPositions || 0} open/${paper.closedTrades || 0} closed/${Number(paper.totalPnlSol || 0).toFixed(4)} SOL`,
+      `pumpdev=${pumpDev.messages || 0} msgs`,
+      `positions=${stats.currentPositions || 0}`
+    ];
+    if (eventLoop.lagEvents !== undefined) {
+      parts.push(`lag=${eventLoop.lagEvents}/${eventLoop.maxLagMs || 0}ms`);
+    }
+    console.log(`\nBot Status: ${parts.join(' | ')}`);
   }
 
   sleep(ms) {

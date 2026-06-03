@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const AsyncJsonlWriter = require('./async-jsonl-writer');
 
 class OutcomeLedger {
   constructor(config, logger) {
@@ -19,6 +20,7 @@ class OutcomeLedger {
 
     if (this.enabled && this.filePath) {
       fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+      this.writer = new AsyncJsonlWriter(this.filePath, this.logger);
     }
   }
 
@@ -352,13 +354,13 @@ class OutcomeLedger {
       this.recent = this.recent.slice(-this.maxRecent);
     }
 
-    try {
-      fs.appendFileSync(this.filePath, `${JSON.stringify(event)}\n`, 'utf8');
-    } catch (error) {
-      this.logger.warn('Failed to write outcome ledger event', error.message);
-    }
+    this.writer?.append(event, 'outcome ledger event');
 
     return event;
+  }
+
+  async flushAsync() {
+    await this.writer?.flush?.();
   }
 
   getStats() {

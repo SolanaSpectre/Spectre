@@ -10,6 +10,13 @@ const NODE = process.execPath;
 const DEFAULT_RICK_STATE_PATH = path.join(REPO_ROOT, 'data', 'rick-context', 'command-state.json');
 const DEFAULT_RICK_CONTEXT_PATH = path.join(REPO_ROOT, 'data', 'rick-context', 'latest.json');
 const RUN_LOG_DIR = path.join(REPO_ROOT, 'run-logs');
+const REPORT_NODE_OPTIONS = String(process.env.POST_RUN_NODE_OPTIONS || '--max-old-space-size=8192').trim();
+const SKIPPED_POST_RUN_REPORTS = new Set(
+  String(process.env.POST_RUN_SKIP_REPORTS || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+);
 
 const DEFAULT_RICK_COMMANDS = ['vol', 'runners', 'dt', 'pft', 'burp'];
 const DEFAULT_RICK_REPLY_WAIT_MS = 10000;
@@ -175,7 +182,7 @@ function killProcessTree(child) {
   }, 5000).unref?.();
 }
 
-function runProcess(title, command, args, { allowFailure = false, timeoutMs = 0, timeoutExitCode = 0 } = {}) {
+function runProcess(title, command, args, { allowFailure = false, timeoutMs = 0, timeoutExitCode = 0, env = process.env } = {}) {
   printSection(title);
   console.log(`> ${[command, ...args].join(' ')}`);
 
@@ -184,7 +191,7 @@ function runProcess(title, command, args, { allowFailure = false, timeoutMs = 0,
     let timeoutTimer = null;
     const child = spawn(command, args, {
       cwd: REPO_ROOT,
-      env: process.env,
+      env,
       stdio: 'inherit',
       windowsHide: false
     });
@@ -246,6 +253,15 @@ function runProcess(title, command, args, { allowFailure = false, timeoutMs = 0,
 
 function runNode(title, script, args = [], options = {}) {
   return runProcess(title, NODE, [path.join('scripts', script), ...args], options);
+}
+
+function buildPostRunReportEnv() {
+  if (!REPORT_NODE_OPTIONS) return process.env;
+  const existing = String(process.env.NODE_OPTIONS || '').trim();
+  const nodeOptions = existing.includes(REPORT_NODE_OPTIONS)
+    ? existing
+    : `${existing} ${REPORT_NODE_OPTIONS}`.trim();
+  return { ...process.env, NODE_OPTIONS: nodeOptions };
 }
 
 function getBotSessionTimeoutMs(botArgs) {
@@ -408,7 +424,15 @@ async function generatePostRunReports(options) {
 
   printSection('Post-Run Reports');
   for (const report of POST_RUN_REPORTS) {
-    await runNode(report.title, report.script, [], { allowFailure: true });
+    if (SKIPPED_POST_RUN_REPORTS.has(report.script) || SKIPPED_POST_RUN_REPORTS.has(report.title)) {
+      printSection(report.title);
+      console.log(`[SKIP] ${report.script} skipped by POST_RUN_SKIP_REPORTS`);
+      continue;
+    }
+    await runNode(report.title, report.script, [], {
+      allowFailure: true,
+      env: buildPostRunReportEnv()
+    });
   }
 }
 

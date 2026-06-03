@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const AsyncJsonlWriter = require('./async-jsonl-writer');
 
 class CandidateDossierLedger {
   constructor(config, logger) {
@@ -26,6 +27,7 @@ class CandidateDossierLedger {
       fs.mkdirSync(logDir, { recursive: true });
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
       this.filePath = path.join(logDir, `candidate-dossiers-${stamp}.jsonl`);
+      this.writer = new AsyncJsonlWriter(this.filePath, this.logger);
     }
   }
 
@@ -399,14 +401,14 @@ class CandidateDossierLedger {
     }
 
     if (this.filePath) {
-      try {
-        fs.appendFileSync(this.filePath, `${JSON.stringify(dossier)}\n`);
-      } catch (error) {
-        this.logger.warn('Failed to write candidate dossier', error.message);
-      }
+      this.writer?.append(dossier, 'candidate dossier');
     }
 
     return dossier;
+  }
+
+  async flushAsync() {
+    await this.writer?.flush?.();
   }
 
   summarizeForStats(dossier) {

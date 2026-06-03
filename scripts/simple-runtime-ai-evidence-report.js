@@ -65,86 +65,81 @@ function countBy(rows, keyFn) {
   return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1]));
 }
 
+function collectTelemetryEvidence() {
+  const telemetryRows = [];
+  const lifecycleRows = [];
+  const aiDecisionRows = [];
+  const files = telemetryFiles();
+
+  for (const filePath of files) {
+    const telemetryPath = rel(filePath);
+    for (const event of readJsonl(filePath)) {
+      const type = event.type || event.event || event.name || 'unknown';
+      const payload = event.payload || {};
+
+      if (payload.simpleRuntime) {
+        telemetryRows.push({
+          telemetryPath,
+          timestamp: event.timestamp || null,
+          type,
+          signalId: payload.signalId || null,
+          token: payload.token || payload.mint || null,
+          reason: payload.reason || payload.rejectionReason || null,
+          confidence: num(payload.confidence),
+          action: payload.action || payload.decision || null,
+          risk: payload.simpleRuntime?.risk || null,
+          model: payload.simpleRuntime?.model || null,
+          failureType: payload.simpleRuntime?.failureType || null,
+          timeout: payload.timeout === true
+        });
+      }
+
+      if (type.startsWith('simple_runtime_ai.review_')) {
+        lifecycleRows.push({
+          telemetryPath,
+          timestamp: event.timestamp || null,
+          type,
+          attemptId: payload.attemptId || null,
+          signalId: payload.signalId || null,
+          mint: payload.mint || null,
+          symbol: payload.symbol || null,
+          source: payload.source || null,
+          attemptType: payload.attemptType || null,
+          model: payload.model || null,
+          timeoutMs: num(payload.timeoutMs),
+          outerTimeoutMs: num(payload.outerTimeoutMs),
+          latencyMs: num(payload.latencyMs),
+          action: payload.action || null,
+          approved: payload.approved === true,
+          confidence: num(payload.confidence),
+          risk: payload.risk || null,
+          reason: payload.reason || null,
+          failureType: payload.failureType || null,
+          errorMessage: payload.errorMessage || null
+        });
+      }
+
+      if (['ai.veto', 'ai.caution'].includes(type)) {
+        aiDecisionRows.push({
+          telemetryPath,
+          timestamp: event.timestamp || null,
+          type,
+          signalId: payload.signalId || null,
+          token: payload.token || payload.mint || null,
+          reason: payload.reason || payload.rejectionReason || null,
+          confidence: num(payload.confidence),
+          simpleRuntime: payload.simpleRuntime || null,
+          timeout: payload.timeout === true
+        });
+      }
+    }
+  }
+
+  return { filesRead: files.length, telemetryRows, lifecycleRows, aiDecisionRows };
+}
+
 function collectTelemetryRows() {
-  const rows = [];
-  for (const filePath of telemetryFiles()) {
-    for (const event of readJsonl(filePath)) {
-      const payload = event.payload || {};
-      if (!payload.simpleRuntime) continue;
-      rows.push({
-        telemetryPath: rel(filePath),
-        timestamp: event.timestamp || null,
-        type: event.type || event.event || event.name || 'unknown',
-        signalId: payload.signalId || null,
-        token: payload.token || payload.mint || null,
-        reason: payload.reason || payload.rejectionReason || null,
-        confidence: num(payload.confidence),
-        action: payload.action || payload.decision || null,
-        risk: payload.simpleRuntime?.risk || null,
-        model: payload.simpleRuntime?.model || null,
-        failureType: payload.simpleRuntime?.failureType || null,
-        timeout: payload.timeout === true
-      });
-    }
-  }
-  return rows;
-}
-
-function collectReviewLifecycleRows() {
-  const rows = [];
-  for (const filePath of telemetryFiles()) {
-    for (const event of readJsonl(filePath)) {
-      const type = event.type || event.event || event.name || 'unknown';
-      if (!type.startsWith('simple_runtime_ai.review_')) continue;
-      const payload = event.payload || {};
-      rows.push({
-        telemetryPath: rel(filePath),
-        timestamp: event.timestamp || null,
-        type,
-        attemptId: payload.attemptId || null,
-        signalId: payload.signalId || null,
-        mint: payload.mint || null,
-        symbol: payload.symbol || null,
-        source: payload.source || null,
-        attemptType: payload.attemptType || null,
-        model: payload.model || null,
-        timeoutMs: num(payload.timeoutMs),
-        outerTimeoutMs: num(payload.outerTimeoutMs),
-        latencyMs: num(payload.latencyMs),
-        action: payload.action || null,
-        approved: payload.approved === true,
-        confidence: num(payload.confidence),
-        risk: payload.risk || null,
-        reason: payload.reason || null,
-        failureType: payload.failureType || null,
-        errorMessage: payload.errorMessage || null
-      });
-    }
-  }
-  return rows;
-}
-
-function collectAiDecisionRows() {
-  const rows = [];
-  for (const filePath of telemetryFiles()) {
-    for (const event of readJsonl(filePath)) {
-      const type = event.type || event.event || event.name || 'unknown';
-      if (!['ai.veto', 'ai.caution'].includes(type)) continue;
-      const payload = event.payload || {};
-      rows.push({
-        telemetryPath: rel(filePath),
-        timestamp: event.timestamp || null,
-        type,
-        signalId: payload.signalId || null,
-        token: payload.token || payload.mint || null,
-        reason: payload.reason || payload.rejectionReason || null,
-        confidence: num(payload.confidence),
-        simpleRuntime: payload.simpleRuntime || null,
-        timeout: payload.timeout === true
-      });
-    }
-  }
-  return rows;
+  return collectTelemetryEvidence().telemetryRows;
 }
 
 function timestampMs(value) {
@@ -174,9 +169,8 @@ function collectLiveIssueRows() {
 }
 
 function buildReport() {
-  const telemetryRows = collectTelemetryRows();
-  const lifecycleRows = collectReviewLifecycleRows();
-  const aiDecisionRows = collectAiDecisionRows();
+  const telemetryEvidence = collectTelemetryEvidence();
+  const { telemetryRows, lifecycleRows, aiDecisionRows } = telemetryEvidence;
   const liveIssueRows = collectLiveIssueRows();
   const startedRows = lifecycleRows.filter((row) => row.type === 'simple_runtime_ai.review_started');
   const completedByAttemptId = new Map(lifecycleRows
@@ -225,7 +219,7 @@ function buildReport() {
     mode: 'report_only',
     inputs: {
       logDir: rel(LOG_DIR),
-      telemetryFilesRead: telemetryFiles().length,
+      telemetryFilesRead: telemetryEvidence.filesRead,
       liveIssuesPath: rel(LIVE_ISSUES_PATH)
     },
     summary: {

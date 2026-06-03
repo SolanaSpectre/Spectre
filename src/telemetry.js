@@ -7,6 +7,8 @@ class Telemetry {
     this.logger = logger;
     this.enabled = config.telemetryEnabled;
     this.events = [];
+    this.maxRecentEvents = Math.max(0, Number(process.env.TELEMETRY_MAX_RECENT_EVENTS || 5000));
+    this.totalEventsRecorded = 0;
     this.counts = new Map();
     this.rejectionCounts = new Map();
     this.providerErrors = new Map();
@@ -21,6 +23,13 @@ class Telemetry {
     this.momentumBucketsByReason = new Map();
     this.pumpMomentumBucketsByFailureReason = new Map();
     this.filePath = null;
+    this.writeBuffer = [];
+    this.flushTimer = null;
+    this.flushIntervalMs = 250;
+    this.flushMaxEvents = 100;
+    this.writeInFlight = false;
+    this.flushPending = false;
+    this.writePromise = Promise.resolve();
 
     if (this.enabled) {
       const logDir = config.telemetryLogDir;
@@ -37,7 +46,13 @@ class Telemetry {
       payload
     };
 
-    this.events.push(event);
+    this.totalEventsRecorded += 1;
+    if (this.maxRecentEvents !== 0) {
+      this.events.push(event);
+      if (this.events.length > this.maxRecentEvents) {
+        this.events.splice(0, this.events.length - this.maxRecentEvents);
+      }
+    }
     this.counts.set(type, (this.counts.get(type) || 0) + 1);
 
     if (type === 'trade.rejected' && payload.reason) {
@@ -112,22 +127,77 @@ class Telemetry {
       );
     }
 
-    if (this.enabled && this.filePath) {
-      try {
-        fs.appendFileSync(this.filePath, `${JSON.stringify(event)}\n`);
-      } catch (error) {
-        this.logger.warn('Failed to write telemetry event', error.message);
-      }
-    }
+    this.enqueueWrite(event);
 
     return event;
   }
 
+  enqueueWrite(event) {
+    if (!this.enabled || !this.filePath) return;
+
+    this.writeBuffer.push(`${JSON.stringify(event)}\n`);
+    if (this.writeBuffer.length >= this.flushMaxEvents) {
+      this.flush();
+      return;
+    }
+
+    if (!this.flushTimer) {
+      this.flushTimer = setTimeout(() => {
+        this.flushTimer = null;
+        this.flush();
+      }, this.flushIntervalMs);
+      if (typeof this.flushTimer.unref === 'function') {
+        this.flushTimer.unref();
+      }
+    }
+  }
+
+  flush() {
+    if (!this.enabled || !this.filePath || !this.writeBuffer.length) return;
+    if (this.writeInFlight) {
+      this.flushPending = true;
+      return;
+    }
+
+    const chunk = this.writeBuffer.join('');
+    this.writeBuffer = [];
+    this.writeInFlight = true;
+    this.writePromise = fs.promises.appendFile(this.filePath, chunk)
+      .catch((error) => {
+        this.logger.warn('Failed to write telemetry events', error.message);
+      })
+      .finally(() => {
+        this.writeInFlight = false;
+        if (this.flushPending || this.writeBuffer.length > 0) {
+          this.flushPending = false;
+          this.flush();
+        }
+      });
+  }
+
+  async flushAsync() {
+    if (!this.enabled || !this.filePath) return;
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.flush();
+    await this.writePromise;
+    if (this.writeBuffer.length > 0 || this.writeInFlight) {
+      await this.flushAsync();
+    }
+  }
+
   getSummary() {
+    this.flush();
     return {
       enabled: this.enabled,
       filePath: this.filePath,
-      totalEvents: this.events.length,
+      totalEvents: this.totalEventsRecorded,
+      recentEventsRetained: this.events.length,
+      maxRecentEvents: this.maxRecentEvents,
+      bufferedEvents: this.writeBuffer.length,
+      writeInFlight: this.writeInFlight,
       counts: Object.fromEntries(this.counts),
       rejectionCounts: Object.fromEntries(this.rejectionCounts),
       providerErrors: Object.fromEntries(this.providerErrors),
