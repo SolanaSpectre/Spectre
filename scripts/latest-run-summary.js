@@ -24,6 +24,7 @@ const FILES = {
   preMigrationEntryTimingPressure: 'data/reports/pre-migration-entry-timing-pressure-latest.json',
   preMigrationRollingEntryTrend: 'data/reports/pre-migration-rolling-entry-trend-latest.json',
   preMigrationEntryShape: 'data/reports/pre-migration-entry-shape-latest.json',
+  preMigrationEntryGateMargin: 'data/reports/pre-migration-entry-gate-margin-latest.json',
   preMigrationSkipFollowThrough: 'data/reports/pre-migration-skip-follow-through-latest.json',
   preMigrationSkipNear90Watchlist: 'data/reports/pre-migration-skip-near-90-watchlist-latest.json',
   preMigrationHighConvictionWatchFollowThrough: 'data/reports/pre-migration-high-conviction-watch-follow-through-latest.json',
@@ -317,6 +318,15 @@ function summarizeSkipNear90Watchlist(item = {}) {
   const w120 = item.window120s || {};
   const w300 = item.window300s || {};
   return `${label} | reasons=${reasons} | curve=${fmt(item.curveProgress, 4)} | score=${fmt(item.score, 2)} | max120=${fmt(w120.maxCurveProgress, 4)} | cross90_120=${w120.crossed90AfterSkip === true} | priceDelta120=${w120.maxPriceDeltaPct === null || w120.maxPriceDeltaPct === undefined ? 'n/a' : `${fmt(w120.maxPriceDeltaPct, 2)}%`} | max300=${fmt(w300.maxCurveProgress, 4)}`;
+}
+
+function summarizeEntryGateMargin(item = {}) {
+  const label = candidateLabel(item);
+  const gate = item.tightestGate || {};
+  const actual = gate.actual === null || gate.actual === undefined ? 'n/a' : fmt(gate.actual, 4);
+  const threshold = gate.threshold === null || gate.threshold === undefined ? 'n/a' : fmt(gate.threshold, 4);
+  const gateText = gate.name ? `gate=${gate.name} ${actual}/${threshold}` : 'gate=n/a';
+  return `${label} | preset=${item.preset || 'n/a'} | reason=${item.reason || 'n/a'} | ready=${fmt(item.readinessPct, 2)}% | ${gateText} | score=${fmt(item.score, 2)} | curve=${fmt(item.curveProgress, 4)} | vol=${fmt(item.recentVolumeSol, 2)} | vel=${fmt(item.tradeVelocityPerMin, 2)}`;
 }
 
 function summarizeHighConvictionWatchFollowThrough(item = {}) {
@@ -3112,6 +3122,9 @@ function buildSummary(docs) {
   const skipFollowSummary = skipFollowThrough.summary || {};
   const skipReasonSummaries = topArray(skipFollowThrough.reasonSummaries, 8);
   const skipTopWakeups = topArray(skipFollowThrough.topWakeups, 8);
+  const entryGateMargin = docs.preMigrationEntryGateMargin.data || {};
+  const entryGateMarginSummary = entryGateMargin.summary || {};
+  const entryGateClosest = topArray(entryGateMargin.closestByMint, 8);
 
   lines.push('9b. Pre-Migration Skip Follow-through');
   lines.push('-------------------------------------');
@@ -3133,6 +3146,23 @@ function buildSummary(docs) {
     skipTopWakeups.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeSkipFollowThrough(item)}`));
   } else {
     lines.push('- Top post-skip wakeups: none');
+  }
+  lines.push('');
+
+  lines.push('9b2. Pre-Migration Entry Gate Margin');
+  lines.push('------------------------------------');
+  lines.push('- Mode: report-only; ranks the tightest measurable skipped-entry gate by preset/reason.');
+  lines.push(`- Skip decisions / unique mints: ${entryGateMarginSummary.decisions ?? 'n/a'} / ${entryGateMarginSummary.uniqueMints ?? 'n/a'}`);
+  lines.push(`- Readiness pct median/p90/max: ${fmt(entryGateMarginSummary.readinessPct?.median, 2)}% / ${fmt(entryGateMarginSummary.readinessPct?.p90, 2)}% / ${fmt(entryGateMarginSummary.readinessPct?.max, 2)}%`);
+  lines.push('- Tightest measurable gates:');
+  objectLines(entryGateMarginSummary.tightestGateCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Preset counts:');
+  objectLines(entryGateMarginSummary.presetCounts, 6).forEach((line) => lines.push(`  - ${line}`));
+  if (entryGateClosest.length) {
+    lines.push('- Closest skipped mints:');
+    entryGateClosest.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeEntryGateMargin(item)}`));
+  } else {
+    lines.push('- Closest skipped mints: none');
   }
   lines.push('');
 

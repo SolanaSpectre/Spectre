@@ -45,6 +45,7 @@ const POST_RUN_REPORTS = [
   { title: 'Pre-Migration Entry Timing Pressure', script: 'pre-migration-entry-timing-pressure-report.js' },
   { title: 'Pre-Migration Rolling Entry Trend', script: 'pre-migration-rolling-entry-trend-report.js' },
   { title: 'Pre-Migration Entry Shape', script: 'pre-migration-entry-shape-report.js' },
+  { title: 'Pre-Migration Entry Gate Margin', script: 'pre-migration-entry-gate-margin-report.js' },
   { title: 'Pre-Migration Skip Follow-through', script: 'pre-migration-skip-follow-through-report.js' },
   { title: 'Pre-Migration Skip Near-90 Watchlist', script: 'pre-migration-skip-near-90-watchlist-report.js' },
   { title: 'Pre-Migration High-Conviction Watch Follow-through', script: 'pre-migration-high-conviction-watch-follow-through-report.js' },
