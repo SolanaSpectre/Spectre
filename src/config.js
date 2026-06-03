@@ -301,7 +301,7 @@ class Config {
   }
 
   static get liveDryRunMaxPriceImpactPct() {
-    return parseFloat(process.env.LIVE_DRY_RUN_MAX_PRICE_IMPACT_PCT || '3');
+    return parseFloat(process.env.LIVE_DRY_RUN_MAX_PRICE_IMPACT_PCT || '2');
   }
 
   static get liveDryRunMaxPerRun() {
@@ -333,7 +333,7 @@ class Config {
   }
 
   static get liveDryRunBuySlippageBps() {
-    return parseInt(process.env.LIVE_DRY_RUN_BUY_SLIPPAGE_BPS || '1500', 10);
+    return parseInt(process.env.LIVE_DRY_RUN_BUY_SLIPPAGE_BPS || '2000', 10);
   }
 
   static get liveDryRunKeypairLabel() {

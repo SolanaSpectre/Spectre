@@ -50,6 +50,7 @@ const POST_RUN_REPORTS = [
   { title: 'Pre-Migration High-Conviction Watch Follow-through', script: 'pre-migration-high-conviction-watch-follow-through-report.js' },
   { title: 'Pre-Migration Dry-Run Outcome Follow-through', script: 'pre-migration-dry-run-outcome-report.js' },
   { title: 'Pre-Migration Relaxed-Gate Replay', script: 'pre-migration-relaxed-gate-replay-report.js' },
+  { title: 'Pre-Migration Curve-Stall Relaxed Replay', script: 'pre-migration-curve-stall-relaxed-replay-report.js' },
   { title: 'Pre-Migration Wallet-Conditioned Relaxed-Gate Replay', script: 'pre-migration-wallet-conditioned-relaxed-gate-replay-report.js' },
   { title: 'Pre-Migration Wallet-Relaxed Shadow Outcome', script: 'pre-migration-wallet-relaxed-shadow-outcome-report.js' },
   { title: 'Pre-Migration Wallet Context Coverage', script: 'pre-migration-wallet-context-coverage-report.js' },

@@ -63,6 +63,10 @@ function pushNumber(list, value) {
   if (Number.isFinite(parsed)) list.push(parsed);
 }
 
+function countOnly(counts = {}, allowed = []) {
+  return allowed.reduce((total, key) => total + number(counts[key], 0), 0);
+}
+
 async function readTelemetry(filePath) {
   const stats = {
     filePath,
@@ -305,6 +309,12 @@ function buildVerdict(stats) {
   const dryWouldBlock = number(dryRunStop.wouldBlock, stats.dryRun.wouldBlock);
   const dryErrors = number(dryRunStop.errors, stats.dryRun.errors);
   const drySimulationFailures = number(dryRunStop.simulationFailed, stats.dryRun.simulationOk.false);
+  const dryPolicyBlocks = countOnly(stats.dryRun.blockReasons, [
+    'PRICE_IMPACT_TOO_HIGH',
+    'STALE_ACCOUNT_UPDATE',
+    'BONDING_CURVE_COMPLETE'
+  ]);
+  const dryCriticalBlocks = Math.max(0, dryWouldBlock - dryPolicyBlocks);
   const dryAmountSol = number(dryRunStop.amountSol, 0.1);
   const finalistSubscribed = number(finalistStop.subscribed, stats.finalist.subscribed);
   const finalistUpdates = number(finalistStop.updates, stats.finalist.updates);
@@ -350,15 +360,19 @@ function buildVerdict(stats) {
     blockers.push(`Finalist verifier not live-ready: subs=${finalistSubscribed}, updates=${finalistUpdates}, errors=${finalistErrors}, ready=${finalistReady}.`);
   }
 
+  if (dryPolicyBlocks > 0) {
+    warnings.push(`Dry-run policy blocks observed (${dryPolicyBlocks}/${dryAttempts}); safety rails are active and should remain visible in review.`);
+  }
+
   if (drySimulationFailures > 0) {
     blockers.push(`Dry-run transaction simulation is failing (${drySimulationFailures}/${dryAttempts}); live execution cannot be reviewed until simulations pass.`);
-  } else if (dryAttempts >= 20 && dryWouldSend >= 20 && dryWouldBlock === 0 && dryErrors === 0) {
-    passes.push(`Dry-run tx builder is healthy (${dryWouldSend}/${dryAttempts} would_send, 0 blocks/errors).`);
-  } else if (dryAttempts > 0 && dryWouldSend === dryAttempts && dryWouldBlock === 0 && dryErrors === 0) {
-    passes.push(`Dry-run tx builder produced a clean executable sample (${dryWouldSend}/${dryAttempts} would_send, 0 blocks/errors).`);
+  } else if (dryAttempts >= 20 && dryWouldSend >= 20 && dryCriticalBlocks === 0 && dryErrors === 0) {
+    passes.push(`Dry-run tx builder is healthy (${dryWouldSend}/${dryAttempts} would_send, criticalBlocks=${dryCriticalBlocks}, policyBlocks=${dryPolicyBlocks}, errors=0).`);
+  } else if (dryAttempts > 0 && dryWouldSend > 0 && dryCriticalBlocks === 0 && dryErrors === 0) {
+    passes.push(`Dry-run tx builder produced an executable sample (${dryWouldSend}/${dryAttempts} would_send, criticalBlocks=${dryCriticalBlocks}, policyBlocks=${dryPolicyBlocks}, errors=0).`);
     warnings.push(`Dry-run executable sample is still small (${dryAttempts}/20 target); validate on a longer run before live review.`);
   } else if (dryAttempts > 0 && dryErrors === 0) {
-    blockers.push(`Dry-run lane did not produce a clean executable sample (${dryWouldSend}/${dryAttempts} would_send, blocks=${dryWouldBlock}).`);
+    blockers.push(`Dry-run lane has critical blocks (${dryCriticalBlocks}/${dryAttempts}); would_send=${dryWouldSend}, policyBlocks=${dryPolicyBlocks}.`);
   } else {
     blockers.push(`Dry-run lane did not produce a clean sample (attempts=${dryAttempts}, errors=${dryErrors}).`);
   }
@@ -405,6 +419,8 @@ function buildVerdict(stats) {
       dryAttempts,
       dryWouldSend,
       dryWouldBlock,
+      dryPolicyBlocks,
+      dryCriticalBlocks,
       dryErrors,
       drySimulationFailures,
       dryAmountSol,

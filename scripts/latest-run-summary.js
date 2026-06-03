@@ -29,6 +29,7 @@ const FILES = {
   preMigrationHighConvictionWatchFollowThrough: 'data/reports/pre-migration-high-conviction-watch-follow-through-latest.json',
   preMigrationDryRunOutcome: 'data/reports/pre-migration-dry-run-outcome-latest.json',
   preMigrationRelaxedGateReplay: 'data/reports/pre-migration-relaxed-gate-replay-latest.json',
+  preMigrationCurveStallRelaxedReplay: 'data/reports/pre-migration-curve-stall-relaxed-replay-latest.json',
   preMigrationWalletConditionedRelaxedGateReplay: 'data/reports/pre-migration-wallet-conditioned-relaxed-gate-replay-latest.json',
   preMigrationWalletRelaxedShadowOutcome: 'data/reports/pre-migration-wallet-relaxed-shadow-outcome-latest.json',
   preMigrationWalletContextCoverage: 'data/reports/pre-migration-wallet-context-coverage-latest.json',
@@ -2004,6 +2005,7 @@ function buildSummary(docs) {
   const highConvictionWatchFollowThrough = docs.preMigrationHighConvictionWatchFollowThrough.data || {};
   const dryRunOutcome = docs.preMigrationDryRunOutcome.data || {};
   const relaxedGateReplay = docs.preMigrationRelaxedGateReplay.data || {};
+  const curveStallRelaxedReplay = docs.preMigrationCurveStallRelaxedReplay.data || {};
   const walletConditionedRelaxedGateReplay = docs.preMigrationWalletConditionedRelaxedGateReplay.data || {};
   const walletRelaxedShadowOutcome = docs.preMigrationWalletRelaxedShadowOutcome.data || {};
   const walletContextCoverage = docs.preMigrationWalletContextCoverage.data || {};
@@ -2665,6 +2667,9 @@ function buildSummary(docs) {
   lines.push('-------------------------');
   lines.push(`- Watch flags / unique candidates: ${watchFlags ?? 'n/a'}`);
   lines.push(`- Confirmed watch count: ${confirmedWatch ?? 'n/a'}`);
+  if (ledger.summary) {
+    lines.push(`- Outcome ledger coverage: events=${ledger.summary.rawEvents ?? 'n/a'}, uniqueMints=${ledger.summary.uniqueMints ?? 'n/a'}, emittedOutcomes=${ledger.summary.emittedOutcomes ?? 'n/a'}${ledger.summary.outcomesTruncated ? ` (truncated at ${ledger.summary.maxOutcomes ?? 'configured limit'})` : ''}`);
+  }
   lines.push('- Outcomes:');
   objectLines(outcomeCounts).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Top skip reasons:');
@@ -3180,6 +3185,37 @@ function buildSummary(docs) {
     const bestWinners = topArray(bestRelaxedProfile.topWinners, 5);
     const bestLosers = topArray(bestRelaxedProfile.topLosers, 5);
     lines.push(`- Best profile detail: ${bestRelaxedProfileName} | ${bestRelaxedProfile.profile?.description || 'n/a'}`);
+    if (bestWinners.length) {
+      lines.push('- Best-profile top winners:');
+      bestWinners.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRelaxedGateTrade(item)}`));
+    }
+    if (bestLosers.length) {
+      lines.push('- Best-profile top losers:');
+      bestLosers.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRelaxedGateTrade(item)}`));
+    }
+  }
+  lines.push('');
+
+  const curveStallRanking = topArray(curveStallRelaxedReplay.ranking, 8);
+  const bestCurveStallProfileName = curveStallRanking[0]?.name;
+  const bestCurveStallProfile = bestCurveStallProfileName ? curveStallRelaxedReplay.profiles?.[bestCurveStallProfileName] : null;
+
+  lines.push('9c2b. Curve-Stall Relaxed Replay');
+  lines.push('---------------------------------');
+  lines.push('- Mode: report-only; replays CURVE_NOT_ADVANCING skips to test whether curve-stall discipline is blocking a real paper lane. Does not alter runtime gates.');
+  lines.push(`- Telemetry files / target reasons: ${curveStallRelaxedReplay.inputs?.telemetryFilesRead ?? 'n/a'} / ${Array.isArray(curveStallRelaxedReplay.inputs?.targetReasons) ? curveStallRelaxedReplay.inputs.targetReasons.join(', ') : 'n/a'}`);
+  if (curveStallRanking.length) {
+    lines.push('- Profile ranking:');
+    curveStallRanking.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.name}: trades=${item.trades ?? 'n/a'}, wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}, winRate=${pct(item.winRate, 1)}, pnl=${sol(item.totalPnlSol, 6)}, avg=${sol(item.averagePnlSol, 6)}, exits=${Object.entries(item.exitReasonCounts || {}).map(([key, value]) => `${key}=${value}`).join(', ') || 'n/a'}`);
+    });
+  } else {
+    lines.push('- Profile ranking: none');
+  }
+  if (bestCurveStallProfile) {
+    const bestWinners = topArray(bestCurveStallProfile.topWinners, 5);
+    const bestLosers = topArray(bestCurveStallProfile.topLosers, 5);
+    lines.push(`- Best profile detail: ${bestCurveStallProfileName} | ${bestCurveStallProfile.profile?.description || 'n/a'}`);
     if (bestWinners.length) {
       lines.push('- Best-profile top winners:');
       bestWinners.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRelaxedGateTrade(item)}`));

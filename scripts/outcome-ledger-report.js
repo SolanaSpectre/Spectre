@@ -1,10 +1,13 @@
 const fs = require('fs');
 const path = require('path');
+const { once } = require('events');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_LEDGER_PATH = path.join(REPO_ROOT, 'data', 'outcomes', 'outcome-ledger.jsonl');
 const DEFAULT_REPORT_PATH = path.join(REPO_ROOT, 'data', 'reports', 'outcome-ledger-latest.json');
+const DEFAULT_OUTCOMES_JSONL_PATH = path.join(REPO_ROOT, 'data', 'reports', 'outcome-ledger-outcomes-latest.jsonl');
 const DEFAULT_WATCHLIST_PATH = path.join(REPO_ROOT, 'data', 'watchlists', 'outcome-ledger-false-negative-latest.json');
+const DEFAULT_MAX_OUTCOMES = 1000;
 
 function parseArgs(argv) {
   const args = {};
@@ -96,6 +99,25 @@ function writeJson(filePath, payload) {
   fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }
 
+async function writeJsonl(filePath, rows) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const stream = fs.createWriteStream(filePath, { encoding: 'utf8' });
+  for (const row of rows) {
+    if (!stream.write(`${JSON.stringify(row)}\n`)) {
+      await once(stream, 'drain');
+    }
+  }
+  return new Promise((resolve, reject) => {
+    stream.end(resolve);
+    stream.on('error', reject);
+  });
+}
+
+function asPositiveInt(value, fallback) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? Math.floor(numeric) : fallback;
+}
+
 function numberOrNull(value, decimals = 4) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Number(numeric.toFixed(decimals)) : null;
@@ -180,7 +202,6 @@ function applyEvent(record, event) {
   record.name = record.name || event.name || null;
   record.firstSeenAt = record.firstSeenAt || event.timestamp;
   record.lastSeenAt = event.timestamp || record.lastSeenAt;
-  record.latest = event;
   increment(record.sources, event.source || 'unknown');
   increment(record.decisions, event.decision || event.kind || 'unknown');
 
@@ -359,6 +380,10 @@ function buildReportFromJsonl(ledgerPath, options = {}) {
 }
 
 function buildReportFromRecords(records, eventCounts, sourceCounts, rawEvents, options = {}) {
+  const maxOutcomes = asPositiveInt(options.maxOutcomes, DEFAULT_MAX_OUTCOMES);
+  const recentOutcomeLimit = asPositiveInt(options.recentOutcomeLimit, 100);
+  const migratedLimit = asPositiveInt(options.migratedLimit, 50);
+  const falseNegativeLimit = asPositiveInt(options.falseNegativeLimit, 50);
   const outcomes = Array.from(records.values())
     .map(normalizeRecord)
     .sort((a, b) => {
@@ -376,7 +401,10 @@ function buildReportFromRecords(records, eventCounts, sourceCounts, rawEvents, o
 
   const falseNegativeCandidates = outcomes
     .filter((row) => Number(row.falseNegativePriority || 0) > 0)
-    .slice(0, Number(options.falseNegativeLimit || 50));
+    .slice(0, falseNegativeLimit);
+
+  const emittedOutcomes = maxOutcomes === 0 ? [] : outcomes.slice(0, maxOutcomes);
+  const outcomesTruncated = emittedOutcomes.length < outcomes.length;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -384,6 +412,9 @@ function buildReportFromRecords(records, eventCounts, sourceCounts, rawEvents, o
     summary: {
       rawEvents,
       uniqueMints: outcomes.length,
+      emittedOutcomes: emittedOutcomes.length,
+      outcomesTruncated,
+      maxOutcomes,
       eventCounts,
       sourceCounts,
       outcomeCounts,
@@ -392,9 +423,10 @@ function buildReportFromRecords(records, eventCounts, sourceCounts, rawEvents, o
     topFalseNegativeCandidates: falseNegativeCandidates,
     topMigratedOrNearRunner: outcomes
       .filter((row) => ['MIGRATED_OR_COMPLETED', 'NEAR_RUNNER_95', 'NEAR_MIGRATION_85'].includes(row.outcome))
-      .slice(0, 50),
-    recentOutcomes: outcomes.slice(0, 100),
-    outcomes
+      .slice(0, migratedLimit),
+    recentOutcomes: outcomes.slice(0, recentOutcomeLimit),
+    outcomes: emittedOutcomes,
+    _allOutcomes: options.includeAllOutcomesForSidecar ? outcomes : undefined
   };
 }
 
@@ -471,28 +503,45 @@ function printReport(report) {
   });
 }
 
-function main() {
+async function main() {
   const args = parseArgs(process.argv.slice(2));
   const ledgerPath = resolveRepoPath(args.ledger) || DEFAULT_LEDGER_PATH;
   const reportPath = resolveRepoPath(args.output) || DEFAULT_REPORT_PATH;
   const watchlistPath = resolveRepoPath(args.watchlist) || DEFAULT_WATCHLIST_PATH;
+  const outcomesJsonlPath = resolveRepoPath(args.outcomesJsonl) || DEFAULT_OUTCOMES_JSONL_PATH;
+  const writeOutcomesJsonl = args.writeOutcomesJsonl === 'true';
 
   const report = buildReportFromJsonl(ledgerPath, {
     ledgerPath,
-    falseNegativeLimit: args.falseNegativeLimit || 50
+    falseNegativeLimit: args.falseNegativeLimit || 50,
+    maxOutcomes: args.maxOutcomes || process.env.OUTCOME_LEDGER_REPORT_MAX_OUTCOMES || DEFAULT_MAX_OUTCOMES,
+    recentOutcomeLimit: args.recentOutcomeLimit || 100,
+    migratedLimit: args.migratedLimit || 50,
+    includeAllOutcomesForSidecar: writeOutcomesJsonl
   });
   const watchlist = buildWatchlist(report);
+  const allOutcomes = report._allOutcomes || [];
+  delete report._allOutcomes;
 
   writeJson(reportPath, report);
   writeJson(watchlistPath, watchlist);
+  if (writeOutcomesJsonl) {
+    await writeJsonl(outcomesJsonlPath, allOutcomes);
+  }
   printReport(report);
   console.log('');
   console.log(`Wrote JSON report: ${reportPath}`);
   console.log(`Wrote watchlist: ${watchlistPath}`);
+  if (writeOutcomesJsonl) {
+    console.log(`Wrote outcome rows: ${outcomesJsonlPath}`);
+  }
 }
 
 if (require.main === module) {
-  main();
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
 }
 
 module.exports = {

@@ -8,7 +8,7 @@ const readline = require('readline');
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-relaxed-gate-replay-latest.json');
-const TARGET_REASONS = new Set(['LOW_SCORE', 'FIRST_SIGHT_REQUIRES_GUARD_OVERRIDE']);
+const DEFAULT_TARGET_REASONS = ['LOW_SCORE', 'FIRST_SIGHT_REQUIRES_GUARD_OVERRIDE'];
 const DEFAULT_MAX_FILES = 24;
 
 const BASE_TRADE = {
@@ -186,11 +186,11 @@ function snapshotFromEvent(event) {
   };
 }
 
-function decisionFromEvent(event) {
+function decisionFromEvent(event, targetReasons) {
   if (event.type !== 'pre_migration_paper.decision') return null;
   const payload = payloadOf(event);
   if (payload.decision !== 'PAPER_SKIPPED') return null;
-  if (!TARGET_REASONS.has(payload.reason)) return null;
+  if (!targetReasons.has(payload.reason)) return null;
   const mint = mintOf(payload);
   const atMs = timestampMs(payload.timestamp || event.timestamp);
   const curveProgress = curveOf(payload);
@@ -215,7 +215,7 @@ function decisionFromEvent(event) {
   };
 }
 
-async function readTelemetry(filePath) {
+async function readTelemetry(filePath, targetReasons) {
   const snapshotsByMint = new Map();
   const decisions = [];
   let malformedLines = 0;
@@ -243,7 +243,7 @@ async function readTelemetry(filePath) {
       snapshotsByMint.set(snapshot.mint, rows);
     }
 
-    const decision = decisionFromEvent(event);
+    const decision = decisionFromEvent(event, targetReasons);
     if (decision) {
       decision.telemetryPath = path.relative(ROOT, filePath);
       decisions.push(decision);
@@ -353,7 +353,8 @@ function aggregateTrades(trades) {
   };
 }
 
-function buildReport(runs) {
+function buildReport(runs, options = {}) {
+  const targetReasons = Array.from(options.targetReasons || DEFAULT_TARGET_REASONS).sort();
   const profiles = {};
   for (const [name, rawProfile] of Object.entries(PROFILES)) {
     const profile = profileWithBase(rawProfile);
@@ -371,12 +372,12 @@ function buildReport(runs) {
   return {
     generatedAt: new Date().toISOString(),
     mode: 'report_only',
-    note: 'Shadow-only relaxed-gate replay over LOW_SCORE/FIRST_SIGHT_REQUIRES_GUARD_OVERRIDE skips. It selects the first matching decision per telemetry run + mint, then replays TP/SL/max-hold exits from later provider snapshots. It does not alter runtime gates.',
+    note: options.note || 'Shadow-only relaxed-gate replay over LOW_SCORE/FIRST_SIGHT_REQUIRES_GUARD_OVERRIDE skips. It selects the first matching decision per telemetry run + mint, then replays TP/SL/max-hold exits from later provider snapshots. It does not alter runtime gates.',
     inputs: {
       telemetryFilesRead: runs.length,
       telemetryPaths: runs.map((run) => run.telemetryPath),
       malformedLines: runs.reduce((total, run) => total + run.malformedLines, 0),
-      targetReasons: Array.from(TARGET_REASONS).sort(),
+      targetReasons,
       baseTrade: BASE_TRADE
     },
     profiles,
@@ -386,18 +387,30 @@ function buildReport(runs) {
   };
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
+function parseTargetReasons(value) {
+  return String(value || DEFAULT_TARGET_REASONS.join(','))
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+async function runReport(options = {}) {
+  const args = options.args || {};
   const maxFiles = Number.isFinite(Number(args.limit)) ? Number(args.limit) : DEFAULT_MAX_FILES;
+  const targetReasonList = options.targetReasons || parseTargetReasons(args.targetReasons || process.env.PRE_MIGRATION_RELAXED_TARGET_REASONS);
+  const targetReasons = new Set(targetReasonList);
   const files = args.telemetry
     ? String(args.telemetry).split(',').map((entry) => repoPath(entry.trim())).filter((filePath) => filePath && fs.existsSync(filePath))
     : telemetryFiles(maxFiles);
-  const outputPath = args.output ? path.resolve(ROOT, args.output) : OUTPUT_PATH;
+  const outputPath = options.outputPath || (args.output ? path.resolve(ROOT, args.output) : OUTPUT_PATH);
   if (!files.length) throw new Error('No telemetry files found.');
 
   const runs = [];
-  for (const filePath of files) runs.push(await readTelemetry(filePath));
-  const report = buildReport(runs);
+  for (const filePath of files) runs.push(await readTelemetry(filePath, targetReasons));
+  const report = buildReport(runs, {
+    targetReasons: targetReasonList,
+    note: options.note
+  });
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
@@ -407,9 +420,23 @@ async function main() {
     console.log(`${row.name}: trades=${row.trades}, wins=${row.wins}, losses=${row.losses}, winRate=${row.winRate ?? 'n/a'}, pnl=${row.totalPnlSol} SOL`);
   }
   console.log(`Wrote JSON report: ${outputPath}`);
+  return report;
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  await runReport({ args });
+}
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  buildReport,
+  parseArgs,
+  runReport
+};
