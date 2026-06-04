@@ -11,6 +11,7 @@ agents/*/.env
 logs/
 run-logs/
 *.log
+file-tree.txt
 
 # Generated local data snapshots and reports
 data/telegram-context/
