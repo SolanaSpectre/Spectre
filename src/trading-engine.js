@@ -121,6 +121,8 @@ class TradingEngine {
     this.liveExecutionDryRunLane = new LiveExecutionDryRunLane(config, logger, {
       connection: this.connection,
       accountReader: this.connection,
+      decodeBondingCurveAccount: (data) => this.pumpBondingCurveLane.decodeBondingCurveAccount(data),
+      deriveBondingCurveAddress: (mint) => this.pumpBondingCurveLane.safeDeriveBondingCurveAddress(mint),
       userPublicKey: this.hotWallet.getPublicKey(),
       signerKeypair: this.hotWallet.getKeypair(),
       telemetryHook: (type, payload) => {

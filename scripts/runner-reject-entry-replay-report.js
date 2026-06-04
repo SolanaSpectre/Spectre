@@ -74,17 +74,27 @@ function keyOf(row) {
 
 function summarizeRows(rows) {
   const pnlSol = rows.map((row) => row.pnlSol);
-  const sortedPnlDesc = pnlSol.map(Number).filter(Number.isFinite).sort((a, b) => b - a);
+  const sortedWinners = pnlSol.map(Number).filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => b - a);
   const totalPnlSol = pnlSol.reduce((total, value) => total + Number(value || 0), 0);
-  const top3WinnerPnlSol = sortedPnlDesc.slice(0, 3).reduce((total, value) => total + Math.max(0, value), 0);
+  const grossWinnerPnlSol = sortedWinners.reduce((total, value) => total + value, 0);
+  const topWinnerPnlSol = sortedWinners[0] || 0;
+  const top3WinnerPnlSol = sortedWinners.slice(0, 3).reduce((total, value) => total + value, 0);
+  const topWinnerShareOfGrossProfit = grossWinnerPnlSol > 0 ? topWinnerPnlSol / grossWinnerPnlSol : null;
+  const outlierDominated = Number(topWinnerShareOfGrossProfit) > 0.5;
   return {
     trades: rows.length,
     wins: rows.filter((row) => Number(row.pnlSol) > 0).length,
     losses: rows.filter((row) => Number(row.pnlSol) < 0).length,
     winRate: rows.length ? numberOrNull(rows.filter((row) => Number(row.pnlSol) > 0).length / rows.length, 4) : null,
     totalPnlSol: numberOrNull(totalPnlSol, 9),
+    grossWinnerPnlSol: numberOrNull(grossWinnerPnlSol, 9),
+    topWinnerPnlSol: numberOrNull(topWinnerPnlSol, 9),
     top3WinnerPnlSol: numberOrNull(top3WinnerPnlSol, 9),
+    pnlAfterRemovingTopWinnerSol: numberOrNull(totalPnlSol - topWinnerPnlSol, 9),
     pnlAfterRemovingTop3WinnersSol: numberOrNull(totalPnlSol - top3WinnerPnlSol, 9),
+    topWinnerShareOfGrossProfit: topWinnerShareOfGrossProfit === null ? null : numberOrNull(topWinnerShareOfGrossProfit, 4),
+    outlierDominated,
+    verdictTags: outlierDominated ? ['OUTLIER_DOMINATED'] : [],
     pnlSol: stat(pnlSol, 9),
     returnPct: stat(rows.map((row) => row.returnPct), 4),
     rawReturnPct: stat(rows.map((row) => row.rawReturnPct), 4),

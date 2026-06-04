@@ -340,6 +340,15 @@ function summarizeHighConvictionWatchFollowThrough(item = {}) {
   return `${label} | verdict=${item.verdict || 'n/a'} | score=${fmt(item.score, 2)} | curve=${fmt(item.curveProgress, 4)} | max120=${fmt(w120.maxCurveProgress, 4)} | cross85/90_120=${w120.crossed85AfterWatch === true}/${w120.crossed90AfterWatch === true} | priceDelta120=${w120.maxPriceDeltaPct === null || w120.maxPriceDeltaPct === undefined ? 'n/a' : `${fmt(w120.maxPriceDeltaPct, 2)}%`} | max300=${fmt(w300.maxCurveProgress, 4)}${tags}`;
 }
 
+function summarizeHighConvictionWatchDrilldown(item = {}) {
+  return `${item.selectionClass || 'n/a'} / ${item.scoreBand || 'n/a'} / ${item.curveBand || 'n/a'}`
+    + ` | rows=${item.count ?? 'n/a'} unique=${item.uniqueMints ?? 'n/a'}`
+    + ` | cross85/90_120=${item.crossed85Within120s ?? 'n/a'}/${item.crossed90Within120s ?? 'n/a'}`
+    + ` | cross85/90_300=${item.crossed85Within300s ?? 'n/a'}/${item.crossed90Within300s ?? 'n/a'}`
+    + ` | curveDelta120 med/p90/max=${fmt(item.curveDelta120s?.median, 4)}/${fmt(item.curveDelta120s?.p90, 4)}/${fmt(item.curveDelta120s?.max, 4)}`
+    + ` | priceDelta120 med/p90/max=${fmt(item.maxPriceDeltaPct120s?.median, 2)}%/${fmt(item.maxPriceDeltaPct120s?.p90, 2)}%/${fmt(item.maxPriceDeltaPct120s?.max, 2)}%`;
+}
+
 function summarizeRelaxedGateTrade(item = {}) {
   const label = candidateLabel(item);
   return `${label} | ${item.exitReason || 'n/a'} | pnl=${sol(item.pnlSol, 6)} | net=${fmt(item.netReturnPct, 2)}% | hold=${fmt(item.holdSeconds, 2)}s | curve=${fmt(item.entryCurveProgress, 4)}->${fmt(item.exitCurveProgress, 4)} | score=${fmt(item.score, 2)} | reason=${item.reasonAtEntry || 'n/a'}`;
@@ -367,7 +376,8 @@ function summarizeRunnerRejectWakeup(item = {}) {
 
 function summarizeRunnerRejectReplayProfile(name, item = {}) {
   const winRatePct = item.winRate === null || item.winRate === undefined ? 'n/a' : `${fmt(Number(item.winRate) * 100, 1)}%`;
-  return `${name}: trades=${item.trades ?? 'n/a'} wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'} winRate=${winRatePct} totalPnlSol=${fmt(item.totalPnlSol, 9)} exTop3Sol=${fmt(item.pnlAfterRemovingTop3WinnersSol, 9)} top3Sol=${fmt(item.top3WinnerPnlSol, 9)} returnMed/p90=${fmt(item.returnPct?.median, 2)}%/${fmt(item.returnPct?.p90, 2)}% rawReturnMed=${fmt(item.rawReturnPct?.median, 2)}% exits=${JSON.stringify(item.exitReasons || {})}`;
+  const tags = Array.isArray(item.verdictTags) && item.verdictTags.length ? ` tags=${item.verdictTags.join(',')}` : '';
+  return `${name}: trades=${item.trades ?? 'n/a'} wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'} winRate=${winRatePct} totalPnlSol=${fmt(item.totalPnlSol, 9)} exTop1Sol=${fmt(item.pnlAfterRemovingTopWinnerSol, 9)} exTop3Sol=${fmt(item.pnlAfterRemovingTop3WinnersSol, 9)} top1GrossShare=${pct(item.topWinnerShareOfGrossProfit)}${tags} returnMed/p90=${fmt(item.returnPct?.median, 2)}%/${fmt(item.returnPct?.p90, 2)}% rawReturnMed=${fmt(item.rawReturnPct?.median, 2)}% exits=${JSON.stringify(item.exitReasons || {})}`;
 }
 
 function summarizeRaydiumShadow(item = {}) {
@@ -2404,7 +2414,7 @@ function buildSummary(docs) {
   lines.push(`  - simulation ok true/false/null: ${liveExecutionDryRunTelemetry.simulationOk.true || 0} / ${liveExecutionDryRunTelemetry.simulationOk.false || 0} / ${liveExecutionDryRunTelemetry.simulationOk.null || 0}`);
   objectLines(liveExecutionDryRunTelemetry.simulationErrors, 4).forEach((line) => lines.push(`  - simulation error: ${line}`));
   objectLines(liveExecutionDryRunTelemetry.simulationMissingAccounts, 8).forEach((line) => lines.push(`  - simulation missing account: ${line}`));
-  objectLines(liveExecutionDryRunTelemetry.simulationPassedWithPreflightMissingAccounts, 5).forEach((line) => lines.push(`  - pre-sim missing but sim ok: ${line}`));
+  objectLines(liveExecutionDryRunTelemetry.simulationPassedWithPreflightMissingAccounts, 5).forEach((line) => lines.push(`  - pre-sim absent/created by tx and sim ok: ${line}`));
   objectLines(liveExecutionDryRunTelemetry.blockReasons, 6).forEach((line) => lines.push(`  - would_block reason: ${line}`));
   objectLines(liveExecutionDryRunTelemetry.skipReasons, 4).forEach((line) => lines.push(`  - skipped reason: ${line}`));
   objectLines(liveExecutionDryRunTelemetry.byDecision, 5).forEach((line) => lines.push(`  - source decision: ${line}`));
@@ -2721,7 +2731,10 @@ function buildSummary(docs) {
   }
   lines.push(`- Wallet-led entry replay: verdict=${walletEntryReplaySummary.verdict || 'n/a'}, eligible=${walletEntryReplaySummary.shadowLaneEligible === true ? 'yes' : 'no'}, strongMisses=${walletEntryReplaySummary.strongWalletLedMisses ?? 'n/a'}, wouldEnter=${walletEntryReplaySummary.wouldEnter ?? 'n/a'}, noGateConfirm=${walletEntryReplaySummary.noGateConfirmAfterTouch ?? 'n/a'}, pnl=${walletEntryReplaySummary.totalPnlSol === null || walletEntryReplaySummary.totalPnlSol === undefined ? 'n/a' : sol(walletEntryReplaySummary.totalPnlSol, 6)}, stressed=${walletEntryReplaySummary.stressedPnlSol === null || walletEntryReplaySummary.stressedPnlSol === undefined ? 'n/a' : sol(walletEntryReplaySummary.stressedPnlSol, 6)}, winRate=${pct(walletEntryReplaySummary.winRate)}`);
   if (walletEntryReplaySummary.verdictReason) lines.push(`  - verdict reason: ${walletEntryReplaySummary.verdictReason}`);
-  lines.push(`  - durability: firstHalf=${walletEntryReplaySummary.firstHalfPnlSol === null || walletEntryReplaySummary.firstHalfPnlSol === undefined ? 'n/a' : sol(walletEntryReplaySummary.firstHalfPnlSol, 6)}, secondHalf=${walletEntryReplaySummary.secondHalfPnlSol === null || walletEntryReplaySummary.secondHalfPnlSol === undefined ? 'n/a' : sol(walletEntryReplaySummary.secondHalfPnlSol, 6)}, exTop1=${walletEntryReplaySummary.pnlAfterTopWinnerSol === null || walletEntryReplaySummary.pnlAfterTopWinnerSol === undefined ? 'n/a' : sol(walletEntryReplaySummary.pnlAfterTopWinnerSol, 6)}, exTop3=${walletEntryReplaySummary.pnlAfterTop3WinnersSol === null || walletEntryReplaySummary.pnlAfterTop3WinnersSol === undefined ? 'n/a' : sol(walletEntryReplaySummary.pnlAfterTop3WinnersSol, 6)}, top1GrossShare=${pct(walletEntryReplaySummary.topWinnerShareOfGrossProfit)}`);
+  const walletReplayTags = Array.isArray(walletEntryReplaySummary.verdictTags) && walletEntryReplaySummary.verdictTags.length
+    ? `, tags=${walletEntryReplaySummary.verdictTags.join(',')}`
+    : '';
+  lines.push(`  - durability: firstHalf=${walletEntryReplaySummary.firstHalfPnlSol === null || walletEntryReplaySummary.firstHalfPnlSol === undefined ? 'n/a' : sol(walletEntryReplaySummary.firstHalfPnlSol, 6)}, secondHalf=${walletEntryReplaySummary.secondHalfPnlSol === null || walletEntryReplaySummary.secondHalfPnlSol === undefined ? 'n/a' : sol(walletEntryReplaySummary.secondHalfPnlSol, 6)}, exTop1=${walletEntryReplaySummary.pnlAfterTopWinnerSol === null || walletEntryReplaySummary.pnlAfterTopWinnerSol === undefined ? 'n/a' : sol(walletEntryReplaySummary.pnlAfterTopWinnerSol, 6)}, exTop3=${walletEntryReplaySummary.pnlAfterTop3WinnersSol === null || walletEntryReplaySummary.pnlAfterTop3WinnersSol === undefined ? 'n/a' : sol(walletEntryReplaySummary.pnlAfterTop3WinnersSol, 6)}, top1GrossShare=${pct(walletEntryReplaySummary.topWinnerShareOfGrossProfit)}${walletReplayTags}`);
   lines.push('- Top wallet-led replay rows:');
   if (topWalletEntryReplayWinners.length) {
     topWalletEntryReplayWinners.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeWalletFalseNegativeEntryReplay(item)}`));
@@ -3536,6 +3549,7 @@ function buildSummary(docs) {
   const highConvictionWatchSummary = highConvictionWatchFollowThrough.summary || {};
   const highConvictionWatchTop = topArray(highConvictionWatchFollowThrough.topFollowThrough, 8);
   const highConvictionWatchCross90 = topArray(highConvictionWatchFollowThrough.crossed90Within120s, 8);
+  const highConvictionWatchDrilldown = topArray(highConvictionWatchFollowThrough.drilldown, 8);
 
   lines.push('9d. High-Conviction Watch Follow-through');
   lines.push('-----------------------------------------');
@@ -3549,6 +3563,12 @@ function buildSummary(docs) {
   objectLines(highConvictionWatchSummary.selectionClassCounts, 4).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Verdict counts:');
   objectLines(highConvictionWatchSummary.verdictCounts, 4).forEach((line) => lines.push(`  - ${line}`));
+  if (highConvictionWatchDrilldown.length) {
+    lines.push('- Drilldown by selection/score/curve band:');
+    highConvictionWatchDrilldown.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeHighConvictionWatchDrilldown(item)}`));
+  } else {
+    lines.push('- Drilldown by selection/score/curve band: none');
+  }
   if (highConvictionWatchCross90.length) {
     lines.push('- Crossed 90 within 120s:');
     highConvictionWatchCross90.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeHighConvictionWatchFollowThrough(item)}`));

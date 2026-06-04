@@ -88,7 +88,11 @@ function selectRunnerShadowProfiles(report) {
       losses: number(summary.losses, 0),
       winRate: summary.winRate ?? null,
       totalPnlSol: summary.totalPnlSol ?? null,
+      pnlAfterRemovingTopWinnerSol: summary.pnlAfterRemovingTopWinnerSol ?? null,
       pnlAfterRemovingTop3WinnersSol: summary.pnlAfterRemovingTop3WinnersSol ?? null,
+      topWinnerShareOfGrossProfit: summary.topWinnerShareOfGrossProfit ?? null,
+      outlierDominated: summary.outlierDominated === true,
+      verdictTags: Array.isArray(summary.verdictTags) ? summary.verdictTags : [],
       top3WinnerPnlSol: summary.top3WinnerPnlSol ?? null,
       exitReasons: summary.exitReasons || {}
     }))
@@ -114,6 +118,8 @@ function selectWalletFalseNegativeReplay(report) {
     pnlAfterTopWinnerSol: summary.pnlAfterTopWinnerSol ?? null,
     pnlAfterTop3WinnersSol: summary.pnlAfterTop3WinnersSol ?? null,
     topWinnerShareOfGrossProfit: summary.topWinnerShareOfGrossProfit ?? null,
+    outlierDominated: summary.outlierDominated === true,
+    verdictTags: Array.isArray(summary.verdictTags) ? summary.verdictTags : [],
     verdict: summary.verdict || null,
     shadowLaneEligible: summary.shadowLaneEligible === true,
     verdictReason: summary.verdictReason || null
@@ -719,7 +725,7 @@ function writeText(report) {
   for (const [name, count] of missing) lines.push(`- Dry-run missing account: ${name}: ${count}`);
   const preflightMissing = Object.entries(m.dryRun.simulationPassedWithPreflightMissingAccounts || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
   if (preflightMissing.length) {
-    lines.push('- Dry-run pre-sim account diagnostic noted missing accounts, but signed simulation succeeded:');
+    lines.push('- Dry-run expected-to-be-created accounts were absent before sim, and signed simulation succeeded:');
     for (const [name, count] of preflightMissing) lines.push(`  - ${name}: ${count}`);
   }
   lines.push(`- Hot wallet balance / target: ${fmt(m.hotWalletBalanceSol, 6)} / ${fmt(m.requiredLiveBalanceSol, 3)} SOL`);
@@ -733,7 +739,8 @@ function writeText(report) {
     lines.push(`- Candidates / size / fee / default slippage: ${runnerReplay.candidates ?? 'n/a'} / ${fmt(runnerReplay.sizeSol, 4)} SOL / ${fmt(runnerReplay.feeSol, 6)} SOL / ${fmt(runnerReplay.defaultEntrySlippagePct, 2)}%+${fmt(runnerReplay.defaultExitSlippagePct, 2)}%`);
     for (const profile of (runnerReplay.profiles || []).slice(0, 5)) {
       const winRate = profile.winRate === null || profile.winRate === undefined ? 'n/a' : `${fmt(Number(profile.winRate) * 100, 1)}%`;
-      lines.push(`- ${profile.name}: trades=${profile.trades}, wins/losses=${profile.wins}/${profile.losses}, winRate=${winRate}, pnl=${fmt(profile.totalPnlSol, 9)} SOL, exTop3=${fmt(profile.pnlAfterRemovingTop3WinnersSol, 9)} SOL`);
+      const tags = Array.isArray(profile.verdictTags) && profile.verdictTags.length ? `, tags=${profile.verdictTags.join(',')}` : '';
+      lines.push(`- ${profile.name}: trades=${profile.trades}, wins/losses=${profile.wins}/${profile.losses}, winRate=${winRate}, pnl=${fmt(profile.totalPnlSol, 9)} SOL, exTop1=${fmt(profile.pnlAfterRemovingTopWinnerSol, 9)} SOL, exTop3=${fmt(profile.pnlAfterRemovingTop3WinnersSol, 9)} SOL, top1GrossShare=${profile.topWinnerShareOfGrossProfit === null || profile.topWinnerShareOfGrossProfit === undefined ? 'n/a' : `${fmt(Number(profile.topWinnerShareOfGrossProfit) * 100, 1)}%`}${tags}`);
     }
   } else {
     lines.push('- No runner reject entry replay report found.');
@@ -744,7 +751,8 @@ function writeText(report) {
     lines.push(`- Wallet replay verdict / eligible: ${walletReplay.verdict || 'n/a'} / ${walletReplay.shadowLaneEligible === true ? 'yes' : 'no'}`);
     lines.push(`- Wallet replay sample: strongMisses=${walletReplay.strongWalletLedMisses ?? 'n/a'}, wouldEnter=${walletReplay.wouldEnter ?? 'n/a'}, noGateConfirm=${walletReplay.noGateConfirmAfterTouch ?? 'n/a'}, winRate=${walletReplay.winRate === null || walletReplay.winRate === undefined ? 'n/a' : `${fmt(Number(walletReplay.winRate) * 100, 1)}%`}`);
     lines.push(`- Wallet replay PnL: raw=${fmt(walletReplay.totalPnlSol, 9)} SOL, stressed=${fmt(walletReplay.stressedPnlSol, 9)} SOL, firstHalf=${fmt(walletReplay.firstHalfPnlSol, 9)} SOL, secondHalf=${fmt(walletReplay.secondHalfPnlSol, 9)} SOL`);
-    lines.push(`- Wallet replay concentration: exTop1=${fmt(walletReplay.pnlAfterTopWinnerSol, 9)} SOL, exTop3=${fmt(walletReplay.pnlAfterTop3WinnersSol, 9)} SOL, top1GrossShare=${walletReplay.topWinnerShareOfGrossProfit === null || walletReplay.topWinnerShareOfGrossProfit === undefined ? 'n/a' : `${fmt(Number(walletReplay.topWinnerShareOfGrossProfit) * 100, 1)}%`}`);
+    const walletReplayTags = Array.isArray(walletReplay.verdictTags) && walletReplay.verdictTags.length ? `, tags=${walletReplay.verdictTags.join(',')}` : '';
+    lines.push(`- Wallet replay concentration: exTop1=${fmt(walletReplay.pnlAfterTopWinnerSol, 9)} SOL, exTop3=${fmt(walletReplay.pnlAfterTop3WinnersSol, 9)} SOL, top1GrossShare=${walletReplay.topWinnerShareOfGrossProfit === null || walletReplay.topWinnerShareOfGrossProfit === undefined ? 'n/a' : `${fmt(Number(walletReplay.topWinnerShareOfGrossProfit) * 100, 1)}%`}${walletReplayTags}`);
     if (walletReplay.verdictReason) lines.push(`- Wallet replay verdict reason: ${walletReplay.verdictReason}`);
   } else {
     lines.push('- No wallet false-negative entry replay report found.');

@@ -206,6 +206,8 @@ function summarize(rows) {
   const top3WinnerPnlSol = sortedWinners.slice(0, 3).reduce((sum, row) => sum + Number(row.pnlSol || 0), 0);
   const pnlAfterTopWinnerSol = totalPnlSol - topWinnerPnlSol;
   const pnlAfterTop3WinnersSol = totalPnlSol - top3WinnerPnlSol;
+  const topWinnerShareOfGrossProfit = grossWinnerPnlSol > 0 ? topWinnerPnlSol / grossWinnerPnlSol : null;
+  const outlierDominated = Number(topWinnerShareOfGrossProfit) > 0.5;
   const verdict = classifySummary({
     entered: entered.length,
     totalPnlSol,
@@ -235,7 +237,9 @@ function summarize(rows) {
     top3WinnerPnlSol: numberOrNull(top3WinnerPnlSol, 9),
     pnlAfterTopWinnerSol: numberOrNull(pnlAfterTopWinnerSol, 9),
     pnlAfterTop3WinnersSol: numberOrNull(pnlAfterTop3WinnersSol, 9),
-    topWinnerShareOfGrossProfit: grossWinnerPnlSol > 0 ? numberOrNull(topWinnerPnlSol / grossWinnerPnlSol, 4) : null,
+    topWinnerShareOfGrossProfit: topWinnerShareOfGrossProfit === null ? null : numberOrNull(topWinnerShareOfGrossProfit, 4),
+    outlierDominated,
+    verdictTags: outlierDominated ? ['OUTLIER_DOMINATED'] : [],
     verdict,
     shadowLaneEligible: verdict === 'PROMISING',
     verdictReason: verdictReason(verdict)
@@ -286,6 +290,7 @@ function main() {
     criteria: {
       promising: '>=20 hypothetical entries, positive raw/stressed PnL, winRate >=45%, both split halves positive, and PnL remains positive after removing top-1 and top-3 winners.',
       insufficientSample: '<20 hypothetical entries.',
+      outlierDominated: 'OUTLIER_DOMINATED tag means the largest winner is more than 50% of gross winner PnL.',
       caveat: 'Report-only replay; still not a quote-fill, MEV, liquidity, or broadcast-latency model.'
     },
     note: 'Report-only replay. A strong wallet-led miss only becomes a hypothetical entry after the existing score/curve/volume/velocity gate is satisfied after the first strong wallet touch. Does not change entries, wallet weighting, or live behavior.',

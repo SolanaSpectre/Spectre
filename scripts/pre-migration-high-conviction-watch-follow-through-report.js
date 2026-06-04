@@ -90,6 +90,26 @@ function countBy(items, keyFn) {
   return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1]));
 }
 
+function scoreBand(score) {
+  const value = Number(score);
+  if (!Number.isFinite(value)) return 'score_unknown';
+  if (value >= 75) return 'score_75_plus';
+  if (value >= 70) return 'score_70_75';
+  if (value >= 60) return 'score_60_70';
+  if (value >= 55) return 'score_55_60';
+  return 'score_lt55';
+}
+
+function curveBand(curveProgress) {
+  const value = Number(curveProgress);
+  if (!Number.isFinite(value)) return 'curve_unknown';
+  if (value >= 0.85) return 'curve_85_plus';
+  if (value >= 0.7) return 'curve_70_85';
+  if (value >= 0.6) return 'curve_60_70';
+  if (value >= 0.55) return 'curve_55_60';
+  return 'curve_lt55';
+}
+
 function payloadOf(event) {
   return event.payload || event.data || {};
 }
@@ -313,6 +333,52 @@ function compact(row) {
   };
 }
 
+function summarizeCohort(rows) {
+  return {
+    count: rows.length,
+    uniqueMints: new Set(rows.map((row) => row.mint).filter(Boolean)).size,
+    crossed85Within120s: rows.filter((row) => row.window120s.crossed85AfterWatch).length,
+    crossed90Within120s: rows.filter((row) => row.window120s.crossed90AfterWatch).length,
+    crossed85Within300s: rows.filter((row) => row.window300s.crossed85AfterWatch).length,
+    crossed90Within300s: rows.filter((row) => row.window300s.crossed90AfterWatch).length,
+    curveDelta120s: stat(rows.map((row) => row.window120s.curveDelta), 6),
+    maxPriceDeltaPct120s: stat(rows.map((row) => row.window120s.maxPriceDeltaPct), 2),
+    score: stat(rows.map((row) => row.score), 2),
+    curveProgress: stat(rows.map((row) => row.curveProgress), 6)
+  };
+}
+
+function buildDrilldown(rows) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = [
+      row.selectionClass || 'selection_unknown',
+      scoreBand(row.score),
+      curveBand(row.curveProgress)
+    ].join('|');
+    const bucket = groups.get(key) || [];
+    bucket.push(row);
+    groups.set(key, bucket);
+  }
+  return Array.from(groups.entries())
+    .map(([key, bucket]) => {
+      const [selectionClass, score, curve] = key.split('|');
+      return {
+        selectionClass,
+        scoreBand: score,
+        curveBand: curve,
+        ...summarizeCohort(bucket)
+      };
+    })
+    .sort((a, b) => {
+      const crossDelta = Number(b.crossed90Within120s) - Number(a.crossed90Within120s);
+      if (crossDelta !== 0) return crossDelta;
+      const countDelta = Number(b.count) - Number(a.count);
+      if (countDelta !== 0) return countDelta;
+      return `${a.selectionClass}:${a.scoreBand}:${a.curveBand}`.localeCompare(`${b.selectionClass}:${b.scoreBand}:${b.curveBand}`);
+    });
+}
+
 function buildReport({ telemetryPath, dossierPath, snapshotsByMint, watchRows, malformedTelemetry, malformedDossiers }) {
   const analyzed = watchRows.map((row) => analyzeRow(row, snapshotsByMint));
   const uniqueRows = dedupeLatestByMint(analyzed);
@@ -364,6 +430,7 @@ function buildReport({ telemetryPath, dossierPath, snapshotsByMint, watchRows, m
       score: stat(uniqueRows.map((row) => row.score), 2),
       curveProgress: stat(uniqueRows.map((row) => row.curveProgress), 6)
     },
+    drilldown: buildDrilldown(uniqueRows),
     crossed90Within120s: crossed90_120.map(compact),
     crossed85Within120s: crossed85_120.map(compact),
     topFollowThrough,

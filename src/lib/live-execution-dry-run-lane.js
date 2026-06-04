@@ -3,6 +3,9 @@
 const { LAMPORTS_PER_SOL, PublicKey } = require('@solana/web3.js');
 const { PumpBuyV2DryRunBuilder } = require('./pump-buy-v2-dry-run-builder');
 
+const DEFAULT_PUMP_FUN_PROGRAM_ID = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
+const BONDING_CURVE_DISCRIMINATOR = 6966180631402821399n;
+
 function finiteNumber(value, fallback = null) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -14,6 +17,15 @@ function compact(value, digits = 6) {
   return Number(parsed.toFixed(digits));
 }
 
+function publicKeyString(value) {
+  if (!value) return null;
+  try {
+    return value instanceof PublicKey ? value.toBase58() : new PublicKey(value).toBase58();
+  } catch {
+    return null;
+  }
+}
+
 class LiveExecutionDryRunLane {
   constructor(config, logger, options = {}) {
     this.config = config;
@@ -23,6 +35,13 @@ class LiveExecutionDryRunLane {
     this.userPublicKey = options.userPublicKey || null;
     this.signerKeypair = options.signerKeypair || null;
     this.telemetryHook = typeof options.telemetryHook === 'function' ? options.telemetryHook : null;
+    this.decodeBondingCurveAccount = typeof options.decodeBondingCurveAccount === 'function'
+      ? options.decodeBondingCurveAccount
+      : null;
+    this.deriveBondingCurveAddress = typeof options.deriveBondingCurveAddress === 'function'
+      ? options.deriveBondingCurveAddress
+      : null;
+    this.pumpProgramId = new PublicKey(config.pumpBondingCurveProgramId || DEFAULT_PUMP_FUN_PROGRAM_ID);
     this.enabled = config.liveDryRunEnabled === true;
     this.pumpBuyV2BuilderEnabled = config.liveDryRunPumpBuyV2BuilderEnabled !== false;
     this.pumpBuyV2Builder = this.pumpBuyV2BuilderEnabled ? new PumpBuyV2DryRunBuilder(config) : null;
@@ -236,6 +255,19 @@ class LiveExecutionDryRunLane {
         payload.txBuild = txBuild.summary;
 
         if (this.simulateTransaction) {
+          const curveValidation = await this.validateBondingCurveForSimulation({
+            mint,
+            state,
+            update,
+            accountDetails: txBuild.accountDetails,
+            expectedBondingCurveAddress: txBuild.expectedBondingCurveAddress || txBuild.summary?.expectedBondingCurveAddress || null,
+            providedBondingCurveAddress: txBuild.providedBondingCurveAddress || txBuild.summary?.providedBondingCurveAddress || null
+          });
+          payload.bondingCurveValidation = curveValidation.diagnostic;
+          if (!curveValidation.ok) {
+            return this.block(curveValidation.reason || 'BONDING_CURVE_VALIDATION_FAILED', payload);
+          }
+
           const accountDiagnostic = await this.diagnoseTransactionAccounts(txBuild.accountDetails);
           if (accountDiagnostic) {
             payload.simulationAccountDiagnostic = accountDiagnostic;
@@ -390,6 +422,8 @@ class LiveExecutionDryRunLane {
       transaction: build.transaction,
       txSizeBytes: build.txSizeBytes,
       accountDetails: build.accountDetails || [],
+      expectedBondingCurveAddress: build.expectedBondingCurveAddress || null,
+      providedBondingCurveAddress: build.providedBondingCurveAddress || null,
       summary: {
         builder: 'pump_buy_v2',
         accountCount: build.accountCount,
@@ -518,6 +552,113 @@ class LiveExecutionDryRunLane {
         checked: accountDetails.length,
         error: error.message || 'ACCOUNT_DIAGNOSTIC_FAILED'
       };
+    }
+  }
+
+  decodeBondingCurveForValidation(data) {
+    const decoded = this.decodeBondingCurveAccount ? this.decodeBondingCurveAccount(data) : null;
+    if (decoded) return decoded;
+    const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    if (buffer.length < 49) throw new Error(`bonding curve account too small: ${buffer.length}`);
+    const discriminator = buffer.readBigUInt64LE(0);
+    if (discriminator !== BONDING_CURVE_DISCRIMINATOR) {
+      throw new Error(`unexpected discriminator ${discriminator.toString()}`);
+    }
+    let offset = 8;
+    const virtualTokenReservesRaw = buffer.readBigUInt64LE(offset); offset += 8;
+    const virtualSolReservesRaw = buffer.readBigUInt64LE(offset); offset += 8;
+    const realTokenReservesRaw = buffer.readBigUInt64LE(offset); offset += 8;
+    const realSolReservesRaw = buffer.readBigUInt64LE(offset); offset += 8;
+    const tokenTotalSupplyRaw = buffer.readBigUInt64LE(offset); offset += 8;
+    const complete = buffer[offset] === 1;
+    return {
+      discriminator: discriminator.toString(),
+      virtualTokenReservesTokens: Number(virtualTokenReservesRaw) / 1e6,
+      virtualSolReservesSol: Number(virtualSolReservesRaw) / LAMPORTS_PER_SOL,
+      realTokenReservesTokens: Number(realTokenReservesRaw) / 1e6,
+      realSolReservesSol: Number(realSolReservesRaw) / LAMPORTS_PER_SOL,
+      tokenTotalSupplyTokens: Number(tokenTotalSupplyRaw) / 1e6,
+      complete
+    };
+  }
+
+  async validateBondingCurveForSimulation({
+    mint,
+    state = {},
+    update = {},
+    accountDetails = [],
+    expectedBondingCurveAddress = null,
+    providedBondingCurveAddress = null
+  }) {
+    const bondingDetail = Array.isArray(accountDetails)
+      ? accountDetails.find((account) => account?.name === 'bonding_curve')
+      : null;
+    const provided = publicKeyString(
+      bondingDetail?.pubkey
+      || providedBondingCurveAddress
+      || update.bondingCurveAddress
+      || state.bondingCurveAddress
+    );
+    let expected = publicKeyString(expectedBondingCurveAddress);
+    if (!expected && this.deriveBondingCurveAddress && mint) {
+      try {
+        expected = publicKeyString(this.deriveBondingCurveAddress(mint));
+      } catch {
+        expected = null;
+      }
+    }
+    const diagnostic = {
+      checked: true,
+      mint: mint || null,
+      bondingCurveAddress: provided,
+      expectedBondingCurveAddress: expected,
+      source: bondingDetail?.pubkey ? 'tx_account_details' : 'state_update'
+    };
+    if (!provided) {
+      return { ok: false, reason: 'BONDING_CURVE_ACCOUNT_DETAIL_MISSING', diagnostic };
+    }
+    if (expected && provided !== expected) {
+      diagnostic.mismatch = true;
+      return { ok: false, reason: 'BONDING_CURVE_ADDRESS_MISMATCH', diagnostic };
+    }
+    if (typeof this.accountReader?.getMultipleAccountsInfo !== 'function') {
+      diagnostic.skipped = 'ACCOUNT_READER_UNAVAILABLE';
+      return { ok: true, diagnostic };
+    }
+
+    try {
+      const pubkey = new PublicKey(provided);
+      const startedAt = Date.now();
+      const infos = await this.accountReader.getMultipleAccountsInfo([pubkey], { commitment: 'processed' });
+      const account = Array.isArray(infos) ? infos[0] : null;
+      diagnostic.fetchLatencyMs = Date.now() - startedAt;
+      if (!account) return { ok: false, reason: 'BONDING_CURVE_ACCOUNT_NOT_FOUND', diagnostic };
+      const owner = account.owner?.toBase58?.() || (account.owner ? String(account.owner) : null);
+      diagnostic.owner = owner;
+      if (owner && owner !== this.pumpProgramId.toBase58()) {
+        return { ok: false, reason: 'BONDING_CURVE_OWNER_MISMATCH', diagnostic };
+      }
+      const decoded = this.decodeBondingCurveForValidation(account.data);
+      diagnostic.complete = decoded.complete === true;
+      diagnostic.curveProgress = compact(decoded.curveProgress, 6);
+      diagnostic.virtualSolReservesSol = compact(decoded.virtualSolReservesSol, 6);
+      diagnostic.virtualTokenReservesTokens = compact(decoded.virtualTokenReservesTokens, 6);
+      diagnostic.realSolReservesSol = compact(decoded.realSolReservesSol, 6);
+      diagnostic.creator = decoded.creator || null;
+      diagnostic.isMayhemMode = decoded.isMayhemMode === true;
+      if (diagnostic.complete) return { ok: false, reason: 'BONDING_CURVE_COMPLETE', diagnostic };
+      if (
+        !Number.isFinite(Number(decoded.virtualSolReservesSol))
+        || Number(decoded.virtualSolReservesSol) <= 0
+        || !Number.isFinite(Number(decoded.virtualTokenReservesTokens))
+        || Number(decoded.virtualTokenReservesTokens) <= 0
+      ) {
+        return { ok: false, reason: 'BONDING_CURVE_RESERVES_INVALID', diagnostic };
+      }
+      return { ok: true, diagnostic };
+    } catch (error) {
+      diagnostic.error = error.message || 'BONDING_CURVE_VALIDATION_THROW';
+      return { ok: false, reason: 'BONDING_CURVE_DECODE_FAILED', diagnostic };
     }
   }
 
