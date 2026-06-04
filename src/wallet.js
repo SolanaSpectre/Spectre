@@ -112,6 +112,7 @@ class WalletManager {
     transaction.recentBlockhash = latestBlockhash.blockhash;
     transaction.sign(this.keypair);
 
+    WalletManager.assertLiveBroadcastAllowed('transferSol');
     const signature = await connection.sendRawTransaction(transaction.serialize());
     await connection.confirmTransaction({
       signature,
@@ -120,6 +121,19 @@ class WalletManager {
     });
 
     return signature;
+  }
+
+  static assertLiveBroadcastAllowed(operation = 'sendRawTransaction') {
+    const executionMode = String(process.env.EXECUTION_MODE || '').toUpperCase();
+    const argv = process.argv.slice(2);
+    const confirmLive = argv.includes('--confirmLive=true')
+      || argv.some((arg, index) => arg === '--confirmLive' && argv[index + 1] === 'true');
+
+    if (executionMode !== 'LIVE' || !confirmLive) {
+      throw new Error(
+        `CRITICAL SAFETY VETO: ${operation} attempted without EXECUTION_MODE=LIVE and --confirmLive true`
+      );
+    }
   }
 }
 

@@ -154,6 +154,17 @@ class PreMigrationPaperLane {
       ) {
         const cooldown = this.getBadExitCooldown(mint, timestamp);
         if (cooldown.active) {
+          events.push(this.guardAttributionEvent(observedState, timestamp, preset, {
+            passed: false,
+            reason: 'RECENT_BAD_EXIT_COOLDOWN',
+            badExitCooldownUntil: cooldown.until,
+            badExitCooldownRemainingMs: cooldown.remainingMs,
+            badExitCooldownReason: cooldown.reason,
+            badExitCooldownPreset: cooldown.presetName
+          }, entryGuards, {
+            flagged: true,
+            suppressedPresetIneligible: false
+          }));
           events.push(this.decisionEvent('PAPER_SKIPPED', observedState, timestamp, preset, {
             passed: false,
             reason: 'RECENT_BAD_EXIT_COOLDOWN',
@@ -166,6 +177,10 @@ class PreMigrationPaperLane {
         }
 
         const decision = this.evaluateEntryDecision(observedState, preset, entryGuards);
+        events.push(this.guardAttributionEvent(observedState, timestamp, preset, decision, entryGuards, {
+          flagged: true,
+          suppressedPresetIneligible: decision.reason === 'PRESET_NOT_ELIGIBLE_FOR_GUARD_OVERRIDE'
+        }));
         if (decision.passed) {
           const activePosition = this.getActivePositionForMint(mint);
           if (activePosition) {
@@ -2062,6 +2077,90 @@ class PreMigrationPaperLane {
         reasons: Array.isArray(state.reasons) ? state.reasons.slice(0, 10) : []
       }
     };
+  }
+
+  guardAttributionEvent(state, timestamp, preset, decision = {}, entryGuards = {}, meta = {}) {
+    const priceSol = this.compact(this.getPrice(state), 15);
+    const allowedPresetNames = Array.isArray(entryGuards.allowedPresetNames)
+      ? entryGuards.allowedPresetNames.slice()
+      : null;
+    const presetEligibleForGuardOverride = !allowedPresetNames || allowedPresetNames.includes(preset.name);
+    const failedChecks = this.collectAttributionFailedChecks(decision, entryGuards);
+
+    return {
+      type: 'diagnostic',
+      telemetryType: 'pre_migration_paper.guard_attribution',
+      payload: {
+        mint: state.mint,
+        symbol: state.symbol || null,
+        timestamp,
+        flagged: meta.flagged === true,
+        preset: preset.name,
+        lane: preset.lane || null,
+        profileName: preset.profileName || null,
+        outcome: decision.passed ? 'PAPER_WOULD_ENTER' : 'PAPER_WOULD_SKIP',
+        reason: decision.reason || null,
+        suppressedPresetIneligible: meta.suppressedPresetIneligible === true,
+        guardPassed: entryGuards.passed === true,
+        guardReason: entryGuards.reason || null,
+        guardOverride: entryGuards.guardOverride || decision.guardOverride || null,
+        allowedPresetNames,
+        presetEligibleForGuardOverride,
+        thresholdOverrides: decision.thresholdOverrides || entryGuards.thresholdOverrides || null,
+        failedChecks,
+        score: this.compact(state.score, 2),
+        curveProgress: this.compact(state.curveProgress, 6),
+        recentVolumeSol: this.compact(state.recentVolumeSol, 4),
+        tradeVelocityPerMin: this.compact(state.tradeVelocityPerMin, 2),
+        buyRatio: this.compact(this.computeBuyRatio(state), 4),
+        uniqueBuyerCount: Number.isFinite(Number(state.uniqueBuyerCount)) ? Number(state.uniqueBuyerCount) : null,
+        uniqueBuyerRatio: this.compact(this.computeUniqueBuyerRatio(state), 4),
+        sniperWalletCount: Number.isFinite(Number(state.sniperWalletCount)) ? Number(state.sniperWalletCount) : null,
+        priceSol,
+        bondingCurvePriceSol: priceSol,
+        curvePriceSol: priceSol,
+        ...this.reservesPayload(state),
+        curveProgressDelta: this.compact(decision.curveProgressDelta ?? entryGuards.curveProgressDelta, 6),
+        curveProgressDelta60s: this.compact(decision.curveProgressDelta60s ?? entryGuards.curveProgressDelta60s, 6),
+        baselineCurveProgress: this.compact(decision.baselineCurveProgress ?? entryGuards.baselineCurveProgress, 6),
+        baselineCurveProgress60s: this.compact(decision.baselineCurveProgress60s ?? entryGuards.baselineCurveProgress60s, 6),
+        baselineAt: decision.baselineAt || entryGuards.baselineAt || null,
+        baselineAt60s: decision.baselineAt60s || entryGuards.baselineAt60s || null,
+        highCurveStaleSnapshotBlocked: decision.highCurveStaleSnapshotBlocked ?? entryGuards.highCurveStaleSnapshotBlocked ?? null,
+        firstSightHasConfirmation: decision.firstSightHasConfirmation ?? entryGuards.firstSightHasConfirmation ?? null,
+        earlySurgeHasConfirmation: decision.earlySurgeHasConfirmation ?? entryGuards.earlySurgeHasConfirmation ?? null,
+        broadOrganicSurgeHasConfirmation: decision.broadOrganicSurgeHasConfirmation ?? entryGuards.broadOrganicSurgeHasConfirmation ?? null,
+        curvePauseHasConfirmation: decision.curvePauseHasConfirmation ?? entryGuards.curvePauseHasConfirmation ?? null,
+        firstCurveSnapshotScalpFailedChecks: Array.isArray(decision.failedChecks || entryGuards.failedChecks)
+          ? (decision.failedChecks || entryGuards.failedChecks)
+          : [],
+        value: decision.value ?? null,
+        threshold: decision.threshold ?? null,
+        badExitCooldownUntil: decision.badExitCooldownUntil || null,
+        badExitCooldownRemainingMs: decision.badExitCooldownRemainingMs ?? null,
+        badExitCooldownReason: decision.badExitCooldownReason || null,
+        badExitCooldownPreset: decision.badExitCooldownPreset || null,
+        reasons: Array.isArray(state.reasons) ? state.reasons.slice(0, 10) : []
+      }
+    };
+  }
+
+  collectAttributionFailedChecks(decision = {}, entryGuards = {}) {
+    const checks = new Set();
+    for (const details of [entryGuards, decision]) {
+      if (!details || typeof details !== 'object') continue;
+      if (details.reason) checks.add(details.reason);
+      if (Array.isArray(details.failedChecks)) {
+        for (const check of details.failedChecks) {
+          if (check) checks.add(check);
+        }
+      }
+      if (details.highCurveStaleSnapshotBlocked) checks.add('HIGH_CURVE_STALE_CURVE_UPDATE');
+      if (details.earlyAccelerationWeakWalletFlowBlocked) checks.add('EARLY_ACCELERATION_WEAK_WALLET_FLOW');
+      if (details.firstCurveSnapshotScalpSniperCrowdingBlocked) checks.add('FIRST_CURVE_SNAPSHOT_SCALP_SNIPER_CROWDING');
+      if (details.firstCurveSnapshotScalpStaleCurveBlocked) checks.add('FIRST_CURVE_SNAPSHOT_SCALP_STALE_CURVE_UPDATE');
+    }
+    return Array.from(checks);
   }
 
   recordDecision(decision, presetName, reason = null) {
