@@ -64,6 +64,33 @@ function summarizeRows(rows) {
   };
 }
 
+function curveBand(value) {
+  const curve = Number(value);
+  if (!Number.isFinite(curve)) return 'unknown';
+  if (curve < 0.7) return 'curve_lt70';
+  if (curve < 0.8) return 'curve_70_80';
+  if (curve < 0.85) return 'curve_80_85';
+  if (curve < 0.9) return 'curve_85_90';
+  if (curve < 0.95) return 'curve_90_95';
+  return 'curve_95_plus';
+}
+
+function summarizeBy(rows, keyFn, limit = 8) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = keyFn(row) || 'unknown';
+    const list = groups.get(key) || [];
+    list.push(row);
+    groups.set(key, list);
+  }
+  return Object.fromEntries(
+    Array.from(groups.entries())
+      .map(([key, groupRows]) => [key, summarizeRows(groupRows)])
+      .sort((a, b) => Number(b[1].totalPnlSol || 0) - Number(a[1].totalPnlSol || 0))
+      .slice(0, limit)
+  );
+}
+
 function firstWouldSendByMint(attempts) {
   const first = new Map();
   for (const attempt of attempts) {
@@ -113,6 +140,7 @@ function replayCandidate(candidate, snapshots, profile, sizeSol, feeSol) {
     sourceReason: candidate.sourceReason || null,
     preset: candidate.preset || null,
     lane: candidate.lane || null,
+    curveBand: curveBand(candidate.accountCurveProgress ?? candidate.paperCurveProgress),
     entryAt: candidate.at,
     exitAt: exit.at,
     holdSeconds: numberOrNull((exit.atMs - candidate.atMs) / 1000, 3),
@@ -141,7 +169,12 @@ function replaySet(candidates, snapshotsByMint, sizeSol, feeSol) {
   }
   const byProfile = {};
   for (const profile of PROFILES) {
-    byProfile[profile.name] = summarizeRows(rows.filter((row) => row.profile === profile.name));
+    const profileRows = rows.filter((row) => row.profile === profile.name);
+    byProfile[profile.name] = {
+      ...summarizeRows(profileRows),
+      bySourceReason: summarizeBy(profileRows, (row) => row.sourceReason),
+      byCurveBand: summarizeBy(profileRows, (row) => row.curveBand)
+    };
   }
   return {
     candidates: candidates.length,
