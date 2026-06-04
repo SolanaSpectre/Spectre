@@ -1996,6 +1996,25 @@ class TradingEngine {
             threshold: pumpMomentumGate.threshold,
             momentumScore: momentum.score
           });
+          if (pumpMomentumGate.reason === 'RUNNER_SCALPER_REQUIRES_MIGRATION') {
+            this.telemetry.record('pump.migration_counterfactual', {
+              token: token.mintAddress,
+              source: token.source || null,
+              routeType: token.routeType || null,
+              bondingStage: token.bondingStage || null,
+              ageSeconds: pumpMomentumGate.values?.ageSeconds ?? null,
+              agePassed: pumpMomentumGate.values?.agePassed ?? null,
+              passed: pumpMomentumGate.values?.nonMigratedCounterfactualPassed === true,
+              reason: pumpMomentumGate.values?.nonMigratedCounterfactualReason
+                || pumpMomentumGate.values?.nonMigratedCounterfactualGateReason
+                || null,
+              values: pumpMomentumGate.values?.nonMigratedCounterfactualValues || null,
+              momentumScore: momentum.score,
+              momentumFactors: momentum.factors,
+              qualityScore: quality.score,
+              rankScore: Number(rankScore.toFixed(4))
+            });
+          }
           this.telemetry.record('trade.rejected', {
             token: token.mintAddress,
             reason: 'LOW_PUMP_MOMENTUM',
@@ -2822,12 +2841,27 @@ class TradingEngine {
       this.config.runnerScalperRequirePumpMigration &&
       !isMigration
     ) {
+      const counterfactual = this.evaluateNonMigratedPumpMomentumGate({
+        recentTrades,
+        buyRatio,
+        sellRatio,
+        recentVolume,
+        velocity,
+        momentumScore: momentum.score
+      });
+      const agePassed = !(this.config.maxPumpTokenAgeSeconds > 0 && ageSeconds > this.config.maxPumpTokenAgeSeconds);
       return {
         passed: false,
         reason: 'RUNNER_SCALPER_REQUIRES_MIGRATION',
         values: {
           routeType: token.routeType || null,
-          bondingStage: token.bondingStage || null
+          bondingStage: token.bondingStage || null,
+          ageSeconds,
+          agePassed,
+          nonMigratedCounterfactualPassed: agePassed && counterfactual.passed,
+          nonMigratedCounterfactualReason: agePassed ? null : 'PUMP_FAIL_AGE',
+          nonMigratedCounterfactualGateReason: counterfactual.reason || null,
+          nonMigratedCounterfactualValues: counterfactual.values || null
         },
         threshold: 'migration_or_recently_bonded'
       };
@@ -2902,6 +2936,24 @@ class TradingEngine {
       return { passed: true };
     }
 
+    return this.evaluateNonMigratedPumpMomentumGate({
+      recentTrades,
+      buyRatio,
+      sellRatio,
+      recentVolume,
+      velocity,
+      momentumScore: momentum.score
+    });
+  }
+
+  evaluateNonMigratedPumpMomentumGate({
+    recentTrades,
+    buyRatio,
+    sellRatio,
+    recentVolume,
+    velocity,
+    momentumScore
+  }) {
     if (recentTrades < this.config.minPumpRecentTrades) {
       return {
         passed: false,
@@ -2947,11 +2999,11 @@ class TradingEngine {
       };
     }
 
-    if (momentum.score < this.config.minPumpMomentumScore) {
+    if (momentumScore < this.config.minPumpMomentumScore) {
       return {
         passed: false,
         reason: 'PUMP_FAIL_MOMENTUM_SCORE',
-        values: { momentumScore: momentum.score },
+        values: { momentumScore },
         threshold: this.config.minPumpMomentumScore
       };
     }

@@ -154,6 +154,11 @@ function rejectFromEvent(event) {
     symbol: payload.symbol || null,
     reason: payload.reason || 'UNKNOWN',
     pumpFailureReason: payload.pumpFailureReason || null,
+    pumpFailureValues: payload.pumpFailureValues || null,
+    nonMigratedCounterfactualPassed: payload.pumpFailureValues?.nonMigratedCounterfactualPassed ?? null,
+    nonMigratedCounterfactualReason: payload.pumpFailureValues?.nonMigratedCounterfactualReason
+      || payload.pumpFailureValues?.nonMigratedCounterfactualGateReason
+      || null,
     momentumScore: numberOrNull(payload.momentumScore, 4),
     qualityScore: numberOrNull(payload.qualityScore, 4),
     rankScore: numberOrNull(payload.rankScore, 4)
@@ -386,6 +391,14 @@ function buildReport(runs) {
       uniqueMints: new Set(analyzed.map((row) => row.mint)).size,
       reasonCounts: countBy(analyzed, (row) => row.reason),
       pumpFailureReasonCounts: countBy(analyzed, (row) => row.pumpFailureReason),
+      migrationCounterfactualCounts: countBy(
+        analyzed.filter((row) => row.pumpFailureReason === 'RUNNER_SCALPER_REQUIRES_MIGRATION'),
+        (row) => row.nonMigratedCounterfactualPassed === true
+          ? 'would_pass_non_migrated_gate'
+          : row.nonMigratedCounterfactualPassed === false
+            ? `would_fail:${row.nonMigratedCounterfactualReason || 'unknown'}`
+            : 'unknown'
+      ),
       ...summarizeGroup(analyzed)
     },
     byReason: Object.fromEntries(
