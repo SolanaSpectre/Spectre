@@ -16,6 +16,7 @@ const JSON_REPORT = path.join(REPORT_DIR, 'live-readiness-latest.json');
 const TEXT_REPORT = path.join(REPORT_DIR, 'live-readiness-latest.txt');
 const RUNNER_REJECT_ENTRY_REPLAY_REPORT = path.join(REPORT_DIR, 'runner-reject-entry-replay-latest.json');
 const WALLET_FALSE_NEGATIVE_ENTRY_REPLAY_REPORT = path.join(REPORT_DIR, 'wallet-false-negative-entry-replay-latest.json');
+const CURVE_CONFIRMATION_REPLAY_REPORT = path.join(REPORT_DIR, 'pre-migration-curve-confirmation-replay-latest.json');
 
 function number(value, fallback = 0) {
   const parsed = Number(value);
@@ -123,6 +124,44 @@ function selectWalletFalseNegativeReplay(report) {
     verdict: summary.verdict || null,
     shadowLaneEligible: summary.shadowLaneEligible === true,
     verdictReason: summary.verdictReason || null
+  };
+}
+
+function selectCurveConfirmationReplay(report) {
+  const profiles = report?.profiles || {};
+  const rows = Object.entries(profiles)
+    .map(([name, profileReport]) => {
+      const summary = profileReport?.summary || {};
+      return {
+        name,
+        description: profileReport?.profile?.description || null,
+        decisions: summary.decisions ?? null,
+        confirmedEntries: summary.confirmedEntries ?? null,
+        closed: summary.closed ?? null,
+        noConfirmation: summary.noConfirmation ?? null,
+        uniqueMints: summary.uniqueMints ?? null,
+        confirmedUniqueMints: summary.confirmedUniqueMints ?? null,
+        wins: summary.wins ?? null,
+        losses: summary.losses ?? null,
+        winRate: summary.winRate ?? null,
+        totalPnlSol: summary.totalPnlSol ?? null,
+        averagePnlSol: summary.averagePnlSol ?? null,
+        medianPnlSol: summary.pnlStats?.median ?? null,
+        p90PnlSol: summary.pnlStats?.p90 ?? null,
+        maxPnlSol: summary.pnlStats?.max ?? null,
+        medianNetReturnPct: summary.netReturnPctStats?.median ?? null,
+        p90NetReturnPct: summary.netReturnPctStats?.p90 ?? null,
+        exitReasonCounts: summary.exitReasonCounts || {}
+      };
+    })
+    .sort((a, b) => number(b.totalPnlSol, Number.NEGATIVE_INFINITY) - number(a.totalPnlSol, Number.NEGATIVE_INFINITY));
+  if (!rows.length) return null;
+  return {
+    generatedAt: report.generatedAt || null,
+    mode: report.mode || null,
+    targetReasons: report.inputs?.targetReasons || null,
+    telemetryFilesRead: report.inputs?.telemetryFilesRead ?? null,
+    profiles: rows
   };
 }
 
@@ -437,7 +476,11 @@ function buildVerdict(stats) {
   const dryPolicyBlocks = countOnly(stats.dryRun.blockReasons, [
     'PRICE_IMPACT_TOO_HIGH',
     'STALE_ACCOUNT_UPDATE',
-    'BONDING_CURVE_COMPLETE'
+    'BONDING_CURVE_COMPLETE',
+    'UNSUPPORTED_QUOTE_MINT',
+    'UNSUPPORTED_QUOTE_PAIR',
+    'MISSING_SOL_RESERVES',
+    'QUOTE_RESERVE_DRIFT'
   ]);
   const dryCriticalBlocks = Math.max(0, dryWouldBlock - dryPolicyBlocks);
   const dryAmountSol = number(dryRunStop.amountSol, 0.1);
@@ -590,8 +633,10 @@ function buildReport(stats) {
   const verdict = buildVerdict(stats);
   const runnerRejectEntryReplay = readOptionalJson(RUNNER_REJECT_ENTRY_REPLAY_REPORT);
   const walletFalseNegativeEntryReplay = readOptionalJson(WALLET_FALSE_NEGATIVE_ENTRY_REPLAY_REPORT);
+  const curveConfirmationReplayReport = readOptionalJson(CURVE_CONFIRMATION_REPLAY_REPORT);
   const runnerShadowProfiles = selectRunnerShadowProfiles(runnerRejectEntryReplay);
   const walletShadowReplay = selectWalletFalseNegativeReplay(walletFalseNegativeEntryReplay);
+  const curveConfirmationReplay = selectCurveConfirmationReplay(curveConfirmationReplayReport);
   return {
     generatedAt: new Date().toISOString(),
     telemetryPath: path.relative(ROOT, stats.filePath),
@@ -661,7 +706,8 @@ function buildReport(stats) {
           defaultExitSlippagePct: runnerRejectEntryReplay.assumptions?.defaultExitSlippagePct ?? null,
           profiles: runnerShadowProfiles
         } : null,
-        walletFalseNegativeEntryReplay: walletShadowReplay
+        walletFalseNegativeEntryReplay: walletShadowReplay,
+        curveConfirmationReplay
       }
     }
   };
@@ -756,6 +802,17 @@ function writeText(report) {
     if (walletReplay.verdictReason) lines.push(`- Wallet replay verdict reason: ${walletReplay.verdictReason}`);
   } else {
     lines.push('- No wallet false-negative entry replay report found.');
+  }
+  const curveReplay = m.shadowEvidence?.curveConfirmationReplay || null;
+  if (curveReplay) {
+    lines.push('- Curve-confirmation replay is report-only and does not satisfy live launch paper-entry requirements.');
+    lines.push(`- Curve-confirmation scope: files=${curveReplay.telemetryFilesRead ?? 'n/a'}, targetReasons=${Array.isArray(curveReplay.targetReasons) ? curveReplay.targetReasons.join(',') : 'n/a'}`);
+    for (const profile of (curveReplay.profiles || []).slice(0, 5)) {
+      const winRate = profile.winRate === null || profile.winRate === undefined ? 'n/a' : `${fmt(Number(profile.winRate) * 100, 1)}%`;
+      lines.push(`- ${profile.name}: confirmed=${profile.confirmedEntries ?? 'n/a'}/${profile.decisions ?? 'n/a'}, unique=${profile.confirmedUniqueMints ?? 'n/a'}/${profile.uniqueMints ?? 'n/a'}, wins/losses=${profile.wins ?? 'n/a'}/${profile.losses ?? 'n/a'}, winRate=${winRate}, pnl=${fmt(profile.totalPnlSol, 9)} SOL, median=${fmt(profile.medianPnlSol, 9)} SOL, p90=${fmt(profile.p90PnlSol, 9)} SOL`);
+    }
+  } else {
+    lines.push('- No curve-confirmation replay report found.');
   }
   lines.push('');
 
