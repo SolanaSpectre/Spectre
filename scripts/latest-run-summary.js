@@ -30,6 +30,7 @@ const FILES = {
   preMigrationSkipNear90Watchlist: 'data/reports/pre-migration-skip-near-90-watchlist-latest.json',
   preMigrationHighConvictionWatchFollowThrough: 'data/reports/pre-migration-high-conviction-watch-follow-through-latest.json',
   preMigrationDryRunOutcome: 'data/reports/pre-migration-dry-run-outcome-latest.json',
+  preMigrationDryRunEntryReplay: 'data/reports/pre-migration-dry-run-entry-replay-latest.json',
   preMigrationRelaxedGateReplay: 'data/reports/pre-migration-relaxed-gate-replay-latest.json',
   preMigrationCurveStallRelaxedReplay: 'data/reports/pre-migration-curve-stall-relaxed-replay-latest.json',
   preMigrationWalletConditionedRelaxedGateReplay: 'data/reports/pre-migration-wallet-conditioned-relaxed-gate-replay-latest.json',
@@ -2448,6 +2449,18 @@ function buildSummary(docs) {
         lines.push(`      ${index + 1}. ${label} | reason=${item.sourceReason || 'n/a'} | curve=${fmt(item.accountCurveProgress, 4)} | max120=${fmt(item.max120, 4)} | max300=${fmt(item.max300, 4)} | delta120=${fmt(item.curveDelta120s, 4)} | priceDelta120=${fmt(item.priceDelta120sPct, 2)}% | cross90_120=${item.crossed90Within120s === true}`);
       });
     }
+  }
+  const dryRunEntryReplay = docs.preMigrationDryRunEntryReplay.data || {};
+  const dryRunEntryProfiles = dryRunEntryReplay.firstPerMint?.summaryByProfile || {};
+  if (Object.keys(dryRunEntryProfiles).length) {
+    lines.push('  - dry-run entry replay, first eligible attempt per mint:');
+    lines.push(`    - candidates / size / fee: ${dryRunEntryReplay.firstPerMint?.candidates ?? 'n/a'} / ${sol(dryRunEntryReplay.assumptions?.sizeSol, 4)} / ${sol(dryRunEntryReplay.assumptions?.feeSol, 4)}`);
+    Object.entries(dryRunEntryProfiles).forEach(([profile, summary]) => {
+      const tags = Array.isArray(summary.verdictTags) && summary.verdictTags.length
+        ? `, tags=${summary.verdictTags.join(',')}`
+        : '';
+      lines.push(`    - ${profile}: trades=${summary.trades ?? 'n/a'}, wins/losses=${summary.wins ?? 'n/a'}/${summary.losses ?? 'n/a'}, winRate=${pct(summary.winRate, 1)}, pnl=${sol(summary.totalPnlSol, 9)}, exTop1=${sol(summary.pnlAfterRemovingTopWinnerSol, 9)}, exTop3=${sol(summary.pnlAfterRemovingTop3WinnersSol, 9)}, top1GrossShare=${pct(summary.topWinnerShareOfGrossProfit, 1)}${tags}`);
+    });
   }
   lines.push('');
 

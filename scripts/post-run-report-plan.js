@@ -53,6 +53,7 @@ const POST_RUN_REPORTS = [
   { title: 'Pre-Migration Skip Near-90 Watchlist', script: 'pre-migration-skip-near-90-watchlist-report.js' },
   { title: 'Pre-Migration High-Conviction Watch Follow-through', script: 'pre-migration-high-conviction-watch-follow-through-report.js' },
   { title: 'Pre-Migration Dry-Run Outcome Follow-through', script: 'pre-migration-dry-run-outcome-report.js' },
+  { title: 'Pre-Migration Dry-Run Entry Replay', script: 'pre-migration-dry-run-entry-replay-report.js' },
   { title: 'Pre-Migration Relaxed-Gate Replay', script: 'pre-migration-relaxed-gate-replay-report.js' },
   { title: 'Pre-Migration Curve Bottleneck Replay', script: 'pre-migration-curve-bottleneck-replay-report.js' },
   { title: 'Pre-Migration Curve Confirmation Replay', script: 'pre-migration-curve-confirmation-replay-report.js' },

@@ -391,7 +391,23 @@ async function main() {
   console.log(`Dry-run would_send follow-through: ${report.summary.wouldSend} attempts, ${report.summary.uniqueWouldSendMints} unique mints`);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  addOutcomes,
+  countBy,
+  latestTelemetryFile,
+  numberOrNull,
+  parseArgs,
+  priceOf,
+  readTelemetry,
+  repoPath,
+  stat,
+  telemetryFromBattlefield,
+  timestampMs
+};

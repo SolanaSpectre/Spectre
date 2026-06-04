@@ -51,6 +51,7 @@
     "report:pre-migration-skip-near-90-watchlist": "node scripts/pre-migration-skip-near-90-watchlist-report.js",
     "report:pre-migration-high-conviction-watch-follow-through": "node scripts/pre-migration-high-conviction-watch-follow-through-report.js",
     "report:pre-migration-dry-run-outcome": "node scripts/pre-migration-dry-run-outcome-report.js",
+    "report:pre-migration-dry-run-entry-replay": "node scripts/pre-migration-dry-run-entry-replay-report.js",
     "report:pre-migration-relaxed-gate-replay": "node scripts/pre-migration-relaxed-gate-replay-report.js",
     "report:pre-migration-curve-bottleneck-replay": "node scripts/pre-migration-curve-bottleneck-replay-report.js",
     "report:pre-migration-curve-confirmation-replay": "node scripts/pre-migration-curve-confirmation-replay-report.js",
