@@ -4614,6 +4614,8 @@ class TradingEngine {
       createdAt: Date.now(),
       symbol: event.symbol,
       name: event.name,
+      quoteMint: event.quoteMint || null,
+      pairBase: event.pairBase || null,
       marketCapSol: Number(event.marketCapSol || event.marketCap || 0),
       bondingStage: this.inferBondingStage(event),
       rawEvent: event
@@ -4790,6 +4792,7 @@ class TradingEngine {
     const nowIso = new Date(now).toISOString();
     const source = event.providerCurveSource || `${event.provider || 'provider'}_curve_snapshot`;
     const pairBase = event.pairBase || current.pairBase || null;
+    const quoteMint = event.quoteMint || current.quoteMint || null;
     const virtualSolReservesSol = Number(event.virtualSolReservesSol);
     const virtualTokenReservesTokens = Number(event.virtualTokenReservesTokens);
     const priceSol = Number(event.providerCurvePriceSol ?? event.bondingCurvePriceSol);
@@ -4802,6 +4805,7 @@ class TradingEngine {
     current.providerCurveSnapshotAt = nowIso;
     current.lastCurveUpdateAt = nowIso;
     current.bondingCurveLastFetchAt = nowIso;
+    current.quoteMint = quoteMint;
     current.pairBase = pairBase;
     current.bondingStage = curveProgress >= 1
       ? 'recently_bonded'
@@ -4840,6 +4844,7 @@ class TradingEngine {
       ...(current.bondingCurveState || {}),
       source,
       provider: event.provider || current.provider || null,
+      quoteMint,
       pairBase,
       curveProgress,
       bondingStage: current.bondingStage,
