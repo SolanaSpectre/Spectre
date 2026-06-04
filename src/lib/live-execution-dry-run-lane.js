@@ -4,7 +4,14 @@ const { LAMPORTS_PER_SOL, PublicKey } = require('@solana/web3.js');
 const { PumpBuyV2DryRunBuilder } = require('./pump-buy-v2-dry-run-builder');
 
 const DEFAULT_PUMP_FUN_PROGRAM_ID = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const BONDING_CURVE_DISCRIMINATOR = 6966180631402821399n;
+const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
+  '11111111111111111111111111111111',
+  'BPFLoaderUpgradeab1e11111111111111111111111',
+  'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+  'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
+]);
 
 function finiteNumber(value, fallback = null) {
   const parsed = Number(value);
@@ -24,6 +31,11 @@ function publicKeyString(value) {
   } catch {
     return null;
   }
+}
+
+function normalizeQuoteMint(value) {
+  const parsed = publicKeyString(value);
+  return parsed || (value ? String(value).trim() : null);
 }
 
 class LiveExecutionDryRunLane {
@@ -183,6 +195,8 @@ class LiveExecutionDryRunLane {
         accountCurveProgress: finiteNumber(update.curveProgress),
         paperCurveProgress: finiteNumber(state.curveProgress ?? state.entryCurveProgress),
         bondingCurveAddress: update.bondingCurveAddress || state.bondingCurveAddress || null,
+        quoteMint: normalizeQuoteMint(update.quoteMint || state.quoteMint || null),
+        pairBase: update.pairBase || state.pairBase || null,
         creator: update.creator || state.creator || null,
         isMayhemMode: update.isMayhemMode === true || state.isMayhemMode === true,
         amountSol: compact(this.amountSol, 6),
@@ -195,6 +209,15 @@ class LiveExecutionDryRunLane {
       }
       if (update.complete === true) {
         return this.block('BONDING_CURVE_COMPLETE', basePayload);
+      }
+      const quoteSupport = this.checkSolQuoteSupport(update, state);
+      if (!quoteSupport.ok) {
+        return this.block(quoteSupport.reason, {
+          ...basePayload,
+          quoteMint: quoteSupport.quoteMint,
+          pairBase: quoteSupport.pairBase,
+          virtualSolReservesSol: quoteSupport.virtualSolReservesSol
+        });
       }
 
       const quote = this.computeBuyQuote(update, this.amountSol);
@@ -359,6 +382,24 @@ class LiveExecutionDryRunLane {
       virtualSolReservesSol: compact(virtualSolReservesSol, 6),
       virtualTokenReservesTokens: compact(virtualTokenReservesTokens, 6)
     };
+  }
+
+  checkSolQuoteSupport(update = {}, state = {}) {
+    const quoteMint = normalizeQuoteMint(update.quoteMint || state.quoteMint || null);
+    const pairBase = update.pairBase || state.pairBase || null;
+    const virtualSolReservesSol = finiteNumber(update.virtualSolReservesSol ?? state.virtualSolReservesSol);
+    const upperPairBase = pairBase ? String(pairBase).trim().toUpperCase() : null;
+
+    if (quoteMint && quoteMint !== SOL_MINT) {
+      return { ok: false, reason: 'UNSUPPORTED_QUOTE_MINT', quoteMint, pairBase, virtualSolReservesSol };
+    }
+    if (upperPairBase && upperPairBase !== 'SOL') {
+      return { ok: false, reason: 'UNSUPPORTED_QUOTE_PAIR', quoteMint, pairBase, virtualSolReservesSol };
+    }
+    if (!Number.isFinite(virtualSolReservesSol) || virtualSolReservesSol <= 0) {
+      return { ok: false, reason: 'MISSING_SOL_RESERVES', quoteMint, pairBase, virtualSolReservesSol };
+    }
+    return { ok: true, quoteMint, pairBase, virtualSolReservesSol };
   }
 
   async getMintOwner(mint) {
@@ -616,6 +657,10 @@ class LiveExecutionDryRunLane {
     };
     if (!provided) {
       return { ok: false, reason: 'BONDING_CURVE_ACCOUNT_DETAIL_MISSING', diagnostic };
+    }
+    if (SENTINEL_BONDING_CURVE_ADDRESSES.has(provided)) {
+      diagnostic.sentinel = true;
+      return { ok: false, reason: 'BONDING_CURVE_SENTINEL_ADDRESS', diagnostic };
     }
     if (expected && provided !== expected) {
       diagnostic.mismatch = true;

@@ -1,4 +1,4 @@
-const { LAMPORTS_PER_SOL } = require('@solana/web3.js');
+const { LAMPORTS_PER_SOL, PublicKey } = require('@solana/web3.js');
 const fs = require('fs');
 const MarketData = require('./market-data');
 const AIAgent = require('./ai-agent');
@@ -32,6 +32,23 @@ const SolanaRpcRouter = require('./lib/solana-rpc-router');
 const OutcomeLedger = require('./lib/outcome-ledger');
 const FinalistAccountVerifier = require('./lib/finalist-account-verifier');
 const LiveExecutionDryRunLane = require('./lib/live-execution-dry-run-lane');
+
+const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
+  '11111111111111111111111111111111',
+  'BPFLoaderUpgradeab1e11111111111111111111111',
+  'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+  'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
+]);
+
+function validProviderBondingCurveAddress(value) {
+  if (!value) return null;
+  try {
+    const parsed = new PublicKey(value).toBase58();
+    return SENTINEL_BONDING_CURVE_ADDRESSES.has(parsed) ? null : parsed;
+  } catch {
+    return null;
+  }
+}
 
 class TradingEngine {
   constructor(config, logger) {
@@ -3147,6 +3164,8 @@ class TradingEngine {
         confirmedAt: result.state.confirmedAt,
         confirmationReason: result.state.confirmationReason,
         bondingCurveAddress: result.state.bondingCurveAddress,
+        quoteMint: result.state.quoteMint || null,
+        pairBase: result.state.pairBase || null,
         bondingCurveComplete: result.state.bondingCurveComplete,
         virtualSolReservesSol: result.state.virtualSolReservesSol,
         realSolReservesSol: result.state.realSolReservesSol,
@@ -4800,6 +4819,14 @@ class TradingEngine {
     current.providerVirtualTokenReservesRaw = providerVirtualTokenReservesRaw;
     current.providerVirtualQuoteReservesRaw = providerVirtualQuoteReservesRaw;
     current.providerVirtualSolReservesRaw = providerVirtualSolReservesRaw;
+    const providerBondingCurveAddress = validProviderBondingCurveAddress(event.bondingCurveKey);
+    const retainedBondingCurveAddress = providerBondingCurveAddress
+      || current.bondingCurveAddress
+      || current.bondingCurveState?.bondingCurveAddress
+      || null;
+    if (providerBondingCurveAddress && !current.bondingCurveAddress) {
+      current.bondingCurveAddress = providerBondingCurveAddress;
+    }
 
     if (Number.isFinite(priceSol) && priceSol > 0) {
       current.bondingCurvePriceSol = priceSol;
@@ -4817,7 +4844,7 @@ class TradingEngine {
       curveProgress,
       bondingStage: current.bondingStage,
       complete: curveProgress >= 1,
-      bondingCurveAddress: event.bondingCurveKey || current.bondingCurveAddress || current.bondingCurveState?.bondingCurveAddress || null,
+      bondingCurveAddress: retainedBondingCurveAddress,
       virtualSolReservesSol: Number.isFinite(virtualSolReservesSol) ? virtualSolReservesSol : current.virtualSolReservesSol ?? null,
       virtualTokenReservesTokens: Number.isFinite(virtualTokenReservesTokens) ? virtualTokenReservesTokens : current.virtualTokenReservesTokens ?? null,
       providerVirtualTokenReservesRaw,
