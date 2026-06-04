@@ -304,6 +304,10 @@ class Config {
     return parseFloat(process.env.LIVE_DRY_RUN_MAX_PRICE_IMPACT_PCT || '2');
   }
 
+  static get liveDryRunMaxQuoteReserveDriftPct() {
+    return parseFloat(process.env.LIVE_DRY_RUN_MAX_QUOTE_RESERVE_DRIFT_PCT || '10');
+  }
+
   static get liveDryRunMaxPerRun() {
     return parseInt(process.env.LIVE_DRY_RUN_MAX_PER_RUN || '50', 10);
   }
@@ -2096,6 +2100,7 @@ class Config {
       { key: 'liveDryRunAmountSol', value: this.liveDryRunAmountSol, min: 0.001 },
       { key: 'liveDryRunMaxAccountAgeMs', value: this.liveDryRunMaxAccountAgeMs, min: 100 },
       { key: 'liveDryRunMaxPriceImpactPct', value: this.liveDryRunMaxPriceImpactPct, min: 0 },
+      { key: 'liveDryRunMaxQuoteReserveDriftPct', value: this.liveDryRunMaxQuoteReserveDriftPct, min: 0 },
       { key: 'liveDryRunMaxPerRun', value: this.liveDryRunMaxPerRun, min: 0 },
       { key: 'liveDryRunMintCooldownMs', value: this.liveDryRunMintCooldownMs, min: 0 },
       { key: 'eventLoopMonitorIntervalMs', value: this.eventLoopMonitorIntervalMs, min: 100 },

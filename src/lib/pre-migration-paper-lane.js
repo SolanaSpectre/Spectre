@@ -1910,6 +1910,8 @@ class PreMigrationPaperLane {
       ?? state.bondingCurveState?.realSolReservesSol
     );
     return {
+      quoteMint: state.quoteMint || state.bondingCurveState?.quoteMint || null,
+      pairBase: state.pairBase || state.bondingCurveState?.pairBase || null,
       virtualSolReservesSol: Number.isFinite(virtualSolReservesSol) ? this.compact(virtualSolReservesSol, 6) : null,
       virtualTokenReservesTokens: Number.isFinite(virtualTokenReservesTokens) ? this.compact(virtualTokenReservesTokens, 6) : null,
       realSolReservesSol: Number.isFinite(realSolReservesSol) ? this.compact(realSolReservesSol, 6) : null

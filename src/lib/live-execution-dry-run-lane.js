@@ -60,6 +60,7 @@ class LiveExecutionDryRunLane {
     this.amountSol = finiteNumber(config.liveDryRunAmountSol, finiteNumber(config.preMigrationPaperAmountSol, 0.1));
     this.maxAccountAgeMs = Math.max(100, finiteNumber(config.liveDryRunMaxAccountAgeMs, finiteNumber(config.finalistAccountVerifierFreshMs, 1500)));
     this.maxPriceImpactPct = Math.max(0, finiteNumber(config.liveDryRunMaxPriceImpactPct, 3));
+    this.maxQuoteReserveDriftPct = Math.max(0, finiteNumber(config.liveDryRunMaxQuoteReserveDriftPct, 10));
     this.maxPerRun = Math.max(0, finiteNumber(config.liveDryRunMaxPerRun, 50));
     this.mintCooldownMs = Math.max(0, finiteNumber(config.liveDryRunMintCooldownMs, 15000));
     this.simulationFailureCooldownMs = Math.max(
@@ -85,6 +86,7 @@ class LiveExecutionDryRunLane {
       amountSol: this.amountSol,
       maxAccountAgeMs: this.maxAccountAgeMs,
       maxPriceImpactPct: this.maxPriceImpactPct,
+      maxQuoteReserveDriftPct: this.maxQuoteReserveDriftPct,
       maxPerRun: this.maxPerRun,
       mintCooldownMs: this.mintCooldownMs,
       simulationFailureCooldownMs: this.simulationFailureCooldownMs,
@@ -290,6 +292,11 @@ class LiveExecutionDryRunLane {
           if (!curveValidation.ok) {
             return this.block(curveValidation.reason || 'BONDING_CURVE_VALIDATION_FAILED', payload);
           }
+          const reserveDrift = this.computeQuoteReserveDrift(quote, curveValidation.diagnostic);
+          if (reserveDrift && reserveDrift.maxDriftPct > this.maxQuoteReserveDriftPct) {
+            payload.quoteReserveDrift = reserveDrift;
+            return this.block('QUOTE_RESERVE_DRIFT', payload);
+          }
 
           const accountDiagnostic = await this.diagnoseTransactionAccounts(txBuild.accountDetails);
           if (accountDiagnostic) {
@@ -400,6 +407,33 @@ class LiveExecutionDryRunLane {
       return { ok: false, reason: 'MISSING_SOL_RESERVES', quoteMint, pairBase, virtualSolReservesSol };
     }
     return { ok: true, quoteMint, pairBase, virtualSolReservesSol };
+  }
+
+  computeQuoteReserveDrift(quote = {}, diagnostic = {}) {
+    const quoteSol = finiteNumber(quote.virtualSolReservesSol);
+    const quoteTokens = finiteNumber(quote.virtualTokenReservesTokens);
+    const validationSol = finiteNumber(diagnostic.virtualSolReservesSol);
+    const validationTokens = finiteNumber(diagnostic.virtualTokenReservesTokens);
+
+    const solDriftPct = quoteSol > 0 && Number.isFinite(validationSol)
+      ? Math.abs((validationSol - quoteSol) / quoteSol) * 100
+      : null;
+    const tokenDriftPct = quoteTokens > 0 && Number.isFinite(validationTokens)
+      ? Math.abs((validationTokens - quoteTokens) / quoteTokens) * 100
+      : null;
+    const driftValues = [solDriftPct, tokenDriftPct].filter(Number.isFinite);
+    if (driftValues.length === 0) return null;
+
+    return {
+      maxDriftPct: compact(Math.max(...driftValues), 4),
+      solDriftPct: compact(solDriftPct, 4),
+      tokenDriftPct: compact(tokenDriftPct, 4),
+      quoteVirtualSolReservesSol: compact(quoteSol, 6),
+      validationVirtualSolReservesSol: compact(validationSol, 6),
+      quoteVirtualTokenReservesTokens: compact(quoteTokens, 6),
+      validationVirtualTokenReservesTokens: compact(validationTokens, 6),
+      maxAllowedDriftPct: compact(this.maxQuoteReserveDriftPct, 4)
+    };
   }
 
   async getMintOwner(mint) {
