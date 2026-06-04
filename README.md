@@ -141,6 +141,7 @@ Edit the `.env` file with your settings:
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_OVERRIDE_ENABLED`: Allows high-conviction flat/paused curves to bypass the curve-delta guard in paper only (default: `true`)
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_SCORE`: Minimum watch score for curve-pause override consideration (default: `82`)
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_CURVE_PROGRESS`: Minimum curve progress for curve-pause override consideration (default: `0.75`)
+- `PRE_MIGRATION_PAPER_CURVE_PAUSE_MAX_CURVE_PROGRESS`: Maximum curve progress for curve-pause override consideration, keeping paused entries away from the near-completion cliff (default: `0.9`)
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_RECENT_VOLUME_SOL`: Recent-volume floor for curve-pause override consideration (default: `12`)
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_TRADE_VELOCITY_PER_MIN`: Trade-velocity floor for curve-pause override consideration (default: `12`)
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_BUY_RATIO`: Minimum buy ratio for curve-pause override consideration when buy/sell data is available (default: `0.4`)

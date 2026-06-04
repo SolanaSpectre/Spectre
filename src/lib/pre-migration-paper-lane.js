@@ -41,6 +41,7 @@ class PreMigrationPaperLane {
     this.curvePauseOverrideEnabled = config.preMigrationPaperCurvePauseOverrideEnabled !== false;
     this.curvePauseMinScore = Number(config.preMigrationPaperCurvePauseMinScore ?? 82);
     this.curvePauseMinCurveProgress = Number(config.preMigrationPaperCurvePauseMinCurveProgress ?? 0.75);
+    this.curvePauseMaxCurveProgress = Number(config.preMigrationPaperCurvePauseMaxCurveProgress ?? 0.9);
     this.curvePauseMinRecentVolumeSol = Number(config.preMigrationPaperCurvePauseMinRecentVolumeSol ?? 12);
     this.curvePauseMinTradeVelocityPerMin = Number(config.preMigrationPaperCurvePauseMinTradeVelocityPerMin ?? 12);
     this.curvePauseMinBuyRatio = Number(config.preMigrationPaperCurvePauseMinBuyRatio ?? 0.4);
@@ -1235,6 +1236,7 @@ class PreMigrationPaperLane {
       && score >= this.curvePauseMinScore
       && Number.isFinite(curveProgress)
       && curveProgress >= this.curvePauseMinCurveProgress
+      && (!Number.isFinite(this.curvePauseMaxCurveProgress) || curveProgress <= this.curvePauseMaxCurveProgress)
       && Number.isFinite(recentVolumeSol)
       && recentVolumeSol >= this.curvePauseMinRecentVolumeSol
       && Number.isFinite(tradeVelocityPerMin)
@@ -1253,6 +1255,7 @@ class PreMigrationPaperLane {
       curvePauseThresholds: {
         minScore: this.curvePauseMinScore,
         minCurveProgress: this.curvePauseMinCurveProgress,
+        maxCurveProgress: this.curvePauseMaxCurveProgress,
         minRecentVolumeSol: this.curvePauseMinRecentVolumeSol,
         minTradeVelocityPerMin: this.curvePauseMinTradeVelocityPerMin,
         minBuyRatio: this.curvePauseMinBuyRatio,

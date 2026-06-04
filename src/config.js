@@ -852,6 +852,10 @@ class Config {
     return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_CURVE_PROGRESS || '0.75');
   }
 
+  static get preMigrationPaperCurvePauseMaxCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_PAUSE_MAX_CURVE_PROGRESS || '0.9');
+  }
+
   static get preMigrationPaperCurvePauseMinRecentVolumeSol() {
     return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_RECENT_VOLUME_SOL || '12');
   }
@@ -2041,6 +2045,7 @@ class Config {
       { key: 'preMigrationPaperEarlySurgeNoBaselineMinScore', value: this.preMigrationPaperEarlySurgeNoBaselineMinScore, min: 0, max: 100 },
       { key: 'preMigrationPaperCurvePauseMinScore', value: this.preMigrationPaperCurvePauseMinScore, min: 0, max: 100 },
       { key: 'preMigrationPaperCurvePauseMinCurveProgress', value: this.preMigrationPaperCurvePauseMinCurveProgress, min: 0, max: 1 },
+      { key: 'preMigrationPaperCurvePauseMaxCurveProgress', value: this.preMigrationPaperCurvePauseMaxCurveProgress, min: 0, max: 1 },
       { key: 'preMigrationPaperCurvePauseMinRecentVolumeSol', value: this.preMigrationPaperCurvePauseMinRecentVolumeSol, min: 0 },
       { key: 'preMigrationPaperCurvePauseMinTradeVelocityPerMin', value: this.preMigrationPaperCurvePauseMinTradeVelocityPerMin, min: 0 },
       { key: 'preMigrationPaperCurvePauseMinBuyRatio', value: this.preMigrationPaperCurvePauseMinBuyRatio, min: 0, max: 1 },
