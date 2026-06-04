@@ -52,6 +52,8 @@
     "report:pre-migration-high-conviction-watch-follow-through": "node scripts/pre-migration-high-conviction-watch-follow-through-report.js",
     "report:pre-migration-dry-run-outcome": "node scripts/pre-migration-dry-run-outcome-report.js",
     "report:pre-migration-relaxed-gate-replay": "node scripts/pre-migration-relaxed-gate-replay-report.js",
+    "report:pre-migration-curve-bottleneck-replay": "node scripts/pre-migration-curve-bottleneck-replay-report.js",
+    "report:pre-migration-curve-confirmation-replay": "node scripts/pre-migration-curve-confirmation-replay-report.js",
     "report:pre-migration-curve-stall-relaxed-replay": "node scripts/pre-migration-curve-stall-relaxed-replay-report.js",
     "report:pre-migration-wallet-conditioned-relaxed-gate-replay": "node scripts/pre-migration-wallet-conditioned-relaxed-gate-replay-report.js",
     "report:pre-migration-wallet-relaxed-shadow-outcome": "node scripts/pre-migration-wallet-relaxed-shadow-outcome-report.js",

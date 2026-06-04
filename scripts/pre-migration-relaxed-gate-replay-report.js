@@ -80,6 +80,61 @@ const PROFILES = {
     takeProfitPct: 0.35,
     stopLossPct: 0.15,
     maxHoldSeconds: 180
+  },
+  all_curve_bottlenecks: {
+    description: 'First CURVE_NOT_ADVANCING/NO_PRIOR skip per run+mint.',
+    allowedReasons: ['CURVE_NOT_ADVANCING', 'NO_PRIOR_CURVE_PROGRESS'],
+    minCurveProgress: 0,
+    minScore: 0,
+    minRecentVolumeSol: 0,
+    minTradeVelocityPerMin: 0,
+    takeProfitPct: 0.35,
+    stopLossPct: 0.15,
+    maxHoldSeconds: 300
+  },
+  curve_bottleneck_score75_curve70: {
+    description: 'Curve bottleneck candidates that otherwise look entry-shaped: score>=75, curve>=70%.',
+    allowedReasons: ['CURVE_NOT_ADVANCING', 'NO_PRIOR_CURVE_PROGRESS'],
+    minCurveProgress: 0.7,
+    minScore: 75,
+    minRecentVolumeSol: 0,
+    minTradeVelocityPerMin: 0,
+    takeProfitPct: 0.35,
+    stopLossPct: 0.15,
+    maxHoldSeconds: 300
+  },
+  curve_bottleneck_score80_curve75_flow: {
+    description: 'Curve bottleneck candidates with stronger flow: score>=80, curve>=75%, volume>=12 SOL, velocity>=12/min.',
+    allowedReasons: ['CURVE_NOT_ADVANCING', 'NO_PRIOR_CURVE_PROGRESS'],
+    minCurveProgress: 0.75,
+    minScore: 80,
+    minRecentVolumeSol: 12,
+    minTradeVelocityPerMin: 12,
+    takeProfitPct: 0.35,
+    stopLossPct: 0.15,
+    maxHoldSeconds: 240
+  },
+  curve_bottleneck_score84_curve78_flow: {
+    description: 'First-sight style curve bottleneck candidates: score>=84, curve>=78%, volume>=12 SOL, velocity>=12/min.',
+    allowedReasons: ['CURVE_NOT_ADVANCING', 'NO_PRIOR_CURVE_PROGRESS'],
+    minCurveProgress: 0.78,
+    minScore: 84,
+    minRecentVolumeSol: 12,
+    minTradeVelocityPerMin: 12,
+    takeProfitPct: 0.5,
+    stopLossPct: 0.15,
+    maxHoldSeconds: 240
+  },
+  curve_bottleneck_near_migration: {
+    description: 'Late curve bottleneck candidates: curve>=80%, score>=70, any flow.',
+    allowedReasons: ['CURVE_NOT_ADVANCING', 'NO_PRIOR_CURVE_PROGRESS'],
+    minCurveProgress: 0.8,
+    minScore: 70,
+    minRecentVolumeSol: 0,
+    minTradeVelocityPerMin: 0,
+    takeProfitPct: 0.35,
+    stopLossPct: 0.15,
+    maxHoldSeconds: 180
   }
 };
 
@@ -378,8 +433,10 @@ function aggregateTrades(trades) {
 
 function buildReport(runs, options = {}) {
   const targetReasons = Array.from(options.targetReasons || DEFAULT_TARGET_REASONS).sort();
+  const profileNames = Array.isArray(options.profileNames) ? new Set(options.profileNames) : null;
   const profiles = {};
   for (const [name, rawProfile] of Object.entries(PROFILES)) {
+    if (profileNames && !profileNames.has(name)) continue;
     if (Array.isArray(rawProfile.allowedReasons)) {
       const hasTargetOverlap = rawProfile.allowedReasons.some((reason) => targetReasons.includes(reason));
       if (!hasTargetOverlap) continue;
@@ -436,7 +493,8 @@ async function runReport(options = {}) {
   for (const filePath of files) runs.push(await readTelemetry(filePath, targetReasons));
   const report = buildReport(runs, {
     targetReasons: targetReasonList,
-    note: options.note
+    note: options.note,
+    profileNames: options.profileNames
   });
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
