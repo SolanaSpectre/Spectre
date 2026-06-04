@@ -98,9 +98,17 @@ class PumpBuyV2DryRunBuilder {
 
     const baseMint = new PublicKey(mint);
     const userPubkey = user instanceof PublicKey ? user : new PublicKey(user);
-    const bondingCurve = bondingCurveAddress
-      ? new PublicKey(bondingCurveAddress)
-      : pda([Buffer.from('bonding-curve'), baseMint.toBuffer()], this.programId);
+    const expectedBondingCurve = pda([Buffer.from('bonding-curve'), baseMint.toBuffer()], this.programId);
+    const providedBondingCurve = bondingCurveAddress ? new PublicKey(bondingCurveAddress) : null;
+    if (providedBondingCurve && !providedBondingCurve.equals(expectedBondingCurve)) {
+      return {
+        ok: false,
+        reason: 'BONDING_CURVE_ADDRESS_MISMATCH',
+        expectedBondingCurveAddress: expectedBondingCurve.toBase58(),
+        providedBondingCurveAddress: providedBondingCurve.toBase58()
+      };
+    }
+    const bondingCurve = providedBondingCurve || expectedBondingCurve;
     const creatorPubkey = creator ? new PublicKey(creator) : null;
     if (!creatorPubkey) {
       return { ok: false, reason: 'MISSING_CREATOR' };
@@ -213,6 +221,8 @@ class PumpBuyV2DryRunBuilder {
       })),
       txSizeBytes: serialized.length,
       baseTokenProgram: baseTokenProgram.toBase58(),
+      expectedBondingCurveAddress: expectedBondingCurve.toBase58(),
+      providedBondingCurveAddress: providedBondingCurve ? providedBondingCurve.toBase58() : null,
       quoteMint: quoteMint.toBase58(),
       quoteTokenProgram: quoteTokenProgram.toBase58(),
       feeRecipient: feeRecipient.toBase58(),

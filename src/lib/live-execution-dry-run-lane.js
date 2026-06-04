@@ -223,6 +223,8 @@ class LiveExecutionDryRunLane {
         payload.txBuildStatus = txBuild.status;
         payload.txBuildReason = txBuild.reason || null;
         payload.txBuilder = txBuild.builder || null;
+        payload.expectedBondingCurveAddress = txBuild.expectedBondingCurveAddress || null;
+        payload.providedBondingCurveAddress = txBuild.providedBondingCurveAddress || null;
         payload.txSizeBytes = txBuild.txSizeBytes ?? null;
         payload.signedOk = false;
         payload.signatureMode = this.signForSimulation
@@ -375,7 +377,9 @@ class LiveExecutionDryRunLane {
         status: 'blocked',
         reason: build.reason || 'TX_BUILD_FAILED',
         builder: 'pump_buy_v2',
-        baseTokenProgram: build.baseTokenProgram || mintOwner || null
+        baseTokenProgram: build.baseTokenProgram || mintOwner || null,
+        expectedBondingCurveAddress: build.expectedBondingCurveAddress || null,
+        providedBondingCurveAddress: build.providedBondingCurveAddress || null
       };
     }
 
@@ -394,6 +398,8 @@ class LiveExecutionDryRunLane {
         txSizeBytes: build.txSizeBytes,
         setupInstructionCount: build.setupInstructionCount ?? 0,
         baseTokenProgram: build.baseTokenProgram,
+        expectedBondingCurveAddress: build.expectedBondingCurveAddress,
+        providedBondingCurveAddress: build.providedBondingCurveAddress,
         quoteMint: build.quoteMint,
         quoteTokenProgram: build.quoteTokenProgram,
         feeRecipient: build.feeRecipient,
