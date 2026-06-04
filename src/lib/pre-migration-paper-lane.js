@@ -100,7 +100,11 @@ class PreMigrationPaperLane {
       exitReasonCounts: {},
       presets: {},
       lanes: {},
-      profiles: {}
+      profiles: {},
+      observed: 0,
+      observedFlagged: 0,
+      observedUnflagged: 0,
+      observedWithOpenPosition: 0
     };
     this.lastObservedStates = new Map();
     this.observationHistory = new Map();
@@ -127,6 +131,16 @@ class PreMigrationPaperLane {
     const observedState = options.walletClassificationContext
       ? { ...state, walletClassificationContext: options.walletClassificationContext }
       : state;
+    const flagged = options.flagged === true;
+    this.stats.observed += 1;
+    if (flagged) {
+      this.stats.observedFlagged += 1;
+    } else {
+      this.stats.observedUnflagged += 1;
+    }
+    if (this.getActivePositionForMint(mint)) {
+      this.stats.observedWithOpenPosition += 1;
+    }
     this.rememberObservation(observedState, timestamp, price);
     const entryGuards = this.evaluateEntryGuards(observedState, history, timestamp);
     const firstCurveNearMiss = this.firstCurveSnapshotNearMissEvent(observedState, history, timestamp);
@@ -150,7 +164,7 @@ class PreMigrationPaperLane {
       if (
         !exitedThisObservation
         && !this.openPositions.has(key)
-        && options.flagged === true
+        && flagged
       ) {
         const cooldown = this.getBadExitCooldown(mint, timestamp);
         if (cooldown.active) {
@@ -196,6 +210,7 @@ class PreMigrationPaperLane {
             events.push(this.enter(observedState, timestamp, preset, decision));
           }
         } else if (decision.reason !== 'PRESET_NOT_ELIGIBLE_FOR_GUARD_OVERRIDE') {
+          // guard_attribution still records this intentionally suppressed PAPER_SKIPPED case.
           events.push(this.decisionEvent('PAPER_SKIPPED', observedState, timestamp, preset, decision));
         }
       }

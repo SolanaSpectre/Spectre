@@ -7,6 +7,7 @@ const {
 } = require('@solana/web3.js');
 const { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } = require('@solana/spl-token');
 const bs58 = require('bs58');
+const { assertLiveBroadcastAllowed } = require('./lib/live-broadcast-guard');
 
 class WalletManager {
   constructor(privateKey) {
@@ -112,7 +113,7 @@ class WalletManager {
     transaction.recentBlockhash = latestBlockhash.blockhash;
     transaction.sign(this.keypair);
 
-    WalletManager.assertLiveBroadcastAllowed('transferSol');
+    assertLiveBroadcastAllowed('transferSol');
     const signature = await connection.sendRawTransaction(transaction.serialize());
     await connection.confirmTransaction({
       signature,
@@ -121,19 +122,6 @@ class WalletManager {
     });
 
     return signature;
-  }
-
-  static assertLiveBroadcastAllowed(operation = 'sendRawTransaction') {
-    const executionMode = String(process.env.EXECUTION_MODE || '').toUpperCase();
-    const argv = process.argv.slice(2);
-    const confirmLive = argv.includes('--confirmLive=true')
-      || argv.some((arg, index) => arg === '--confirmLive' && argv[index + 1] === 'true');
-
-    if (executionMode !== 'LIVE' || !confirmLive) {
-      throw new Error(
-        `CRITICAL SAFETY VETO: ${operation} attempted without EXECUTION_MODE=LIVE and --confirmLive true`
-      );
-    }
   }
 }
 

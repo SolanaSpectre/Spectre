@@ -104,6 +104,9 @@ function buildReport(events = [], telemetryPath = null) {
   }
 
   summary.uniqueMints = mints.size;
+  summary.suppressedPresetIneligibleRate = summary.rows > 0
+    ? Number((summary.suppressedPresetIneligible / summary.rows).toFixed(6))
+    : null;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -128,7 +131,7 @@ function printReport(report) {
   console.log(`Rows/unique mints: ${summary.rows} / ${summary.uniqueMints}`);
   console.log(`Would enter/skip: ${summary.wouldEnter} / ${summary.wouldSkip}`);
   console.log(`Guard blocked: ${summary.guardBlocked}`);
-  console.log(`Suppressed preset-ineligible: ${summary.suppressedPresetIneligible}`);
+  console.log(`Suppressed preset-ineligible: ${summary.suppressedPresetIneligible} (${summary.suppressedPresetIneligibleRate ?? 'n/a'})`);
   console.log('Top reasons:');
   for (const item of report.top.reasons.slice(0, 8)) {
     console.log(`  - ${item.key}: ${item.count}`);

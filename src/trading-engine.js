@@ -18,6 +18,7 @@ const WalletContext = require('./lib/wallet-context');
 const TelegramContext = require('./lib/telegram-context');
 const RickContext = require('./lib/rick-context');
 const LaunchIntelStore = require('./lib/launch-intel-store');
+const { assertLiveBroadcastAllowed } = require('./lib/live-broadcast-guard');
 const PositionStore = require('./lib/position-store');
 const TradingEventFlow = require('./lib/trading-event-flow');
 const PoolStateLane = require('./lib/pool-state-lane');
@@ -2121,6 +2122,8 @@ class TradingEngine {
   }
 
   async executeBuyLive(signal, quote, aiDecision) {
+    assertLiveBroadcastAllowed('executeBuyLive');
+
     if (!this.config.liveExitEngineEnabled) {
       return {
         success: false,
@@ -2367,6 +2370,7 @@ class TradingEngine {
         throw new Error(quoteQuality.reason);
       }
 
+      assertLiveBroadcastAllowed('closeLivePosition');
       const executionResponse = await this.marketData.executeJupiterOrder(
         this.connection,
         this.hotWallet,
