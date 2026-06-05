@@ -40,6 +40,7 @@ const FILES = {
   preMigrationWalletContextCoverage: 'data/reports/pre-migration-wallet-context-coverage-latest.json',
   preMigrationWalletContextFollowThrough: 'data/reports/pre-migration-wallet-context-follow-through-latest.json',
   preMigrationEntryCandidateReview: 'data/reports/pre-migration-entry-candidate-review-latest.json',
+  preMigrationSameMintReentryImpact: 'data/reports/pre-migration-same-mint-reentry-impact-latest.json',
   signalQuality: 'data/reports/pre-migration-signal-quality-latest.json',
   learning: 'data/reports/learning-orchestrator-latest.json',
   continuationPaper: 'data/reports/continuation-paper-latest.json',
@@ -2119,6 +2120,17 @@ function summarizeEntryCandidate(candidate = {}) {
   return `${candidate.kind || 'candidate'} ${candidate.symbol || 'UNKNOWN'} ${candidate.mint || ''} | verdict=${candidate.verdict || 'n/a'} | score=${fmt(candidate.score, 2)} | curve=${fmt(candidate.curveProgress, 4)} | max120=${fmt(future120.maxCurveProgress, 4)} | price120=${fmt(future120.maxPriceDeltaPct, 2)}%${exitText}${touch} | flags=${flags}`;
 }
 
+function summarizeSameMintReentry(row = {}) {
+  if (!row || typeof row !== 'object' || !Object.keys(row).length) return 'none';
+  const previous = row.previousExit
+    ? `prev=${row.previousExit.reason || 'exit'} ${sol(row.previousExit.pnlSol, 6)}`
+    : 'prev=n/a';
+  const exit = row.exit
+    ? `exit=${row.exit.reason || 'n/a'} ${sol(row.exit.pnlSol, 6)}`
+    : 'exit=n/a';
+  return `${row.symbol || 'UNKNOWN'} ${row.mint || ''} | gap=${fmt(row.gapSeconds, 1)}s | profile=${row.profileName || 'n/a'} | ${previous} | ${exit}`;
+}
+
 function buildLaunchDecisionLines({
   liveReadiness,
   paperEntries,
@@ -2227,6 +2239,7 @@ function buildSummary(docs) {
   const walletContextCoverage = docs.preMigrationWalletContextCoverage.data || {};
   const walletContextFollowThrough = docs.preMigrationWalletContextFollowThrough.data || {};
   const entryCandidateReview = docs.preMigrationEntryCandidateReview.data || {};
+  const sameMintReentryImpact = docs.preMigrationSameMintReentryImpact.data || {};
   const signal = docs.signalQuality.data || {};
   const learning = docs.learning.data || {};
   const strategyCandidateScorecard = docs.strategyCandidateScorecard.data || {};
@@ -2375,6 +2388,21 @@ function buildSummary(docs) {
     if (reviewedCandidates.length) {
       lines.push('- Candidates:');
       reviewedCandidates.forEach((candidate, index) => lines.push(`  ${index + 1}. ${summarizeEntryCandidate(candidate)}`));
+    }
+    lines.push('');
+  }
+
+  if (sameMintReentryImpact.summary) {
+    const impactSummary = sameMintReentryImpact.summary || {};
+    lines.push('0d. Same-Mint Reentry Impact');
+    lines.push('----------------------------');
+    lines.push(`- Cooldown window: ${fmt(Number(impactSummary.cooldownMs || 0) / 1000, 0)}s; historical reentries=${impactSummary.reentryWithinCooldown ?? 'n/a'} / ${impactSummary.totalEntries ?? 'n/a'} entries; unique mints=${impactSummary.reentryUniqueMints ?? 'n/a'}.`);
+    lines.push(`- Reentry PnL in scanned telemetry: ${sol(impactSummary.reentryPnlSol, 6)}; wins/losses/flat=${impactSummary.reentryWinLoss?.wins ?? 'n/a'} / ${impactSummary.reentryWinLoss?.losses ?? 'n/a'} / ${impactSummary.reentryWinLoss?.flatOrMissing ?? 'n/a'}.`);
+    lines.push(`- Reentry by previous exit: ${formatTopCounts(impactSummary.reentryByPreviousExitReason)}.`);
+    const topReentries = topArray(sameMintReentryImpact.topReentries, 5);
+    if (topReentries.length) {
+      lines.push('- Worst/closest reentries:');
+      topReentries.forEach((row, index) => lines.push(`  ${index + 1}. ${summarizeSameMintReentry(row)}`));
     }
     lines.push('');
   }
