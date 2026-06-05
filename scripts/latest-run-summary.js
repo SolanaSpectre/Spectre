@@ -26,6 +26,7 @@ const FILES = {
   preMigrationRollingEntryTrend: 'data/reports/pre-migration-rolling-entry-trend-latest.json',
   preMigrationEntryShape: 'data/reports/pre-migration-entry-shape-latest.json',
   preMigrationEntryGateMargin: 'data/reports/pre-migration-entry-gate-margin-latest.json',
+  preMigrationGuardAttribution: 'data/reports/pre-migration-guard-attribution-latest.json',
   preMigrationSkipFollowThrough: 'data/reports/pre-migration-skip-follow-through-latest.json',
   preMigrationSkipNear90Watchlist: 'data/reports/pre-migration-skip-near-90-watchlist-latest.json',
   preMigrationHighConvictionWatchFollowThrough: 'data/reports/pre-migration-high-conviction-watch-follow-through-latest.json',
@@ -2058,11 +2059,36 @@ function formatReplayProfile(item, tradeLabel = 'trades') {
   return `${item.name}: ${tradeLabel}=${trades}, wins/losses=${wins}/${losses}, winRate=${pct(item.winRate, 1)}, pnl=${pnl}${median}`;
 }
 
+function formatTopCounts(obj, limit = 4) {
+  if (!obj || typeof obj !== 'object') return 'none';
+  const entries = Array.isArray(obj)
+    ? obj.map((item) => [item.key || item.name || item.reason || 'unknown', item.count ?? item.value ?? item.decisions])
+    : Object.entries(obj);
+  return entries
+    .filter(([, value]) => Number.isFinite(Number(value)))
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, limit)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(', ') || 'none';
+}
+
+function summarizeClosestGateMiss(item = {}) {
+  if (!item || typeof item !== 'object' || !Object.keys(item).length) return 'none';
+  const label = `${item.symbol || 'UNKNOWN'} ${item.mint || ''}`.trim();
+  const gate = item.tightestGate || {};
+  const gateText = gate.name
+    ? `${gate.name} ${fmt(gate.actual, 6)}/${fmt(gate.threshold, 6)}`
+    : 'gate=n/a';
+  return `${label} | preset=${item.preset || 'n/a'} | reason=${item.reason || 'n/a'} | readiness=${fmt(item.readinessPct, 2)}% | ${gateText}`;
+}
+
 function buildLaunchDecisionLines({
   liveReadiness,
   paperEntries,
   paperPnl,
   aiReachability,
+  preMigrationGuardAttribution,
+  preMigrationEntryGateMargin,
   preMigrationDryRunEntryReplay,
   preMigrationRelaxedGateReplay,
   preMigrationCurveStallRelaxedReplay,
@@ -2078,6 +2104,9 @@ function buildLaunchDecisionLines({
   const curveStallBest = topArray(preMigrationCurveStallRelaxedReplay.ranking, 1)[0] || null;
   const curveConfirmationBest = topArray(preMigrationCurveConfirmationReplay.ranking, 1)[0] || null;
   const runnerRejectBest = bestProfileFromSummary(runnerRejectEntryReplay.summaryByProfile);
+  const guardSummary = preMigrationGuardAttribution.summary || {};
+  const marginSummary = preMigrationEntryGateMargin.summary || {};
+  const closestGateMiss = topArray(preMigrationEntryGateMargin.closestByMint, 1)[0] || {};
   const strategyEvidenceBlocked = Number(paperEntries || 0) === 0 || Number(paperPnl || 0) < 0;
   const broadcastBlocked = launchBlocks.some((line) => String(line).toLowerCase().includes('broadcast'));
   const aiNotReached = Number(aiReachability.generatedSignals || 0) === 0
@@ -2100,6 +2129,9 @@ function buildLaunchDecisionLines({
   lines.push(`- Strategy evidence: paper entries/PnL=${paperEntries ?? 'n/a'} / ${paperPnl === null || paperPnl === undefined ? 'n/a' : sol(paperPnl, 6)}; ${strategyEvidenceBlocked ? 'not live-launchable' : 'sample needs live-review sizing checks'}.`);
   lines.push(`- AI reachability: signals/lifecycle attempts=${aiReachability.generatedSignals}/${aiReachability.lifecycleAttempts}; ${aiNotReached ? 'no real candidate reached runtime AI review this run' : 'runtime AI path was exercised'}.`);
   lines.push(`- Broadcast: ${broadcastBlocked ? 'still report-only; do not enable live broadcast from this evidence' : 'no broadcast launch block reported'}.`);
+  lines.push(`- Current entry gate bottleneck: wouldEnter/wouldSkip=${guardSummary.wouldEnter ?? 'n/a'}/${guardSummary.wouldSkip ?? 'n/a'}; top reasons=${formatTopCounts(guardSummary.byReason)}.`);
+  lines.push(`- Rolling tightest gates: decisions=${marginSummary.decisions ?? 'n/a'}, readiness median/p90/max=${fmt(marginSummary.readinessPct?.median, 2)}%/${fmt(marginSummary.readinessPct?.p90, 2)}%/${fmt(marginSummary.readinessPct?.max, 2)}%; gates=${formatTopCounts(marginSummary.tightestGateCounts)}.`);
+  lines.push(`- Closest gate miss: ${summarizeClosestGateMiss(closestGateMiss)}.`);
   if (launchBlocks.length) {
     lines.push('- Launch blockers:');
     launchBlocks.forEach((line) => lines.push(`  - ${line}`));
@@ -2248,6 +2280,8 @@ function buildSummary(docs) {
     paperEntries,
     paperPnl,
     aiReachability,
+    preMigrationGuardAttribution: docs.preMigrationGuardAttribution.data || {},
+    preMigrationEntryGateMargin: docs.preMigrationEntryGateMargin.data || {},
     preMigrationDryRunEntryReplay: docs.preMigrationDryRunEntryReplay.data || {},
     preMigrationRelaxedGateReplay: docs.preMigrationRelaxedGateReplay.data || {},
     preMigrationCurveStallRelaxedReplay: docs.preMigrationCurveStallRelaxedReplay.data || {},
