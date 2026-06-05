@@ -56,6 +56,7 @@ const FILES = {
   noPriorDecisionTimeStateAge: 'data/reports/no-prior-decision-time-state-age-latest.json',
   noPriorFollowThrough: 'data/reports/no-prior-follow-through-latest.json',
   noPriorDelayedEntry: 'data/reports/no-prior-delayed-entry-replay-latest.json',
+  strategyCandidateScorecard: 'data/reports/strategy-candidate-scorecard-latest.json',
   runnerRejectFollowThrough: 'data/reports/runner-reject-follow-through-latest.json',
   runnerRejectEntryReplay: 'data/reports/runner-reject-entry-replay-latest.json',
   runnerRaydiumShadow: 'data/reports/runner-raydium-shadow-latest.json',
@@ -2093,6 +2094,14 @@ function summarizeClosestGateMiss(item = {}) {
   return `${label} | preset=${item.preset || 'n/a'} | reason=${item.reason || 'n/a'} | readiness=${fmt(item.readinessPct, 2)}% | ${gateText}`;
 }
 
+function summarizeStrategyCandidate(candidate = {}) {
+  if (!candidate || typeof candidate !== 'object' || !Object.keys(candidate).length) return 'none';
+  const blockers = Array.isArray(candidate.promotionBlockers)
+    ? candidate.promotionBlockers.slice(0, 3).join('; ')
+    : 'none';
+  return `${candidate.name || 'unknown'} (${candidate.lane || 'n/a'}) | status=${candidate.status || 'n/a'} | score=${fmt(candidate.score, 0)} | trades=${candidate.trades ?? 'n/a'} | PnL=${sol(candidate.pnlSol, 6)} | blockers=${blockers || 'none'}`;
+}
+
 function buildLaunchDecisionLines({
   liveReadiness,
   paperEntries,
@@ -2104,7 +2113,8 @@ function buildLaunchDecisionLines({
   preMigrationRelaxedGateReplay,
   preMigrationCurveStallRelaxedReplay,
   preMigrationCurveConfirmationReplay,
-  runnerRejectEntryReplay
+  runnerRejectEntryReplay,
+  strategyCandidateScorecard
 }) {
   const lines = [];
   const readinessVerdict = liveReadiness.verdict || 'unknown';
@@ -2115,6 +2125,8 @@ function buildLaunchDecisionLines({
   const curveStallBest = topArray(preMigrationCurveStallRelaxedReplay.ranking, 1)[0] || null;
   const curveConfirmationBest = topArray(preMigrationCurveConfirmationReplay.ranking, 1)[0] || null;
   const runnerRejectBest = bestProfileFromSummary(runnerRejectEntryReplay.summaryByProfile);
+  const scorecardSummary = strategyCandidateScorecard.summary || {};
+  const scorecardBest = topArray(strategyCandidateScorecard.bestCandidates, 1)[0] || null;
   const guardSummary = preMigrationGuardAttribution.summary || {};
   const marginSummary = preMigrationEntryGateMargin.summary || {};
   const nearMissSummary = preMigrationEntryGateMargin.nearMissFollowThrough?.summary || {};
@@ -2142,6 +2154,9 @@ function buildLaunchDecisionLines({
   lines.push(`- AI reachability: signals/lifecycle attempts=${aiReachability.generatedSignals}/${aiReachability.lifecycleAttempts}; ${aiNotReached ? 'no real candidate reached runtime AI review this run' : 'runtime AI path was exercised'}.`);
   lines.push(`- Broadcast: ${broadcastBlocked ? 'still report-only; do not enable live broadcast from this evidence' : 'no broadcast launch block reported'}.`);
   lines.push(`- Current entry gate bottleneck: wouldEnter/wouldSkip=${guardSummary.wouldEnter ?? 'n/a'}/${guardSummary.wouldSkip ?? 'n/a'}; top reasons=${formatTopCounts(guardSummary.byReason)}.`);
+  if (scorecardSummary.candidateCount !== undefined) {
+    lines.push(`- Strategy scorecard: candidates=${scorecardSummary.candidateCount}, promotionEligible=${scorecardSummary.promotionEligibleCount ?? 'n/a'}, best=${summarizeStrategyCandidate(scorecardBest)}.`);
+  }
   lines.push(`- Rolling tightest gates: decisions=${marginSummary.decisions ?? 'n/a'}, readiness median/p90/max=${fmt(marginSummary.readinessPct?.median, 2)}%/${fmt(marginSummary.readinessPct?.p90, 2)}%/${fmt(marginSummary.readinessPct?.max, 2)}%; gates=${formatTopCounts(marginSummary.tightestGateCounts)}.`);
   if (nearMissSummary.decisions !== undefined) {
     lines.push(`- Near-miss follow-through: >=${preMigrationEntryGateMargin.nearMissFollowThrough?.minReadinessPct ?? 'n/a'}% readiness decisions=${nearMissSummary.decisions}, unique=${nearMissSummary.uniqueMints}, reached90 unique=${nearMissSummary.uniqueMintsReached90Within120s ?? 'n/a'}, crossed95 unique=${nearMissSummary.uniqueMintsCrossed95Within120s ?? 'n/a'}, delta120 median/p90=${fmt(nearMissSummary.curveDelta120s?.median, 4)}/${fmt(nearMissSummary.curveDelta120s?.p90, 4)}.`);
@@ -2196,6 +2211,7 @@ function buildSummary(docs) {
   const walletContextFollowThrough = docs.preMigrationWalletContextFollowThrough.data || {};
   const signal = docs.signalQuality.data || {};
   const learning = docs.learning.data || {};
+  const strategyCandidateScorecard = docs.strategyCandidateScorecard.data || {};
   const continuation = docs.continuationPaper.data || {};
   const continuationExitReplay = docs.continuationExitReplay.data || {};
   const continuationSlippageDecomposition = docs.continuationSlippageDecomposition.data || {};
@@ -2301,8 +2317,30 @@ function buildSummary(docs) {
     preMigrationRelaxedGateReplay: docs.preMigrationRelaxedGateReplay.data || {},
     preMigrationCurveStallRelaxedReplay: docs.preMigrationCurveStallRelaxedReplay.data || {},
     preMigrationCurveConfirmationReplay: docs.preMigrationCurveConfirmationReplay?.data || {},
-    runnerRejectEntryReplay: docs.runnerRejectEntryReplay.data || {}
+    runnerRejectEntryReplay: docs.runnerRejectEntryReplay.data || {},
+    strategyCandidateScorecard
   }));
+
+  if (strategyCandidateScorecard.summary) {
+    const scorecardSummary = strategyCandidateScorecard.summary;
+    lines.push('0b. Strategy Candidate Scorecard');
+    lines.push('--------------------------------');
+    lines.push(`- Best action: ${scorecardSummary.bestAction || 'n/a'}; promotion eligible=${scorecardSummary.promotionEligibleCount ?? 'n/a'} / ${scorecardSummary.candidateCount ?? 'n/a'} candidates.`);
+    lines.push(`- Interpretation: ${scorecardSummary.interpretation || 'n/a'}`);
+    const bestCandidates = topArray(strategyCandidateScorecard.bestCandidates, 5);
+    if (bestCandidates.length) {
+      lines.push('- Top candidates:');
+      bestCandidates.forEach((candidate, index) => {
+        lines.push(`  ${index + 1}. ${summarizeStrategyCandidate(candidate)}`);
+      });
+    }
+    const topBlockers = topArray(scorecardSummary.topBlockers, 5);
+    if (topBlockers.length) {
+      lines.push('- Top promotion blockers:');
+      topBlockers.forEach((item) => lines.push(`  - ${item.blocker}: ${item.count}`));
+    }
+    lines.push('');
+  }
 
   lines.push('1. Run Summary');
   lines.push('--------------');

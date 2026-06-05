@@ -87,6 +87,7 @@ const POST_RUN_REPORTS = [
   { title: 'NO_PRIOR Follow-through Diagnostic', script: 'no-prior-follow-through-report.js' },
   { title: 'NO_PRIOR Delayed-Entry Replay', script: 'no-prior-delayed-entry-replay.js' },
   { title: 'Live Readiness Report', script: 'live-readiness-report.js' },
+  { title: 'Strategy Candidate Scorecard', script: 'strategy-candidate-scorecard-report.js' },
   { title: 'Latest Run Summary', script: 'latest-run-summary.js' }
 ];
 
