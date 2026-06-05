@@ -38,6 +38,7 @@ const FILES = {
   preMigrationRelaxedGateReplay: 'data/reports/pre-migration-relaxed-gate-replay-latest.json',
   preMigrationCurveStallRelaxedReplay: 'data/reports/pre-migration-curve-stall-relaxed-replay-latest.json',
   preMigrationCurveFalseNegativeReplay: 'data/reports/pre-migration-curve-false-negative-replay-latest.json',
+  preMigrationCurveFalseNegativeShadow: 'data/reports/pre-migration-curve-false-negative-shadow-latest.json',
   preMigrationWalletConditionedRelaxedGateReplay: 'data/reports/pre-migration-wallet-conditioned-relaxed-gate-replay-latest.json',
   preMigrationWalletRelaxedShadowOutcome: 'data/reports/pre-migration-wallet-relaxed-shadow-outcome-latest.json',
   preMigrationWalletContextCoverage: 'data/reports/pre-migration-wallet-context-coverage-latest.json',
@@ -2284,6 +2285,7 @@ function buildSummary(docs) {
   const relaxedGateReplay = docs.preMigrationRelaxedGateReplay.data || {};
   const curveStallRelaxedReplay = docs.preMigrationCurveStallRelaxedReplay.data || {};
   const curveFalseNegativeReplay = docs.preMigrationCurveFalseNegativeReplay.data || {};
+  const curveFalseNegativeShadow = docs.preMigrationCurveFalseNegativeShadow.data || {};
   const walletConditionedRelaxedGateReplay = docs.preMigrationWalletConditionedRelaxedGateReplay.data || {};
   const walletRelaxedShadowOutcome = docs.preMigrationWalletRelaxedShadowOutcome.data || {};
   const walletContextCoverage = docs.preMigrationWalletContextCoverage.data || {};
@@ -3805,6 +3807,28 @@ function buildSummary(docs) {
     lines.push('- Best ex-ante slices:');
     curveFalseNegativeSlices.forEach((item, index) => {
       lines.push(`  ${index + 1}. ${item.profileName || 'n/a'} / ${item.name || 'n/a'}: closed=${item.closed ?? 'n/a'}, kept=${pct(item.keptShare, 1)}, wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}, winRate=${pct(item.winRate, 1)}, pnl=${sol(item.totalPnlSol, 6)}, median=${sol(item.medianPnlSol, 6)}, avg=${sol(item.averagePnlSol, 6)} | ${item.description || 'n/a'}`);
+    });
+  }
+  lines.push('');
+
+  const curveFalseNegativeShadowSummary = curveFalseNegativeShadow.summary || {};
+  const curveFalseNegativeShadowWatched = curveFalseNegativeShadowSummary.watched || {};
+  const curveFalseNegativeShadowTop = topArray(curveFalseNegativeShadow.watchedTopFollowThrough, 6);
+
+  lines.push('9c2d. Curve False-Negative Prospective Shadow');
+  lines.push('---------------------------------------------');
+  lines.push('- Mode: report-only; measures runtime would_watch rows from the curve false-negative ex-ante filter lane. Does not alter runtime gates.');
+  lines.push(`- Rows / would_watch / would_skip: ${curveFalseNegativeShadowSummary.shadowRows ?? 'n/a'} / ${curveFalseNegativeShadowSummary.wouldWatch ?? 'n/a'} / ${curveFalseNegativeShadowSummary.wouldSkip ?? 'n/a'}`);
+  lines.push(`- Unique would_watch / would_skip mints: ${curveFalseNegativeShadowSummary.uniqueWouldWatchMints ?? 'n/a'} / ${curveFalseNegativeShadowSummary.uniqueWouldSkipMints ?? 'n/a'}`);
+  lines.push(`- Would-watch crossed85/90 within 120s: ${curveFalseNegativeShadowWatched.crossed85Within120s ?? 'n/a'} / ${curveFalseNegativeShadowWatched.crossed90Within120s ?? 'n/a'}; within 300s: ${curveFalseNegativeShadowWatched.crossed85Within300s ?? 'n/a'} / ${curveFalseNegativeShadowWatched.crossed90Within300s ?? 'n/a'}`);
+  lines.push(`- Would-watch delta120 median/p90/max: ${fmt(curveFalseNegativeShadowWatched.curveDelta120s?.median, 4)} / ${fmt(curveFalseNegativeShadowWatched.curveDelta120s?.p90, 4)} / ${fmt(curveFalseNegativeShadowWatched.curveDelta120s?.max, 4)}`);
+  lines.push('- Matched filter counts:');
+  objectLines(curveFalseNegativeShadowSummary.matchedFilterCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  if (curveFalseNegativeShadowTop.length) {
+    lines.push('- Top prospective follow-through:');
+    curveFalseNegativeShadowTop.forEach((item, index) => {
+      const w120 = item.windows?.['120s'] || {};
+      lines.push(`  ${index + 1}. ${candidateLabel(item)} | filters=${Array.isArray(item.matchedFilters) ? item.matchedFilters.slice(0, 4).join(',') : 'n/a'} | score=${fmt(item.score, 2)} | curve=${fmt(item.curveProgress, 4)} | delta120=${fmt(w120.curveDelta, 4)} | max120=${fmt(w120.maxCurveProgress, 4)} | price120=${w120.maxPriceDeltaPct === null || w120.maxPriceDeltaPct === undefined ? 'n/a' : `${fmt(w120.maxPriceDeltaPct, 2)}%`}`);
     });
   }
   lines.push('');

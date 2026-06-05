@@ -193,6 +193,8 @@ class TradingEngine {
     this.walletPromotionReviewByName = new Map();
     this.walletRelaxedShadowEnterSeen = new Set();
     this.walletRelaxedShadowSkipSeen = new Set();
+    this.curveFalseNegativeShadowWatchSeen = new Set();
+    this.curveFalseNegativeShadowSkipSeen = new Set();
 
     this.dailyPnL = 0;
     this.realizedPnL = 0;
@@ -3472,6 +3474,7 @@ class TradingEngine {
       }
 
       this.maybeRecordWalletRelaxedShadowDecision(event);
+      this.maybeRecordCurveFalseNegativeShadowDecision(event);
 
       if (
         event.type === 'diagnostic'
@@ -3646,6 +3649,137 @@ class TradingEngine {
           tradeAt: wallet.tradeAt || null,
           curveProgress: wallet.curveProgress ?? null,
           solAmount: wallet.solAmount ?? null
+        }))
+      }
+    );
+  }
+
+  maybeRecordCurveFalseNegativeShadowDecision(event) {
+    if (this.config.preMigrationCurveFalseNegativeShadowEnabled === false) {
+      return;
+    }
+    if (
+      event?.telemetryType !== 'pre_migration_paper.decision'
+      || event.payload?.decision !== 'PAPER_SKIPPED'
+      || event.payload?.reason !== 'CURVE_NOT_ADVANCING'
+    ) {
+      return;
+    }
+
+    const payload = event.payload || {};
+    const mint = payload.mint;
+    if (!mint) return;
+
+    const shadowProfile = 'curve_false_negative_ex_ante_watch';
+    const score = Number(payload.score);
+    const curveProgress = Number(payload.curveProgress);
+    const recentVolumeSol = Number(payload.recentVolumeSol);
+    const tradeVelocityPerMin = Number(payload.tradeVelocityPerMin);
+    const buyRatio = Number(payload.buyRatio);
+    const uniqueBuyerCount = Number(payload.uniqueBuyerCount);
+    const curveProgressDelta = Number(payload.curveProgressDelta);
+    const threshold = Number(payload.threshold);
+    const readinessPct = Number.isFinite(curveProgressDelta) && Number.isFinite(threshold) && threshold > 0
+      ? Math.max(0, Math.min(1, curveProgressDelta / threshold)) * 100
+      : null;
+
+    const context = payload.walletClassificationContext || {};
+    const wallets = Array.isArray(context.wallets) ? context.wallets : [];
+    const positiveWalletTouches = wallets.filter((wallet) => (
+      ['PROVEN_POSITIVE', 'PROMISING_POSITIVE'].includes(wallet.evidenceTier)
+      || ['TRUST_REVIEW', 'PROFITABLE_NEEDS_FIRST_TOUCH_EVIDENCE'].includes(wallet.reviewTier)
+    ));
+    const avoidWalletTouches = wallets.filter((wallet) => (
+      wallet.reviewTier === 'AVOID_REVIEW' || wallet.evidenceTier === 'NEGATIVE_EVIDENCE'
+    ));
+
+    const matchedFilters = [];
+    if (Number.isFinite(score) && score >= 60) matchedFilters.push('score_ge_60');
+    if (Number.isFinite(curveProgress) && curveProgress >= 0.5) matchedFilters.push('curve_ge_50');
+    if (Number.isFinite(recentVolumeSol) && recentVolumeSol >= 12) matchedFilters.push('volume_ge_12');
+    if (Number.isFinite(recentVolumeSol) && recentVolumeSol >= 50) matchedFilters.push('volume_ge_50');
+    if (Number.isFinite(score) && score >= 50 && Number.isFinite(curveProgress) && curveProgress >= 0.3) {
+      matchedFilters.push('score_ge_50_curve_ge_30');
+    }
+    if (Number.isFinite(score) && score >= 60 && Number.isFinite(curveProgress) && curveProgress >= 0.5) {
+      matchedFilters.push('score_ge_60_curve_ge_50');
+    }
+    if (positiveWalletTouches.length > 0) matchedFilters.push('positive_wallet_touch');
+    if (avoidWalletTouches.length === 0) matchedFilters.push('no_avoid_wallet_touch');
+
+    const strongFilter = matchedFilters.some((filter) => [
+      'score_ge_60',
+      'curve_ge_50',
+      'volume_ge_12',
+      'volume_ge_50',
+      'score_ge_50_curve_ge_30',
+      'score_ge_60_curve_ge_50',
+      'positive_wallet_touch'
+    ].includes(filter));
+    const blockedByAvoid = avoidWalletTouches.length > 0;
+    const wouldWatch = strongFilter && !blockedByAvoid;
+    const key = `${shadowProfile}:${mint}`;
+
+    if (wouldWatch) {
+      if (this.curveFalseNegativeShadowWatchSeen.has(key)) return;
+      this.curveFalseNegativeShadowWatchSeen.add(key);
+    } else {
+      if (this.curveFalseNegativeShadowSkipSeen.has(key)) return;
+      this.curveFalseNegativeShadowSkipSeen.add(key);
+    }
+
+    this.telemetry.record(
+      wouldWatch
+        ? 'pre_migration_curve_false_negative_shadow.would_watch'
+        : 'pre_migration_curve_false_negative_shadow.would_skip',
+      {
+        mode: 'report_only_curve_false_negative_shadow',
+        shadowProfile,
+        mint,
+        symbol: payload.symbol || null,
+        timestamp: payload.timestamp || new Date().toISOString(),
+        sourceDecision: payload.decision,
+        sourceReason: payload.reason,
+        sourcePreset: payload.preset || null,
+        sourceLane: payload.lane || null,
+        score: Number.isFinite(score) ? Number(score.toFixed(2)) : null,
+        curveProgress: Number.isFinite(curveProgress) ? Number(curveProgress.toFixed(6)) : null,
+        curveProgressDelta: Number.isFinite(curveProgressDelta) ? Number(curveProgressDelta.toFixed(6)) : null,
+        threshold: Number.isFinite(threshold) ? Number(threshold.toFixed(6)) : null,
+        readinessPct: Number.isFinite(readinessPct) ? Number(readinessPct.toFixed(2)) : null,
+        recentVolumeSol: Number.isFinite(recentVolumeSol) ? Number(recentVolumeSol.toFixed(4)) : null,
+        tradeVelocityPerMin: Number.isFinite(tradeVelocityPerMin) ? Number(tradeVelocityPerMin.toFixed(2)) : null,
+        buyRatio: Number.isFinite(buyRatio) ? Number(buyRatio.toFixed(4)) : null,
+        uniqueBuyerCount: Number.isFinite(uniqueBuyerCount) ? uniqueBuyerCount : null,
+        priceSol: payload.priceSol ?? payload.bondingCurvePriceSol ?? payload.curvePriceSol ?? null,
+        wouldWatch,
+        shadowDecision: wouldWatch ? 'WOULD_WATCH' : 'WOULD_SKIP',
+        shadowReason: wouldWatch ? 'EX_ANTE_CURVE_FALSE_NEGATIVE_FILTER_MATCH' : 'NO_EX_ANTE_CURVE_FALSE_NEGATIVE_FILTER_MATCH',
+        matchedFilters,
+        strongFilter,
+        blockedByAvoid,
+        walletTouchCount: wallets.length,
+        positiveWalletTouchCount: positiveWalletTouches.length,
+        avoidWalletTouchCount: avoidWalletTouches.length,
+        positiveWalletTouches: positiveWalletTouches.slice(0, 3).map((wallet) => ({
+          wallet: wallet.wallet || null,
+          name: wallet.name || null,
+          reviewTier: wallet.reviewTier || null,
+          evidenceTier: wallet.evidenceTier || null,
+          side: wallet.side || null,
+          phase: wallet.phase || null,
+          tradeAt: wallet.tradeAt || null,
+          curveProgress: wallet.curveProgress ?? null
+        })),
+        avoidWalletTouches: avoidWalletTouches.slice(0, 3).map((wallet) => ({
+          wallet: wallet.wallet || null,
+          name: wallet.name || null,
+          reviewTier: wallet.reviewTier || null,
+          evidenceTier: wallet.evidenceTier || null,
+          side: wallet.side || null,
+          phase: wallet.phase || null,
+          tradeAt: wallet.tradeAt || null,
+          curveProgress: wallet.curveProgress ?? null
         }))
       }
     );
