@@ -64,6 +64,7 @@ const POST_RUN_REPORTS = [
   { title: 'Pre-Migration Wallet Context Follow-through', script: 'pre-migration-wallet-context-follow-through-report.js' },
   { title: 'Pre-Migration Entry Candidate Review', script: 'pre-migration-entry-candidate-review-report.js' },
   { title: 'Pre-Migration Same-Mint Reentry Impact', script: 'pre-migration-same-mint-reentry-impact-report.js' },
+  { title: 'Pre-Migration Breakeven Stop Gap', script: 'pre-migration-breakeven-stop-gap-report.js' },
   { title: 'Pre-Migration Preset Replay Report', script: 'pre-migration-preset-replay-report.js' },
   { title: 'Pre-Migration Signal Quality Report', script: 'pre-migration-signal-quality-report.js' },
   { title: 'Broad Organic Surge Replay Report', script: 'broad-organic-surge-replay-report.js' },

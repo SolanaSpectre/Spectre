@@ -41,6 +41,7 @@ const FILES = {
   preMigrationWalletContextFollowThrough: 'data/reports/pre-migration-wallet-context-follow-through-latest.json',
   preMigrationEntryCandidateReview: 'data/reports/pre-migration-entry-candidate-review-latest.json',
   preMigrationSameMintReentryImpact: 'data/reports/pre-migration-same-mint-reentry-impact-latest.json',
+  preMigrationBreakevenStopGap: 'data/reports/pre-migration-breakeven-stop-gap-latest.json',
   signalQuality: 'data/reports/pre-migration-signal-quality-latest.json',
   learning: 'data/reports/learning-orchestrator-latest.json',
   continuationPaper: 'data/reports/continuation-paper-latest.json',
@@ -2131,6 +2132,13 @@ function summarizeSameMintReentry(row = {}) {
   return `${row.symbol || 'UNKNOWN'} ${row.mint || ''} | gap=${fmt(row.gapSeconds, 1)}s | profile=${row.profileName || 'n/a'} | ${previous} | ${exit}`;
 }
 
+function summarizeBreakevenStopGap(row = {}) {
+  if (!row || typeof row !== 'object' || !Object.keys(row).length) return 'none';
+  const flags = Array.isArray(row.gapFlags) && row.gapFlags.length ? row.gapFlags.slice(0, 3).join(',') : 'none';
+  const obs = row.observation || {};
+  return `${row.symbol || 'UNKNOWN'} ${row.mint || ''} | profile=${row.profileName || 'n/a'} | PnL=${sol(row.pnlSol, 6)} | return=${pct(row.returnPct, 2)} | peak=${pct(row.peakReturnPct, 2)} | giveback=${pct(row.givebackPct, 2)} | hold=${fmt(row.holdSeconds, 1)}s | priceObs=${obs.priceSnapshotCount ?? 'n/a'} | gap=${ms(obs.exitObservationGapMs)} | flags=${flags}`;
+}
+
 function buildLaunchDecisionLines({
   liveReadiness,
   paperEntries,
@@ -2240,6 +2248,7 @@ function buildSummary(docs) {
   const walletContextFollowThrough = docs.preMigrationWalletContextFollowThrough.data || {};
   const entryCandidateReview = docs.preMigrationEntryCandidateReview.data || {};
   const sameMintReentryImpact = docs.preMigrationSameMintReentryImpact.data || {};
+  const breakevenStopGap = docs.preMigrationBreakevenStopGap.data || {};
   const signal = docs.signalQuality.data || {};
   const learning = docs.learning.data || {};
   const strategyCandidateScorecard = docs.strategyCandidateScorecard.data || {};
@@ -2403,6 +2412,22 @@ function buildSummary(docs) {
     if (topReentries.length) {
       lines.push('- Worst/closest reentries:');
       topReentries.forEach((row, index) => lines.push(`  ${index + 1}. ${summarizeSameMintReentry(row)}`));
+    }
+    lines.push('');
+  }
+
+  if (breakevenStopGap.summary) {
+    const gapSummary = breakevenStopGap.summary || {};
+    lines.push('0e. Breakeven Stop Gap');
+    lines.push('-----------------------');
+    lines.push(`- BREAKEVEN_STOP exits: ${gapSummary.breakevenStops ?? 'n/a'}; losses=${gapSummary.breakevenStopLosses ?? 'n/a'}; below-entry gap losses=${gapSummary.breakevenGapLosses ?? 'n/a'}; unique mints=${gapSummary.uniqueMints ?? 'n/a'}.`);
+    lines.push(`- BREAKEVEN_STOP PnL: total=${sol(gapSummary.totalPnlSol, 6)}, losses=${sol(gapSummary.lossPnlSol, 6)}; return median/p90/max=${pct(gapSummary.returnPct?.median, 2)} / ${pct(gapSummary.returnPct?.p90, 2)} / ${pct(gapSummary.returnPct?.max, 2)}.`);
+    lines.push(`- Peak giveback median/p90/max=${pct(gapSummary.givebackPct?.median, 2)} / ${pct(gapSummary.givebackPct?.p90, 2)} / ${pct(gapSummary.givebackPct?.max, 2)}; exit observation gap median/p90/max=${ms(gapSummary.exitObservationGapMs?.median)} / ${ms(gapSummary.exitObservationGapMs?.p90)} / ${ms(gapSummary.exitObservationGapMs?.max)}.`);
+    lines.push(`- Flags: ${formatTopCounts(gapSummary.flagCounts)}.`);
+    const worstBreakevenStops = topArray(breakevenStopGap.worstBreakevenStops, 5);
+    if (worstBreakevenStops.length) {
+      lines.push('- Worst BREAKEVEN_STOP exits:');
+      worstBreakevenStops.forEach((row, index) => lines.push(`  ${index + 1}. ${summarizeBreakevenStopGap(row)}`));
     }
     lines.push('');
   }
