@@ -105,13 +105,13 @@ function ratio(value, threshold, mode) {
     return Math.max(0, actual <= target ? 1 : target / Math.max(actual, 1e-12));
   }
   if (target <= 0) return actual >= target ? 1 : 0;
-  return Math.max(0, actual / target);
+  return Math.min(1, Math.max(0, actual / target));
 }
 
 function scoreDecision(payload) {
   const checks = [];
   const scoreThreshold = Number(payload.threshold);
-  if (Number.isFinite(scoreThreshold) && scoreThreshold >= 1) {
+  if (payload.reason === 'LOW_SCORE' && Number.isFinite(scoreThreshold) && scoreThreshold >= 10) {
     checks.push({
       name: 'score',
       actual: numberOrNull(payload.value ?? payload.score, 4),
