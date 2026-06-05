@@ -4702,7 +4702,9 @@ class TradingEngine {
     });
 
     const trader = event.traderPublicKey || event.wallet || event.account;
-    if (trader && this.config.pumpPortalTrackedAccounts.includes(trader)) {
+    const trackedAccountMatch = Boolean(trader && this.config.pumpPortalTrackedAccounts.includes(trader));
+    const kolWalletProfileMatch = Boolean(trader && this.launchIntelStore.buildKolWalletSummary(trader));
+    if (trackedAccountMatch) {
       current.accountTradeCount = (current.accountTradeCount || 0) + 1;
     }
 
@@ -4722,6 +4724,9 @@ class TradingEngine {
     this.telemetry.record(options.telemetryType || 'provider.pumpportal.trade', {
       mint,
       tradeCount: current.tradeCount,
+      traderPresent: Boolean(trader),
+      trackedAccountMatch,
+      kolWalletProfileMatch,
       watchedWallet: Boolean(walletLedgerRecord),
       watchedWalletReason: walletLedgerRecord?.watchedReason || null
     });

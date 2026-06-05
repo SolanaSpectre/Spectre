@@ -356,6 +356,14 @@ async function summarizeTelemetry(filePath, promotionIndex) {
     contextSources: {}
   };
   const eventCounts = {};
+  const providerTradeDiagnostics = {
+    events: 0,
+    withTraderFieldKnown: 0,
+    traderPresent: 0,
+    trackedAccountMatch: 0,
+    kolWalletProfileMatch: 0,
+    watchedWalletFlag: 0
+  };
   let startMs = Infinity;
   let endMs = -Infinity;
 
@@ -373,6 +381,15 @@ async function summarizeTelemetry(filePath, promotionIndex) {
       const promotion = promotionFor(promotionIndex, walletOf(payload), payload.name || payload.profile);
       walletEvents.push({ ...payload, promotion });
       return;
+    }
+
+    if (type === 'provider.pumpdev.runtime_trade' || type === 'provider.pumpportal.trade') {
+      providerTradeDiagnostics.events += 1;
+      if (payload.traderPresent !== undefined) providerTradeDiagnostics.withTraderFieldKnown += 1;
+      if (payload.traderPresent === true) providerTradeDiagnostics.traderPresent += 1;
+      if (payload.trackedAccountMatch === true) providerTradeDiagnostics.trackedAccountMatch += 1;
+      if (payload.kolWalletProfileMatch === true) providerTradeDiagnostics.kolWalletProfileMatch += 1;
+      if (payload.watchedWallet === true) providerTradeDiagnostics.watchedWalletFlag += 1;
     }
 
     if (type === 'pre_migration_paper.decision') {
@@ -455,7 +472,19 @@ async function summarizeTelemetry(filePath, promotionIndex) {
     trackingOpportunity: {
       providerTradeEvents,
       walletTradeObservedEvents: walletEvents.length,
-      walletObservedHitRate: providerTradeEvents > 0 ? compact(walletEvents.length / providerTradeEvents, 6) : null
+      walletObservedHitRate: providerTradeEvents > 0 ? compact(walletEvents.length / providerTradeEvents, 6) : null,
+      providerTradeDiagnostics: {
+        ...providerTradeDiagnostics,
+        traderPresentRate: providerTradeDiagnostics.withTraderFieldKnown > 0
+          ? compact(providerTradeDiagnostics.traderPresent / providerTradeDiagnostics.withTraderFieldKnown, 6)
+          : null,
+        trackedAccountMatchRate: providerTradeDiagnostics.withTraderFieldKnown > 0
+          ? compact(providerTradeDiagnostics.trackedAccountMatch / providerTradeDiagnostics.withTraderFieldKnown, 6)
+          : null,
+        kolWalletProfileMatchRate: providerTradeDiagnostics.withTraderFieldKnown > 0
+          ? compact(providerTradeDiagnostics.kolWalletProfileMatch / providerTradeDiagnostics.withTraderFieldKnown, 6)
+          : null
+      }
     },
     decisionCoverage: finalizeDecisionCoverage(decisionCoverage),
     walletDecisionMintOverlap: {
