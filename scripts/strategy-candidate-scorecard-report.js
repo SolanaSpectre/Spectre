@@ -16,6 +16,7 @@ const REPORTS = {
   curveStallRelaxedReplay: 'pre-migration-curve-stall-relaxed-replay-latest.json',
   curveConfirmationReplay: 'pre-migration-curve-confirmation-replay-latest.json',
   walletConditionedRelaxedGateReplay: 'pre-migration-wallet-conditioned-relaxed-gate-replay-latest.json',
+  walletContextCoverage: 'pre-migration-wallet-context-coverage-latest.json',
   runnerRejectEntryReplay: 'runner-reject-entry-replay-latest.json',
   walletFalseNegativeEntryReplay: 'wallet-false-negative-entry-replay-latest.json'
 };
@@ -215,6 +216,12 @@ function nextDataNeed(candidate, blockers, context) {
   const needs = [];
   const trades = number(candidate.trades, 0);
   const minSample = candidate.lane === 'wallet_conditioned_relaxed_gate' ? 60 : 20;
+  if (candidate.lane === 'wallet_conditioned_relaxed_gate' && context.runtimeWalletEvents <= 0) {
+    needs.push('restore or validate runtime wallet.trade_observed coverage so wallet-conditioned lanes can collect fresh evidence');
+  }
+  if (candidate.lane === 'wallet_conditioned_relaxed_gate' && context.paperDecisionsWithWalletContext <= 0) {
+    needs.push('produce paper decisions with wallet context attached');
+  }
   if (trades < minSample) needs.push(`collect ${minSample - trades} more trade(s) for this lane to reach the ${minSample}-trade floor`);
   if (context.paperEntries <= 0) needs.push('produce nonzero runtime paper entries before any live promotion review');
   if (candidate.mode === 'report_only') needs.push('confirm the lane through runtime paper/shadow telemetry, not historical replay alone');
@@ -275,7 +282,15 @@ function main() {
   const paperPnl = number(docs.battlefield.data?.preMigrationPaper?.pnlSol, 0);
   const launchBlocks = Array.isArray(docs.liveReadiness.data?.launchBlocks) ? docs.liveReadiness.data.launchBlocks : [];
   const broadcastBlocked = launchBlocks.some((line) => String(line).toLowerCase().includes('broadcast'));
-  const context = { paperEntries, paperPnl, broadcastBlocked };
+  const walletCoverageRuntime = docs.walletContextCoverage.data?.runtime || {};
+  const context = {
+    paperEntries,
+    paperPnl,
+    broadcastBlocked,
+    runtimeWalletEvents: number(walletCoverageRuntime.walletEvents?.rows, 0),
+    paperDecisionsWithWalletContext: number(walletCoverageRuntime.decisionCoverage?.withAnyWalletTouch, 0),
+    walletCoverageVerdict: docs.walletContextCoverage.data?.verdict || null
+  };
 
   const scored = candidates.map((candidate) => {
     const blockers = promotionBlockers(candidate, context);
@@ -319,6 +334,11 @@ function main() {
       promotionEligibleCount: promotionEligible.length,
       reportOnlyPromisingCount: reportOnlyPromising.length,
       statusCounts,
+      walletContextCoverage: {
+        verdict: context.walletCoverageVerdict,
+        runtimeWalletEvents: context.runtimeWalletEvents,
+        paperDecisionsWithWalletContext: context.paperDecisionsWithWalletContext
+      },
       topBlockers: topBlockers(scored),
       bestCandidateNextDataNeed: scored[0]?.nextDataNeed || [],
       interpretation: promotionEligible.length

@@ -2326,9 +2326,13 @@ function buildSummary(docs) {
 
   if (strategyCandidateScorecard.summary) {
     const scorecardSummary = strategyCandidateScorecard.summary;
+    const scorecardWalletCoverage = scorecardSummary.walletContextCoverage || {};
     lines.push('0b. Strategy Candidate Scorecard');
     lines.push('--------------------------------');
     lines.push(`- Best action: ${scorecardSummary.bestAction || 'n/a'}; promotion eligible=${scorecardSummary.promotionEligibleCount ?? 'n/a'} / ${scorecardSummary.candidateCount ?? 'n/a'} candidates.`);
+    if (scorecardWalletCoverage.verdict !== undefined) {
+      lines.push(`- Wallet context coverage: ${scorecardWalletCoverage.verdict || 'n/a'}; runtime wallet events=${scorecardWalletCoverage.runtimeWalletEvents ?? 'n/a'}, paper decisions with wallet context=${scorecardWalletCoverage.paperDecisionsWithWalletContext ?? 'n/a'}.`);
+    }
     lines.push(`- Interpretation: ${scorecardSummary.interpretation || 'n/a'}`);
     const bestCandidates = topArray(strategyCandidateScorecard.bestCandidates, 5);
     if (bestCandidates.length) {
@@ -3639,6 +3643,7 @@ function buildSummary(docs) {
 
   const walletContextRuntime = walletContextCoverage.runtime || {};
   const walletContextRuntimeEvents = walletContextRuntime.walletEvents || {};
+  const walletContextTrackingOpportunity = walletContextRuntime.trackingOpportunity || {};
   const walletContextDecision = walletContextRuntime.decisionCoverage || {};
   const walletContextOverlap = walletContextRuntime.walletDecisionMintOverlap || {};
   const walletContextShadow = walletContextRuntime.walletRelaxedShadowCoverage || {};
@@ -3659,6 +3664,9 @@ function buildSummary(docs) {
   lines.push(`- Verdict: ${walletContextCoverage.verdict || 'n/a'}`);
   lines.push(`- Historical ledger events / wallets / mints: ${walletContextLedger.rows ?? 'n/a'} / ${walletContextLedger.uniqueWallets ?? 'n/a'} / ${walletContextLedger.uniqueMints ?? 'n/a'}`);
   lines.push(`- Runtime wallet touches rows / wallets / mints: ${walletContextRuntimeEvents.rows ?? 'n/a'} / ${walletContextRuntimeEvents.uniqueWallets ?? 'n/a'} / ${walletContextRuntimeEvents.uniqueMints ?? 'n/a'}`);
+  if (walletContextTrackingOpportunity.providerTradeEvents !== undefined) {
+    lines.push(`- Runtime wallet tracking opportunity: provider trade events=${walletContextTrackingOpportunity.providerTradeEvents ?? 'n/a'}, wallet.trade_observed=${walletContextTrackingOpportunity.walletTradeObservedEvents ?? 'n/a'}, hitRate=${pct(walletContextTrackingOpportunity.walletObservedHitRate, 2)}`);
+  }
   lines.push(`- Runtime-vs-historical wallet coverage: ${pct(walletRuntimeToHistoricalRatio, 1)} of tracked historical wallets active this run; historical/runtime wallet ratio=${fmt(walletHistoricalToRuntimeRatio, 1)}x`);
   lines.push(`- Runtime promoted rows positive-or-proven / avoid / any promotion: ${walletContextRuntimeEvents.promotionCoverage?.positiveOrProvenRows ?? 'n/a'} / ${walletContextRuntimeEvents.promotionCoverage?.avoidRows ?? 'n/a'} / ${walletContextRuntimeEvents.promotionCoverage?.rowsWithPromotion ?? 'n/a'}`);
   lines.push(`- Paper decision wallet context any / positive-or-proven / avoid: ${walletContextDecision.withAnyWalletTouch ?? 'n/a'} / ${walletContextDecision.withPositiveOrProvenTouch ?? 'n/a'} / ${walletContextDecision.withAvoidTouch ?? 'n/a'} of ${walletContextDecision.decisions ?? 'n/a'} decisions`);

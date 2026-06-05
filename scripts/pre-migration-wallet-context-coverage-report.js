@@ -10,6 +10,8 @@ const LOG_DIR = path.join(ROOT, 'run-logs');
 const BATTLEFIELD_PATH = path.join(ROOT, 'data', 'reports', 'run-battlefield-latest.json');
 const PROMOTION_PATH = path.join(ROOT, 'data', 'reports', 'wallet-promotion-review-latest.json');
 const WALLET_EVENTS_PATH = path.join(ROOT, 'data', 'wallet-events', 'events.jsonl');
+const LAUNCH_INTEL_WALLET_INDEX_PATH = path.join(ROOT, 'data', 'launch-intel', 'wallet-index.json');
+const MANUAL_KOL_WALLET_PATH = path.join(ROOT, 'data', 'wallet-watchlists', 'manual-kol-wallets.json');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-wallet-context-coverage-latest.json');
 
 function parseArgs(argv) {
@@ -60,6 +62,34 @@ function readJson(filePath, fallback = null) {
   } catch {
     return fallback;
   }
+}
+
+function fileSummary(filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    return {
+      path: filePath,
+      exists: true,
+      bytes: stat.size,
+      lastModifiedAt: stat.mtime.toISOString()
+    };
+  } catch {
+    return {
+      path: filePath,
+      exists: false,
+      bytes: 0,
+      lastModifiedAt: null
+    };
+  }
+}
+
+function countManualKolWallets(filePath = MANUAL_KOL_WALLET_PATH) {
+  const parsed = readJson(filePath, null);
+  if (!parsed) return null;
+  if (Array.isArray(parsed)) return parsed.length;
+  if (Array.isArray(parsed.wallets)) return parsed.wallets.length;
+  if (Array.isArray(parsed.trackedWallets)) return parsed.trackedWallets.length;
+  return Object.values(parsed).filter((value) => value && typeof value === 'object').length || null;
 }
 
 function timestampMs(value) {
@@ -383,6 +413,8 @@ async function summarizeTelemetry(filePath, promotionIndex) {
   const decisionMints = decisionCoverage.mints;
   const overlap = [...walletMints].filter((mint) => decisionMints.has(mint)).length;
   const promoted = walletEvents.filter((event) => event.promotion);
+  const providerTradeEvents = Number(eventCounts['provider.pumpdev.runtime_trade'] || 0)
+    + Number(eventCounts['provider.pumpportal.trade'] || 0);
 
   return {
     path: filePath,
@@ -419,6 +451,11 @@ async function summarizeTelemetry(filePath, promotionIndex) {
         reviewTier: event.promotion?.reviewTier || null,
         evidenceTier: event.promotion?.evidenceTier || null
       }))
+    },
+    trackingOpportunity: {
+      providerTradeEvents,
+      walletTradeObservedEvents: walletEvents.length,
+      walletObservedHitRate: providerTradeEvents > 0 ? compact(walletEvents.length / providerTradeEvents, 6) : null
     },
     decisionCoverage: finalizeDecisionCoverage(decisionCoverage),
     walletDecisionMintOverlap: {
@@ -468,7 +505,17 @@ async function main() {
     sources: {
       telemetryPath,
       walletEventLedgerPath: WALLET_EVENTS_PATH,
-      walletPromotionReviewPath: PROMOTION_PATH
+      walletPromotionReviewPath: PROMOTION_PATH,
+      launchIntelWalletIndexPath: LAUNCH_INTEL_WALLET_INDEX_PATH,
+      manualKolWalletPath: MANUAL_KOL_WALLET_PATH
+    },
+    trackingSubstrate: {
+      launchIntelWalletIndex: fileSummary(LAUNCH_INTEL_WALLET_INDEX_PATH),
+      manualKolWallets: {
+        ...fileSummary(MANUAL_KOL_WALLET_PATH),
+        configuredWalletCount: countManualKolWallets(MANUAL_KOL_WALLET_PATH)
+      },
+      walletEventLedger: fileSummary(WALLET_EVENTS_PATH)
     },
     promotionReview: {
       groupCounts: promotionIndex.groupCounts,
@@ -481,7 +528,7 @@ async function main() {
       summary: verdict === 'BROAD_TRACKED_WALLET_SIGNAL_OBSERVED'
         ? 'Runtime saw tracked wallet touches feeding the broadened wallet-relaxed shadow lane; inspect outcome follow-through before any runtime use.'
         : (verdict === 'PROSPECTIVE_WALLET_SIGNAL_STARVED'
-        ? 'Runtime saw tracked wallet touches, but none matched positive/proven promotion tiers feeding the wallet-relaxed shadow lane.'
+        ? 'Runtime saw provider trade flow but no tracked wallet.trade_observed events, so wallet-conditioned lanes cannot collect fresh runtime evidence from this run.'
         : 'Runtime saw at least some promoted wallet signal; inspect shadow coverage before considering any runtime use.')
     }
   };
