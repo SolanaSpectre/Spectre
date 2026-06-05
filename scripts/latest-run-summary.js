@@ -3813,6 +3813,9 @@ function buildSummary(docs) {
 
   const curveFalseNegativeShadowSummary = curveFalseNegativeShadow.summary || {};
   const curveFalseNegativeShadowWatched = curveFalseNegativeShadowSummary.watched || {};
+  const curveFalseNegativeShadowNarrowCore = curveFalseNegativeShadowSummary.narrowCore || {};
+  const curveFalseNegativeShadowNarrowVolume = curveFalseNegativeShadowSummary.narrowCoreVolume || {};
+  const curveFalseNegativeShadowNarrowWallet = curveFalseNegativeShadowSummary.narrowCorePositiveWallet || {};
   const curveFalseNegativeShadowTop = topArray(curveFalseNegativeShadow.watchedTopFollowThrough, 6);
 
   lines.push('9c2d. Curve False-Negative Prospective Shadow');
@@ -3822,6 +3825,10 @@ function buildSummary(docs) {
   lines.push(`- Unique would_watch / would_skip mints: ${curveFalseNegativeShadowSummary.uniqueWouldWatchMints ?? 'n/a'} / ${curveFalseNegativeShadowSummary.uniqueWouldSkipMints ?? 'n/a'}`);
   lines.push(`- Would-watch crossed85/90 within 120s: ${curveFalseNegativeShadowWatched.crossed85Within120s ?? 'n/a'} / ${curveFalseNegativeShadowWatched.crossed90Within120s ?? 'n/a'}; within 300s: ${curveFalseNegativeShadowWatched.crossed85Within300s ?? 'n/a'} / ${curveFalseNegativeShadowWatched.crossed90Within300s ?? 'n/a'}`);
   lines.push(`- Would-watch delta120 median/p90/max: ${fmt(curveFalseNegativeShadowWatched.curveDelta120s?.median, 4)} / ${fmt(curveFalseNegativeShadowWatched.curveDelta120s?.p90, 4)} / ${fmt(curveFalseNegativeShadowWatched.curveDelta120s?.max, 4)}`);
+  lines.push(`- Narrow core score>=50 curve>=30: rows=${curveFalseNegativeShadowNarrowCore.rows ?? 'n/a'}, cross85/90_120=${curveFalseNegativeShadowNarrowCore.crossed85Within120s ?? 'n/a'}/${curveFalseNegativeShadowNarrowCore.crossed90Within120s ?? 'n/a'}, delta120 med/p90/max=${fmt(curveFalseNegativeShadowNarrowCore.curveDelta120s?.median, 4)} / ${fmt(curveFalseNegativeShadowNarrowCore.curveDelta120s?.p90, 4)} / ${fmt(curveFalseNegativeShadowNarrowCore.curveDelta120s?.max, 4)}, price120 med/p90/max=${fmt(curveFalseNegativeShadowNarrowCore.maxPriceDeltaPct120s?.median, 2)}% / ${fmt(curveFalseNegativeShadowNarrowCore.maxPriceDeltaPct120s?.p90, 2)}% / ${fmt(curveFalseNegativeShadowNarrowCore.maxPriceDeltaPct120s?.max, 2)}%`);
+  lines.push(`- Narrow+volume rows=${curveFalseNegativeShadowNarrowVolume.rows ?? 'n/a'}, cross85/90_120=${curveFalseNegativeShadowNarrowVolume.crossed85Within120s ?? 'n/a'}/${curveFalseNegativeShadowNarrowVolume.crossed90Within120s ?? 'n/a'}, delta120 med/p90/max=${fmt(curveFalseNegativeShadowNarrowVolume.curveDelta120s?.median, 4)} / ${fmt(curveFalseNegativeShadowNarrowVolume.curveDelta120s?.p90, 4)} / ${fmt(curveFalseNegativeShadowNarrowVolume.curveDelta120s?.max, 4)}; narrow+positive-wallet rows=${curveFalseNegativeShadowNarrowWallet.rows ?? 'n/a'}, delta120 max=${fmt(curveFalseNegativeShadowNarrowWallet.curveDelta120s?.max, 4)}`);
+  lines.push('- Shadow tier counts:');
+  objectLines(curveFalseNegativeShadowSummary.shadowTierCounts, 8).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Matched filter counts:');
   objectLines(curveFalseNegativeShadowSummary.matchedFilterCounts, 8).forEach((line) => lines.push(`  - ${line}`));
   if (curveFalseNegativeShadowTop.length) {

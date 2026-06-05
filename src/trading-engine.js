@@ -3718,6 +3718,21 @@ class TradingEngine {
     ].includes(filter));
     const blockedByAvoid = avoidWalletTouches.length > 0;
     const wouldWatch = strongFilter && !blockedByAvoid;
+    const narrowCore = Number.isFinite(score) && score >= 50 && Number.isFinite(curveProgress) && curveProgress >= 0.3;
+    const narrowCoreVolume = narrowCore && Number.isFinite(recentVolumeSol) && recentVolumeSol >= 12;
+    const narrowCorePositiveWallet = narrowCore && positiveWalletTouches.length > 0;
+    if (narrowCore) matchedFilters.push('narrow_core_score50_curve30');
+    if (narrowCoreVolume) matchedFilters.push('narrow_core_score50_curve30_volume12');
+    if (narrowCorePositiveWallet) matchedFilters.push('narrow_core_score50_curve30_positive_wallet');
+    const shadowTier = narrowCorePositiveWallet
+      ? 'NARROW_CORE_POSITIVE_WALLET'
+      : narrowCoreVolume
+        ? 'NARROW_CORE_VOLUME'
+        : narrowCore
+          ? 'NARROW_CORE'
+          : wouldWatch
+            ? 'BROAD_WATCH'
+            : 'SKIP';
     const key = `${shadowProfile}:${mint}`;
 
     if (wouldWatch) {
@@ -3758,6 +3773,10 @@ class TradingEngine {
         matchedFilters,
         strongFilter,
         blockedByAvoid,
+        narrowCore,
+        narrowCoreVolume,
+        narrowCorePositiveWallet,
+        shadowTier,
         walletTouchCount: wallets.length,
         positiveWalletTouchCount: positiveWalletTouches.length,
         avoidWalletTouchCount: avoidWalletTouches.length,

@@ -158,6 +158,10 @@ function shadowFromEvent(event) {
     walletTouchCount: num(payload.walletTouchCount, 0),
     positiveWalletTouchCount: num(payload.positiveWalletTouchCount, 0),
     avoidWalletTouchCount: num(payload.avoidWalletTouchCount, 0),
+    narrowCore: payload.narrowCore === true,
+    narrowCoreVolume: payload.narrowCoreVolume === true,
+    narrowCorePositiveWallet: payload.narrowCorePositiveWallet === true,
+    shadowTier: payload.shadowTier || null,
     priceSol: num(priceOf(payload), 12)
   };
 }
@@ -222,7 +226,23 @@ function windowAnalysis(shadow, snapshots, seconds) {
 function analyzeShadow(shadow, snapshots) {
   const windows = {};
   for (const seconds of WINDOWS_SECONDS) windows[`${seconds}s`] = windowAnalysis(shadow, snapshots, seconds);
-  return { ...shadow, windows };
+  const narrowCore = shadow.narrowCore
+    || (Number(shadow.score) >= 50 && Number(shadow.curveProgress) >= 0.3);
+  const narrowCoreVolume = shadow.narrowCoreVolume
+    || (narrowCore && Number(shadow.recentVolumeSol) >= 12);
+  const narrowCorePositiveWallet = shadow.narrowCorePositiveWallet
+    || (narrowCore && Number(shadow.positiveWalletTouchCount || 0) > 0);
+  const shadowTier = shadow.shadowTier
+    || (narrowCorePositiveWallet
+      ? 'NARROW_CORE_POSITIVE_WALLET'
+      : narrowCoreVolume
+        ? 'NARROW_CORE_VOLUME'
+        : narrowCore
+          ? 'NARROW_CORE'
+          : shadow.wouldWatch
+            ? 'BROAD_WATCH'
+            : 'SKIP');
+  return { ...shadow, narrowCore, narrowCoreVolume, narrowCorePositiveWallet, shadowTier, windows };
 }
 
 function summarizeGroup(name, rows) {
@@ -248,6 +268,9 @@ function buildReport(filePath, telemetry) {
   const analyzed = telemetry.shadows.map((shadow) => analyzeShadow(shadow, telemetry.snapshotsByMint.get(shadow.mint) || []));
   const watched = analyzed.filter((row) => row.wouldWatch);
   const skipped = analyzed.filter((row) => !row.wouldWatch);
+  const narrowCore = watched.filter((row) => row.narrowCore);
+  const narrowCoreVolume = watched.filter((row) => row.narrowCoreVolume);
+  const narrowCorePositiveWallet = watched.filter((row) => row.narrowCorePositiveWallet);
   const filterRows = [];
   for (const filter of new Set(analyzed.flatMap((row) => row.matchedFilters))) {
     filterRows.push(summarizeGroup(filter, analyzed.filter((row) => row.matchedFilters.includes(filter))));
@@ -264,8 +287,12 @@ function buildReport(filePath, telemetry) {
       uniqueWouldWatchMints: new Set(watched.map((row) => row.mint)).size,
       uniqueWouldSkipMints: new Set(skipped.map((row) => row.mint)).size,
       matchedFilterCounts: countBy(watched.flatMap((row) => row.matchedFilters), (filter) => filter),
+      shadowTierCounts: countBy(analyzed, (row) => row.shadowTier),
       watched: summarizeGroup('would_watch', watched),
-      skipped: summarizeGroup('would_skip', skipped)
+      skipped: summarizeGroup('would_skip', skipped),
+      narrowCore: summarizeGroup('narrow_core_score50_curve30', narrowCore),
+      narrowCoreVolume: summarizeGroup('narrow_core_score50_curve30_volume12', narrowCoreVolume),
+      narrowCorePositiveWallet: summarizeGroup('narrow_core_score50_curve30_positive_wallet', narrowCorePositiveWallet)
     },
     byFilter: filterRows.sort((a, b) => b.rows - a.rows),
     watchedTopFollowThrough: summarizeGroup('would_watch', watched).topFollowThrough,
