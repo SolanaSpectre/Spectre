@@ -76,6 +76,31 @@ const PROFILES = {
   }
 };
 
+const SLICE_DEFINITIONS = [
+  { name: 'score_ge_50', description: 'score >= 50', predicate: (trade) => Number(trade.score) >= 50 },
+  { name: 'score_ge_60', description: 'score >= 60', predicate: (trade) => Number(trade.score) >= 60 },
+  { name: 'score_ge_75', description: 'score >= 75', predicate: (trade) => Number(trade.score) >= 75 },
+  { name: 'curve_ge_30', description: 'skip curve >= 30%', predicate: (trade) => Number(trade.skipCurveProgress) >= 0.3 },
+  { name: 'curve_ge_50', description: 'skip curve >= 50%', predicate: (trade) => Number(trade.skipCurveProgress) >= 0.5 },
+  { name: 'curve_ge_70', description: 'skip curve >= 70%', predicate: (trade) => Number(trade.skipCurveProgress) >= 0.7 },
+  { name: 'score_ge_50_curve_ge_30', description: 'score >= 50 and skip curve >= 30%', predicate: (trade) => Number(trade.score) >= 50 && Number(trade.skipCurveProgress) >= 0.3 },
+  { name: 'score_ge_60_curve_ge_50', description: 'score >= 60 and skip curve >= 50%', predicate: (trade) => Number(trade.score) >= 60 && Number(trade.skipCurveProgress) >= 0.5 },
+  { name: 'score_ge_75_curve_ge_70', description: 'score >= 75 and skip curve >= 70%', predicate: (trade) => Number(trade.score) >= 75 && Number(trade.skipCurveProgress) >= 0.7 },
+  { name: 'volume_ge_12', description: 'recent volume >= 12 SOL', predicate: (trade) => Number(trade.recentVolumeSol) >= 12 },
+  { name: 'volume_ge_50', description: 'recent volume >= 50 SOL', predicate: (trade) => Number(trade.recentVolumeSol) >= 50 },
+  { name: 'velocity_ge_12', description: 'trade velocity >= 12/min', predicate: (trade) => Number(trade.tradeVelocityPerMin) >= 12 },
+  { name: 'velocity_ge_50', description: 'trade velocity >= 50/min', predicate: (trade) => Number(trade.tradeVelocityPerMin) >= 50 },
+  { name: 'buy_ratio_ge_55', description: 'buy ratio >= 55%', predicate: (trade) => Number(trade.buyRatio) >= 0.55 },
+  { name: 'buy_ratio_ge_65', description: 'buy ratio >= 65%', predicate: (trade) => Number(trade.buyRatio) >= 0.65 },
+  { name: 'buyers_ge_3', description: 'unique buyers >= 3', predicate: (trade) => Number(trade.uniqueBuyerCount) >= 3 },
+  { name: 'buyers_ge_5', description: 'unique buyers >= 5', predicate: (trade) => Number(trade.uniqueBuyerCount) >= 5 },
+  { name: 'no_avoid_wallet_touch', description: 'no avoid/negative wallet touch in decision context', predicate: (trade) => Number(trade.avoidWalletTouchCount || 0) === 0 },
+  { name: 'positive_wallet_touch', description: 'positive/proven wallet touch in decision context', predicate: (trade) => Number(trade.positiveWalletTouchCount || 0) > 0 },
+  { name: 'any_wallet_touch', description: 'any wallet touch in decision context', predicate: (trade) => Number(trade.walletTouchCount || 0) > 0 },
+  { name: 'score_ge_50_no_avoid', description: 'score >= 50 and no avoid/negative wallet touch', predicate: (trade) => Number(trade.score) >= 50 && Number(trade.avoidWalletTouchCount || 0) === 0 },
+  { name: 'score_ge_75_no_avoid', description: 'score >= 75 and no avoid/negative wallet touch', predicate: (trade) => Number(trade.score) >= 75 && Number(trade.avoidWalletTouchCount || 0) === 0 }
+];
+
 function parseArgs(argv) {
   const args = {};
   for (let index = 0; index < argv.length; index += 1) {
@@ -179,6 +204,28 @@ function snapshotFromEvent(event) {
   };
 }
 
+function isPositiveOrProvenWallet(wallet = {}) {
+  return ['PROVEN_POSITIVE', 'PROMISING_POSITIVE'].includes(wallet.evidenceTier)
+    || ['TRUST_REVIEW', 'PROFITABLE_NEEDS_FIRST_TOUCH_EVIDENCE'].includes(wallet.reviewTier);
+}
+
+function isAvoidWallet(wallet = {}) {
+  return wallet.evidenceTier === 'NEGATIVE_EVIDENCE' || wallet.reviewTier === 'AVOID_REVIEW';
+}
+
+function walletContextSummary(context = {}) {
+  const wallets = Array.isArray(context.wallets) ? context.wallets : [];
+  const buys = wallets.filter((wallet) => String(wallet.side || '').toLowerCase() === 'buy');
+  return {
+    walletTouchCount: wallets.length,
+    walletBuyTouchCount: buys.length,
+    positiveWalletTouchCount: wallets.filter(isPositiveOrProvenWallet).length,
+    avoidWalletTouchCount: wallets.filter(isAvoidWallet).length,
+    firstTouchName: wallets[0]?.name || wallets[0]?.wallet || null,
+    firstBuyName: buys[0]?.name || buys[0]?.wallet || null
+  };
+}
+
 function decisionFromEvent(event, telemetryPath) {
   if (eventType(event) !== 'pre_migration_paper.decision') return null;
   const payload = payloadOf(event);
@@ -190,6 +237,7 @@ function decisionFromEvent(event, telemetryPath) {
   if (!mint || !Number.isFinite(atMs) || !Number.isFinite(curveProgress) || !Number.isFinite(priceSol)) return null;
   const curveProgressDelta = numberOrNull(payload.curveProgressDelta, 6);
   const threshold = numberOrNull(payload.threshold, 6);
+  const walletContext = walletContextSummary(payload.walletClassificationContext || {});
   return {
     telemetryPath,
     mint,
@@ -210,7 +258,9 @@ function decisionFromEvent(event, telemetryPath) {
     recentVolumeSol: numberOrNull(payload.recentVolumeSol, 4),
     tradeVelocityPerMin: numberOrNull(payload.tradeVelocityPerMin, 2),
     buyRatio: numberOrNull(payload.buyRatio, 4),
-    uniqueBuyerCount: numberOrNull(payload.uniqueBuyerCount, 0)
+    uniqueBuyerCount: numberOrNull(payload.uniqueBuyerCount, 0),
+    sniperWalletCount: numberOrNull(payload.sniperWalletCount, 0),
+    ...walletContext
   };
 }
 
@@ -323,6 +373,17 @@ function closeTrade(decision, entry, snapshot, reason, profile, netReturnPct) {
     skipScore: decision.score,
     score: decision.score,
     reasonAtEntry: decision.reason,
+    recentVolumeSol: decision.recentVolumeSol,
+    tradeVelocityPerMin: decision.tradeVelocityPerMin,
+    buyRatio: decision.buyRatio,
+    uniqueBuyerCount: decision.uniqueBuyerCount,
+    sniperWalletCount: decision.sniperWalletCount,
+    walletTouchCount: decision.walletTouchCount,
+    walletBuyTouchCount: decision.walletBuyTouchCount,
+    positiveWalletTouchCount: decision.positiveWalletTouchCount,
+    avoidWalletTouchCount: decision.avoidWalletTouchCount,
+    firstTouchName: decision.firstTouchName,
+    firstBuyName: decision.firstBuyName,
     entryAt: entry?.at || null,
     entryCurveProgress: entry?.curveProgress ?? null,
     entryPriceSol: entry?.priceSol ?? null,
@@ -410,6 +471,55 @@ function aggregateTrades(trades) {
   };
 }
 
+function scoreSlice(summary) {
+  const trades = Number(summary.closed || 0);
+  const pnl = Number(summary.totalPnlSol || 0);
+  const median = Number(summary.medianPnlSol);
+  const winRate = Number(summary.winRate);
+  if (trades <= 0) return -Infinity;
+  const medianComponent = Number.isFinite(median) ? median * 1000 : -10;
+  const winComponent = Number.isFinite(winRate) ? (winRate - 0.5) * 10 : -5;
+  return pnl + medianComponent + winComponent + Math.min(trades, 12) * 0.001;
+}
+
+function buildSlices(profileName, trades) {
+  const closedBase = trades.filter((trade) => (
+    !['NOT_IN_PROFILE_CANDIDATE_CLASS', 'NO_CONFIRMATION', 'NO_FUTURE_SNAPSHOTS'].includes(trade.exitReason)
+  ));
+  const slices = SLICE_DEFINITIONS.map((definition) => {
+    const sliceTrades = trades.filter((trade) => (
+      !['NOT_IN_PROFILE_CANDIDATE_CLASS', 'NO_CONFIRMATION', 'NO_FUTURE_SNAPSHOTS'].includes(trade.exitReason)
+      && definition.predicate(trade)
+    ));
+    const summary = aggregateTrades(sliceTrades);
+    return {
+      profileName,
+      name: definition.name,
+      description: definition.description,
+      baseClosedTrades: closedBase.length,
+      ...summary,
+      keptShare: closedBase.length ? numberOrNull(sliceTrades.length / closedBase.length, 4) : null,
+      score: numberOrNull(scoreSlice(summary), 6),
+      sampleMints: sliceTrades
+        .slice()
+        .sort((a, b) => Number(b.pnlSol || 0) - Number(a.pnlSol || 0))
+        .slice(0, 6)
+        .map((trade) => ({
+          mint: trade.mint,
+          symbol: trade.symbol,
+          pnlSol: trade.pnlSol,
+          score: trade.score,
+          skipCurveProgress: trade.skipCurveProgress,
+          candidateClass: trade.candidateClass,
+          exitReason: trade.exitReason
+        }))
+    };
+  });
+  return slices
+    .filter((slice) => slice.closed > 0)
+    .sort((a, b) => Number(b.score ?? -Infinity) - Number(a.score ?? -Infinity));
+}
+
 function buildReport(runs) {
   for (const run of runs) {
     for (const decision of run.decisions) {
@@ -424,10 +534,16 @@ function buildReport(runs) {
     profiles[name] = {
       profile,
       summary: aggregateTrades(trades),
+      topSlices: buildSlices(name, trades).slice(0, 12),
       topWinners: sortedByPnl.filter((trade) => Number(trade.pnlSol) > 0).slice(0, 10),
       topLosers: sortedByPnl.filter((trade) => Number(trade.pnlSol) < 0).slice(-10).reverse()
     };
   }
+  const sliceRanking = Object.values(profiles)
+    .flatMap((profile) => profile.topSlices || [])
+    .filter((slice) => Number(slice.closed) >= 2)
+    .sort((a, b) => Number(b.score ?? -Infinity) - Number(a.score ?? -Infinity))
+    .slice(0, 20);
   return {
     generatedAt: new Date().toISOString(),
     mode: 'report_only',
@@ -441,6 +557,7 @@ function buildReport(runs) {
     },
     candidateClassCounts: countBy(candidates, ({ decision }) => decision.candidateClass),
     profiles,
+    sliceRanking,
     ranking: Object.entries(profiles)
       .map(([name, report]) => ({ name, ...report.summary }))
       .sort((a, b) => Number(b.totalPnlSol || 0) - Number(a.totalPnlSol || 0))

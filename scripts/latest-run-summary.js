@@ -3769,13 +3769,14 @@ function buildSummary(docs) {
   lines.push('');
 
   const curveFalseNegativeRanking = topArray(curveFalseNegativeReplay.ranking, 8);
+  const curveFalseNegativeSlices = topArray(curveFalseNegativeReplay.sliceRanking, 8);
   const bestCurveFalseNegativeProfileName = curveFalseNegativeRanking[0]?.name;
   const bestCurveFalseNegativeProfile = bestCurveFalseNegativeProfileName ? curveFalseNegativeReplay.profiles?.[bestCurveFalseNegativeProfileName] : null;
 
   lines.push('9c2c. Curve False-Negative Replay');
   lines.push('----------------------------------');
   lines.push('- Mode: report-only; replays CURVE_NOT_ADVANCING rows that later showed useful/strong curve follow-through. Does not alter runtime gates.');
-  lines.push('- Interpretation: positive immediate-shadow PnL is hindsight-selected; treat it as pocket evidence only. Runtime-actionable confirmation profiles still need positive median and larger samples.');
+  lines.push('- Interpretation: positive immediate-shadow PnL is hindsight-selected; treat it as pocket evidence only. Confirmation-profile slices remain median-weak, so this is not runtime-actionable yet.');
   lines.push(`- Telemetry files / target reason: ${curveFalseNegativeReplay.inputs?.telemetryFilesRead ?? 'n/a'} / ${curveFalseNegativeReplay.inputs?.targetReason || 'n/a'}`);
   lines.push('- Candidate classes:');
   objectLines(curveFalseNegativeReplay.candidateClassCounts, 8).forEach((line) => lines.push(`  - ${line}`));
@@ -3799,6 +3800,12 @@ function buildSummary(docs) {
       lines.push('- Best-profile top losers:');
       bestLosers.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRelaxedGateTrade(item)}`));
     }
+  }
+  if (curveFalseNegativeSlices.length) {
+    lines.push('- Best ex-ante slices:');
+    curveFalseNegativeSlices.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.profileName || 'n/a'} / ${item.name || 'n/a'}: closed=${item.closed ?? 'n/a'}, kept=${pct(item.keptShare, 1)}, wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}, winRate=${pct(item.winRate, 1)}, pnl=${sol(item.totalPnlSol, 6)}, median=${sol(item.medianPnlSol, 6)}, avg=${sol(item.averagePnlSol, 6)} | ${item.description || 'n/a'}`);
+    });
   }
   lines.push('');
 
