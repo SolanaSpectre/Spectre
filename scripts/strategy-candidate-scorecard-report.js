@@ -211,6 +211,20 @@ function scoreCandidate(candidate, blockers) {
   return score;
 }
 
+function nextDataNeed(candidate, blockers, context) {
+  const needs = [];
+  const trades = number(candidate.trades, 0);
+  const minSample = candidate.lane === 'wallet_conditioned_relaxed_gate' ? 60 : 20;
+  if (trades < minSample) needs.push(`collect ${minSample - trades} more trade(s) for this lane to reach the ${minSample}-trade floor`);
+  if (context.paperEntries <= 0) needs.push('produce nonzero runtime paper entries before any live promotion review');
+  if (candidate.mode === 'report_only') needs.push('confirm the lane through runtime paper/shadow telemetry, not historical replay alone');
+  if (context.broadcastBlocked) needs.push('keep broadcast disabled until strategy evidence clears launch review');
+  if (blockers.some((blocker) => blocker.includes('median trade PnL'))) needs.push('prove median trade PnL turns positive under the same rules');
+  if (blockers.some((blocker) => blocker.includes('top 3 winners'))) needs.push('prove PnL survives removing the top 3 winners');
+  if (blockers.some((blocker) => blocker.includes('win rate below'))) needs.push('improve or further sample win rate above 45%');
+  return [...new Set(needs)].slice(0, 6);
+}
+
 function statusFor(candidate, blockers, context) {
   if (!blockers.length) return candidate.mode === 'report_only' ? 'PROMISING_REPORT_ONLY' : 'PROMOTION_CANDIDATE';
   const candidateBlockers = blockers.filter((blocker) => ![
@@ -270,6 +284,7 @@ function main() {
       ...candidate,
       status,
       score: scoreCandidate(candidate, blockers),
+      nextDataNeed: nextDataNeed(candidate, blockers, context),
       promotionBlockers: blockers
     };
   }).sort((a, b) => b.score - a.score || number(b.pnlSol, -Infinity) - number(a.pnlSol, -Infinity));
@@ -305,6 +320,7 @@ function main() {
       reportOnlyPromisingCount: reportOnlyPromising.length,
       statusCounts,
       topBlockers: topBlockers(scored),
+      bestCandidateNextDataNeed: scored[0]?.nextDataNeed || [],
       interpretation: promotionEligible.length
         ? 'At least one runtime candidate cleared the scorecard; review sizing/broadcast controls manually before any live change.'
         : 'No strategy candidate clears promotion gates. Infrastructure is close, but live trading remains blocked by missing runtime paper entries and replay-only/fragile strategy evidence.'

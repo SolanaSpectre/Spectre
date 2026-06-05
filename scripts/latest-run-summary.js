@@ -2099,7 +2099,10 @@ function summarizeStrategyCandidate(candidate = {}) {
   const blockers = Array.isArray(candidate.promotionBlockers)
     ? candidate.promotionBlockers.slice(0, 3).join('; ')
     : 'none';
-  return `${candidate.name || 'unknown'} (${candidate.lane || 'n/a'}) | status=${candidate.status || 'n/a'} | score=${fmt(candidate.score, 0)} | trades=${candidate.trades ?? 'n/a'} | PnL=${sol(candidate.pnlSol, 6)} | blockers=${blockers || 'none'}`;
+  const nextNeed = Array.isArray(candidate.nextDataNeed) && candidate.nextDataNeed.length
+    ? ` | next=${candidate.nextDataNeed[0]}`
+    : '';
+  return `${candidate.name || 'unknown'} (${candidate.lane || 'n/a'}) | status=${candidate.status || 'n/a'} | score=${fmt(candidate.score, 0)} | trades=${candidate.trades ?? 'n/a'} | PnL=${sol(candidate.pnlSol, 6)} | blockers=${blockers || 'none'}${nextNeed}`;
 }
 
 function buildLaunchDecisionLines({
