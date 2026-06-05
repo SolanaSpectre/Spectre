@@ -31,6 +31,7 @@ const FILES = {
   preMigrationHighConvictionWatchFollowThrough: 'data/reports/pre-migration-high-conviction-watch-follow-through-latest.json',
   preMigrationDryRunOutcome: 'data/reports/pre-migration-dry-run-outcome-latest.json',
   preMigrationDryRunEntryReplay: 'data/reports/pre-migration-dry-run-entry-replay-latest.json',
+  preMigrationCurveConfirmationReplay: 'data/reports/pre-migration-curve-confirmation-replay-latest.json',
   preMigrationRelaxedGateReplay: 'data/reports/pre-migration-relaxed-gate-replay-latest.json',
   preMigrationCurveStallRelaxedReplay: 'data/reports/pre-migration-curve-stall-relaxed-replay-latest.json',
   preMigrationWalletConditionedRelaxedGateReplay: 'data/reports/pre-migration-wallet-conditioned-relaxed-gate-replay-latest.json',
@@ -2040,6 +2041,81 @@ function readRuntimeHealthTelemetry(battlefield = {}) {
   return summary;
 }
 
+function bestProfileFromSummary(summaryByProfile = {}) {
+  return Object.entries(summaryByProfile || {})
+    .map(([name, summary]) => ({ name, ...(summary || {}) }))
+    .filter((item) => Number.isFinite(Number(item.totalPnlSol)))
+    .sort((a, b) => Number(b.totalPnlSol) - Number(a.totalPnlSol))[0] || null;
+}
+
+function formatReplayProfile(item, tradeLabel = 'trades') {
+  if (!item) return 'none';
+  const trades = item.trades ?? item.confirmedEntries ?? item.decisions ?? 'n/a';
+  const wins = item.wins ?? 'n/a';
+  const losses = item.losses ?? 'n/a';
+  const pnl = sol(item.totalPnlSol, 6);
+  const median = item.pnlStats?.median !== undefined ? `, median=${sol(item.pnlStats.median, 6)}` : '';
+  return `${item.name}: ${tradeLabel}=${trades}, wins/losses=${wins}/${losses}, winRate=${pct(item.winRate, 1)}, pnl=${pnl}${median}`;
+}
+
+function buildLaunchDecisionLines({
+  liveReadiness,
+  paperEntries,
+  paperPnl,
+  aiReachability,
+  preMigrationDryRunEntryReplay,
+  preMigrationRelaxedGateReplay,
+  preMigrationCurveStallRelaxedReplay,
+  preMigrationCurveConfirmationReplay,
+  runnerRejectEntryReplay
+}) {
+  const lines = [];
+  const readinessVerdict = liveReadiness.verdict || 'unknown';
+  const infraBlockers = Array.isArray(liveReadiness.blockers) ? liveReadiness.blockers : [];
+  const launchBlocks = Array.isArray(liveReadiness.launchBlocks) ? liveReadiness.launchBlocks : [];
+  const dryBest = bestProfileFromSummary(preMigrationDryRunEntryReplay.firstPerMint?.summaryByProfile);
+  const relaxedBest = topArray(preMigrationRelaxedGateReplay.ranking, 1)[0] || null;
+  const curveStallBest = topArray(preMigrationCurveStallRelaxedReplay.ranking, 1)[0] || null;
+  const curveConfirmationBest = topArray(preMigrationCurveConfirmationReplay.ranking, 1)[0] || null;
+  const runnerRejectBest = bestProfileFromSummary(runnerRejectEntryReplay.summaryByProfile);
+  const strategyEvidenceBlocked = Number(paperEntries || 0) === 0 || Number(paperPnl || 0) < 0;
+  const broadcastBlocked = launchBlocks.some((line) => String(line).toLowerCase().includes('broadcast'));
+  const aiNotReached = Number(aiReachability.generatedSignals || 0) === 0
+    && Number(aiReachability.lifecycleAttempts || 0) === 0;
+  const relaxedPositiveButTiny = curveStallBest
+    && Number(curveStallBest.totalPnlSol) > 0
+    && Number(curveStallBest.trades || 0) < 20;
+  const curveConfirmationTiny = curveConfirmationBest
+    && Number(curveConfirmationBest.totalPnlSol) > 0
+    && Number(curveConfirmationBest.confirmedEntries || curveConfirmationBest.trades || 0) < 20;
+  const relaxedWarning = Number(relaxedBest?.totalPnlSol || 0) < 0
+    || Number(dryBest?.totalPnlSol || 0) < 0
+    || relaxedPositiveButTiny
+    || curveConfirmationTiny;
+
+  lines.push('0. Launch Decision');
+  lines.push('------------------');
+  lines.push(`- Decision: KEEP_LIVE_DISABLED (${readinessVerdict}).`);
+  lines.push(`- Infrastructure: ${infraBlockers.length ? `${infraBlockers.length} blocker(s) remain` : 'no infrastructure blockers in the latest readiness report'}.`);
+  lines.push(`- Strategy evidence: paper entries/PnL=${paperEntries ?? 'n/a'} / ${paperPnl === null || paperPnl === undefined ? 'n/a' : sol(paperPnl, 6)}; ${strategyEvidenceBlocked ? 'not live-launchable' : 'sample needs live-review sizing checks'}.`);
+  lines.push(`- AI reachability: signals/lifecycle attempts=${aiReachability.generatedSignals}/${aiReachability.lifecycleAttempts}; ${aiNotReached ? 'no real candidate reached runtime AI review this run' : 'runtime AI path was exercised'}.`);
+  lines.push(`- Broadcast: ${broadcastBlocked ? 'still report-only; do not enable live broadcast from this evidence' : 'no broadcast launch block reported'}.`);
+  if (launchBlocks.length) {
+    lines.push('- Launch blockers:');
+    launchBlocks.forEach((line) => lines.push(`  - ${line}`));
+  }
+  lines.push('- Shadow replay read-through:');
+  lines.push(`  - dry-run first-eligible replay best: ${formatReplayProfile(dryBest)}`);
+  lines.push(`  - LOW_SCORE/FIRST_SIGHT relaxed best: ${formatReplayProfile(relaxedBest)}`);
+  lines.push(`  - CURVE_NOT_ADVANCING relaxed best: ${formatReplayProfile(curveStallBest)}`);
+  lines.push(`  - curve-confirmation best: ${formatReplayProfile(curveConfirmationBest, 'confirmed')}`);
+  lines.push(`  - runner-reject replay best: ${formatReplayProfile(runnerRejectBest)} (report-only; not a live-entry proof)`);
+  lines.push(`- Tuning posture: ${relaxedWarning ? 'do not loosen runtime gates from this evidence; the broad relaxed lanes are negative and the positive slices are tiny/median-weak' : 'candidate for deeper review, not automatic live tuning'}.`);
+  lines.push('- Next engineering target: improve candidate-generation/near-miss instrumentation so the next paper run can explain exactly which condition prevents real entries.');
+  lines.push('');
+  return lines;
+}
+
 function buildSummary(docs) {
   const battlefield = docs.battlefield.data || {};
   const simpleRuntimeAiEvidence = docs.simpleRuntimeAiEvidence.data || {};
@@ -2166,6 +2242,18 @@ function buildSummary(docs) {
   const solanaRpcPressure = buildSolanaRpcPressure(battlefield);
   const runnerLifecycle = battlefield.runnerLane?.simpleRuntimeAiLifecycle || {};
   const signalExecutionLatency = battlefield.runnerLane?.signalExecutionLatencyMs || {};
+
+  lines.push(...buildLaunchDecisionLines({
+    liveReadiness,
+    paperEntries,
+    paperPnl,
+    aiReachability,
+    preMigrationDryRunEntryReplay: docs.preMigrationDryRunEntryReplay.data || {},
+    preMigrationRelaxedGateReplay: docs.preMigrationRelaxedGateReplay.data || {},
+    preMigrationCurveStallRelaxedReplay: docs.preMigrationCurveStallRelaxedReplay.data || {},
+    preMigrationCurveConfirmationReplay: docs.preMigrationCurveConfirmationReplay?.data || {},
+    runnerRejectEntryReplay: docs.runnerRejectEntryReplay.data || {}
+  }));
 
   lines.push('1. Run Summary');
   lines.push('--------------');
