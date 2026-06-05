@@ -42,6 +42,7 @@ const FILES = {
   preMigrationEntryCandidateReview: 'data/reports/pre-migration-entry-candidate-review-latest.json',
   preMigrationSameMintReentryImpact: 'data/reports/pre-migration-same-mint-reentry-impact-latest.json',
   preMigrationBreakevenStopGap: 'data/reports/pre-migration-breakeven-stop-gap-latest.json',
+  preMigrationExitProtectionReplay: 'data/reports/pre-migration-exit-protection-replay-latest.json',
   signalQuality: 'data/reports/pre-migration-signal-quality-latest.json',
   learning: 'data/reports/learning-orchestrator-latest.json',
   continuationPaper: 'data/reports/continuation-paper-latest.json',
@@ -2139,6 +2140,19 @@ function summarizeBreakevenStopGap(row = {}) {
   return `${row.symbol || 'UNKNOWN'} ${row.mint || ''} | profile=${row.profileName || 'n/a'} | PnL=${sol(row.pnlSol, 6)} | return=${pct(row.returnPct, 2)} | peak=${pct(row.peakReturnPct, 2)} | giveback=${pct(row.givebackPct, 2)} | hold=${fmt(row.holdSeconds, 1)}s | priceObs=${obs.priceSnapshotCount ?? 'n/a'} | gap=${ms(obs.exitObservationGapMs)} | flags=${flags}`;
 }
 
+function summarizeExitProtectionScenario(row = {}) {
+  if (!row || typeof row !== 'object' || !Object.keys(row).length) return 'none';
+  return `${row.name || 'unknown'}: entries=${row.entries ?? 'n/a'}, PnL=${sol(row.totalPnlSol, 6)}, delta=${sol(row.pnlDeltaVsCurrentSol, 6)}, wins/losses=${row.wins ?? 'n/a'}/${row.losses ?? 'n/a'}, exits=${formatTopCounts(row.exitReasonCounts)}`;
+}
+
+function summarizeExitProtectionExample(row = {}) {
+  if (!row || typeof row !== 'object' || !Object.keys(row).length) return 'none';
+  const current = row.current
+    ? `current=${row.current.reason || 'n/a'} ${sol(row.current.pnlSol, 6)}`
+    : 'current=n/a';
+  return `${row.symbol || 'UNKNOWN'} ${row.mint || ''} | replay=${row.reason || 'n/a'} ${sol(row.pnlSol, 6)} | delta=${sol(row.pnlDeltaVsCurrentSol, 6)} | ${current} | hold=${fmt(row.holdSeconds, 1)}s`;
+}
+
 function buildLaunchDecisionLines({
   liveReadiness,
   paperEntries,
@@ -2249,6 +2263,7 @@ function buildSummary(docs) {
   const entryCandidateReview = docs.preMigrationEntryCandidateReview.data || {};
   const sameMintReentryImpact = docs.preMigrationSameMintReentryImpact.data || {};
   const breakevenStopGap = docs.preMigrationBreakevenStopGap.data || {};
+  const exitProtectionReplay = docs.preMigrationExitProtectionReplay.data || {};
   const signal = docs.signalQuality.data || {};
   const learning = docs.learning.data || {};
   const strategyCandidateScorecard = docs.strategyCandidateScorecard.data || {};
@@ -2428,6 +2443,25 @@ function buildSummary(docs) {
     if (worstBreakevenStops.length) {
       lines.push('- Worst BREAKEVEN_STOP exits:');
       worstBreakevenStops.forEach((row, index) => lines.push(`  ${index + 1}. ${summarizeBreakevenStopGap(row)}`));
+    }
+    lines.push('');
+  }
+
+  if (exitProtectionReplay.summary) {
+    const replaySummary = exitProtectionReplay.summary || {};
+    lines.push('0f. Exit Protection Replay');
+    lines.push('--------------------------');
+    lines.push('- Mode: report-only observed-path stress replay; it may see more price-bearing events than the exact runtime paper-lane cadence.');
+    lines.push(`- Entries / unique mints: ${replaySummary.entries ?? 'n/a'} / ${replaySummary.uniqueMints ?? 'n/a'}; current=${sol(replaySummary.currentProfilePnlSol, 6)}; best=${replaySummary.bestScenario || 'n/a'} ${sol(replaySummary.bestScenarioPnlSol, 6)}; delta=${sol(replaySummary.bestScenarioDeltaVsCurrentSol, 6)}.`);
+    const scenarios = topArray(exitProtectionReplay.scenarioSummaries, 6);
+    if (scenarios.length) {
+      lines.push('- Scenario leaderboard:');
+      scenarios.forEach((row, index) => lines.push(`  ${index + 1}. ${summarizeExitProtectionScenario(row)}`));
+    }
+    const examples = topArray(exitProtectionReplay.bestScenarioExamples, 3);
+    if (examples.length) {
+      lines.push('- Best-scenario positive deltas:');
+      examples.forEach((row, index) => lines.push(`  ${index + 1}. ${summarizeExitProtectionExample(row)}`));
     }
     lines.push('');
   }
