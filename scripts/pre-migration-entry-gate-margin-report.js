@@ -10,6 +10,8 @@ const LOG_DIR = path.join(ROOT, 'run-logs');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-entry-gate-margin-latest.json');
 const DEFAULT_MAX_FILES = 8;
 const SAMPLE_LIMIT = 12;
+const FOLLOW_THROUGH_WINDOWS_SECONDS = [120, 300];
+const NEAR_MISS_MIN_READINESS_PCT = 90;
 
 function parseArgs(argv) {
   const args = {};
@@ -70,6 +72,28 @@ function payloadOf(event) {
 
 function mintOf(payload) {
   return payload.mint || payload.token || payload.mintAddress || payload.address || null;
+}
+
+function curveOf(payload) {
+  const raw = payload.providerCurveProgress
+    ?? payload.curveProgress
+    ?? payload.bondingCurveProgress
+    ?? payload.progress
+    ?? payload.market?.maxCurveProgress;
+  const curve = Number(raw);
+  if (!Number.isFinite(curve)) return null;
+  if (curve > 1 && curve <= 100) return curve / 100;
+  return curve;
+}
+
+function priceOf(payload) {
+  const raw = payload.providerCurvePriceSol
+    ?? payload.bondingCurvePriceSol
+    ?? payload.curvePriceSol
+    ?? payload.priceSol
+    ?? payload.market?.priceSol;
+  const price = Number(raw);
+  return Number.isFinite(price) && price > 0 ? price : null;
 }
 
 function ratio(value, threshold, mode) {
@@ -206,7 +230,8 @@ function decisionFromEvent(event, telemetryPath) {
     reason: payload.reason || 'unknown',
     score: numberOrNull(payload.score, 4),
     threshold: numberOrNull(payload.threshold, 4),
-    curveProgress: numberOrNull(payload.curveProgress, 6),
+    curveProgress: numberOrNull(curveOf(payload), 6),
+    priceSol: numberOrNull(priceOf(payload), 12),
     recentVolumeSol: numberOrNull(payload.recentVolumeSol, 6),
     tradeVelocityPerMin: numberOrNull(payload.tradeVelocityPerMin, 6),
     uniqueBuyerCount: numberOrNull(payload.uniqueBuyerCount, 0),
@@ -222,9 +247,27 @@ function decisionFromEvent(event, telemetryPath) {
   };
 }
 
+function snapshotFromEvent(event) {
+  const payload = payloadOf(event);
+  const mint = mintOf(payload);
+  const atMs = timestampMs(payload.timestamp || event.timestamp);
+  const curveProgress = curveOf(payload);
+  if (!mint || !Number.isFinite(atMs) || !Number.isFinite(curveProgress)) return null;
+  return {
+    mint,
+    at: new Date(atMs).toISOString(),
+    atMs,
+    eventType: event.type || event.event || 'unknown',
+    source: payload.providerCurveSource || payload.source || payload.provider || event.type || 'unknown',
+    curveProgress: numberOrNull(curveProgress, 6),
+    priceSol: numberOrNull(priceOf(payload), 12)
+  };
+}
+
 async function readDecisions(filePath) {
   const telemetryPath = path.relative(ROOT, filePath);
   const decisions = [];
+  const snapshotsByMint = new Map();
   let malformedLines = 0;
   let startMs = Infinity;
   let endMs = -Infinity;
@@ -249,15 +292,24 @@ async function readDecisions(filePath) {
       startMs = Math.min(startMs, atMs);
       endMs = Math.max(endMs, atMs);
     }
+    const snapshot = snapshotFromEvent(event);
+    if (snapshot) {
+      const rows = snapshotsByMint.get(snapshot.mint) || [];
+      rows.push(snapshot);
+      snapshotsByMint.set(snapshot.mint, rows);
+    }
     const decision = decisionFromEvent(event, telemetryPath);
     if (decision) decisions.push(decision);
   }
+
+  for (const rows of snapshotsByMint.values()) rows.sort((a, b) => a.atMs - b.atMs);
 
   return {
     telemetryPath,
     startAt: Number.isFinite(startMs) ? new Date(startMs).toISOString() : null,
     endAt: Number.isFinite(endMs) ? new Date(endMs).toISOString() : null,
     decisions,
+    snapshotsByMint,
     malformedLines
   };
 }
@@ -288,6 +340,139 @@ function numericStats(values, digits = 4) {
     max: numberOrNull(finite[finite.length - 1], digits),
     avg: numberOrNull(sum / finite.length, digits)
   };
+}
+
+function firstCross(snapshots, threshold, startCurve) {
+  if (Number.isFinite(Number(startCurve)) && Number(startCurve) >= threshold) return null;
+  return snapshots.find((snapshot) => Number(snapshot.curveProgress) >= threshold) || null;
+}
+
+function followThroughWindow(row, snapshots, seconds) {
+  const future = snapshots.filter((snapshot) => (
+    snapshot.atMs > row.atMs && snapshot.atMs <= row.atMs + seconds * 1000
+  ));
+  const curveValues = future.map((snapshot) => snapshot.curveProgress);
+  const priceValues = future.map((snapshot) => snapshot.priceSol);
+  const maxCurve = numericStats(curveValues, 6).max;
+  const maxPrice = numericStats(priceValues, 12).max;
+  const startPrice = Number(row.priceSol);
+  const maxPriceDeltaPct = Number.isFinite(startPrice) && startPrice > 0 && maxPrice !== null
+    ? ((Number(maxPrice) - startPrice) / startPrice) * 100
+    : null;
+  const curveDelta = maxCurve !== null && Number.isFinite(Number(row.curveProgress))
+    ? Number(maxCurve) - Number(row.curveProgress)
+    : null;
+  const startCurve = Number(row.curveProgress);
+  const startedAt85 = Number.isFinite(startCurve) && startCurve >= 0.85;
+  const startedAt90 = Number.isFinite(startCurve) && startCurve >= 0.9;
+  const startedAt95 = Number.isFinite(startCurve) && startCurve >= 0.95;
+  const crossed85 = firstCross(future, 0.85, row.curveProgress);
+  const crossed90 = firstCross(future, 0.9, row.curveProgress);
+  const crossed95 = firstCross(future, 0.95, row.curveProgress);
+  return {
+    seconds,
+    futureSnapshotCount: future.length,
+    maxCurveProgress: maxCurve,
+    curveDelta: numberOrNull(curveDelta, 6),
+    maxPriceDeltaPct: numberOrNull(maxPriceDeltaPct, 2),
+    startedAt85,
+    startedAt90,
+    startedAt95,
+    crossed85AfterSkip: Boolean(crossed85),
+    crossed90AfterSkip: Boolean(crossed90),
+    crossed95AfterSkip: Boolean(crossed95),
+    reached85WithinWindow: startedAt85 || Boolean(crossed85),
+    reached90WithinWindow: startedAt90 || Boolean(crossed90),
+    reached95WithinWindow: startedAt95 || Boolean(crossed95),
+    first85CrossAt: crossed85?.at || null,
+    first90CrossAt: crossed90?.at || null,
+    first95CrossAt: crossed95?.at || null
+  };
+}
+
+function analyzeFollowThrough(row, snapshotsByMint) {
+  const snapshots = snapshotsByMint.get(row.mint) || [];
+  const windows = {};
+  for (const seconds of FOLLOW_THROUGH_WINDOWS_SECONDS) {
+    windows[`${seconds}s`] = followThroughWindow(row, snapshots, seconds);
+  }
+  return { ...row, windows };
+}
+
+function readinessBand(value) {
+  const readiness = Number(value);
+  if (!Number.isFinite(readiness)) return 'unknown';
+  if (readiness >= 99) return 'ready_99_plus';
+  if (readiness >= 97.5) return 'ready_97_5_99';
+  if (readiness >= 95) return 'ready_95_97_5';
+  if (readiness >= 90) return 'ready_90_95';
+  return 'below_90';
+}
+
+function sampleFollowThrough(row) {
+  return {
+    ...sampleDecision(row),
+    window120s: row.windows?.['120s'] || null,
+    window300s: row.windows?.['300s'] || null
+  };
+}
+
+function followThroughSummary(rows) {
+  const uniqueMints = new Set(rows.map((row) => row.mint));
+  const byMint = new Map();
+  for (const row of rows) {
+    const prev = byMint.get(row.mint);
+    const prevDelta = Number(prev?.windows?.['120s']?.curveDelta ?? -Infinity);
+    const nextDelta = Number(row.windows?.['120s']?.curveDelta ?? -Infinity);
+    if (!prev || nextDelta > prevDelta) byMint.set(row.mint, row);
+  }
+  const uniqueRows = Array.from(byMint.values());
+  const w120 = rows.map((row) => row.windows?.['120s'] || {});
+  const uniqueW120 = uniqueRows.map((row) => row.windows?.['120s'] || {});
+  const topFollowThrough = [...uniqueRows]
+    .sort((a, b) => {
+      const delta = Number(b.windows?.['120s']?.curveDelta ?? -Infinity) - Number(a.windows?.['120s']?.curveDelta ?? -Infinity);
+      if (delta !== 0) return delta;
+      return Number(b.readinessPct ?? -Infinity) - Number(a.readinessPct ?? -Infinity);
+    })
+    .slice(0, SAMPLE_LIMIT)
+    .map(sampleFollowThrough);
+
+  return {
+    decisions: rows.length,
+    uniqueMints: uniqueMints.size,
+    decisionsWithFuture120s: w120.filter((window) => Number(window.futureSnapshotCount) > 0).length,
+    crossed85Within120s: w120.filter((window) => window.crossed85AfterSkip).length,
+    crossed90Within120s: w120.filter((window) => window.crossed90AfterSkip).length,
+    crossed95Within120s: w120.filter((window) => window.crossed95AfterSkip).length,
+    reached85Within120s: w120.filter((window) => window.reached85WithinWindow).length,
+    reached90Within120s: w120.filter((window) => window.reached90WithinWindow).length,
+    reached95Within120s: w120.filter((window) => window.reached95WithinWindow).length,
+    uniqueMintsCrossed85Within120s: uniqueW120.filter((window) => window.crossed85AfterSkip).length,
+    uniqueMintsCrossed90Within120s: uniqueW120.filter((window) => window.crossed90AfterSkip).length,
+    uniqueMintsCrossed95Within120s: uniqueW120.filter((window) => window.crossed95AfterSkip).length,
+    uniqueMintsReached85Within120s: uniqueW120.filter((window) => window.reached85WithinWindow).length,
+    uniqueMintsReached90Within120s: uniqueW120.filter((window) => window.reached90WithinWindow).length,
+    uniqueMintsReached95Within120s: uniqueW120.filter((window) => window.reached95WithinWindow).length,
+    curveDelta120s: numericStats(w120.map((window) => window.curveDelta), 6),
+    maxPriceDeltaPct120s: numericStats(w120.map((window) => window.maxPriceDeltaPct), 2),
+    topFollowThrough
+  };
+}
+
+function groupFollowThrough(rows, keyFn, limit = 12) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = keyFn(row) || 'unknown';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return Object.fromEntries(
+    Array.from(groups.entries())
+      .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+      .slice(0, limit)
+      .map(([key, rows]) => [key, followThroughSummary(rows)])
+  );
 }
 
 function groupSummary(decisions, keyFn) {
@@ -337,6 +522,7 @@ function sampleDecision(row) {
 
 function buildReport(runs) {
   const decisions = runs.flatMap((run) => run.decisions);
+  const snapshotsByTelemetry = new Map(runs.map((run) => [run.telemetryPath, run.snapshotsByMint]));
   const reasonCounts = {};
   const presetCounts = {};
   const tightestGateCounts = {};
@@ -360,6 +546,9 @@ function buildReport(runs) {
     .sort((a, b) => b.readinessPct - a.readinessPct)
     .slice(0, SAMPLE_LIMIT)
     .map(sampleDecision);
+  const analyzedNearMisses = decisions
+    .filter((row) => Number(row.readinessPct) >= NEAR_MISS_MIN_READINESS_PCT)
+    .map((row) => analyzeFollowThrough(row, snapshotsByTelemetry.get(row.telemetryPath) || new Map()));
 
   return {
     generatedAt: new Date().toISOString(),
@@ -380,6 +569,16 @@ function buildReport(runs) {
     },
     byPreset: groupSummary(decisions, (row) => row.preset),
     byReason: groupSummary(decisions, (row) => row.reason),
+    nearMissFollowThrough: {
+      mode: 'report_only',
+      minReadinessPct: NEAR_MISS_MIN_READINESS_PCT,
+      windowsSeconds: FOLLOW_THROUGH_WINDOWS_SECONDS,
+      summary: followThroughSummary(analyzedNearMisses),
+      byReadinessBand: groupFollowThrough(analyzedNearMisses, (row) => readinessBand(row.readinessPct)),
+      byTightestGate: groupFollowThrough(analyzedNearMisses, (row) => row.tightestGate?.name),
+      byReason: groupFollowThrough(analyzedNearMisses, (row) => row.reason),
+      note: 'Near-miss follow-through joins skipped decisions with readiness >= minReadinessPct to later same-run curve/price snapshots. It is report-only and does not alter runtime behavior.'
+    },
     closestByMint,
     note: 'Report-only diagnostic for skipped pre-migration paper entries. It ranks the tightest measurable gate by preset/reason and does not alter runtime gates, entries, exits, scoring, quotes, AI review, or live behavior.'
   };

@@ -335,6 +335,10 @@ function summarizeEntryGateMargin(item = {}) {
   return `${label} | preset=${item.preset || 'n/a'} | reason=${item.reason || 'n/a'} | ready=${fmt(item.readinessPct, 2)}% | ${gateText} | score=${fmt(item.score, 2)} | curve=${fmt(item.curveProgress, 4)} | vol=${fmt(item.recentVolumeSol, 2)} | vel=${fmt(item.tradeVelocityPerMin, 2)}`;
 }
 
+function summarizeEntryGateNearMissFollowThrough(name, item = {}) {
+  return `${name}: decisions=${item.decisions ?? 'n/a'}, unique=${item.uniqueMints ?? 'n/a'}, future120=${item.decisionsWithFuture120s ?? 'n/a'}, reached85/90/95 unique=${item.uniqueMintsReached85Within120s ?? 'n/a'}/${item.uniqueMintsReached90Within120s ?? 'n/a'}/${item.uniqueMintsReached95Within120s ?? 'n/a'}, crossed95 unique=${item.uniqueMintsCrossed95Within120s ?? 'n/a'}, delta120 med/p90/max=${fmt(item.curveDelta120s?.median, 4)}/${fmt(item.curveDelta120s?.p90, 4)}/${fmt(item.curveDelta120s?.max, 4)}, price120 med/p90/max=${fmt(item.maxPriceDeltaPct120s?.median, 2)}%/${fmt(item.maxPriceDeltaPct120s?.p90, 2)}%/${fmt(item.maxPriceDeltaPct120s?.max, 2)}%`;
+}
+
 function summarizeHighConvictionWatchFollowThrough(item = {}) {
   const label = candidateLabel(item);
   const w120 = item.window120s || {};
@@ -2113,6 +2117,7 @@ function buildLaunchDecisionLines({
   const runnerRejectBest = bestProfileFromSummary(runnerRejectEntryReplay.summaryByProfile);
   const guardSummary = preMigrationGuardAttribution.summary || {};
   const marginSummary = preMigrationEntryGateMargin.summary || {};
+  const nearMissSummary = preMigrationEntryGateMargin.nearMissFollowThrough?.summary || {};
   const closestGateMiss = topArray(preMigrationEntryGateMargin.closestByMint, 1)[0] || {};
   const strategyEvidenceBlocked = Number(paperEntries || 0) === 0 || Number(paperPnl || 0) < 0;
   const broadcastBlocked = launchBlocks.some((line) => String(line).toLowerCase().includes('broadcast'));
@@ -2138,6 +2143,9 @@ function buildLaunchDecisionLines({
   lines.push(`- Broadcast: ${broadcastBlocked ? 'still report-only; do not enable live broadcast from this evidence' : 'no broadcast launch block reported'}.`);
   lines.push(`- Current entry gate bottleneck: wouldEnter/wouldSkip=${guardSummary.wouldEnter ?? 'n/a'}/${guardSummary.wouldSkip ?? 'n/a'}; top reasons=${formatTopCounts(guardSummary.byReason)}.`);
   lines.push(`- Rolling tightest gates: decisions=${marginSummary.decisions ?? 'n/a'}, readiness median/p90/max=${fmt(marginSummary.readinessPct?.median, 2)}%/${fmt(marginSummary.readinessPct?.p90, 2)}%/${fmt(marginSummary.readinessPct?.max, 2)}%; gates=${formatTopCounts(marginSummary.tightestGateCounts)}.`);
+  if (nearMissSummary.decisions !== undefined) {
+    lines.push(`- Near-miss follow-through: >=${preMigrationEntryGateMargin.nearMissFollowThrough?.minReadinessPct ?? 'n/a'}% readiness decisions=${nearMissSummary.decisions}, unique=${nearMissSummary.uniqueMints}, reached90 unique=${nearMissSummary.uniqueMintsReached90Within120s ?? 'n/a'}, crossed95 unique=${nearMissSummary.uniqueMintsCrossed95Within120s ?? 'n/a'}, delta120 median/p90=${fmt(nearMissSummary.curveDelta120s?.median, 4)}/${fmt(nearMissSummary.curveDelta120s?.p90, 4)}.`);
+  }
   lines.push(`- Closest gate miss: ${summarizeClosestGateMiss(closestGateMiss)}.`);
   if (launchBlocks.length) {
     lines.push('- Launch blockers:');
@@ -3398,6 +3406,16 @@ function buildSummary(docs) {
   objectLines(entryGateMarginSummary.tightestGateCounts, 8).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Preset counts:');
   objectLines(entryGateMarginSummary.presetCounts, 6).forEach((line) => lines.push(`  - ${line}`));
+  const entryGateNearMiss = entryGateMargin.nearMissFollowThrough || {};
+  const entryGateNearMissSummary = entryGateNearMiss.summary || {};
+  const entryGateNearMissByGate = entryGateNearMiss.byTightestGate || {};
+  if (entryGateNearMissSummary.decisions !== undefined) {
+    lines.push(`- Near-miss follow-through >=${entryGateNearMiss.minReadinessPct ?? 'n/a'}% readiness: decisions=${entryGateNearMissSummary.decisions ?? 'n/a'}, unique=${entryGateNearMissSummary.uniqueMints ?? 'n/a'}, future120=${entryGateNearMissSummary.decisionsWithFuture120s ?? 'n/a'}, reached85/90/95 unique=${entryGateNearMissSummary.uniqueMintsReached85Within120s ?? 'n/a'}/${entryGateNearMissSummary.uniqueMintsReached90Within120s ?? 'n/a'}/${entryGateNearMissSummary.uniqueMintsReached95Within120s ?? 'n/a'}, crossed95 unique=${entryGateNearMissSummary.uniqueMintsCrossed95Within120s ?? 'n/a'}`);
+    lines.push('- Near-miss follow-through by tightest gate:');
+    Object.entries(entryGateNearMissByGate)
+      .slice(0, 6)
+      .forEach(([name, item]) => lines.push(`  - ${summarizeEntryGateNearMissFollowThrough(name, item)}`));
+  }
   if (entryGateClosest.length) {
     lines.push('- Closest skipped mints:');
     entryGateClosest.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeEntryGateMargin(item)}`));
