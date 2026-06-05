@@ -632,6 +632,10 @@ class Config {
     return parseInt(process.env.PRE_MIGRATION_PAPER_BAD_EXIT_COOLDOWN_MS || '900000', 10);
   }
 
+  static get preMigrationPaperSameMintReentryCooldownMs() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_SAME_MINT_REENTRY_COOLDOWN_MS || '120000', 10);
+  }
+
   static get preMigrationPaperMaxObservedStates() {
     return parseInt(process.env.PRE_MIGRATION_PAPER_MAX_OBSERVED_STATES || '5000', 10);
   }
@@ -2012,6 +2016,7 @@ class Config {
       { key: 'preMigrationPaperCloneGuardWindowMs', value: this.preMigrationPaperCloneGuardWindowMs, min: 0 },
       { key: 'preMigrationPaperCloneGuardMaxEntriesPerSymbol', value: this.preMigrationPaperCloneGuardMaxEntriesPerSymbol, min: 0 },
       { key: 'preMigrationPaperBadExitCooldownMs', value: this.preMigrationPaperBadExitCooldownMs, min: 0 },
+      { key: 'preMigrationPaperSameMintReentryCooldownMs', value: this.preMigrationPaperSameMintReentryCooldownMs, min: 0 },
       { key: 'preMigrationPaperMaxObservedStates', value: this.preMigrationPaperMaxObservedStates, min: 1 },
       { key: 'preMigrationPaperRecheckDelayMs', value: this.preMigrationPaperRecheckDelayMs, min: 1000 },
       { key: 'preMigrationPaperRecheckMaxAttempts', value: this.preMigrationPaperRecheckMaxAttempts, min: 0 },

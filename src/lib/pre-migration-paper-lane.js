@@ -9,6 +9,7 @@ class PreMigrationPaperLane {
     this.cloneGuardWindowMs = Number(config.preMigrationPaperCloneGuardWindowMs ?? 30 * 60 * 1000);
     this.cloneGuardMaxEntriesPerSymbol = Number(config.preMigrationPaperCloneGuardMaxEntriesPerSymbol ?? 1);
     this.badExitCooldownMs = Number(config.preMigrationPaperBadExitCooldownMs ?? 15 * 60 * 1000);
+    this.sameMintReentryCooldownMs = Number(config.preMigrationPaperSameMintReentryCooldownMs ?? 2 * 60 * 1000);
     this.lateFastTrackEnabled = config.preMigrationPaperLateFastTrackEnabled !== false;
     this.lateFastTrackMinScore = Number(config.preMigrationPaperLateFastTrackMinScore ?? 87);
     this.lateFastTrackMinCurveProgress = Number(config.preMigrationPaperLateFastTrackMinCurveProgress ?? 0.92);
@@ -111,6 +112,7 @@ class PreMigrationPaperLane {
     this.observationHistory = new Map();
     this.symbolEntryHistory = new Map();
     this.badExitCooldowns = new Map();
+    this.sameMintExitCooldowns = new Map();
 
     for (const preset of this.presets) {
       this.stats.presets[preset.name] = this.createPresetStats(preset.strategy);
@@ -187,6 +189,30 @@ class PreMigrationPaperLane {
             badExitCooldownRemainingMs: cooldown.remainingMs,
             badExitCooldownReason: cooldown.reason,
             badExitCooldownPreset: cooldown.presetName
+          }));
+          continue;
+        }
+
+        const sameMintCooldown = this.getSameMintExitCooldown(mint, timestamp);
+        if (sameMintCooldown.active) {
+          events.push(this.guardAttributionEvent(observedState, timestamp, preset, {
+            passed: false,
+            reason: 'RECENT_SAME_MINT_EXIT_COOLDOWN',
+            sameMintCooldownUntil: sameMintCooldown.until,
+            sameMintCooldownRemainingMs: sameMintCooldown.remainingMs,
+            sameMintCooldownReason: sameMintCooldown.reason,
+            sameMintCooldownPreset: sameMintCooldown.presetName
+          }, entryGuards, {
+            flagged: true,
+            suppressedPresetIneligible: false
+          }));
+          events.push(this.decisionEvent('PAPER_SKIPPED', observedState, timestamp, preset, {
+            passed: false,
+            reason: 'RECENT_SAME_MINT_EXIT_COOLDOWN',
+            sameMintCooldownUntil: sameMintCooldown.until,
+            sameMintCooldownRemainingMs: sameMintCooldown.remainingMs,
+            sameMintCooldownReason: sameMintCooldown.reason,
+            sameMintCooldownPreset: sameMintCooldown.presetName
           }));
           continue;
         }
@@ -1751,6 +1777,7 @@ class PreMigrationPaperLane {
 
     this.openPositions.delete(position.positionKey);
     this.closedPositions.push(closed);
+    this.recordSameMintExitCooldown(closed, timestamp);
     this.recordBadExitCooldown(closed, timestamp);
     this.recordDecision('PAPER_EXITED', position.presetName);
     this.stats.exits += 1;
@@ -1831,6 +1858,56 @@ class PreMigrationPaperLane {
       startedAt: timestamp,
       until: new Date(nowMs + this.badExitCooldownMs).toISOString()
     });
+  }
+
+  recordSameMintExitCooldown(closed, timestamp) {
+    if (!closed?.mint || this.sameMintReentryCooldownMs <= 0) {
+      return;
+    }
+
+    const nowMs = new Date(timestamp).getTime();
+    if (!Number.isFinite(nowMs)) {
+      return;
+    }
+
+    this.sameMintExitCooldowns.set(closed.mint, {
+      mint: closed.mint,
+      presetName: closed.presetName || null,
+      reason: closed.exitReason || 'RECENT_EXIT',
+      pnlSol: closed.pnlSol,
+      until: new Date(nowMs + this.sameMintReentryCooldownMs).toISOString()
+    });
+  }
+
+  getSameMintExitCooldown(mint, timestamp) {
+    if (!mint || this.sameMintReentryCooldownMs <= 0) {
+      return { active: false };
+    }
+
+    const cooldown = this.sameMintExitCooldowns.get(mint);
+    if (!cooldown?.until) {
+      return { active: false };
+    }
+
+    const nowMs = new Date(timestamp).getTime();
+    const untilMs = new Date(cooldown.until).getTime();
+    if (!Number.isFinite(nowMs) || !Number.isFinite(untilMs)) {
+      this.sameMintExitCooldowns.delete(mint);
+      return { active: false };
+    }
+
+    if (nowMs >= untilMs) {
+      this.sameMintExitCooldowns.delete(mint);
+      return { active: false };
+    }
+
+    return {
+      active: true,
+      until: cooldown.until,
+      remainingMs: untilMs - nowMs,
+      reason: cooldown.reason || null,
+      presetName: cooldown.presetName || null
+    };
   }
 
   getBadExitCooldown(mint, timestamp) {
@@ -2093,6 +2170,10 @@ class PreMigrationPaperLane {
         badExitCooldownRemainingMs: details.badExitCooldownRemainingMs ?? null,
         badExitCooldownReason: details.badExitCooldownReason || null,
         badExitCooldownPreset: details.badExitCooldownPreset || null,
+        sameMintCooldownUntil: details.sameMintCooldownUntil || null,
+        sameMintCooldownRemainingMs: details.sameMintCooldownRemainingMs ?? null,
+        sameMintCooldownReason: details.sameMintCooldownReason || null,
+        sameMintCooldownPreset: details.sameMintCooldownPreset || null,
         walletClassificationContext: state.walletClassificationContext || null,
         reasons: Array.isArray(state.reasons) ? state.reasons.slice(0, 10) : []
       }
@@ -2160,6 +2241,10 @@ class PreMigrationPaperLane {
         badExitCooldownRemainingMs: decision.badExitCooldownRemainingMs ?? null,
         badExitCooldownReason: decision.badExitCooldownReason || null,
         badExitCooldownPreset: decision.badExitCooldownPreset || null,
+        sameMintCooldownUntil: decision.sameMintCooldownUntil || null,
+        sameMintCooldownRemainingMs: decision.sameMintCooldownRemainingMs ?? null,
+        sameMintCooldownReason: decision.sameMintCooldownReason || null,
+        sameMintCooldownPreset: decision.sameMintCooldownPreset || null,
         reasons: Array.isArray(state.reasons) ? state.reasons.slice(0, 10) : []
       }
     };

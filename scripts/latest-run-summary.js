@@ -39,6 +39,7 @@ const FILES = {
   preMigrationWalletRelaxedShadowOutcome: 'data/reports/pre-migration-wallet-relaxed-shadow-outcome-latest.json',
   preMigrationWalletContextCoverage: 'data/reports/pre-migration-wallet-context-coverage-latest.json',
   preMigrationWalletContextFollowThrough: 'data/reports/pre-migration-wallet-context-follow-through-latest.json',
+  preMigrationEntryCandidateReview: 'data/reports/pre-migration-entry-candidate-review-latest.json',
   signalQuality: 'data/reports/pre-migration-signal-quality-latest.json',
   learning: 'data/reports/learning-orchestrator-latest.json',
   continuationPaper: 'data/reports/continuation-paper-latest.json',
@@ -2105,6 +2106,19 @@ function summarizeStrategyCandidate(candidate = {}) {
   return `${candidate.name || 'unknown'} (${candidate.lane || 'n/a'}) | status=${candidate.status || 'n/a'} | score=${fmt(candidate.score, 0)} | trades=${candidate.trades ?? 'n/a'} | PnL=${sol(candidate.pnlSol, 6)} | blockers=${blockers || 'none'}${nextNeed}`;
 }
 
+function summarizeEntryCandidate(candidate = {}) {
+  if (!candidate || typeof candidate !== 'object' || !Object.keys(candidate).length) return 'none';
+  const flags = Array.isArray(candidate.flags) && candidate.flags.length ? candidate.flags.slice(0, 4).join(',') : 'none';
+  const future120 = candidate.windows?.['120s'] || {};
+  const exitText = candidate.exit
+    ? ` exit=${candidate.exit.reason || 'n/a'} ${sol(candidate.exit.pnlSol, 6)}`
+    : '';
+  const touch = candidate.qualifyingFirstTouch
+    ? ` touch=${candidate.qualifyingFirstTouch.name || 'wallet'}:${candidate.qualifyingFirstTouch.reviewTier || candidate.qualifyingFirstTouch.evidenceTier || 'tier?'}`
+    : '';
+  return `${candidate.kind || 'candidate'} ${candidate.symbol || 'UNKNOWN'} ${candidate.mint || ''} | verdict=${candidate.verdict || 'n/a'} | score=${fmt(candidate.score, 2)} | curve=${fmt(candidate.curveProgress, 4)} | max120=${fmt(future120.maxCurveProgress, 4)} | price120=${fmt(future120.maxPriceDeltaPct, 2)}%${exitText}${touch} | flags=${flags}`;
+}
+
 function buildLaunchDecisionLines({
   liveReadiness,
   paperEntries,
@@ -2212,6 +2226,7 @@ function buildSummary(docs) {
   const walletRelaxedShadowOutcome = docs.preMigrationWalletRelaxedShadowOutcome.data || {};
   const walletContextCoverage = docs.preMigrationWalletContextCoverage.data || {};
   const walletContextFollowThrough = docs.preMigrationWalletContextFollowThrough.data || {};
+  const entryCandidateReview = docs.preMigrationEntryCandidateReview.data || {};
   const signal = docs.signalQuality.data || {};
   const learning = docs.learning.data || {};
   const strategyCandidateScorecard = docs.strategyCandidateScorecard.data || {};
@@ -2345,6 +2360,21 @@ function buildSummary(docs) {
     if (topBlockers.length) {
       lines.push('- Top promotion blockers:');
       topBlockers.forEach((item) => lines.push(`  - ${item.blocker}: ${item.count}`));
+    }
+    lines.push('');
+  }
+
+  if (entryCandidateReview.summary) {
+    const entryReviewSummary = entryCandidateReview.summary || {};
+    const reviewedCandidates = topArray(entryCandidateReview.candidates, 6);
+    lines.push('0c. Entry Candidate Review');
+    lines.push('--------------------------');
+    lines.push(`- Reviewed paper entries / wallet-shadow would-enter: ${entryReviewSummary.paperEntries ?? 'n/a'} / ${entryReviewSummary.walletShadowWouldEnter ?? 'n/a'}; paper PnL=${sol(entryReviewSummary.paperPnlSol, 6)}; unique mints=${entryReviewSummary.uniqueMints ?? 'n/a'}.`);
+    lines.push(`- Verdict counts: ${formatTopCounts(entryReviewSummary.verdictCounts)}.`);
+    lines.push(`- Flag counts: ${formatTopCounts(entryReviewSummary.flagCounts)}.`);
+    if (reviewedCandidates.length) {
+      lines.push('- Candidates:');
+      reviewedCandidates.forEach((candidate, index) => lines.push(`  ${index + 1}. ${summarizeEntryCandidate(candidate)}`));
     }
     lines.push('');
   }

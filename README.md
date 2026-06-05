@@ -166,6 +166,7 @@ Edit the `.env` file with your settings:
 - `PRE_MIGRATION_PAPER_EARLY_ACCELERATION_WEAK_WALLET_FLOW_MIN_LOW_SIGNAL_TOUCHES`: Low-signal wallet touches required before the weak-flow guard can block an early-acceleration paper entry (default: `3`)
 - `PRE_MIGRATION_PAPER_EARLY_ACCELERATION_WEAK_WALLET_FLOW_MIN_LATE_SELL_SOL`: Late-sell SOL needed before the weak-flow guard can block an early-acceleration paper entry (default: `1`)
 - `PRE_MIGRATION_PAPER_BAD_EXIT_COOLDOWN_MS`: Mint-level cooldown after a pre-migration paper stop-loss or losing close, shared across presets (default: `900000`)
+- `PRE_MIGRATION_PAPER_SAME_MINT_REENTRY_COOLDOWN_MS`: Short mint-level cooldown after any pre-migration paper exit to prevent immediate same-mint churn across presets (default: `120000`)
 - `RUNNER_RAYDIUM_SHADOW_ENABLED`: Enables report-only shadow diagnostics for Raydium runner candidates blocked by paper runner Pump-momentum mode; it never emits signals, quotes, AI reviews, or entries (default: `false`)
 - `POST_MIGRATION_CONTINUATION_ENABLED`: Enables passive continuation scoring for already-graduated coins (default: `true`)
 - `POST_MIGRATION_CONTINUATION_MIN_SCORE`: Minimum score for a `continuation_watch` dossier (default: `65`)
