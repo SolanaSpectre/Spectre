@@ -109,6 +109,7 @@
     "report:wallet-alpha": "node scripts/wallet-alpha-replay-report.js",
     "report:wallet-alpha-shadow": "node scripts/wallet-alpha-shadow-ledger.js",
     "report:post-run": "node scripts/run-post-run-reports.js",
+    "cleanup:generated": "node scripts/cleanup-generated-artifacts.js",
     "report:mint": "node scripts/mint-specimen-report.js",
     "fetch:kolscan": "node scripts/fetch-kolscan-leaderboard.js",
     "analyze:kolscan": "node scripts/analyze-kolscan-wallets.js",

@@ -4,6 +4,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const appendOutcomeSessionEvent = require('./append-outcome-session-event');
+const { cleanup, formatBytes, statfsFreeBytes } = require('./cleanup-generated-artifacts');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const NODE = process.execPath;
@@ -17,6 +18,35 @@ let wroteInterrupted = false;
 let paperSnapshotTimer = null;
 let lastSnapshotSignature = '';
 let ledgerSnapshotStartOffset = 0;
+
+function runPreRunDiskGuard() {
+  if (process.env.SPECTRE_PRE_RUN_CLEANUP_ENABLED === 'false') {
+    return;
+  }
+
+  const minFreeGb = Number(process.env.SPECTRE_MIN_FREE_GB || 8);
+  const beforeFree = statfsFreeBytes(REPO_ROOT);
+  console.log(`[lifecycle] pre-run free space: ${formatBytes(beforeFree)}; target >= ${minFreeGb} GB`);
+
+  const result = cleanup({
+    dryRun: false,
+    archiveRoot: process.env.SPECTRE_ARCHIVE_ROOT || 'C:\\Spectre-archives\\Spectre-clean',
+    minFreeGb,
+    keepTelemetry: Number(process.env.SPECTRE_KEEP_TELEMETRY_LOGS || 8),
+    keepDossiers: Number(process.env.SPECTRE_KEEP_CANDIDATE_DOSSIERS || 8),
+    keepStrategyLedgers: Number(process.env.SPECTRE_KEEP_STRATEGY_LEDGERS || 8),
+    keepReportDays: Number(process.env.SPECTRE_KEEP_REPORT_DAYS || 2),
+    rotateOutcomeLedger: process.env.SPECTRE_ROTATE_OUTCOME_LEDGER === 'true'
+  });
+
+  if (result.failures.length > 0) {
+    throw new Error(`pre-run cleanup failed for ${result.failures.length} artifact(s)`);
+  }
+
+  if (result.enoughFreeSpace === false) {
+    throw new Error(`free space remains below ${minFreeGb} GB after cleanup (${formatBytes(result.afterFreeBytes)} available)`);
+  }
+}
 
 function write(kind, meta = {}) {
   try {
@@ -285,58 +315,78 @@ function markInterrupted(signal) {
   }
 }
 
-process.on('SIGINT', () => markInterrupted('SIGINT'));
-process.on('SIGTERM', () => markInterrupted('SIGTERM'));
+function main() {
+  process.on('SIGINT', () => markInterrupted('SIGINT'));
+  process.on('SIGTERM', () => markInterrupted('SIGTERM'));
 
-write('session.started', {
-  reason: 'RUN_START',
-  startedAt: new Date().toISOString(),
-  shutdownClean: null
-});
-rememberLedgerSnapshotStartOffset();
-
-startPaperSnapshotTimer();
-
-child = spawn(NODE, [path.join('scripts', 'run-with-context-and-reports.js'), ...process.argv.slice(2)], {
-  cwd: REPO_ROOT,
-  env: buildChildEnv(),
-  stdio: 'inherit',
-  windowsHide: false
-});
-
-child.on('error', (error) => {
-  snapshotOpenPaperPositions('SPAWN_ERROR_SNAPSHOT');
-  stopPaperSnapshotTimer();
-  write('session.interrupted', {
-    reason: `SPAWN_ERROR:${error.message}`,
-    interruptedAt: new Date().toISOString(),
-    shutdownClean: false
-  });
-  process.exitCode = 1;
-});
-
-child.on('close', (code, signal) => {
-  stopPaperSnapshotTimer();
-  snapshotOpenPaperPositions('FINAL_SNAPSHOT');
-
-  const exitCode = Number.isFinite(code) ? code : interrupted ? 130 : 1;
-  if (signal && !wroteInterrupted) {
-    wroteInterrupted = true;
+  try {
+    runPreRunDiskGuard();
+  } catch (error) {
+    console.error(`[lifecycle] disk guard blocked run: ${error.message}`);
     write('session.interrupted', {
-      reason: `CHILD_SIGNAL:${signal}`,
-      signal,
+      reason: `DISK_GUARD:${error.message}`,
       interruptedAt: new Date().toISOString(),
       shutdownClean: false
     });
+    process.exit(1);
   }
 
-  write('session.stopped', {
-    reason: signal || `EXIT_${exitCode}`,
-    stoppedAt: new Date().toISOString(),
-    shutdownClean: exitCode === 0 && !interrupted && !signal,
-    botExitCode: exitCode,
-    signal: signal || null
+  write('session.started', {
+    reason: 'RUN_START',
+    startedAt: new Date().toISOString(),
+    shutdownClean: null
+  });
+  rememberLedgerSnapshotStartOffset();
+
+  startPaperSnapshotTimer();
+
+  child = spawn(NODE, [path.join('scripts', 'run-with-context-and-reports.js'), ...process.argv.slice(2)], {
+    cwd: REPO_ROOT,
+    env: buildChildEnv(),
+    stdio: 'inherit',
+    windowsHide: false
   });
 
-  process.exitCode = exitCode;
-});
+  child.on('error', (error) => {
+    snapshotOpenPaperPositions('SPAWN_ERROR_SNAPSHOT');
+    stopPaperSnapshotTimer();
+    write('session.interrupted', {
+      reason: `SPAWN_ERROR:${error.message}`,
+      interruptedAt: new Date().toISOString(),
+      shutdownClean: false
+    });
+    process.exitCode = 1;
+  });
+
+  child.on('close', (code, signal) => {
+    stopPaperSnapshotTimer();
+    snapshotOpenPaperPositions('FINAL_SNAPSHOT');
+
+    const exitCode = Number.isFinite(code) ? code : interrupted ? 130 : 1;
+    if (signal && !wroteInterrupted) {
+      wroteInterrupted = true;
+      write('session.interrupted', {
+        reason: `CHILD_SIGNAL:${signal}`,
+        signal,
+        interruptedAt: new Date().toISOString(),
+        shutdownClean: false
+      });
+    }
+
+    write('session.stopped', {
+      reason: signal || `EXIT_${exitCode}`,
+      stoppedAt: new Date().toISOString(),
+      shutdownClean: exitCode === 0 && !interrupted && !signal,
+      botExitCode: exitCode,
+      signal: signal || null
+    });
+
+    process.exitCode = exitCode;
+  });
+}
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = { main, runPreRunDiskGuard };
