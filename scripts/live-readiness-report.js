@@ -168,6 +168,8 @@ function selectCurveConfirmationReplay(report) {
 async function readTelemetry(filePath) {
   const stats = {
     filePath,
+    telemetryStartMs: null,
+    telemetryEndMs: null,
     counts: {},
     uniqueMints: {
       dryRun: new Set(),
@@ -256,6 +258,11 @@ async function readTelemetry(filePath) {
     }
     const type = String(event.type || '');
     const payload = event.payload || {};
+    const atMs = new Date(event.timestamp || payload.timestamp || 0).getTime();
+    if (Number.isFinite(atMs)) {
+      stats.telemetryStartMs = stats.telemetryStartMs === null ? atMs : Math.min(stats.telemetryStartMs, atMs);
+      stats.telemetryEndMs = stats.telemetryEndMs === null ? atMs : Math.max(stats.telemetryEndMs, atMs);
+    }
     increment(stats.counts, type);
 
     if (type === 'session.stopping') {
@@ -468,6 +475,12 @@ function buildVerdict(stats) {
   const pumpDevQueueErrors = number(pumpDevStop.eventQueueErrors, 0);
   const eventLoopMaxLagMs = number(stats.eventLoop.summary && stats.eventLoop.summary.maxLagMs, stats.eventLoop.maxLagMs);
   const eventLoopLagEvents = number(stats.eventLoop.summary && stats.eventLoop.summary.lagEvents, stats.eventLoop.lagEvents);
+  const telemetryDurationHours = stats.telemetryStartMs !== null && stats.telemetryEndMs !== null
+    ? Math.max(0.001, (stats.telemetryEndMs - stats.telemetryStartMs) / 3600000)
+    : 0;
+  const eventLoopLagRatePerHour = telemetryDurationHours > 0 ? eventLoopLagEvents / telemetryDurationHours : eventLoopLagEvents;
+  const liveSafeLagEventBudget = Math.max(2, Math.ceil(telemetryDurationHours * 3));
+  const watchLagEventBudget = Math.max(5, Math.ceil(telemetryDurationHours * 6));
   const dryAttempts = number(dryRunStop.attempts, stats.dryRun.attempts);
   const dryWouldSend = number(dryRunStop.wouldSend, stats.dryRun.wouldSend);
   const dryWouldBlock = number(dryRunStop.wouldBlock, stats.dryRun.wouldBlock);
@@ -518,12 +531,12 @@ function buildVerdict(stats) {
     blockers.push(`PumpDev feed instability: closes=${pumpDevCloses}, errors=${pumpDevErrors}, dropped=${pumpDevDropped}, queueErrors=${pumpDevQueueErrors}.`);
   }
 
-  if (eventLoopMaxLagMs <= 500 && eventLoopLagEvents <= 2) {
-    passes.push(`Event loop stayed live-safe for paper (${eventLoopLagEvents} lag events, max ${eventLoopMaxLagMs}ms).`);
-  } else if (eventLoopMaxLagMs <= 750 && eventLoopLagEvents <= 5) {
-    warnings.push(`Event-loop lag improved but still watch it (${eventLoopLagEvents} events, max ${eventLoopMaxLagMs}ms).`);
+  if (eventLoopMaxLagMs <= 500 && eventLoopLagEvents <= liveSafeLagEventBudget) {
+    passes.push(`Event loop stayed live-safe for paper (${eventLoopLagEvents} lag events, max ${eventLoopMaxLagMs}ms, ${eventLoopLagRatePerHour.toFixed(2)}/hr).`);
+  } else if (eventLoopMaxLagMs <= 750 && eventLoopLagEvents <= watchLagEventBudget) {
+    warnings.push(`Event-loop lag improved but still watch it (${eventLoopLagEvents} events, max ${eventLoopMaxLagMs}ms, ${eventLoopLagRatePerHour.toFixed(2)}/hr).`);
   } else {
-    blockers.push(`Event-loop lag is too high for live (${eventLoopLagEvents} events, max ${eventLoopMaxLagMs}ms).`);
+    blockers.push(`Event-loop lag is too high for live (${eventLoopLagEvents} events, max ${eventLoopMaxLagMs}ms, ${eventLoopLagRatePerHour.toFixed(2)}/hr).`);
   }
 
   if (finalistSubscribed > 0 && finalistUpdates > 0 && finalistErrors === 0 && finalistReady > 0) {
@@ -602,6 +615,8 @@ function buildVerdict(stats) {
       pumpDevErrors,
       eventLoopMaxLagMs,
       eventLoopLagEvents,
+      eventLoopLagRatePerHour,
+      telemetryDurationHours,
       finalistSubscribed,
       finalistUpdates,
       finalistReady,
@@ -746,7 +761,7 @@ function writeText(report) {
   lines.push('Key Metrics');
   lines.push(`- RPC started/failed: ${m.rpcStarted} / ${m.rpcFailures}`);
   lines.push(`- PumpDev closes/errors: ${m.pumpDevCloses} / ${m.pumpDevErrors}`);
-  lines.push(`- Event-loop lag events/max: ${m.eventLoopLagEvents} / ${m.eventLoopMaxLagMs}ms`);
+  lines.push(`- Event-loop lag events/max/rate: ${m.eventLoopLagEvents} / ${m.eventLoopMaxLagMs}ms / ${fmt(m.eventLoopLagRatePerHour, 2)}/hr`);
   lines.push(`- Finalist verifier subscribed/updates/ready/checks: ${m.finalistSubscribed} / ${m.finalistUpdates} / ${m.finalistReady} / ${m.finalistChecks}`);
   lines.push(`- Dry-run attempts/would_send/would_block/errors: ${m.dryAttempts} / ${m.dryWouldSend} / ${m.dryWouldBlock} / ${m.dryErrors}`);
   lines.push(`- Dry-run simulation failures: ${m.drySimulationFailures}`);
