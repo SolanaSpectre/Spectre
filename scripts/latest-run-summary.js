@@ -43,6 +43,7 @@ const FILES = {
   preMigrationSameMintReentryImpact: 'data/reports/pre-migration-same-mint-reentry-impact-latest.json',
   preMigrationBreakevenStopGap: 'data/reports/pre-migration-breakeven-stop-gap-latest.json',
   preMigrationExitProtectionReplay: 'data/reports/pre-migration-exit-protection-replay-latest.json',
+  preMigrationMfeMaeCapture: 'data/reports/pre-migration-mfe-mae-capture-latest.json',
   signalQuality: 'data/reports/pre-migration-signal-quality-latest.json',
   learning: 'data/reports/learning-orchestrator-latest.json',
   continuationPaper: 'data/reports/continuation-paper-latest.json',
@@ -2153,6 +2154,11 @@ function summarizeExitProtectionExample(row = {}) {
   return `${row.symbol || 'UNKNOWN'} ${row.mint || ''} | replay=${row.reason || 'n/a'} ${sol(row.pnlSol, 6)} | delta=${sol(row.pnlDeltaVsCurrentSol, 6)} | ${current} | hold=${fmt(row.holdSeconds, 1)}s`;
 }
 
+function summarizeMfeMaeCapture(row = {}) {
+  if (!row || typeof row !== 'object' || !Object.keys(row).length) return 'none';
+  return `${row.symbol || 'UNKNOWN'} ${row.mint || ''} | class=${row.captureClass || 'n/a'} | exit=${row.exitReason || 'n/a'} ${sol(row.pnlSol, 6)} | MFE=${pct(row.mfePct, 2)} | MAE=${pct(row.maePct, 2)} | realized=${pct(row.realizedReturnPct, 2)} | capture=${pct(row.captureRatio, 1)} | peakAt=${fmt(row.secondsToPeak, 1)}s`;
+}
+
 function buildLaunchDecisionLines({
   liveReadiness,
   paperEntries,
@@ -2264,6 +2270,7 @@ function buildSummary(docs) {
   const sameMintReentryImpact = docs.preMigrationSameMintReentryImpact.data || {};
   const breakevenStopGap = docs.preMigrationBreakevenStopGap.data || {};
   const exitProtectionReplay = docs.preMigrationExitProtectionReplay.data || {};
+  const mfeMaeCapture = docs.preMigrationMfeMaeCapture.data || {};
   const signal = docs.signalQuality.data || {};
   const learning = docs.learning.data || {};
   const strategyCandidateScorecard = docs.strategyCandidateScorecard.data || {};
@@ -2462,6 +2469,23 @@ function buildSummary(docs) {
     if (examples.length) {
       lines.push('- Best-scenario positive deltas:');
       examples.forEach((row, index) => lines.push(`  ${index + 1}. ${summarizeExitProtectionExample(row)}`));
+    }
+    lines.push('');
+  }
+
+  if (mfeMaeCapture.summary) {
+    const captureSummary = mfeMaeCapture.summary || {};
+    lines.push('0g. MFE/MAE Capture Attribution');
+    lines.push('--------------------------------');
+    lines.push('- Mode: report-only; separates entry quality from exit capture by measuring max favorable/adverse excursion for every actual pre-migration paper entry.');
+    lines.push(`- Entries / unique mints: ${captureSummary.entries ?? 'n/a'} / ${captureSummary.uniqueMints ?? 'n/a'}; total PnL=${sol(captureSummary.totalPnlSol, 6)}; wins/losses=${captureSummary.wins ?? 'n/a'} / ${captureSummary.losses ?? 'n/a'}.`);
+    lines.push(`- MFE median/p90/max=${pct(captureSummary.mfePct?.median, 2)} / ${pct(captureSummary.mfePct?.p90, 2)} / ${pct(captureSummary.mfePct?.max, 2)}; MAE median/p90/min=${pct(captureSummary.maePct?.median, 2)} / ${pct(captureSummary.maePct?.p90, 2)} / ${pct(captureSummary.maePct?.min, 2)}.`);
+    lines.push(`- Capture median/p90=${pct(captureSummary.captureRatio?.median, 1)} / ${pct(captureSummary.captureRatio?.p90, 1)}; high-MFE entries=${captureSummary.highMfeEntries ?? 'n/a'}, low-MFE entries=${captureSummary.lowMfeEntries ?? 'n/a'}, high-MFE gave-back-to-loss=${captureSummary.gaveBackToLossEntries ?? 'n/a'}.`);
+    lines.push(`- Capture classes: ${formatTopCounts(captureSummary.captureClassCounts)}.`);
+    const worstCapture = topArray(mfeMaeCapture.worstCapture, 4);
+    if (worstCapture.length) {
+      lines.push('- Worst capture rows:');
+      worstCapture.forEach((row, index) => lines.push(`  ${index + 1}. ${summarizeMfeMaeCapture(row)}`));
     }
     lines.push('');
   }
