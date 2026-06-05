@@ -37,6 +37,7 @@ const FILES = {
   preMigrationCurveConfirmationReplay: 'data/reports/pre-migration-curve-confirmation-replay-latest.json',
   preMigrationRelaxedGateReplay: 'data/reports/pre-migration-relaxed-gate-replay-latest.json',
   preMigrationCurveStallRelaxedReplay: 'data/reports/pre-migration-curve-stall-relaxed-replay-latest.json',
+  preMigrationCurveFalseNegativeReplay: 'data/reports/pre-migration-curve-false-negative-replay-latest.json',
   preMigrationWalletConditionedRelaxedGateReplay: 'data/reports/pre-migration-wallet-conditioned-relaxed-gate-replay-latest.json',
   preMigrationWalletRelaxedShadowOutcome: 'data/reports/pre-migration-wallet-relaxed-shadow-outcome-latest.json',
   preMigrationWalletContextCoverage: 'data/reports/pre-migration-wallet-context-coverage-latest.json',
@@ -2282,6 +2283,7 @@ function buildSummary(docs) {
   const dryRunOutcome = docs.preMigrationDryRunOutcome.data || {};
   const relaxedGateReplay = docs.preMigrationRelaxedGateReplay.data || {};
   const curveStallRelaxedReplay = docs.preMigrationCurveStallRelaxedReplay.data || {};
+  const curveFalseNegativeReplay = docs.preMigrationCurveFalseNegativeReplay.data || {};
   const walletConditionedRelaxedGateReplay = docs.preMigrationWalletConditionedRelaxedGateReplay.data || {};
   const walletRelaxedShadowOutcome = docs.preMigrationWalletRelaxedShadowOutcome.data || {};
   const walletContextCoverage = docs.preMigrationWalletContextCoverage.data || {};
@@ -3755,6 +3757,40 @@ function buildSummary(docs) {
     const bestWinners = topArray(bestCurveStallProfile.topWinners, 5);
     const bestLosers = topArray(bestCurveStallProfile.topLosers, 5);
     lines.push(`- Best profile detail: ${bestCurveStallProfileName} | ${bestCurveStallProfile.profile?.description || 'n/a'}`);
+    if (bestWinners.length) {
+      lines.push('- Best-profile top winners:');
+      bestWinners.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRelaxedGateTrade(item)}`));
+    }
+    if (bestLosers.length) {
+      lines.push('- Best-profile top losers:');
+      bestLosers.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRelaxedGateTrade(item)}`));
+    }
+  }
+  lines.push('');
+
+  const curveFalseNegativeRanking = topArray(curveFalseNegativeReplay.ranking, 8);
+  const bestCurveFalseNegativeProfileName = curveFalseNegativeRanking[0]?.name;
+  const bestCurveFalseNegativeProfile = bestCurveFalseNegativeProfileName ? curveFalseNegativeReplay.profiles?.[bestCurveFalseNegativeProfileName] : null;
+
+  lines.push('9c2c. Curve False-Negative Replay');
+  lines.push('----------------------------------');
+  lines.push('- Mode: report-only; replays CURVE_NOT_ADVANCING rows that later showed useful/strong curve follow-through. Does not alter runtime gates.');
+  lines.push('- Interpretation: positive immediate-shadow PnL is hindsight-selected; treat it as pocket evidence only. Runtime-actionable confirmation profiles still need positive median and larger samples.');
+  lines.push(`- Telemetry files / target reason: ${curveFalseNegativeReplay.inputs?.telemetryFilesRead ?? 'n/a'} / ${curveFalseNegativeReplay.inputs?.targetReason || 'n/a'}`);
+  lines.push('- Candidate classes:');
+  objectLines(curveFalseNegativeReplay.candidateClassCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  if (curveFalseNegativeRanking.length) {
+    lines.push('- Profile ranking:');
+    curveFalseNegativeRanking.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.name}: eligible=${item.eligibleCandidates ?? 'n/a'}, entered=${item.confirmedEntries ?? 'n/a'}, wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}, winRate=${pct(item.winRate, 1)}, pnl=${sol(item.totalPnlSol, 6)}, median=${sol(item.medianPnlSol, 6)}, exits=${Object.entries(item.exitReasonCounts || {}).map(([key, value]) => `${key}=${value}`).join(', ') || 'n/a'}`);
+    });
+  } else {
+    lines.push('- Profile ranking: none');
+  }
+  if (bestCurveFalseNegativeProfile) {
+    const bestWinners = topArray(bestCurveFalseNegativeProfile.topWinners, 5);
+    const bestLosers = topArray(bestCurveFalseNegativeProfile.topLosers, 5);
+    lines.push(`- Best profile detail: ${bestCurveFalseNegativeProfileName} | ${bestCurveFalseNegativeProfile.profile?.description || 'n/a'}`);
     if (bestWinners.length) {
       lines.push('- Best-profile top winners:');
       bestWinners.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRelaxedGateTrade(item)}`));
