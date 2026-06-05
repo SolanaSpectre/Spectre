@@ -33,7 +33,7 @@ function secondsBetween(startAt, endAt) {
 }
 
 function payloadOf(event) {
-  return event.payload || event.data || {};
+  return event?.payload || event?.data || {};
 }
 
 function mintOf(event) {
