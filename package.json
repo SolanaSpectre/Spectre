@@ -46,6 +46,7 @@
     "report:pre-migration-entry-timing-pressure": "node scripts/pre-migration-entry-timing-pressure-report.js",
     "report:pre-migration-rolling-entry-trend": "node scripts/pre-migration-rolling-entry-trend-report.js",
     "report:pre-migration-entry-shape": "node scripts/pre-migration-entry-shape-report.js",
+    "report:pre-migration-entry-funnel": "node scripts/pre-migration-entry-funnel-report.js",
     "report:pre-migration-entry-gate-margin": "node scripts/pre-migration-entry-gate-margin-report.js",
     "report:pre-migration-guard-attribution": "node scripts/pre-migration-guard-attribution-report.js",
     "report:pre-migration-skip-follow-through": "node scripts/pre-migration-skip-follow-through-report.js",

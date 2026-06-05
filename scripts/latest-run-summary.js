@@ -25,6 +25,7 @@ const FILES = {
   preMigrationEntryTimingPressure: 'data/reports/pre-migration-entry-timing-pressure-latest.json',
   preMigrationRollingEntryTrend: 'data/reports/pre-migration-rolling-entry-trend-latest.json',
   preMigrationEntryShape: 'data/reports/pre-migration-entry-shape-latest.json',
+  preMigrationEntryFunnel: 'data/reports/pre-migration-entry-funnel-latest.json',
   preMigrationEntryGateMargin: 'data/reports/pre-migration-entry-gate-margin-latest.json',
   preMigrationGuardAttribution: 'data/reports/pre-migration-guard-attribution-latest.json',
   preMigrationSkipFollowThrough: 'data/reports/pre-migration-skip-follow-through-latest.json',
@@ -2123,6 +2124,15 @@ function summarizeEntryCandidate(candidate = {}) {
   return `${candidate.kind || 'candidate'} ${candidate.symbol || 'UNKNOWN'} ${candidate.mint || ''} | verdict=${candidate.verdict || 'n/a'} | score=${fmt(candidate.score, 2)} | curve=${fmt(candidate.curveProgress, 4)} | max120=${fmt(future120.maxCurveProgress, 4)} | price120=${fmt(future120.maxPriceDeltaPct, 2)}%${exitText}${touch} | flags=${flags}`;
 }
 
+function summarizeEntryFunnelRow(row = {}) {
+  if (!row || typeof row !== 'object' || !Object.keys(row).length) return 'none';
+  const reason = Object.keys(row.topSkipReasons || {})[0]
+    || Object.keys(row.topGuardReasons || {})[0]
+    || row.bestReadinessReason
+    || 'n/a';
+  return `${row.symbol || 'UNKNOWN'} ${row.mint || ''} | stage=${row.terminalStage || 'n/a'} | score=${fmt(row.maxScore, 2)} | curve=${fmt(row.maxCurveProgress, 4)} | vol=${fmt(row.maxRecentVolumeSol, 2)} | vel=${fmt(row.maxTradeVelocityPerMin, 2)} | readiness=${fmt(row.bestReadinessPct, 2)}% | reason=${reason}`;
+}
+
 function summarizeSameMintReentry(row = {}) {
   if (!row || typeof row !== 'object' || !Object.keys(row).length) return 'none';
   const previous = row.previousExit
@@ -2256,6 +2266,7 @@ function buildSummary(docs) {
   const entryTimingPressure = docs.preMigrationEntryTimingPressure.data || {};
   const rollingEntryTrend = docs.preMigrationRollingEntryTrend.data || {};
   const entryShape = docs.preMigrationEntryShape.data || {};
+  const entryFunnel = docs.preMigrationEntryFunnel.data || {};
   const skipFollowThrough = docs.preMigrationSkipFollowThrough.data || {};
   const skipNear90Watchlist = docs.preMigrationSkipNear90Watchlist.data || {};
   const highConvictionWatchFollowThrough = docs.preMigrationHighConvictionWatchFollowThrough.data || {};
@@ -2404,6 +2415,25 @@ function buildSummary(docs) {
     if (topBlockers.length) {
       lines.push('- Top promotion blockers:');
       topBlockers.forEach((item) => lines.push(`  - ${item.blocker}: ${item.count}`));
+    }
+    lines.push('');
+  }
+
+  if (entryFunnel.summary) {
+    const funnel = entryFunnel.summary || {};
+    const rates = funnel.funnelRates || {};
+    const dropoffs = funnel.dropoffs || {};
+    lines.push('0b2. Entry Funnel');
+    lines.push('-----------------');
+    lines.push(`- Observed/flagged/evaluated/wouldEnter/entered mints: ${funnel.observedMints ?? 'n/a'} / ${funnel.flaggedMints ?? 'n/a'} / ${funnel.evaluatedMints ?? 'n/a'} / ${funnel.wouldEnterMints ?? 'n/a'} / ${funnel.enteredMints ?? 'n/a'}.`);
+    lines.push(`- Funnel rates flagged/observed=${pct(rates.flaggedPerObserved, 1)}, evaluated/flagged=${pct(rates.evaluatedPerFlagged, 1)}, wouldEnter/evaluated=${pct(rates.wouldEnterPerEvaluated, 1)}, entered/evaluated=${pct(rates.enteredPerEvaluated, 1)}.`);
+    lines.push(`- Dropoffs: observed-not-flagged=${dropoffs.observedNotFlaggedMints ?? 'n/a'}, flagged-not-evaluated=${dropoffs.flaggedNotEvaluatedMints ?? 'n/a'}, evaluated-never-would-enter=${dropoffs.evaluatedNeverWouldEnterMints ?? 'n/a'}, wouldEnter-no-entry=${dropoffs.wouldEnterNoEntryMints ?? 'n/a'}.`);
+    lines.push(`- Top skip reasons: ${formatTopCounts(funnel.topSkipReasons)}.`);
+    lines.push(`- Top guard failed checks: ${formatTopCounts(funnel.topGuardFailedChecks)}.`);
+    const closest = topArray(entryFunnel.closestBlocked, 5);
+    if (closest.length) {
+      lines.push('- Closest blocked candidates:');
+      closest.forEach((row, index) => lines.push(`  ${index + 1}. ${summarizeEntryFunnelRow(row)}`));
     }
     lines.push('');
   }
