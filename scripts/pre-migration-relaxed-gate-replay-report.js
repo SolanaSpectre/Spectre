@@ -81,6 +81,45 @@ const PROFILES = {
     stopLossPct: 0.15,
     maxHoldSeconds: 180
   },
+  score_gap2_curve80: {
+    description: 'Score-threshold miss: within 2 score points of logged threshold and curve>=80%, any flow.',
+    allowedReasons: ['LOW_SCORE'],
+    minCurveProgress: 0.8,
+    minScore: 75,
+    minScoreThreshold: 84,
+    maxScoreGap: 2,
+    minRecentVolumeSol: 0,
+    minTradeVelocityPerMin: 0,
+    takeProfitPct: 0.35,
+    stopLossPct: 0.15,
+    maxHoldSeconds: 180
+  },
+  score_gap2_curve90: {
+    description: 'Late score-threshold miss: within 2 score points of logged threshold and curve>=90%, any flow.',
+    allowedReasons: ['LOW_SCORE'],
+    minCurveProgress: 0.9,
+    minScore: 75,
+    minScoreThreshold: 84,
+    maxScoreGap: 2,
+    minRecentVolumeSol: 0,
+    minTradeVelocityPerMin: 0,
+    takeProfitPct: 0.35,
+    stopLossPct: 0.15,
+    maxHoldSeconds: 180
+  },
+  score_gap8_curve90: {
+    description: 'Broad late score miss: within 8 score points of logged threshold and curve>=90%, any flow.',
+    allowedReasons: ['LOW_SCORE'],
+    minCurveProgress: 0.9,
+    minScore: 75,
+    minScoreThreshold: 84,
+    maxScoreGap: 8,
+    minRecentVolumeSol: 0,
+    minTradeVelocityPerMin: 0,
+    takeProfitPct: 0.35,
+    stopLossPct: 0.15,
+    maxHoldSeconds: 180
+  },
   all_curve_bottlenecks: {
     description: 'First CURVE_NOT_ADVANCING/NO_PRIOR skip per run+mint.',
     allowedReasons: ['CURVE_NOT_ADVANCING', 'NO_PRIOR_CURVE_PROGRESS'],
