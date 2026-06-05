@@ -27,6 +27,7 @@ const FILES = {
   preMigrationEntryShape: 'data/reports/pre-migration-entry-shape-latest.json',
   preMigrationEntryFunnel: 'data/reports/pre-migration-entry-funnel-latest.json',
   preMigrationEntryGateMargin: 'data/reports/pre-migration-entry-gate-margin-latest.json',
+  preMigrationCurveAdvanceDiagnostic: 'data/reports/pre-migration-curve-advance-diagnostic-latest.json',
   preMigrationGuardAttribution: 'data/reports/pre-migration-guard-attribution-latest.json',
   preMigrationSkipFollowThrough: 'data/reports/pre-migration-skip-follow-through-latest.json',
   preMigrationSkipNear90Watchlist: 'data/reports/pre-migration-skip-near-90-watchlist-latest.json',
@@ -340,6 +341,13 @@ function summarizeEntryGateMargin(item = {}) {
   const threshold = gate.threshold === null || gate.threshold === undefined ? 'n/a' : fmt(gate.threshold, 4);
   const gateText = gate.name ? `gate=${gate.name} ${actual}/${threshold}` : 'gate=n/a';
   return `${label} | preset=${item.preset || 'n/a'} | reason=${item.reason || 'n/a'} | ready=${fmt(item.readinessPct, 2)}% | ${gateText} | score=${fmt(item.score, 2)} | curve=${fmt(item.curveProgress, 4)} | vol=${fmt(item.recentVolumeSol, 2)} | vel=${fmt(item.tradeVelocityPerMin, 2)}`;
+}
+
+function summarizeCurveAdvanceDiagnostic(item = {}) {
+  const label = candidateLabel(item);
+  const w120 = item.window120s || {};
+  const w300 = item.window300s || {};
+  return `${label} | class=${item.classification || 'n/a'} | ready=${fmt(item.readinessPct, 2)}% | delta=${fmt(item.curveProgressDelta, 4)}/${fmt(item.threshold, 4)} gap=${fmt(item.deltaGap, 4)} | curve=${fmt(item.curveProgress, 4)} | max120=${fmt(w120.maxCurveProgress, 4)} d120=${fmt(w120.curveDelta, 4)} | max300=${fmt(w300.maxCurveProgress, 4)} | price120=${w120.maxPriceDeltaPct === null || w120.maxPriceDeltaPct === undefined ? 'n/a' : `${fmt(w120.maxPriceDeltaPct, 2)}%`}`;
 }
 
 function summarizeEntryGateNearMissFollowThrough(name, item = {}) {
@@ -2267,6 +2275,7 @@ function buildSummary(docs) {
   const rollingEntryTrend = docs.preMigrationRollingEntryTrend.data || {};
   const entryShape = docs.preMigrationEntryShape.data || {};
   const entryFunnel = docs.preMigrationEntryFunnel.data || {};
+  const curveAdvanceDiagnostic = docs.preMigrationCurveAdvanceDiagnostic.data || {};
   const skipFollowThrough = docs.preMigrationSkipFollowThrough.data || {};
   const skipNear90Watchlist = docs.preMigrationSkipNear90Watchlist.data || {};
   const highConvictionWatchFollowThrough = docs.preMigrationHighConvictionWatchFollowThrough.data || {};
@@ -3637,6 +3646,32 @@ function buildSummary(docs) {
     entryGateClosest.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeEntryGateMargin(item)}`));
   } else {
     lines.push('- Closest skipped mints: none');
+  }
+  lines.push('');
+
+  const curveAdvanceSummary = curveAdvanceDiagnostic.summary || {};
+  const curveAdvanceFalseNegatives = topArray(curveAdvanceDiagnostic.topLikelyFalseNegatives, 8);
+  const curveAdvanceClosest = topArray(curveAdvanceDiagnostic.closestThresholdMisses, 8);
+
+  lines.push('9b3. CURVE_NOT_ADVANCING Diagnostic');
+  lines.push('-----------------------------------');
+  lines.push('- Mode: report-only; compares curve-stall gate deltas with later curve/price follow-through.');
+  lines.push(`- Decisions / unique mints: ${curveAdvanceSummary.decisions ?? 'n/a'} / ${curveAdvanceSummary.uniqueMints ?? 'n/a'}`);
+  lines.push(`- Near-threshold decisions >=80% / likely false negatives 120s / flat blocks: ${curveAdvanceSummary.nearThresholdDecisions80Pct ?? 'n/a'} / ${curveAdvanceSummary.likelyFalseNegativeDecisions120s ?? 'n/a'} / ${curveAdvanceSummary.correctlyBlockedFlat120s ?? 'n/a'}`);
+  lines.push(`- Crossed 85/90 within 120s: ${curveAdvanceSummary.crossed85Within120s ?? 'n/a'} / ${curveAdvanceSummary.crossed90Within120s ?? 'n/a'}; within 300s: ${curveAdvanceSummary.crossed85Within300s ?? 'n/a'} / ${curveAdvanceSummary.crossed90Within300s ?? 'n/a'}`);
+  lines.push(`- Readiness pct median/p90/max: ${fmt(curveAdvanceSummary.readinessPct?.median, 2)}% / ${fmt(curveAdvanceSummary.readinessPct?.p90, 2)}% / ${fmt(curveAdvanceSummary.readinessPct?.max, 2)}%`);
+  lines.push(`- Curve delta 120s median/p90/max: ${fmt(curveAdvanceSummary.curveDelta120s?.median, 4)} / ${fmt(curveAdvanceSummary.curveDelta120s?.p90, 4)} / ${fmt(curveAdvanceSummary.curveDelta120s?.max, 4)}`);
+  lines.push('- Classification counts:');
+  objectLines(curveAdvanceSummary.classificationCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  if (curveAdvanceFalseNegatives.length) {
+    lines.push('- Top likely false negatives:');
+    curveAdvanceFalseNegatives.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeCurveAdvanceDiagnostic(item)}`));
+  } else {
+    lines.push('- Top likely false negatives: none');
+  }
+  if (curveAdvanceClosest.length) {
+    lines.push('- Closest threshold misses:');
+    curveAdvanceClosest.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeCurveAdvanceDiagnostic(item)}`));
   }
   lines.push('');
 
