@@ -82,6 +82,12 @@ class PreMigrationPaperLane {
     this.curveFalseNegativeBridgeMinBuyRatio = Number(config.preMigrationPaperCurveFalseNegativeBridgeMinBuyRatio ?? 0.4);
     this.curveFalseNegativeBridgeRequirePositiveWallet = config.preMigrationPaperCurveFalseNegativeBridgeRequirePositiveWallet === true;
     this.curveFalseNegativeBridgeMaxEntriesPerRun = Number(config.preMigrationPaperCurveFalseNegativeBridgeMaxEntriesPerRun ?? 3);
+    this.curveFalseNegativeBridgePaperEntriesEnabled = config.preMigrationPaperCurveFalseNegativeBridgePaperEntriesEnabled === true;
+    this.curveFalseNegativeBridgeRecoveryShadowEnabled = config.preMigrationPaperCurveFalseNegativeBridgeRecoveryShadowEnabled !== false;
+    this.curveFalseNegativeBridgeRecoveryMinConsecutiveAdvances = Math.max(1, Number(config.preMigrationPaperCurveFalseNegativeBridgeRecoveryMinConsecutiveAdvances ?? 2));
+    this.curveFalseNegativeBridgeRecoveryLookbackMs = Math.max(1000, Number(config.preMigrationPaperCurveFalseNegativeBridgeRecoveryLookbackMs ?? 30_000));
+    this.curveFalseNegativeBridgeRecoveryMinAdvance = Number(config.preMigrationPaperCurveFalseNegativeBridgeRecoveryMinAdvance ?? 0.003);
+    this.curveFalseNegativeBridgeParityMaxDelta = Number(config.preMigrationPaperCurveFalseNegativeBridgeParityMaxDelta ?? 0.03);
     this.presets = this.buildPresets(config);
     this.strategy = this.presets[0]?.strategy || {
       minScore: config.preMigrationPaperMinScore,
@@ -226,6 +232,12 @@ class PreMigrationPaperLane {
         }
 
         const decision = this.evaluateEntryDecision(observedState, preset, entryGuards, timestamp);
+        const recoveryShadow = preset.name === 'curveFalseNegativeWalletBridge'
+          ? this.curveFalseNegativeBridgeRecoveryShadowEvent(observedState, preset, entryGuards, timestamp)
+          : null;
+        if (recoveryShadow) {
+          events.push(recoveryShadow);
+        }
         events.push(this.guardAttributionEvent(observedState, timestamp, preset, decision, entryGuards, {
           flagged: true,
           suppressedPresetIneligible: decision.reason === 'PRESET_NOT_ELIGIBLE_FOR_GUARD_OVERRIDE'
@@ -528,6 +540,17 @@ class PreMigrationPaperLane {
       };
     }
 
+    if (!this.curveFalseNegativeBridgePaperEntriesEnabled) {
+      return {
+        ...entryGuards,
+        ...bridge,
+        passed: false,
+        reason: 'CURVE_FALSE_NEGATIVE_BRIDGE_PAPER_ENTRY_PAUSED_FOR_RECOVERY_SHADOW',
+        bridgePaperEntryPaused: true,
+        bridgeRecoveryShadowEnabled: this.curveFalseNegativeBridgeRecoveryShadowEnabled
+      };
+    }
+
     const capDecision = this.evaluatePresetEntryCap(preset);
     if (!capDecision.passed) {
       return capDecision;
@@ -641,6 +664,205 @@ class PreMigrationPaperLane {
       trackedFirstTouchBuy: this.walletTouchPayload(trackedFirstTouchBuy),
       positiveFirstTouchBuy: positiveFirstTouchBuy ? this.walletTouchPayload(positiveFirstTouchBuy) : null,
       bridgeCurveProgress: this.compact(curveProgress, 6)
+    };
+  }
+
+  curveFalseNegativeBridgeRecoveryShadowEvent(state, preset, entryGuards, timestamp = new Date().toISOString()) {
+    if (!this.curveFalseNegativeBridgeRecoveryShadowEnabled) {
+      return null;
+    }
+
+    const history = this.observationHistory.get(state.mint) || [];
+    const bridge = this.evaluateCurveFalseNegativeWalletBridgeSupport(state);
+    const thresholdDecision = this.evaluateStrategyThresholds(state, preset.strategy);
+    const recovery = this.evaluateCurveRecoveryConfirmation(history, timestamp);
+    const noSell = this.evaluateNoTrackedSellAfterQualifyingBuy(state, bridge);
+    const parity = this.evaluateBridgeCurveParity(state);
+    const staleGuard = this.evaluateHighCurveStaleSnapshotGuard(state, timestamp, 'CURVE_FALSE_NEGATIVE_WALLET_BRIDGE_RECOVERY_SHADOW');
+    const sourceEligible = entryGuards?.reason === 'CURVE_NOT_ADVANCING' || entryGuards?.passed === true;
+    const wouldEnter = Boolean(
+      sourceEligible
+      && bridge.passed
+      && thresholdDecision.passed
+      && recovery.passed
+      && noSell.passed
+      && parity.passed
+      && !staleGuard.blocked
+    );
+    const failedChecks = [];
+    if (!sourceEligible) failedChecks.push(entryGuards?.reason || 'SOURCE_NOT_ELIGIBLE');
+    for (const item of [bridge, thresholdDecision, recovery, noSell, parity]) {
+      if (!item.passed && item.reason) failedChecks.push(item.reason);
+    }
+    if (staleGuard.blocked) failedChecks.push('HIGH_CURVE_STALE_CURVE_UPDATE');
+    const telemetryType = wouldEnter
+      ? 'pre_migration_curve_false_negative_recovery_shadow.would_enter'
+      : 'pre_migration_curve_false_negative_recovery_shadow.would_skip';
+    const priceSol = this.compact(this.getPrice(state), 15);
+
+    return {
+      type: 'diagnostic',
+      telemetryType,
+      payload: {
+        decision: wouldEnter ? 'RECOVERY_SHADOW_WOULD_ENTER' : 'RECOVERY_SHADOW_WOULD_SKIP',
+        preset: preset.name,
+        lane: preset.lane || null,
+        profileName: preset.profileName || null,
+        mint: state.mint,
+        symbol: state.symbol || null,
+        timestamp,
+        sourceReason: entryGuards?.reason || null,
+        sourceGuardPassed: entryGuards?.passed === true,
+        paperEntryPaused: !this.curveFalseNegativeBridgePaperEntriesEnabled,
+        reason: wouldEnter ? null : (failedChecks[0] || 'RECOVERY_SHADOW_FILTER_FAILED'),
+        failedChecks: [...new Set(failedChecks)],
+        score: this.compact(state.score, 2),
+        curveProgress: this.compact(state.curveProgress, 6),
+        recentVolumeSol: this.compact(state.recentVolumeSol, 4),
+        tradeVelocityPerMin: this.compact(state.tradeVelocityPerMin, 2),
+        buyRatio: this.compact(this.computeBuyRatio(state), 4),
+        priceSol,
+        bondingCurvePriceSol: priceSol,
+        curvePriceSol: priceSol,
+        ...this.reservesPayload(state),
+        walletTouchCount: bridge.walletTouchCount ?? 0,
+        positiveOrProvenTouchCount: bridge.positiveOrProvenTouchCount ?? 0,
+        avoidTouchCount: bridge.avoidTouchCount ?? 0,
+        trackedFirstTouchBuy: bridge.trackedFirstTouchBuy || null,
+        positiveFirstTouchBuy: bridge.positiveFirstTouchBuy || null,
+        recovery,
+        noTrackedSellAfterQualifyingBuy: noSell,
+        curveParity: parity,
+        highCurveStaleSnapshotBlocked: staleGuard.blocked === true,
+        highCurveStaleSnapshotCurveSnapshotAgeSeconds: this.compact(staleGuard.highCurveStaleSnapshotCurveSnapshotAgeSeconds, 2),
+        highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds: this.compact(staleGuard.highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds, 2),
+        thresholdDecision,
+        walletClassificationContext: state.walletClassificationContext || null
+      }
+    };
+  }
+
+  evaluateCurveRecoveryConfirmation(history = [], timestamp = new Date().toISOString()) {
+    const nowMs = new Date(timestamp).getTime();
+    const minConsecutive = this.curveFalseNegativeBridgeRecoveryMinConsecutiveAdvances;
+    const lookbackMs = this.curveFalseNegativeBridgeRecoveryLookbackMs;
+    const minAdvance = this.curveFalseNegativeBridgeRecoveryMinAdvance;
+    const rows = Array.isArray(history)
+      ? history
+        .map((item) => ({
+          timestamp: item.timestamp,
+          timestampMs: new Date(item.timestamp || 0).getTime(),
+          curveProgress: this.toCurveProgress(item.curveProgress)
+        }))
+        .filter((item) => Number.isFinite(item.curveProgress))
+        .filter((item) => !Number.isFinite(nowMs) || !Number.isFinite(item.timestampMs) || nowMs - item.timestampMs <= lookbackMs)
+        .sort((a, b) => a.timestampMs - b.timestampMs)
+      : [];
+
+    let consecutiveAdvances = 0;
+    let totalAdvance = 0;
+    let previous = null;
+    for (const row of rows) {
+      if (!previous) {
+        previous = row;
+        continue;
+      }
+      const delta = row.curveProgress - previous.curveProgress;
+      if (delta > 0) {
+        consecutiveAdvances += 1;
+        totalAdvance += delta;
+      } else if (delta < 0) {
+        consecutiveAdvances = 0;
+        totalAdvance = 0;
+      }
+      previous = row;
+    }
+
+    const passed = consecutiveAdvances >= minConsecutive && totalAdvance >= minAdvance;
+    return {
+      passed,
+      reason: passed ? null : 'CURVE_FALSE_NEGATIVE_RECOVERY_SHADOW_NO_CURVE_RECOVERY',
+      consecutiveAdvances,
+      minConsecutiveAdvances: minConsecutive,
+      totalAdvance: this.compact(totalAdvance, 6),
+      minAdvance: this.compact(minAdvance, 6),
+      lookbackMs,
+      observations: rows.length,
+      firstObservationAt: rows[0]?.timestamp || null,
+      lastObservationAt: rows[rows.length - 1]?.timestamp || null
+    };
+  }
+
+  evaluateNoTrackedSellAfterQualifyingBuy(state = {}, bridge = {}) {
+    const context = state.walletClassificationContext || {};
+    const wallets = Array.isArray(context.wallets) ? context.wallets.slice() : [];
+    const qualifyingWallet = bridge.trackedFirstTouchBuy?.wallet || bridge.positiveFirstTouchBuy?.wallet || null;
+    const buyAtMs = new Date(bridge.trackedFirstTouchBuy?.tradeAt || bridge.positiveFirstTouchBuy?.tradeAt || 0).getTime();
+    if (!qualifyingWallet || !Number.isFinite(buyAtMs)) {
+      return {
+        passed: false,
+        reason: 'CURVE_FALSE_NEGATIVE_RECOVERY_SHADOW_NO_QUALIFYING_BUY'
+      };
+    }
+
+    const sellsAfterBuy = wallets.filter((wallet) => (
+      wallet.wallet === qualifyingWallet
+      && String(wallet.side || '').toLowerCase() === 'sell'
+      && Number.isFinite(new Date(wallet.tradeAt || 0).getTime())
+      && new Date(wallet.tradeAt || 0).getTime() >= buyAtMs
+    ));
+
+    return {
+      passed: sellsAfterBuy.length === 0,
+      reason: sellsAfterBuy.length === 0 ? null : 'CURVE_FALSE_NEGATIVE_RECOVERY_SHADOW_TRACKED_BUYER_ALREADY_SOLD',
+      qualifyingWallet,
+      qualifyingBuyAt: bridge.trackedFirstTouchBuy?.tradeAt || bridge.positiveFirstTouchBuy?.tradeAt || null,
+      sellsAfterQualifyingBuy: sellsAfterBuy.length,
+      firstSellAfterQualifyingBuy: sellsAfterBuy[0] ? this.walletTouchPayload(sellsAfterBuy[0]) : null
+    };
+  }
+
+  evaluateBridgeCurveParity(state = {}) {
+    const providerCurve = this.toCurveProgress(
+      state.providerCurveProgress
+      ?? state.curveProgress
+      ?? state.bondingCurveState?.providerCurveProgress
+    );
+    const onchainCurve = this.toCurveProgress(
+      state.onchainCurveProgress
+      ?? state.bondingCurveState?.onchainCurveProgress
+      ?? state.bondingCurveState?.curveProgressOnchain
+      ?? (state.bondingCurveState?.approximate === false ? state.bondingCurveState?.curveProgress : null)
+    );
+
+    if (!Number.isFinite(providerCurve)) {
+      return {
+        passed: false,
+        reason: 'CURVE_FALSE_NEGATIVE_RECOVERY_SHADOW_MISSING_PROVIDER_CURVE'
+      };
+    }
+
+    if (!Number.isFinite(onchainCurve)) {
+      return {
+        passed: false,
+        reason: 'CURVE_FALSE_NEGATIVE_RECOVERY_SHADOW_MISSING_ONCHAIN_CURVE_PARITY',
+        providerCurveProgress: this.compact(providerCurve, 6),
+        onchainCurveProgress: null,
+        maxAbsCurveDelta: this.compact(this.curveFalseNegativeBridgeParityMaxDelta, 6)
+      };
+    }
+
+    const curveDelta = onchainCurve - providerCurve;
+    const absCurveDelta = Math.abs(curveDelta);
+    const passed = absCurveDelta <= this.curveFalseNegativeBridgeParityMaxDelta;
+    return {
+      passed,
+      reason: passed ? null : 'CURVE_FALSE_NEGATIVE_RECOVERY_SHADOW_CURVE_PARITY_MISMATCH',
+      providerCurveProgress: this.compact(providerCurve, 6),
+      onchainCurveProgress: this.compact(onchainCurve, 6),
+      curveDelta: this.compact(curveDelta, 6),
+      absCurveDelta: this.compact(absCurveDelta, 6),
+      maxAbsCurveDelta: this.compact(this.curveFalseNegativeBridgeParityMaxDelta, 6)
     };
   }
 

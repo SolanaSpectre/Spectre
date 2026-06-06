@@ -39,6 +39,7 @@ const FILES = {
   preMigrationCurveStallRelaxedReplay: 'data/reports/pre-migration-curve-stall-relaxed-replay-latest.json',
   preMigrationCurveFalseNegativeReplay: 'data/reports/pre-migration-curve-false-negative-replay-latest.json',
   preMigrationCurveFalseNegativeShadow: 'data/reports/pre-migration-curve-false-negative-shadow-latest.json',
+  preMigrationCurveFalseNegativeRecoveryShadow: 'data/reports/pre-migration-curve-false-negative-recovery-shadow-latest.json',
   preMigrationWalletConditionedRelaxedGateReplay: 'data/reports/pre-migration-wallet-conditioned-relaxed-gate-replay-latest.json',
   preMigrationWalletRelaxedShadowOutcome: 'data/reports/pre-migration-wallet-relaxed-shadow-outcome-latest.json',
   preMigrationWalletContextCoverage: 'data/reports/pre-migration-wallet-context-coverage-latest.json',
@@ -2286,6 +2287,7 @@ function buildSummary(docs) {
   const curveStallRelaxedReplay = docs.preMigrationCurveStallRelaxedReplay.data || {};
   const curveFalseNegativeReplay = docs.preMigrationCurveFalseNegativeReplay.data || {};
   const curveFalseNegativeShadow = docs.preMigrationCurveFalseNegativeShadow.data || {};
+  const curveFalseNegativeRecoveryShadow = docs.preMigrationCurveFalseNegativeRecoveryShadow.data || {};
   const walletConditionedRelaxedGateReplay = docs.preMigrationWalletConditionedRelaxedGateReplay.data || {};
   const walletRelaxedShadowOutcome = docs.preMigrationWalletRelaxedShadowOutcome.data || {};
   const walletContextCoverage = docs.preMigrationWalletContextCoverage.data || {};
@@ -3836,6 +3838,28 @@ function buildSummary(docs) {
     curveFalseNegativeShadowTop.forEach((item, index) => {
       const w120 = item.windows?.['120s'] || {};
       lines.push(`  ${index + 1}. ${candidateLabel(item)} | filters=${Array.isArray(item.matchedFilters) ? item.matchedFilters.slice(0, 4).join(',') : 'n/a'} | score=${fmt(item.score, 2)} | curve=${fmt(item.curveProgress, 4)} | delta120=${fmt(w120.curveDelta, 4)} | max120=${fmt(w120.maxCurveProgress, 4)} | price120=${w120.maxPriceDeltaPct === null || w120.maxPriceDeltaPct === undefined ? 'n/a' : `${fmt(w120.maxPriceDeltaPct, 2)}%`}`);
+    });
+  }
+  lines.push('');
+
+  const recoveryShadowSummary = curveFalseNegativeRecoveryShadow.summary || {};
+  const recoveryShadowWouldEnter = curveFalseNegativeRecoveryShadow.groups?.wouldEnter || {};
+  const recoveryShadowTop = topArray(curveFalseNegativeRecoveryShadow.topWouldEnterFollowThrough, 6);
+
+  lines.push('9c2e. Curve False-Negative Recovery Shadow');
+  lines.push('------------------------------------------');
+  lines.push('- Mode: report-only; measures the paused bridge replacement requiring curve recovery, no qualifying-wallet sell, and curve parity. Does not spend paper or alter live broadcast.');
+  lines.push(`- Rows / would_enter / would_skip / unique mints: ${recoveryShadowSummary.rows ?? 'n/a'} / ${recoveryShadowSummary.wouldEnter ?? 'n/a'} / ${recoveryShadowSummary.wouldSkip ?? 'n/a'} / ${recoveryShadowSummary.uniqueMints ?? 'n/a'}`);
+  lines.push(`- Paper-entry paused rows: ${recoveryShadowSummary.paperEntryPausedRows ?? 'n/a'}`);
+  lines.push(`- Would-enter crossed85/90 within 120s: ${recoveryShadowWouldEnter.crossed85Within120s ?? 'n/a'} / ${recoveryShadowWouldEnter.crossed90Within120s ?? 'n/a'}; within 300s: ${recoveryShadowWouldEnter.crossed85Within300s ?? 'n/a'} / ${recoveryShadowWouldEnter.crossed90Within300s ?? 'n/a'}`);
+  lines.push(`- Would-enter delta120 median/p90/max: ${fmt(recoveryShadowWouldEnter.curveDelta120s?.median, 4)} / ${fmt(recoveryShadowWouldEnter.curveDelta120s?.p90, 4)} / ${fmt(recoveryShadowWouldEnter.curveDelta120s?.max, 4)}; price120 median/p90/max=${fmt(recoveryShadowWouldEnter.maxPriceDeltaPct120s?.median, 2)}% / ${fmt(recoveryShadowWouldEnter.maxPriceDeltaPct120s?.p90, 2)}% / ${fmt(recoveryShadowWouldEnter.maxPriceDeltaPct120s?.max, 2)}%`);
+  lines.push('- Recovery-shadow failed checks:');
+  objectLines(recoveryShadowSummary.failedCheckCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  if (recoveryShadowTop.length) {
+    lines.push('- Top recovery-shadow would-enter follow-through:');
+    recoveryShadowTop.forEach((item, index) => {
+      const w120 = item.windows?.['120s'] || {};
+      lines.push(`  ${index + 1}. ${candidateLabel(item)} | score=${fmt(item.score, 2)} | curve=${fmt(item.curveProgress, 4)} | delta120=${fmt(w120.curveDelta, 4)} | max120=${fmt(w120.maxCurveProgress, 4)} | reason=${item.reason || 'n/a'}`);
     });
   }
   lines.push('');

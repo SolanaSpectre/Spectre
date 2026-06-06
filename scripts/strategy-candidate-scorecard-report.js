@@ -180,8 +180,10 @@ function promotionBlockers(candidate, context) {
   if (trades < minSample) blockers.push(`sample too small: ${trades}/${minSample} trades`);
   if (!hasPositive(candidate.pnlSol)) blockers.push('total PnL is not positive');
   if (candidate.stressedPnlSol !== null && !hasPositive(candidate.stressedPnlSol)) blockers.push('stressed PnL is not positive');
-  if (hasNonPositive(candidate.medianPnlSol)) blockers.push('median trade PnL is not positive');
-  if (candidate.top3RemovedPnlSol !== null && !hasPositive(candidate.top3RemovedPnlSol)) blockers.push('PnL after removing top 3 winners is not positive');
+  if (candidate.medianPnlSol === null && trades > 0) blockers.push('median trade PnL is unavailable');
+  else if (hasNonPositive(candidate.medianPnlSol)) blockers.push('median trade PnL is not positive');
+  if (candidate.top3RemovedPnlSol === null && trades >= 4) blockers.push('PnL after removing top 3 winners is unavailable');
+  else if (candidate.top3RemovedPnlSol !== null && !hasPositive(candidate.top3RemovedPnlSol)) blockers.push('PnL after removing top 3 winners is not positive');
   if (candidate.firstHalfPnlSol !== null && !hasPositive(candidate.firstHalfPnlSol)) blockers.push('first-half PnL is not positive');
   if (candidate.secondHalfPnlSol !== null && !hasPositive(candidate.secondHalfPnlSol)) blockers.push('second-half PnL is not positive');
   if (winRate !== null && winRate < 0.45) blockers.push(`win rate below 45%: ${(winRate * 100).toFixed(1)}%`);
@@ -228,6 +230,7 @@ function nextDataNeed(candidate, blockers, context) {
   if (context.broadcastBlocked) needs.push('keep broadcast disabled until strategy evidence clears launch review');
   if (blockers.some((blocker) => blocker.includes('median trade PnL'))) needs.push('prove median trade PnL turns positive under the same rules');
   if (blockers.some((blocker) => blocker.includes('top 3 winners'))) needs.push('prove PnL survives removing the top 3 winners');
+  if (blockers.some((blocker) => blocker.includes('unavailable'))) needs.push('add/report the missing robustness metric before promotion review');
   if (blockers.some((blocker) => blocker.includes('win rate below'))) needs.push('improve or further sample win rate above 45%');
   return [...new Set(needs)].slice(0, 6);
 }
@@ -242,7 +245,12 @@ function statusFor(candidate, blockers, context) {
   if (!candidateBlockers.length && (context.paperEntries <= 0 || context.broadcastBlocked || candidate.mode === 'report_only')) {
     return 'WATCHLIST_ONLY';
   }
-  if (candidateBlockers.some((blocker) => blocker.includes('not positive') || blocker.includes('outlier'))) return 'REJECTED';
+  if (candidateBlockers.some((blocker) => (
+    blocker.includes('not positive')
+    || blocker.includes('outlier')
+    || blocker.includes('median trade PnL is unavailable')
+    || blocker.includes('PnL after removing top 3 winners is unavailable')
+  ))) return 'REJECTED';
   return 'COLLECT_MORE';
 }
 

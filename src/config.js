@@ -1012,6 +1012,30 @@ class Config {
     return process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_REQUIRE_POSITIVE_WALLET === 'true';
   }
 
+  static get preMigrationPaperCurveFalseNegativeBridgePaperEntriesEnabled() {
+    return process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_PAPER_ENTRIES_ENABLED === 'true';
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeRecoveryShadowEnabled() {
+    return process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_RECOVERY_SHADOW_ENABLED !== 'false';
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeRecoveryMinConsecutiveAdvances() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_RECOVERY_MIN_CONSECUTIVE_ADVANCES || '2', 10);
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeRecoveryLookbackMs() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_RECOVERY_LOOKBACK_MS || '30000', 10);
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeRecoveryMinAdvance() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_RECOVERY_MIN_ADVANCE || '0.003');
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeParityMaxDelta() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_PARITY_MAX_DELTA || '0.03');
+  }
+
   static get preMigrationPaperCurveFalseNegativeBridgeMaxEntriesPerRun() {
     return parseInt(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_MAX_ENTRIES_PER_RUN || '3', 10);
   }
