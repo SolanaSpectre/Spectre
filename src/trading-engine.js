@@ -4854,8 +4854,11 @@ class TradingEngine {
       volumeSol: tradeVolumeSol
     });
 
-    const trader = event.traderPublicKey || event.wallet || event.account;
-    const trackedAccountMatch = Boolean(trader && this.config.pumpPortalTrackedAccounts.includes(trader));
+    const trader = this.extractProviderTradeWallet(event);
+    const trackedAccounts = Array.isArray(this.config.pumpPortalTrackedAccounts)
+      ? this.config.pumpPortalTrackedAccounts
+      : [];
+    const trackedAccountMatch = Boolean(trader && trackedAccounts.includes(trader));
     const kolWalletProfileMatch = Boolean(trader && this.launchIntelStore.buildKolWalletSummary(trader));
     if (trackedAccountMatch) {
       current.accountTradeCount = (current.accountTradeCount || 0) + 1;
@@ -5038,15 +5041,80 @@ class TradingEngine {
     return true;
   }
 
+  extractProviderTradeWallet(event = {}) {
+    return event.traderPublicKey
+      || event.wallet
+      || event.account
+      || event.trader
+      || event.user
+      || event.buyer
+      || event.seller
+      || event.signer
+      || event.maker
+      || event.owner
+      || event.creator
+      || null;
+  }
+
+  rawProviderTradeWalletKeys(event = {}) {
+    const raw = event.raw || event.rawEvent || {};
+    const keys = new Set();
+    const collect = (source) => {
+      for (const key of Object.keys(source || {})) {
+        if (/trader|wallet|account|user|buyer|seller|signer|maker|owner|creator/i.test(key)) {
+          keys.add(key);
+        }
+      }
+    };
+    collect(raw);
+    collect(event);
+    return [...keys].sort();
+  }
+
+  recordWalletTradeGateDiagnostic(event = {}, tokenState = {}, details = {}) {
+    try {
+      this.telemetry.record('wallet.trade_gate_diagnostic', {
+        provider: event.provider || tokenState.provider || null,
+        source: event.source || tokenState.source || null,
+        eventType: event.eventType || event.type || null,
+        mint: event.mint || event.token || event.mintAddress || tokenState.mint || null,
+        symbol: event.symbol || tokenState.symbol || null,
+        txType: event.txType || null,
+        wallet: details.wallet || null,
+        traderPresent: Boolean(details.wallet),
+        rawTraderFieldKeys: this.rawProviderTradeWalletKeys(event),
+        dropReason: details.dropReason || null,
+        trackedAccountMatch: details.trackedAccountMatch === true,
+        kolWalletProfileMatch: details.kolWalletProfileMatch === true,
+        watchedReason: details.watchedReason || null,
+        ledgerRecord: details.ledgerRecord === true
+      });
+    } catch {
+      // Diagnostics must never affect provider trade intake.
+    }
+  }
+
   recordWatchedWalletTrade(event, tokenState, launchIntelSummary) {
-    const wallet = event.traderPublicKey || event.wallet || event.account;
+    const wallet = this.extractProviderTradeWallet(event);
     if (!wallet) {
+      this.recordWalletTradeGateDiagnostic(event, tokenState, {
+        dropReason: 'NO_TRADER_FIELD'
+      });
       return null;
     }
 
     const walletProfile = this.launchIntelStore.buildKolWalletSummary(wallet);
-    const isTrackedAccount = this.config.pumpPortalTrackedAccounts.includes(wallet);
+    const trackedAccounts = Array.isArray(this.config.pumpPortalTrackedAccounts)
+      ? this.config.pumpPortalTrackedAccounts
+      : [];
+    const isTrackedAccount = trackedAccounts.includes(wallet);
     if (!walletProfile && !isTrackedAccount) {
+      this.recordWalletTradeGateDiagnostic(event, tokenState, {
+        wallet,
+        dropReason: 'UNTRACKED_WALLET',
+        trackedAccountMatch: false,
+        kolWalletProfileMatch: false
+      });
       return null;
     }
 
@@ -5069,10 +5137,25 @@ class TradingEngine {
         mint: event.mint || event.token || event.mintAddress || null,
         reason: error.message
       });
+      this.recordWalletTradeGateDiagnostic(event, tokenState, {
+        wallet,
+        dropReason: 'WALLET_LEDGER_RECORD_FAILED',
+        trackedAccountMatch: isTrackedAccount,
+        kolWalletProfileMatch: Boolean(walletProfile),
+        watchedReason
+      });
       return null;
     }
 
     if (record) {
+      this.recordWalletTradeGateDiagnostic(event, tokenState, {
+        wallet,
+        dropReason: 'RECORDED',
+        trackedAccountMatch: isTrackedAccount,
+        kolWalletProfileMatch: Boolean(walletProfile),
+        watchedReason,
+        ledgerRecord: true
+      });
       this.telemetry.record('wallet.trade_observed', {
         wallet,
         mint: record.mint,
@@ -5084,6 +5167,14 @@ class TradingEngine {
         profile: record.walletProfile?.profile || null,
         trustTier: record.walletProfile?.trustTier || null,
         classification: this.walletEventLedger.walletStats.get(wallet)?.classification?.label || null
+      });
+    } else {
+      this.recordWalletTradeGateDiagnostic(event, tokenState, {
+        wallet,
+        dropReason: 'WALLET_LEDGER_RECORD_SKIPPED',
+        trackedAccountMatch: isTrackedAccount,
+        kolWalletProfileMatch: Boolean(walletProfile),
+        watchedReason
       });
     }
 

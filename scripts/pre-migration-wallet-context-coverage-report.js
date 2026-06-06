@@ -364,6 +364,24 @@ async function summarizeTelemetry(filePath, promotionIndex) {
     kolWalletProfileMatch: 0,
     watchedWalletFlag: 0
   };
+  const walletGateDiagnostics = {
+    rows: 0,
+    traderPresent: 0,
+    noTraderField: 0,
+    untrackedWallet: 0,
+    recorded: 0,
+    ledgerFailures: 0,
+    ledgerSkipped: 0,
+    trackedAccountMatch: 0,
+    kolWalletProfileMatch: 0,
+    uniqueWalletsWithTrader: new Set(),
+    uniqueUntrackedWallets: new Set(),
+    reasonCounts: {},
+    providerCounts: {},
+    sourceCounts: {},
+    rawTraderFieldKeyCounts: {},
+    samples: []
+  };
   let startMs = Infinity;
   let endMs = -Infinity;
 
@@ -390,6 +408,48 @@ async function summarizeTelemetry(filePath, promotionIndex) {
       if (payload.trackedAccountMatch === true) providerTradeDiagnostics.trackedAccountMatch += 1;
       if (payload.kolWalletProfileMatch === true) providerTradeDiagnostics.kolWalletProfileMatch += 1;
       if (payload.watchedWallet === true) providerTradeDiagnostics.watchedWalletFlag += 1;
+    }
+
+    if (type === 'wallet.trade_gate_diagnostic') {
+      const reason = payload.dropReason || 'unknown';
+      const provider = payload.provider || 'unknown';
+      const source = payload.source || 'unknown';
+      walletGateDiagnostics.rows += 1;
+      walletGateDiagnostics.reasonCounts[reason] = (walletGateDiagnostics.reasonCounts[reason] || 0) + 1;
+      walletGateDiagnostics.providerCounts[provider] = (walletGateDiagnostics.providerCounts[provider] || 0) + 1;
+      walletGateDiagnostics.sourceCounts[source] = (walletGateDiagnostics.sourceCounts[source] || 0) + 1;
+      if (payload.traderPresent === true || walletOf(payload)) {
+        walletGateDiagnostics.traderPresent += 1;
+        const wallet = walletOf(payload);
+        if (wallet) walletGateDiagnostics.uniqueWalletsWithTrader.add(wallet);
+      }
+      if (reason === 'NO_TRADER_FIELD') walletGateDiagnostics.noTraderField += 1;
+      if (reason === 'UNTRACKED_WALLET') {
+        walletGateDiagnostics.untrackedWallet += 1;
+        const wallet = walletOf(payload);
+        if (wallet) walletGateDiagnostics.uniqueUntrackedWallets.add(wallet);
+      }
+      if (reason === 'RECORDED' || payload.ledgerRecord === true) walletGateDiagnostics.recorded += 1;
+      if (reason === 'WALLET_LEDGER_RECORD_FAILED') walletGateDiagnostics.ledgerFailures += 1;
+      if (reason === 'WALLET_LEDGER_RECORD_SKIPPED') walletGateDiagnostics.ledgerSkipped += 1;
+      if (payload.trackedAccountMatch === true) walletGateDiagnostics.trackedAccountMatch += 1;
+      if (payload.kolWalletProfileMatch === true) walletGateDiagnostics.kolWalletProfileMatch += 1;
+      for (const key of Array.isArray(payload.rawTraderFieldKeys) ? payload.rawTraderFieldKeys : []) {
+        walletGateDiagnostics.rawTraderFieldKeyCounts[key] = (walletGateDiagnostics.rawTraderFieldKeyCounts[key] || 0) + 1;
+      }
+      if (walletGateDiagnostics.samples.length < 12) {
+        walletGateDiagnostics.samples.push({
+          provider: payload.provider || null,
+          source: payload.source || null,
+          mint: mintOf(payload),
+          wallet: walletOf(payload),
+          txType: payload.txType || null,
+          dropReason: reason,
+          trackedAccountMatch: payload.trackedAccountMatch === true,
+          kolWalletProfileMatch: payload.kolWalletProfileMatch === true,
+          rawTraderFieldKeys: Array.isArray(payload.rawTraderFieldKeys) ? payload.rawTraderFieldKeys : []
+        });
+      }
     }
 
     if (type === 'pre_migration_paper.decision') {
@@ -432,6 +492,42 @@ async function summarizeTelemetry(filePath, promotionIndex) {
   const promoted = walletEvents.filter((event) => event.promotion);
   const providerTradeEvents = Number(eventCounts['provider.pumpdev.runtime_trade'] || 0)
     + Number(eventCounts['provider.pumpportal.trade'] || 0);
+  const finalizedWalletGateDiagnostics = {
+    rows: walletGateDiagnostics.rows,
+    traderPresent: walletGateDiagnostics.traderPresent,
+    noTraderField: walletGateDiagnostics.noTraderField,
+    untrackedWallet: walletGateDiagnostics.untrackedWallet,
+    recorded: walletGateDiagnostics.recorded,
+    ledgerFailures: walletGateDiagnostics.ledgerFailures,
+    ledgerSkipped: walletGateDiagnostics.ledgerSkipped,
+    trackedAccountMatch: walletGateDiagnostics.trackedAccountMatch,
+    kolWalletProfileMatch: walletGateDiagnostics.kolWalletProfileMatch,
+    uniqueWalletsWithTrader: walletGateDiagnostics.uniqueWalletsWithTrader.size,
+    uniqueUntrackedWallets: walletGateDiagnostics.uniqueUntrackedWallets.size,
+    reasonCounts: Object.fromEntries(Object.entries(walletGateDiagnostics.reasonCounts).sort((a, b) => b[1] - a[1])),
+    providerCounts: Object.fromEntries(Object.entries(walletGateDiagnostics.providerCounts).sort((a, b) => b[1] - a[1])),
+    sourceCounts: Object.fromEntries(Object.entries(walletGateDiagnostics.sourceCounts).sort((a, b) => b[1] - a[1])),
+    rawTraderFieldKeyCounts: Object.fromEntries(Object.entries(walletGateDiagnostics.rawTraderFieldKeyCounts).sort((a, b) => b[1] - a[1])),
+    traderPresentRate: walletGateDiagnostics.rows > 0
+      ? compact(walletGateDiagnostics.traderPresent / walletGateDiagnostics.rows, 6)
+      : null,
+    recordedRate: walletGateDiagnostics.rows > 0
+      ? compact(walletGateDiagnostics.recorded / walletGateDiagnostics.rows, 6)
+      : null,
+    samples: walletGateDiagnostics.samples
+  };
+  const walletObservationChannel = walletEvents.length > 0
+    ? 'runtime_tracked_wallet_observed'
+    : (providerTradeEvents > 0 && finalizedWalletGateDiagnostics.rows > 0
+      ? 'provider_trade_flow_gate_diagnosed_without_tracked_wallet'
+      : (providerTradeEvents > 0
+        ? 'provider_trade_flow_without_wallet_gate_diagnostics'
+        : 'no_provider_trade_flow'));
+  const bridgeValidationStatus = walletEvents.length > 0 || shadow.withAny > 0 || decisionCoverage.withAny > 0
+    ? 'wallet_context_available_for_bridge_validation'
+    : (providerTradeEvents > 0
+      ? 'inactive_wallet_channel_unavailable'
+      : 'inactive_no_provider_trade_flow');
 
   return {
     path: filePath,
@@ -484,7 +580,10 @@ async function summarizeTelemetry(filePath, promotionIndex) {
         kolWalletProfileMatchRate: providerTradeDiagnostics.withTraderFieldKnown > 0
           ? compact(providerTradeDiagnostics.kolWalletProfileMatch / providerTradeDiagnostics.withTraderFieldKnown, 6)
           : null
-      }
+      },
+      walletGateDiagnostics: finalizedWalletGateDiagnostics,
+      walletObservationChannel,
+      bridgeValidationStatus
     },
     decisionCoverage: finalizeDecisionCoverage(decisionCoverage),
     walletDecisionMintOverlap: {
@@ -554,10 +653,12 @@ async function main() {
     runtime,
     interpretation: {
       liveBroadcastImplication: 'none_report_only',
+      walletObservationChannel: runtime.trackingOpportunity.walletObservationChannel,
+      bridgeValidationStatus: runtime.trackingOpportunity.bridgeValidationStatus,
       summary: verdict === 'BROAD_TRACKED_WALLET_SIGNAL_OBSERVED'
         ? 'Runtime saw tracked wallet touches feeding the broadened wallet-relaxed shadow lane; inspect outcome follow-through before any runtime use.'
         : (verdict === 'PROSPECTIVE_WALLET_SIGNAL_STARVED'
-        ? 'Runtime saw provider trade flow but no tracked wallet.trade_observed events, so wallet-conditioned lanes cannot collect fresh runtime evidence from this run.'
+        ? `Runtime saw provider trade flow but no tracked wallet.trade_observed events, so wallet-conditioned lanes cannot collect fresh runtime evidence from this run. Channel=${runtime.trackingOpportunity.walletObservationChannel}; bridgeValidation=${runtime.trackingOpportunity.bridgeValidationStatus}.`
         : 'Runtime saw at least some promoted wallet signal; inspect shadow coverage before considering any runtime use.')
     }
   };

@@ -422,6 +422,18 @@ class PumpDevListener {
     const quoteMint = payload.quoteMint || payload.poolQuoteMint || payload.baseMint || null;
     const pairBase = this.detectPairBase(payload);
     const providerCurveSnapshot = this.extractProviderCurveSnapshot(payload, pairBase);
+    const traderPublicKey = payload.traderPublicKey
+      || payload.wallet
+      || payload.account
+      || payload.trader
+      || payload.user
+      || payload.buyer
+      || payload.seller
+      || payload.signer
+      || payload.maker
+      || payload.owner
+      || payload.creator
+      || null;
     const source = payload.source || (type === 'newToken'
       ? 'pumpdev_create'
       : type === 'trade'
@@ -434,7 +446,7 @@ class PumpDevListener {
       eventType: type,
       signature: payload.signature || null,
       mint: payload.mint || payload.token || payload.mintAddress || null,
-      traderPublicKey: payload.traderPublicKey || payload.wallet || payload.account || payload.creator || null,
+      traderPublicKey,
       txType: payload.txType || null,
       name: payload.name || null,
       symbol: payload.symbol || null,

@@ -3950,6 +3950,11 @@ function buildSummary(docs) {
     if (providerTradeDiagnostics.withTraderFieldKnown > 0) {
       lines.push(`- Runtime provider trade wallet fields: traderPresent=${providerTradeDiagnostics.traderPresent ?? 'n/a'}/${providerTradeDiagnostics.withTraderFieldKnown}, trackedAccountMatch=${providerTradeDiagnostics.trackedAccountMatch ?? 'n/a'}, kolWalletProfileMatch=${providerTradeDiagnostics.kolWalletProfileMatch ?? 'n/a'}, watchedWalletFlag=${providerTradeDiagnostics.watchedWalletFlag ?? 'n/a'}`);
     }
+    const walletGateDiagnostics = walletContextTrackingOpportunity.walletGateDiagnostics || {};
+    if (walletGateDiagnostics.rows > 0) {
+      lines.push(`- Wallet trade gate diagnostics: rows=${walletGateDiagnostics.rows}, noTrader=${walletGateDiagnostics.noTraderField ?? 'n/a'}, untracked=${walletGateDiagnostics.untrackedWallet ?? 'n/a'}, recorded=${walletGateDiagnostics.recorded ?? 'n/a'}, uniqueTraderWallets=${walletGateDiagnostics.uniqueWalletsWithTrader ?? 'n/a'}`);
+      lines.push(`- Wallet observation channel: ${walletContextTrackingOpportunity.walletObservationChannel || 'n/a'}; bridge validation=${walletContextTrackingOpportunity.bridgeValidationStatus || 'n/a'}`);
+    }
   }
   lines.push(`- Runtime-vs-historical wallet coverage: ${pct(walletRuntimeToHistoricalRatio, 1)} of tracked historical wallets active this run; historical/runtime wallet ratio=${fmt(walletHistoricalToRuntimeRatio, 1)}x`);
   lines.push(`- Runtime promoted rows positive-or-proven / avoid / any promotion: ${walletContextRuntimeEvents.promotionCoverage?.positiveOrProvenRows ?? 'n/a'} / ${walletContextRuntimeEvents.promotionCoverage?.avoidRows ?? 'n/a'} / ${walletContextRuntimeEvents.promotionCoverage?.rowsWithPromotion ?? 'n/a'}`);

@@ -343,7 +343,9 @@ function main() {
       bestCandidateNextDataNeed: scored[0]?.nextDataNeed || [],
       interpretation: promotionEligible.length
         ? 'At least one runtime candidate cleared the scorecard; review sizing/broadcast controls manually before any live change.'
-        : 'No strategy candidate clears promotion gates. Infrastructure is close, but live trading remains blocked by missing runtime paper entries and replay-only/fragile strategy evidence.'
+        : (paperEntries > 0
+          ? 'No strategy candidate clears promotion gates. Infrastructure is close, but live trading remains blocked by negative or undersized runtime paper evidence plus replay-only/fragile candidate evidence.'
+          : 'No strategy candidate clears promotion gates. Infrastructure is close, but live trading remains blocked by missing runtime paper entries and replay-only/fragile strategy evidence.')
     },
     bestCandidates: scored.slice(0, 12),
     candidates: scored
