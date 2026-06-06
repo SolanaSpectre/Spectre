@@ -145,7 +145,7 @@ Edit the `.env` file with your settings:
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_RECENT_VOLUME_SOL`: Recent-volume floor for curve-pause override consideration (default: `12`)
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_TRADE_VELOCITY_PER_MIN`: Trade-velocity floor for curve-pause override consideration (default: `12`)
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_BUY_RATIO`: Minimum buy ratio for curve-pause override consideration when buy/sell data is available (default: `0.4`)
-- `PRE_MIGRATION_PAPER_ENABLED_PRESETS`: Comma-separated paper presets to simulate (default: `strictMigration,highConfidenceRunner,earlyAccelerationRunner,highConvictionFirstSight`)
+- `PRE_MIGRATION_PAPER_ENABLED_PRESETS`: Comma-separated paper presets to simulate (default: `strictMigration,highConfidenceRunner,earlyAccelerationRunner,highConvictionFirstSight,curveFalseNegativeWalletBridge`)
 - `PRE_MIGRATION_PAPER_HIGH_CONVICTION_FIRST_SIGHT_MIN_SCORE`: Minimum watch score for the high-conviction first-sighting paper preset (default: first-sighting override score)
 - `PRE_MIGRATION_PAPER_HIGH_CONVICTION_FIRST_SIGHT_MIN_CURVE_PROGRESS`: Minimum curve progress for the high-conviction first-sighting paper preset (default: first-sighting override curve progress)
 - `PRE_MIGRATION_PAPER_HIGH_CONVICTION_FIRST_SIGHT_MIN_RECENT_VOLUME_SOL`: Recent-volume floor for the high-conviction first-sighting paper preset (default: first-sighting override recent volume)
@@ -154,6 +154,7 @@ Edit the `.env` file with your settings:
 - `PRE_MIGRATION_PAPER_HIGH_CONVICTION_FIRST_SIGHT_TAKE_PROFIT_PCT`: Take-profit target for first-sighting paper entries (default: `0.50`)
 - `PRE_MIGRATION_PAPER_HIGH_CONVICTION_FIRST_SIGHT_STOP_LOSS_PCT`: Stop-loss for first-sighting paper entries (default: `0.15`)
 - `PRE_MIGRATION_PAPER_HIGH_CONVICTION_FIRST_SIGHT_MAX_HOLD_SECONDS`: Max hold time for first-sighting paper entries (default: `240`)
+- `PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_*`: Paper-only controlled bridge for wallet-supported `CURVE_NOT_ADVANCING` false-negative candidates. It requires a tracked pre-85 wallet buy, no avoid/negative wallet touch, bounded score/curve/volume/velocity/buy-ratio thresholds, and a small per-run entry cap (default: `3`). This preset does not enable live execution or broadcast.
 - `highConvictionFirstSight` is override-only: it only enters when a pre-migration guard explicitly promotes the candidate (`EARLY_SURGE_FIRST_SIGHT`, `HIGH_CONVICTION_FIRST_SIGHT`, or `HIGH_CONVICTION_CURVE_PAUSE`).
 - `PRE_MIGRATION_PAPER_EARLY_ACCELERATION_RUNNER_MIN_SCORE`: Minimum watch score for the early-acceleration paper preset (default: `84.5`)
 - `PRE_MIGRATION_PAPER_EARLY_ACCELERATION_RUNNER_MIN_CURVE_PROGRESS`: Minimum curve progress for early-acceleration candidates (default: `0.88`)

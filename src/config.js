@@ -984,6 +984,50 @@ class Config {
     return parseInt(process.env.PRE_MIGRATION_PAPER_HIGH_CONVICTION_FIRST_SIGHT_MAX_HOLD_SECONDS || '240', 10);
   }
 
+  static get preMigrationPaperCurveFalseNegativeBridgeMinScore() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_MIN_SCORE || '50');
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeMinCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_MIN_CURVE_PROGRESS || '0.30');
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeMaxCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_MAX_CURVE_PROGRESS || '0.90');
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeMinRecentVolumeSol() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_MIN_RECENT_VOLUME_SOL || '12');
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeMinTradeVelocityPerMin() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_MIN_TRADE_VELOCITY_PER_MIN || '12');
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeMinBuyRatio() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_MIN_BUY_RATIO || '0.40');
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeRequirePositiveWallet() {
+    return process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_REQUIRE_POSITIVE_WALLET === 'true';
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeMaxEntriesPerRun() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_MAX_ENTRIES_PER_RUN || '3', 10);
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeTakeProfitPct() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_TAKE_PROFIT_PCT || '0.50');
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeStopLossPct() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_STOP_LOSS_PCT || '0.20');
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeMaxHoldSeconds() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_MAX_HOLD_SECONDS || '180', 10);
+  }
+
   static get birdeyeApiBaseUrl() {
     return process.env.BIRDEYE_API_BASE_URL || 'https://public-api.birdeye.so';
   }

@@ -74,6 +74,14 @@ class PreMigrationPaperLane {
     this.earlyAccelerationWeakWalletFlowGuardEnabled = config.preMigrationPaperEarlyAccelerationBlockWeakWalletFlow !== false;
     this.earlyAccelerationWeakWalletFlowMinLowSignalTouches = Number(config.preMigrationPaperEarlyAccelerationWeakWalletFlowMinLowSignalTouches ?? 3);
     this.earlyAccelerationWeakWalletFlowMinLateSellSol = Number(config.preMigrationPaperEarlyAccelerationWeakWalletFlowMinLateSellSol ?? 1);
+    this.curveFalseNegativeBridgeMinScore = Number(config.preMigrationPaperCurveFalseNegativeBridgeMinScore ?? 50);
+    this.curveFalseNegativeBridgeMinCurveProgress = Number(config.preMigrationPaperCurveFalseNegativeBridgeMinCurveProgress ?? 0.3);
+    this.curveFalseNegativeBridgeMaxCurveProgress = Number(config.preMigrationPaperCurveFalseNegativeBridgeMaxCurveProgress ?? 0.9);
+    this.curveFalseNegativeBridgeMinRecentVolumeSol = Number(config.preMigrationPaperCurveFalseNegativeBridgeMinRecentVolumeSol ?? 12);
+    this.curveFalseNegativeBridgeMinTradeVelocityPerMin = Number(config.preMigrationPaperCurveFalseNegativeBridgeMinTradeVelocityPerMin ?? 12);
+    this.curveFalseNegativeBridgeMinBuyRatio = Number(config.preMigrationPaperCurveFalseNegativeBridgeMinBuyRatio ?? 0.4);
+    this.curveFalseNegativeBridgeRequirePositiveWallet = config.preMigrationPaperCurveFalseNegativeBridgeRequirePositiveWallet === true;
+    this.curveFalseNegativeBridgeMaxEntriesPerRun = Number(config.preMigrationPaperCurveFalseNegativeBridgeMaxEntriesPerRun ?? 3);
     this.presets = this.buildPresets(config);
     this.strategy = this.presets[0]?.strategy || {
       minScore: config.preMigrationPaperMinScore,
@@ -217,7 +225,7 @@ class PreMigrationPaperLane {
           continue;
         }
 
-        const decision = this.evaluateEntryDecision(observedState, preset, entryGuards);
+        const decision = this.evaluateEntryDecision(observedState, preset, entryGuards, timestamp);
         events.push(this.guardAttributionEvent(observedState, timestamp, preset, decision, entryGuards, {
           flagged: true,
           suppressedPresetIneligible: decision.reason === 'PRESET_NOT_ELIGIBLE_FOR_GUARD_OVERRIDE'
@@ -310,12 +318,30 @@ class PreMigrationPaperLane {
         amountSol: config.preMigrationPaperAmountSol
       }
     };
+    const curveFalseNegativeWalletBridge = {
+      name: 'curveFalseNegativeWalletBridge',
+      lane: 'PRE_MIGRATION_CURVE_FALSE_NEGATIVE_BRIDGE',
+      profileName: 'pre_migration_curve_false_negative_wallet_bridge',
+      maxEntriesPerRun: config.preMigrationPaperCurveFalseNegativeBridgeMaxEntriesPerRun,
+      strategy: {
+        minScore: config.preMigrationPaperCurveFalseNegativeBridgeMinScore,
+        minCurveProgress: config.preMigrationPaperCurveFalseNegativeBridgeMinCurveProgress,
+        maxCurveProgress: config.preMigrationPaperCurveFalseNegativeBridgeMaxCurveProgress,
+        minRecentVolumeSol: config.preMigrationPaperCurveFalseNegativeBridgeMinRecentVolumeSol,
+        minTradeVelocityPerMin: config.preMigrationPaperCurveFalseNegativeBridgeMinTradeVelocityPerMin,
+        minBuyRatio: config.preMigrationPaperCurveFalseNegativeBridgeMinBuyRatio,
+        takeProfitPct: config.preMigrationPaperCurveFalseNegativeBridgeTakeProfitPct,
+        stopLossPct: config.preMigrationPaperCurveFalseNegativeBridgeStopLossPct,
+        maxHoldSeconds: config.preMigrationPaperCurveFalseNegativeBridgeMaxHoldSeconds,
+        amountSol: config.preMigrationPaperAmountSol
+      }
+    };
 
-    const enabled = String(config.preMigrationPaperEnabledPresets || 'strictMigration,highConfidenceRunner,earlyAccelerationRunner,highConvictionFirstSight')
+    const enabled = String(config.preMigrationPaperEnabledPresets || 'strictMigration,highConfidenceRunner,earlyAccelerationRunner,highConvictionFirstSight,curveFalseNegativeWalletBridge')
       .split(',')
       .map((name) => name.trim())
       .filter(Boolean);
-    const presets = [strictMigration, highConfidenceRunner, earlyAccelerationRunner, highConvictionFirstSight]
+    const presets = [strictMigration, highConfidenceRunner, earlyAccelerationRunner, highConvictionFirstSight, curveFalseNegativeWalletBridge]
       .filter((preset) => enabled.includes(preset.name))
       .map((preset) => ({
         ...preset,
@@ -368,6 +394,18 @@ class PreMigrationPaperLane {
       };
     }
 
+    if (profileName === 'pre_migration_curve_false_negative_wallet_bridge') {
+      return {
+        ...base,
+        breakevenActivationPct: 0.15,
+        breakevenStopPct: 0.08,
+        sellPressureBuyRatioThreshold: 0.45,
+        sellPressureMinHoldSeconds: 8,
+        curveStallSeconds: 45,
+        curveStallMinProgressAdvance: 0.015
+      };
+    }
+
     return base;
   }
 
@@ -389,7 +427,16 @@ class PreMigrationPaperLane {
     };
   }
 
-  evaluateEntryDecision(state, preset, entryGuards) {
+  evaluateEntryDecision(state, preset, entryGuards, timestamp = new Date().toISOString()) {
+    if (preset.name === 'curveFalseNegativeWalletBridge') {
+      return this.evaluateCurveFalseNegativeWalletBridgeDecision(state, preset, entryGuards, timestamp);
+    }
+
+    const capDecision = this.evaluatePresetEntryCap(preset);
+    if (!capDecision.passed) {
+      return capDecision;
+    }
+
     if (!entryGuards.passed) {
       return entryGuards;
     }
@@ -434,6 +481,181 @@ class PreMigrationPaperLane {
       ...thresholdDecision,
       effectiveStrategy,
       thresholdOverrides: entryGuards.thresholdOverrides || null
+    };
+  }
+
+  evaluatePresetEntryCap(preset = {}) {
+    const maxEntries = Number(preset.maxEntriesPerRun);
+    if (!Number.isFinite(maxEntries) || maxEntries < 0) {
+      return { passed: true };
+    }
+
+    const entries = Number(this.stats.presets[preset.name]?.entries || 0);
+    if (entries >= maxEntries) {
+      return {
+        passed: false,
+        reason: 'PRESET_MAX_ENTRIES_PER_RUN',
+        value: entries,
+        threshold: maxEntries
+      };
+    }
+
+    return { passed: true };
+  }
+
+  evaluateCurveFalseNegativeWalletBridgeDecision(state, preset, entryGuards, timestamp = new Date().toISOString()) {
+    if (entryGuards?.passed) {
+      return {
+        passed: false,
+        reason: 'CURVE_FALSE_NEGATIVE_BRIDGE_REQUIRES_STALLED_CURVE'
+      };
+    }
+
+    if (entryGuards?.reason !== 'CURVE_NOT_ADVANCING') {
+      return {
+        passed: false,
+        reason: 'CURVE_FALSE_NEGATIVE_BRIDGE_SOURCE_REASON_MISMATCH',
+        sourceReason: entryGuards?.reason || null
+      };
+    }
+
+    const bridge = this.evaluateCurveFalseNegativeWalletBridgeSupport(state);
+    if (!bridge.passed) {
+      return {
+        ...entryGuards,
+        ...bridge,
+        passed: false
+      };
+    }
+
+    const capDecision = this.evaluatePresetEntryCap(preset);
+    if (!capDecision.passed) {
+      return capDecision;
+    }
+
+    const staleGuard = this.evaluateHighCurveStaleSnapshotGuard(state, timestamp, 'CURVE_FALSE_NEGATIVE_WALLET_BRIDGE');
+    if (staleGuard.blocked) {
+      return {
+        ...entryGuards,
+        ...bridge,
+        ...staleGuard,
+        passed: false,
+        reason: 'HIGH_CURVE_STALE_CURVE_UPDATE'
+      };
+    }
+
+    const cloneGuard = this.evaluateCloneGuard(state, timestamp);
+    if (!cloneGuard.passed) {
+      return {
+        ...entryGuards,
+        ...bridge,
+        ...cloneGuard,
+        passed: false
+      };
+    }
+
+    const thresholdDecision = this.evaluateStrategyThresholds(state, preset.strategy);
+    if (!thresholdDecision.passed) {
+      return {
+        ...entryGuards,
+        ...bridge,
+        ...thresholdDecision,
+        passed: false
+      };
+    }
+
+    return {
+      ...entryGuards,
+      ...bridge,
+      ...thresholdDecision,
+      ...staleGuard,
+      ...cloneGuard,
+      passed: true,
+      reason: null,
+      guardOverride: 'CURVE_FALSE_NEGATIVE_WALLET_BRIDGE',
+      effectiveStrategy: preset.strategy,
+      thresholdOverrides: null
+    };
+  }
+
+  evaluateCurveFalseNegativeWalletBridgeSupport(state = {}) {
+    const context = state.walletClassificationContext || {};
+    const wallets = Array.isArray(context.wallets) ? context.wallets.slice() : [];
+    const sortedWallets = wallets.sort((a, b) => {
+      const atA = new Date(a.tradeAt || 0).getTime();
+      const atB = new Date(b.tradeAt || 0).getTime();
+      return atA - atB;
+    });
+    const curveProgress = Number(state.curveProgress);
+    const isPre85 = (wallet) => {
+      const walletCurve = Number(wallet.curveProgress);
+      return !Number.isFinite(walletCurve) || walletCurve < 0.85 || wallet.phase === 'fresh_launch' || wallet.phase === 'pre_migration';
+    };
+    const isPositiveOrProven = (wallet) => (
+      ['PROVEN_POSITIVE', 'PROMISING_POSITIVE'].includes(wallet.evidenceTier)
+      || ['TRUST_REVIEW', 'PROFITABLE_NEEDS_FIRST_TOUCH_EVIDENCE'].includes(wallet.reviewTier)
+    );
+    const isAvoidOrNegative = (wallet) => (
+      wallet.reviewTier === 'AVOID_REVIEW' || wallet.evidenceTier === 'NEGATIVE_EVIDENCE'
+    );
+    const trackedFirstTouchBuy = sortedWallets.find((wallet) =>
+      String(wallet.side || '').toLowerCase() === 'buy' && isPre85(wallet)
+    );
+    const positiveFirstTouchBuy = sortedWallets.find((wallet) =>
+      String(wallet.side || '').toLowerCase() === 'buy' && isPre85(wallet) && isPositiveOrProven(wallet)
+    );
+    const avoidTouches = sortedWallets.filter(isAvoidOrNegative);
+
+    if (!trackedFirstTouchBuy) {
+      return {
+        passed: false,
+        reason: 'CURVE_FALSE_NEGATIVE_BRIDGE_NO_TRACKED_FIRST_TOUCH_BUY',
+        walletTouchCount: sortedWallets.length
+      };
+    }
+
+    if (this.curveFalseNegativeBridgeRequirePositiveWallet && !positiveFirstTouchBuy) {
+      return {
+        passed: false,
+        reason: 'CURVE_FALSE_NEGATIVE_BRIDGE_NO_POSITIVE_WALLET_TOUCH',
+        walletTouchCount: sortedWallets.length
+      };
+    }
+
+    if (avoidTouches.length > 0) {
+      return {
+        passed: false,
+        reason: 'CURVE_FALSE_NEGATIVE_BRIDGE_AVOID_WALLET_TOUCH',
+        walletTouchCount: sortedWallets.length,
+        avoidTouchCount: avoidTouches.length
+      };
+    }
+
+    return {
+      passed: true,
+      guardOverride: 'CURVE_FALSE_NEGATIVE_WALLET_BRIDGE',
+      walletTouchCount: sortedWallets.length,
+      positiveOrProvenTouchCount: sortedWallets.filter(isPositiveOrProven).length,
+      avoidTouchCount: avoidTouches.length,
+      bridgeRequiresPositiveWallet: this.curveFalseNegativeBridgeRequirePositiveWallet,
+      trackedFirstTouchBuy: this.walletTouchPayload(trackedFirstTouchBuy),
+      positiveFirstTouchBuy: positiveFirstTouchBuy ? this.walletTouchPayload(positiveFirstTouchBuy) : null,
+      bridgeCurveProgress: this.compact(curveProgress, 6)
+    };
+  }
+
+  walletTouchPayload(wallet = {}) {
+    return {
+      wallet: wallet.wallet || null,
+      name: wallet.name || null,
+      reviewTier: wallet.reviewTier || null,
+      evidenceTier: wallet.evidenceTier || null,
+      label: wallet.label || null,
+      side: wallet.side || null,
+      phase: wallet.phase || null,
+      tradeAt: wallet.tradeAt || null,
+      curveProgress: wallet.curveProgress ?? null,
+      solAmount: wallet.solAmount ?? null
     };
   }
 
