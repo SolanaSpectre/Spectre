@@ -201,6 +201,7 @@ class TradingEngine {
     this.unrealizedPnL = 0;
     this.totalTrades = 0;
     this.active = false;
+    this.liveTradingHalted = false;
 
     this.hotWalletBalanceSol = 0;
     this.coldWalletBalanceSol = 0;
@@ -693,6 +694,10 @@ class TradingEngine {
       return this.rejectTrade(signal, 'SESSION_NOT_ACTIVE');
     }
 
+    if (this.executionModeManager.isLive() && this.liveTradingHalted) {
+      return this.rejectTrade(signal, 'LIVE_TRADING_HALTED');
+    }
+
     const safetyCheck = await this.safetyGate.validateToken(signal.tokenInfo);
     if (!safetyCheck.passed) {
       this.emitCandidateSnapshot({
@@ -716,6 +721,10 @@ class TradingEngine {
 
     if (this.executionModeManager.isPaper() && this.paperPositions.size >= this.config.maxOpenPaperPositions) {
       return this.rejectTrade(signal, 'MAX_OPEN_PAPER_POSITIONS');
+    }
+
+    if (this.executionModeManager.isLive() && this.currentPositions.size >= this.config.maxOpenLivePositions) {
+      return this.rejectTrade(signal, 'MAX_OPEN_LIVE_POSITIONS');
     }
 
     if (this.executionModeManager.isLive() && !this.config.liveExitEngineEnabled) {
@@ -5585,16 +5594,21 @@ class TradingEngine {
       return Math.max(this.config.maxOpenPaperPositions - this.paperPositions.size, 0);
     }
 
-    return Number.POSITIVE_INFINITY;
+    return Math.max(this.config.maxOpenLivePositions - this.currentPositions.size, 0);
   }
 
   hasEntryCapacity() {
+    if (this.executionModeManager.isLive() && this.liveTradingHalted) {
+      return false;
+    }
+
     return this.getOpenEntrySlots() > 0 && this.getAvailableTradingCapitalSol() > 0;
   }
 
   async checkRiskManagement() {
     if (this.dailyPnL < -this.config.maxDailyLossSol) {
-      this.logger.warn(`Daily loss limit reached: ${this.dailyPnL} SOL. Entering cooldown.`);
+      this.liveTradingHalted = this.executionModeManager.isLive();
+      this.logger.warn(`Daily loss limit reached: ${this.dailyPnL} SOL. Entering cooldown.${this.liveTradingHalted ? ' Live entries are hard-halted for this process.' : ''}`);
       this.sessionManager.enterCooldown('DAILY_LOSS_LIMIT_REACHED', 24 * 60 * 60 * 1000);
     }
   }

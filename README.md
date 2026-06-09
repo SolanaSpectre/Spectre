@@ -107,7 +107,7 @@ Edit the `.env` file with your settings:
 - `PUMPPORTAL_TRACKED_ACCOUNTS`: Comma-separated wallets for PumpPortal `subscribeAccountTrade`
 - `PUMPPORTAL_MAX_RECONNECT_DELAY_MS`: Caps PumpPortal websocket reconnect backoff (default: `60000`)
 - `PRE_MIGRATION_WATCH_ENABLED`: Enables passive pre-migration scoring/logging without trade execution (default: `true`)
-- `PRE_MIGRATION_WATCH_MIN_SCORE`: Minimum passive watch score to flag a token (default: `60`)
+- `PRE_MIGRATION_WATCH_MIN_SCORE`: Minimum passive watch score to observe a token before confirm/secondary flagging checks (default: `25`)
 - `PRE_MIGRATION_WATCH_MIN_CURVE_PROGRESS`: Curve-progress threshold for near-migration flags when available (default: `0.85`)
 - `PRE_MIGRATION_WATCH_FLAG_COOLDOWN_MS`: Minimum time between repeated watch flags for the same mint (default: `60000`)
 - `PRE_MIGRATION_OBSERVED_TELEMETRY_MIN_INTERVAL_MS`: Minimum interval between unchanged `pre_migration.observed` telemetry records per mint (default: `1000`)
@@ -145,7 +145,7 @@ Edit the `.env` file with your settings:
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_RECENT_VOLUME_SOL`: Recent-volume floor for curve-pause override consideration (default: `12`)
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_TRADE_VELOCITY_PER_MIN`: Trade-velocity floor for curve-pause override consideration (default: `12`)
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_BUY_RATIO`: Minimum buy ratio for curve-pause override consideration when buy/sell data is available (default: `0.4`)
-- `PRE_MIGRATION_PAPER_ENABLED_PRESETS`: Comma-separated paper presets to simulate (default: `strictMigration,highConfidenceRunner,earlyAccelerationRunner,highConvictionFirstSight,curveFalseNegativeWalletBridge`)
+- `PRE_MIGRATION_PAPER_ENABLED_PRESETS`: Comma-separated paper presets to simulate (default: `strictMigration,highConfidenceRunner,earlyAccelerationRunner,highConvictionFirstSight`). Keep `curveFalseNegativeWalletBridge` opt-in until recovery-shadow evidence supports re-enabling it.
 - `PRE_MIGRATION_PAPER_HIGH_CONVICTION_FIRST_SIGHT_MIN_SCORE`: Minimum watch score for the high-conviction first-sighting paper preset (default: first-sighting override score)
 - `PRE_MIGRATION_PAPER_HIGH_CONVICTION_FIRST_SIGHT_MIN_CURVE_PROGRESS`: Minimum curve progress for the high-conviction first-sighting paper preset (default: first-sighting override curve progress)
 - `PRE_MIGRATION_PAPER_HIGH_CONVICTION_FIRST_SIGHT_MIN_RECENT_VOLUME_SOL`: Recent-volume floor for the high-conviction first-sighting paper preset (default: first-sighting override recent volume)
@@ -217,6 +217,7 @@ npm run check:pump-live-readiness
 - `PAPER_TAKE_PROFIT_PERCENT`: Paper/scalp take-profit threshold (default: 0.035 = 3.5%)
 - `PAPER_MAX_HOLD_MINUTES`: Maximum paper/scalp hold time before time exit (default: 20)
 - `MAX_OPEN_PAPER_POSITIONS`: Maximum simultaneous paper positions (default: 5)
+- `MAX_OPEN_LIVE_POSITIONS`: Maximum simultaneous live positions (default: 1)
 
 ### Dynamic Compounding
 - `HOT_WALLET_STARTING_BALANCE_SOL`: Starting hot wallet operating balance

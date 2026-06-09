@@ -1790,11 +1790,15 @@ class Config {
   }
 
   static get liveExitEngineEnabled() {
-    return process.env.LIVE_EXIT_ENGINE_ENABLED !== 'false';
+    return process.env.LIVE_EXIT_ENGINE_ENABLED === 'true';
   }
 
   static get maxOpenPaperPositions() {
     return parseInt(process.env.MAX_OPEN_PAPER_POSITIONS || '5', 10);
+  }
+
+  static get maxOpenLivePositions() {
+    return parseInt(process.env.MAX_OPEN_LIVE_POSITIONS || '1', 10);
   }
 
   static get minLiquidityUsd() {
@@ -2093,6 +2097,7 @@ class Config {
       { key: 'paperMinHoldSecondsForProfit', value: this.paperMinHoldSecondsForProfit, min: 0 },
       { key: 'paperMaxHoldMinutes', value: this.paperMaxHoldMinutes, min: 1 },
       { key: 'maxOpenPaperPositions', value: this.maxOpenPaperPositions, min: 1 },
+      { key: 'maxOpenLivePositions', value: this.maxOpenLivePositions, min: 1 },
       { key: 'minLiquidityUsd', value: this.minLiquidityUsd, min: 0 },
       { key: 'minQualityScore', value: this.minQualityScore, min: 0, max: 1 },
       { key: 'maxTop10HolderPercent', value: this.maxTop10HolderPercent, min: 0, max: 1 },
