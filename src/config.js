@@ -812,6 +812,26 @@ class Config {
     return process.env.PRE_MIGRATION_PAPER_LOG_DECISION_EVENTS !== 'false';
   }
 
+  static get preMigrationPaperUnflaggedEntryShadowEnabled() {
+    return process.env.PRE_MIGRATION_PAPER_UNFLAGGED_ENTRY_SHADOW_ENABLED !== 'false';
+  }
+
+  static get preMigrationPaperUnflaggedEntryShadowMinScore() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_UNFLAGGED_ENTRY_SHADOW_MIN_SCORE || '70');
+  }
+
+  static get preMigrationPaperUnflaggedEntryShadowMinCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_UNFLAGGED_ENTRY_SHADOW_MIN_CURVE_PROGRESS || '0.7');
+  }
+
+  static get preMigrationPaperUnflaggedEntryShadowMinRecentVolumeSol() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_UNFLAGGED_ENTRY_SHADOW_MIN_RECENT_VOLUME_SOL || '12');
+  }
+
+  static get preMigrationPaperUnflaggedEntryShadowMinTradeVelocityPerMin() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_UNFLAGGED_ENTRY_SHADOW_MIN_TRADE_VELOCITY_PER_MIN || '12');
+  }
+
   static get preMigrationPaperMaxDecisionLogsPerMinute() {
     return parseInt(process.env.PRE_MIGRATION_PAPER_MAX_DECISION_LOGS_PER_MINUTE || '8', 10);
   }
@@ -2155,6 +2175,10 @@ class Config {
       { key: 'preMigrationPaperRecheckMaxAttempts', value: this.preMigrationPaperRecheckMaxAttempts, min: 0 },
       { key: 'preMigrationPaperRecheckMaxAgeMs', value: this.preMigrationPaperRecheckMaxAgeMs, min: 1000 },
       { key: 'preMigrationPaperRecheckMaxTrackedMints', value: this.preMigrationPaperRecheckMaxTrackedMints, min: 1 },
+      { key: 'preMigrationPaperUnflaggedEntryShadowMinScore', value: this.preMigrationPaperUnflaggedEntryShadowMinScore, min: 0, max: 100 },
+      { key: 'preMigrationPaperUnflaggedEntryShadowMinCurveProgress', value: this.preMigrationPaperUnflaggedEntryShadowMinCurveProgress, min: 0, max: 1 },
+      { key: 'preMigrationPaperUnflaggedEntryShadowMinRecentVolumeSol', value: this.preMigrationPaperUnflaggedEntryShadowMinRecentVolumeSol, min: 0 },
+      { key: 'preMigrationPaperUnflaggedEntryShadowMinTradeVelocityPerMin', value: this.preMigrationPaperUnflaggedEntryShadowMinTradeVelocityPerMin, min: 0 },
       { key: 'preMigrationPaperLateFastTrackMinScore', value: this.preMigrationPaperLateFastTrackMinScore, min: 0, max: 100 },
       { key: 'preMigrationPaperLateFastTrackMinCurveProgress', value: this.preMigrationPaperLateFastTrackMinCurveProgress, min: 0, max: 1 },
       { key: 'preMigrationPaperLateFastTrackMinRecentVolumeSol', value: this.preMigrationPaperLateFastTrackMinRecentVolumeSol, min: 0 },

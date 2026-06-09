@@ -103,11 +103,17 @@ function getMintRow(rowsByMint, mint, seed = {}) {
       confirmedFlagRows: 0,
       flagReasons: {},
       guardRows: 0,
+      flaggedGuardRows: 0,
+      unflaggedGuardRows: 0,
+      shadowGuardRows: 0,
       wouldEnterRows: 0,
+      shadowWouldEnterRows: 0,
       wouldSkipRows: 0,
       guardReasons: {},
+      shadowGuardReasons: {},
       guardOverrides: {},
       guardFailedChecks: {},
+      shadowGuardFailedChecks: {},
       decisionRows: 0,
       skipDecisionRows: 0,
       skipReasons: {},
@@ -180,7 +186,9 @@ function decisionReadiness(payload = {}) {
 function terminalStage(row) {
   if (row.entries > 0) return 'ENTERED';
   if (row.wouldEnterRows > 0) return 'WOULD_ENTER_NO_ENTRY';
-  if (row.guardRows > 0 || row.decisionRows > 0) return 'EVALUATED_AND_BLOCKED';
+  if (row.flaggedGuardRows > 0 || row.decisionRows > 0) return 'EVALUATED_AND_BLOCKED';
+  if (row.shadowWouldEnterRows > 0) return 'UNFLAGGED_SHADOW_WOULD_ENTER';
+  if (row.shadowGuardRows > 0) return 'UNFLAGGED_SHADOW_EVALUATED';
   if (row.flaggedRows > 0) return 'FLAGGED_NOT_EVALUATED';
   if (row.firstCurveNearMissRows > 0) return 'FIRST_CURVE_NEAR_MISS_ONLY';
   if (row.observedRows > 0) return 'OBSERVED_ONLY';
@@ -241,12 +249,26 @@ async function readTelemetry(filePath) {
       if (payload.confirmed === true || payload.newlyConfirmed === true) row.confirmedFlagRows += 1;
       for (const reason of payload.reasons || []) bump(row.flagReasons, reason);
     } else if (type === 'pre_migration_paper.guard_attribution') {
+      const shadowOnly = payload.shadowOnly === true;
       row.guardRows += 1;
-      if (payload.outcome === 'PAPER_WOULD_ENTER') row.wouldEnterRows += 1;
+      if (payload.flagged === true) row.flaggedGuardRows += 1;
+      if (payload.flagged !== true) row.unflaggedGuardRows += 1;
+      if (shadowOnly) row.shadowGuardRows += 1;
+      if (payload.outcome === 'PAPER_WOULD_ENTER') {
+        if (shadowOnly) {
+          row.shadowWouldEnterRows += 1;
+        } else {
+          row.wouldEnterRows += 1;
+        }
+      }
       if (payload.outcome === 'PAPER_WOULD_SKIP') row.wouldSkipRows += 1;
       bump(row.guardReasons, payload.guardReason || payload.reason);
       bump(row.guardOverrides, payload.guardOverride || 'none');
       for (const check of payload.failedChecks || []) bump(row.guardFailedChecks, check);
+      if (shadowOnly) {
+        bump(row.shadowGuardReasons, payload.guardReason || payload.reason);
+        for (const check of payload.failedChecks || []) bump(row.shadowGuardFailedChecks, check);
+      }
     } else if (type === 'pre_migration_paper.decision') {
       row.decisionRows += 1;
       if (payload.decision === 'PAPER_SKIPPED') {
@@ -279,7 +301,9 @@ async function readTelemetry(filePath) {
       terminalStage: terminalStage(row),
       topFlagReasons: topObject(row.flagReasons, 6),
       topGuardReasons: topObject(row.guardReasons, 6),
+      topShadowGuardReasons: topObject(row.shadowGuardReasons, 6),
       topGuardFailedChecks: topObject(row.guardFailedChecks, 6),
+      topShadowGuardFailedChecks: topObject(row.shadowGuardFailedChecks, 6),
       topSkipReasons: topObject(row.skipReasons, 6),
       topFirstCurveFailedChecks: topObject(row.firstCurveFailedChecks, 6),
       maxScore: num(row.maxScore, 2),
@@ -297,22 +321,31 @@ function summarize(rows, telemetry) {
   const firstCurve = rows.filter((row) => row.firstCurveNearMissRows > 0);
   const flagged = rows.filter((row) => row.flaggedRows > 0);
   const confirmed = rows.filter((row) => row.confirmedFlagRows > 0);
-  const evaluated = rows.filter((row) => row.guardRows > 0 || row.decisionRows > 0);
+  const evaluated = rows.filter((row) => row.flaggedGuardRows > 0 || row.decisionRows > 0);
+  const unflaggedShadowEvaluated = rows.filter((row) => row.shadowGuardRows > 0);
   const wouldEnter = rows.filter((row) => row.wouldEnterRows > 0);
+  const shadowWouldEnter = rows.filter((row) => row.shadowWouldEnterRows > 0);
   const entered = rows.filter((row) => row.entries > 0);
   const guardRows = rows.reduce((sum, row) => sum + row.guardRows, 0);
+  const flaggedGuardRows = rows.reduce((sum, row) => sum + row.flaggedGuardRows, 0);
+  const unflaggedGuardRows = rows.reduce((sum, row) => sum + row.unflaggedGuardRows, 0);
+  const shadowGuardRows = rows.reduce((sum, row) => sum + row.shadowGuardRows, 0);
   const decisionRows = rows.reduce((sum, row) => sum + row.decisionRows, 0);
   const skippedRows = rows.reduce((sum, row) => sum + row.skipDecisionRows, 0);
 
   const allGuardReasons = {};
+  const allShadowGuardReasons = {};
   const allSkipReasons = {};
   const allGuardFailedChecks = {};
+  const allShadowGuardFailedChecks = {};
   const allFirstCurveFailedChecks = {};
   const allFlagReasons = {};
   for (const row of rows) {
     Object.entries(row.guardReasons).forEach(([key, value]) => bump(allGuardReasons, key, value));
+    Object.entries(row.shadowGuardReasons).forEach(([key, value]) => bump(allShadowGuardReasons, key, value));
     Object.entries(row.skipReasons).forEach(([key, value]) => bump(allSkipReasons, key, value));
     Object.entries(row.guardFailedChecks).forEach(([key, value]) => bump(allGuardFailedChecks, key, value));
+    Object.entries(row.shadowGuardFailedChecks).forEach(([key, value]) => bump(allShadowGuardFailedChecks, key, value));
     Object.entries(row.firstCurveFailedChecks).forEach(([key, value]) => bump(allFirstCurveFailedChecks, key, value));
     Object.entries(row.flagReasons).forEach(([key, value]) => bump(allFlagReasons, key, value));
   }
@@ -328,9 +361,14 @@ function summarize(rows, telemetry) {
     flaggedMints: flagged.length,
     confirmedFlagMints: confirmed.length,
     evaluatedMints: evaluated.length,
+    unflaggedShadowEvaluatedMints: unflaggedShadowEvaluated.length,
     wouldEnterMints: wouldEnter.length,
+    unflaggedShadowWouldEnterMints: shadowWouldEnter.length,
     enteredMints: entered.length,
     guardRows,
+    flaggedGuardRows,
+    unflaggedGuardRows,
+    shadowGuardRows,
     decisionRows,
     skippedRows,
     funnelRates: {
@@ -339,17 +377,24 @@ function summarize(rows, telemetry) {
       wouldEnterPerEvaluated: pct(wouldEnter.length, evaluated.length),
       enteredPerEvaluated: pct(entered.length, evaluated.length)
     },
+    shadowRates: {
+      unflaggedShadowEvaluatedPerObservedNotFlagged: pct(unflaggedShadowEvaluated.length, observed - flagged.length),
+      unflaggedShadowWouldEnterPerShadowEvaluated: pct(shadowWouldEnter.length, unflaggedShadowEvaluated.length)
+    },
     dropoffs: {
       observedNotFlaggedMints: observed - flagged.length,
-      flaggedNotEvaluatedMints: flagged.filter((row) => row.guardRows === 0 && row.decisionRows === 0).length,
+      flaggedNotEvaluatedMints: flagged.filter((row) => row.flaggedGuardRows === 0 && row.decisionRows === 0).length,
       evaluatedNeverWouldEnterMints: evaluated.length - wouldEnter.length,
-      wouldEnterNoEntryMints: wouldEnter.length - entered.length
+      wouldEnterNoEntryMints: wouldEnter.length - entered.length,
+      unflaggedShadowWouldEnterMints: shadowWouldEnter.length
     },
     terminalStageCounts: countBy(rows, (row) => row.terminalStage),
     topFlagReasons: topObject(allFlagReasons),
     topGuardReasons: topObject(allGuardReasons),
+    topShadowGuardReasons: topObject(allShadowGuardReasons),
     topSkipReasons: topObject(allSkipReasons),
     topGuardFailedChecks: topObject(allGuardFailedChecks),
+    topShadowGuardFailedChecks: topObject(allShadowGuardFailedChecks),
     topFirstCurveFailedChecks: topObject(allFirstCurveFailedChecks)
   };
 }
@@ -364,14 +409,22 @@ function selectRows(rows) {
     .sort((a, b) => Number(b.maxScore ?? -1) - Number(a.maxScore ?? -1))
     .slice(0, 20);
   const flaggedNotEvaluated = rows
-    .filter((row) => row.flaggedRows > 0 && row.guardRows === 0 && row.decisionRows === 0)
+    .filter((row) => row.flaggedRows > 0 && row.flaggedGuardRows === 0 && row.decisionRows === 0)
+    .sort((a, b) => Number(b.maxScore ?? -1) - Number(a.maxScore ?? -1))
+    .slice(0, 20);
+  const unflaggedShadowWouldEnter = rows
+    .filter((row) => row.terminalStage === 'UNFLAGGED_SHADOW_WOULD_ENTER')
+    .sort((a, b) => Number(b.maxScore ?? -1) - Number(a.maxScore ?? -1))
+    .slice(0, 20);
+  const unflaggedShadowBlocked = rows
+    .filter((row) => row.terminalStage === 'UNFLAGGED_SHADOW_EVALUATED')
     .sort((a, b) => Number(b.maxScore ?? -1) - Number(a.maxScore ?? -1))
     .slice(0, 20);
   const firstCurveOnly = rows
     .filter((row) => row.terminalStage === 'FIRST_CURVE_NEAR_MISS_ONLY')
     .sort((a, b) => Number(b.maxScore ?? -1) - Number(a.maxScore ?? -1))
     .slice(0, 20);
-  return { closestBlocked: blocked, highScoreBlocked, flaggedNotEvaluated, firstCurveOnly };
+  return { closestBlocked: blocked, highScoreBlocked, flaggedNotEvaluated, unflaggedShadowWouldEnter, unflaggedShadowBlocked, firstCurveOnly };
 }
 
 function printReport(report) {
@@ -379,12 +432,15 @@ function printReport(report) {
   console.log('Pre-Migration Entry Funnel');
   console.log(`Telemetry: ${s.telemetryPath}`);
   console.log(`Observed/flagged/evaluated/wouldEnter/entered mints: ${s.observedMints}/${s.flaggedMints}/${s.evaluatedMints}/${s.wouldEnterMints}/${s.enteredMints}`);
-  console.log(`Guard/decision/skipped rows: ${s.guardRows}/${s.decisionRows}/${s.skippedRows}`);
+  console.log(`Unflagged shadow evaluated/wouldEnter mints: ${s.unflaggedShadowEvaluatedMints}/${s.unflaggedShadowWouldEnterMints}`);
+  console.log(`Guard rows flagged/unflagged-shadow/all: ${s.flaggedGuardRows}/${s.shadowGuardRows}/${s.guardRows}; decision/skipped rows: ${s.decisionRows}/${s.skippedRows}`);
   console.log(`Dropoffs: observedNotFlagged=${s.dropoffs.observedNotFlaggedMints}, flaggedNotEvaluated=${s.dropoffs.flaggedNotEvaluatedMints}, evaluatedNeverWouldEnter=${s.dropoffs.evaluatedNeverWouldEnterMints}`);
   console.log('Top skip reasons:');
   Object.entries(s.topSkipReasons).slice(0, 8).forEach(([key, value]) => console.log(`  - ${key}: ${value}`));
   console.log('Top guard failed checks:');
   Object.entries(s.topGuardFailedChecks).slice(0, 8).forEach(([key, value]) => console.log(`  - ${key}: ${value}`));
+  console.log('Top unflagged shadow failed checks:');
+  Object.entries(s.topShadowGuardFailedChecks).slice(0, 8).forEach(([key, value]) => console.log(`  - ${key}: ${value}`));
 }
 
 async function main() {
@@ -402,7 +458,7 @@ async function main() {
   const output = {
     generatedAt: new Date().toISOString(),
     mode: 'report_only_pre_migration_entry_funnel',
-    note: 'Counts the pre-migration entry funnel from observed mint telemetry through flags, guard evaluation, paper decisions, would-enter rows, and actual paper entries. Does not change gates or live behavior.',
+    note: 'Counts the pre-migration entry funnel from observed mint telemetry through flags, guard evaluation, paper decisions, would-enter rows, and actual paper entries. Unflagged shadow rows are report-only guard attributions and do not create paper entries. Does not change gates or live behavior.',
     summary,
     ...selections
   };

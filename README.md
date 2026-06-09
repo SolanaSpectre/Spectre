@@ -145,6 +145,11 @@ Edit the `.env` file with your settings:
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_RECENT_VOLUME_SOL`: Recent-volume floor for curve-pause override consideration (default: `12`)
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_TRADE_VELOCITY_PER_MIN`: Trade-velocity floor for curve-pause override consideration (default: `12`)
 - `PRE_MIGRATION_PAPER_CURVE_PAUSE_MIN_BUY_RATIO`: Minimum buy ratio for curve-pause override consideration when buy/sell data is available (default: `0.4`)
+- `PRE_MIGRATION_PAPER_UNFLAGGED_ENTRY_SHADOW_ENABLED`: Emits report-only guard attribution for strong unflagged observations so the flagged-only funnel can be measured without creating paper entries (default: `true`)
+- `PRE_MIGRATION_PAPER_UNFLAGGED_ENTRY_SHADOW_MIN_SCORE`: Minimum score that qualifies an unflagged observation for report-only shadow attribution (default: `70`)
+- `PRE_MIGRATION_PAPER_UNFLAGGED_ENTRY_SHADOW_MIN_CURVE_PROGRESS`: Minimum curve progress that qualifies an unflagged observation for report-only shadow attribution (default: `0.7`)
+- `PRE_MIGRATION_PAPER_UNFLAGGED_ENTRY_SHADOW_MIN_RECENT_VOLUME_SOL`: Minimum recent volume that qualifies an unflagged observation for report-only shadow attribution (default: `12`)
+- `PRE_MIGRATION_PAPER_UNFLAGGED_ENTRY_SHADOW_MIN_TRADE_VELOCITY_PER_MIN`: Minimum trade velocity that qualifies an unflagged observation for report-only shadow attribution (default: `12`)
 - `PRE_MIGRATION_PAPER_ENABLED_PRESETS`: Comma-separated paper presets to simulate (default: `strictMigration,highConfidenceRunner,earlyAccelerationRunner,highConvictionFirstSight`). Keep `curveFalseNegativeWalletBridge` opt-in until recovery-shadow evidence supports re-enabling it.
 - `PRE_MIGRATION_PAPER_HIGH_CONVICTION_FIRST_SIGHT_MIN_SCORE`: Minimum watch score for the high-conviction first-sighting paper preset (default: first-sighting override score)
 - `PRE_MIGRATION_PAPER_HIGH_CONVICTION_FIRST_SIGHT_MIN_CURVE_PROGRESS`: Minimum curve progress for the high-conviction first-sighting paper preset (default: first-sighting override curve progress)

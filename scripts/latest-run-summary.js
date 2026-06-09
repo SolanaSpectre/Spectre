@@ -2462,14 +2462,17 @@ function buildSummary(docs) {
   if (entryFunnel.summary) {
     const funnel = entryFunnel.summary || {};
     const rates = funnel.funnelRates || {};
+    const shadowRates = funnel.shadowRates || {};
     const dropoffs = funnel.dropoffs || {};
     lines.push('0b2. Entry Funnel');
     lines.push('-----------------');
     lines.push(`- Observed/flagged/evaluated/wouldEnter/entered mints: ${funnel.observedMints ?? 'n/a'} / ${funnel.flaggedMints ?? 'n/a'} / ${funnel.evaluatedMints ?? 'n/a'} / ${funnel.wouldEnterMints ?? 'n/a'} / ${funnel.enteredMints ?? 'n/a'}.`);
+    lines.push(`- Unflagged shadow evaluated/wouldEnter mints: ${funnel.unflaggedShadowEvaluatedMints ?? 'n/a'} / ${funnel.unflaggedShadowWouldEnterMints ?? 'n/a'}; shadow rates evaluated/observed-not-flagged=${pct(shadowRates.unflaggedShadowEvaluatedPerObservedNotFlagged, 1)}, wouldEnter/shadow=${pct(shadowRates.unflaggedShadowWouldEnterPerShadowEvaluated, 1)}.`);
     lines.push(`- Funnel rates flagged/observed=${pct(rates.flaggedPerObserved, 1)}, evaluated/flagged=${pct(rates.evaluatedPerFlagged, 1)}, wouldEnter/evaluated=${pct(rates.wouldEnterPerEvaluated, 1)}, entered/evaluated=${pct(rates.enteredPerEvaluated, 1)}.`);
-    lines.push(`- Dropoffs: observed-not-flagged=${dropoffs.observedNotFlaggedMints ?? 'n/a'}, flagged-not-evaluated=${dropoffs.flaggedNotEvaluatedMints ?? 'n/a'}, evaluated-never-would-enter=${dropoffs.evaluatedNeverWouldEnterMints ?? 'n/a'}, wouldEnter-no-entry=${dropoffs.wouldEnterNoEntryMints ?? 'n/a'}.`);
+    lines.push(`- Dropoffs: observed-not-flagged=${dropoffs.observedNotFlaggedMints ?? 'n/a'}, flagged-not-evaluated=${dropoffs.flaggedNotEvaluatedMints ?? 'n/a'}, evaluated-never-would-enter=${dropoffs.evaluatedNeverWouldEnterMints ?? 'n/a'}, wouldEnter-no-entry=${dropoffs.wouldEnterNoEntryMints ?? 'n/a'}, unflagged-shadow-would-enter=${dropoffs.unflaggedShadowWouldEnterMints ?? 'n/a'}.`);
     lines.push(`- Top skip reasons: ${formatTopCounts(funnel.topSkipReasons)}.`);
     lines.push(`- Top guard failed checks: ${formatTopCounts(funnel.topGuardFailedChecks)}.`);
+    lines.push(`- Top unflagged shadow failed checks: ${formatTopCounts(funnel.topShadowGuardFailedChecks)}.`);
     const closest = topArray(entryFunnel.closestBlocked, 5);
     if (closest.length) {
       lines.push('- Closest blocked candidates:');
@@ -4204,6 +4207,8 @@ function buildSummary(docs) {
   const walletContextRuntimeEvents = walletContextRuntime.walletEvents || {};
   const walletContextTrackingOpportunity = walletContextRuntime.trackingOpportunity || {};
   const walletContextDecision = walletContextRuntime.decisionCoverage || {};
+  const walletContextGuardAttribution = walletContextRuntime.guardAttributionCoverage || {};
+  const walletContextUnflaggedShadowGuard = walletContextRuntime.unflaggedEntryShadowGuardCoverage || {};
   const walletContextOverlap = walletContextRuntime.walletDecisionMintOverlap || {};
   const walletContextJoin = walletContextRuntime.walletDecisionJoin || {};
   const walletContextShadow = walletContextRuntime.walletRelaxedShadowCoverage || {};
@@ -4271,6 +4276,8 @@ function buildSummary(docs) {
   lines.push(`- Runtime-vs-historical wallet coverage: ${pct(walletRuntimeToHistoricalRatio, 1)} of tracked historical wallets active this run; historical/runtime wallet ratio=${fmt(walletHistoricalToRuntimeRatio, 1)}x`);
   lines.push(`- Runtime promoted rows positive-or-proven / avoid / any promotion: ${walletContextRuntimeEvents.promotionCoverage?.positiveOrProvenRows ?? 'n/a'} / ${walletContextRuntimeEvents.promotionCoverage?.avoidRows ?? 'n/a'} / ${walletContextRuntimeEvents.promotionCoverage?.rowsWithPromotion ?? 'n/a'}`);
   lines.push(`- Paper decision wallet context any / positive-or-proven / avoid: ${walletContextDecision.withAnyWalletTouch ?? 'n/a'} / ${walletContextDecision.withPositiveOrProvenTouch ?? 'n/a'} / ${walletContextDecision.withAvoidTouch ?? 'n/a'} of ${walletContextDecision.decisions ?? 'n/a'} decisions`);
+  lines.push(`- Guard attribution wallet context any / positive-or-proven / avoid: ${walletContextGuardAttribution.withAnyWalletTouch ?? 'n/a'} / ${walletContextGuardAttribution.withPositiveOrProvenTouch ?? 'n/a'} / ${walletContextGuardAttribution.withAvoidTouch ?? 'n/a'} of ${walletContextGuardAttribution.decisions ?? 'n/a'} rows`);
+  lines.push(`- Unflagged entry-shadow wallet context any / positive-or-proven / avoid: ${walletContextUnflaggedShadowGuard.withAnyWalletTouch ?? 'n/a'} / ${walletContextUnflaggedShadowGuard.withPositiveOrProvenTouch ?? 'n/a'} / ${walletContextUnflaggedShadowGuard.withAvoidTouch ?? 'n/a'} of ${walletContextUnflaggedShadowGuard.decisions ?? 'n/a'} rows`);
   lines.push(`- Wallet-event mints / decision mints / overlap: ${walletContextOverlap.uniqueWalletEventMints ?? 'n/a'} / ${walletContextOverlap.uniqueDecisionMints ?? 'n/a'} / ${walletContextOverlap.overlapMints ?? 'n/a'}`);
   if (walletContextJoin.walletTouchRows !== undefined) {
     lines.push(`- Wallet proof join: touches=${walletContextJoin.walletTouchRows ?? 'n/a'} touchMints=${walletContextJoin.walletTouchUniqueMints ?? 'n/a'} decisionRows=${walletContextJoin.paperDecisionRows ?? 'n/a'} decisionMints=${walletContextJoin.paperDecisionUniqueMints ?? 'n/a'} overlapMints=${walletContextJoin.overlapMints ?? 'n/a'}`);

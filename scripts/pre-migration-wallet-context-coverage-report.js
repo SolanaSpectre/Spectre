@@ -815,6 +815,26 @@ async function summarizeTelemetry(filePath, promotionIndex) {
     byReason: {},
     sampleRows: []
   };
+  const guardAttributionCoverage = {
+    total: 0,
+    mints: new Set(),
+    withAny: 0,
+    withPositiveOrProven: 0,
+    withAvoid: 0,
+    contextSources: {},
+    byReason: {},
+    sampleRows: []
+  };
+  const unflaggedShadowGuardCoverage = {
+    total: 0,
+    mints: new Set(),
+    withAny: 0,
+    withPositiveOrProven: 0,
+    withAvoid: 0,
+    contextSources: {},
+    byReason: {},
+    sampleRows: []
+  };
   const shadow = {
     attempts: 0,
     wouldEnter: 0,
@@ -1015,6 +1035,14 @@ async function summarizeTelemetry(filePath, promotionIndex) {
       return;
     }
 
+    if (type === 'pre_migration_paper.guard_attribution') {
+      addDecisionCoverage(guardAttributionCoverage, event, promotionIndex);
+      if (payload.shadowOnly === true && payload.shadowReason === 'UNFLAGGED_ENTRY_FUNNEL_SHADOW') {
+        addDecisionCoverage(unflaggedShadowGuardCoverage, event, promotionIndex);
+      }
+      return;
+    }
+
     if (type === 'pre_migration_wallet_relaxed_shadow.would_enter' || type === 'pre_migration_wallet_relaxed_shadow.would_skip') {
       const context = {
         wallets: [],
@@ -1105,7 +1133,11 @@ async function summarizeTelemetry(filePath, promotionIndex) {
       : (providerTradeEvents > 0
         ? 'provider_trade_flow_without_wallet_gate_diagnostics'
         : 'no_provider_trade_flow'));
-  const bridgeValidationStatus = walletEvents.length > 0 || shadow.withAny > 0 || decisionCoverage.withAny > 0
+  const bridgeValidationStatus = walletEvents.length > 0
+    || shadow.withAny > 0
+    || decisionCoverage.withAny > 0
+    || guardAttributionCoverage.withAny > 0
+    || unflaggedShadowGuardCoverage.withAny > 0
     ? 'wallet_context_available_for_bridge_validation'
     : (providerTradeEvents > 0
       ? 'inactive_wallet_channel_unavailable'
@@ -1173,6 +1205,8 @@ async function summarizeTelemetry(filePath, promotionIndex) {
       bridgeValidationStatus
     },
     decisionCoverage: finalizeDecisionCoverage(decisionCoverage),
+    guardAttributionCoverage: finalizeDecisionCoverage(guardAttributionCoverage),
+    unflaggedEntryShadowGuardCoverage: finalizeDecisionCoverage(unflaggedShadowGuardCoverage),
     walletDecisionMintOverlap: {
       uniqueWalletEventMints: walletMints.size,
       uniqueDecisionMints: decisionMints.size,

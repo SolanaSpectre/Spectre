@@ -101,6 +101,11 @@ class PreMigrationPaperLane {
     this.curveFalseNegativeBridgeRecoveryLookbackMs = Math.max(1000, Number(config.preMigrationPaperCurveFalseNegativeBridgeRecoveryLookbackMs ?? 30_000));
     this.curveFalseNegativeBridgeRecoveryMinAdvance = Number(config.preMigrationPaperCurveFalseNegativeBridgeRecoveryMinAdvance ?? 0.003);
     this.curveFalseNegativeBridgeParityMaxDelta = Number(config.preMigrationPaperCurveFalseNegativeBridgeParityMaxDelta ?? 0.03);
+    this.unflaggedEntryShadowEnabled = config.preMigrationPaperUnflaggedEntryShadowEnabled !== false;
+    this.unflaggedEntryShadowMinScore = Number(config.preMigrationPaperUnflaggedEntryShadowMinScore ?? 70);
+    this.unflaggedEntryShadowMinCurveProgress = Number(config.preMigrationPaperUnflaggedEntryShadowMinCurveProgress ?? 0.7);
+    this.unflaggedEntryShadowMinRecentVolumeSol = Number(config.preMigrationPaperUnflaggedEntryShadowMinRecentVolumeSol ?? 12);
+    this.unflaggedEntryShadowMinTradeVelocityPerMin = Number(config.preMigrationPaperUnflaggedEntryShadowMinTradeVelocityPerMin ?? 12);
     this.presets = this.buildPresets(config);
     this.strategy = this.presets[0]?.strategy || {
       minScore: config.preMigrationPaperMinScore,
@@ -273,10 +278,41 @@ class PreMigrationPaperLane {
           // guard_attribution still records this intentionally suppressed PAPER_SKIPPED case.
           events.push(this.decisionEvent('PAPER_SKIPPED', observedState, timestamp, preset, decision));
         }
+      } else if (
+        !flagged
+        && !exitedThisObservation
+        && !this.openPositions.has(key)
+        && this.shouldShadowUnflaggedEntry(observedState)
+      ) {
+        const decision = this.evaluateEntryDecision(observedState, preset, entryGuards, timestamp);
+        events.push(this.guardAttributionEvent(observedState, timestamp, preset, decision, entryGuards, {
+          flagged: false,
+          shadowOnly: true,
+          shadowReason: 'UNFLAGGED_ENTRY_FUNNEL_SHADOW',
+          suppressedPresetIneligible: decision.reason === 'PRESET_NOT_ELIGIBLE_FOR_GUARD_OVERRIDE'
+        }));
       }
     }
 
     return events;
+  }
+
+  shouldShadowUnflaggedEntry(state = {}) {
+    if (!this.unflaggedEntryShadowEnabled) {
+      return false;
+    }
+
+    const score = Number(state.score);
+    const curveProgress = Number(state.curveProgress);
+    const recentVolumeSol = Number(state.recentVolumeSol);
+    const tradeVelocityPerMin = Number(state.tradeVelocityPerMin);
+
+    return (
+      (Number.isFinite(score) && score >= this.unflaggedEntryShadowMinScore)
+      || (Number.isFinite(curveProgress) && curveProgress >= this.unflaggedEntryShadowMinCurveProgress)
+      || (Number.isFinite(recentVolumeSol) && recentVolumeSol >= this.unflaggedEntryShadowMinRecentVolumeSol)
+      || (Number.isFinite(tradeVelocityPerMin) && tradeVelocityPerMin >= this.unflaggedEntryShadowMinTradeVelocityPerMin)
+    );
   }
 
   buildPresets(config) {
@@ -2950,6 +2986,8 @@ class PreMigrationPaperLane {
         symbol: state.symbol || null,
         timestamp,
         flagged: meta.flagged === true,
+        shadowOnly: meta.shadowOnly === true,
+        shadowReason: meta.shadowReason || null,
         preset: preset.name,
         lane: preset.lane || null,
         profileName: preset.profileName || null,
