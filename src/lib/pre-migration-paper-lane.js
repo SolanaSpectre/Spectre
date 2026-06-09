@@ -3063,6 +3063,7 @@ class PreMigrationPaperLane {
         earlyAccelerationAvoidWalletContextTouchCount: decision.earlyAccelerationAvoidWalletContextTouchCount ?? entryGuards.earlyAccelerationAvoidWalletContextTouchCount ?? null,
         earlyAccelerationAvoidWalletContextTouches: decision.earlyAccelerationAvoidWalletContextTouches || entryGuards.earlyAccelerationAvoidWalletContextTouches || null,
         earlyAccelerationAvoidWalletContextThresholds: decision.earlyAccelerationAvoidWalletContextThresholds || entryGuards.earlyAccelerationAvoidWalletContextThresholds || null,
+        walletClassificationContext: state.walletClassificationContext || null,
         reasons: Array.isArray(state.reasons) ? state.reasons.slice(0, 10) : []
       }
     };
