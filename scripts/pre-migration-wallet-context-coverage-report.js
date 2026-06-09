@@ -130,6 +130,21 @@ function topCounts(rows, keyFn, limit = 12) {
     .map(([key, count]) => ({ key, count }));
 }
 
+function stat(values, digits = 6) {
+  const finite = values.map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!finite.length) return { count: 0, min: null, median: null, p90: null, max: null, avg: null };
+  const pick = (q) => finite[Math.min(finite.length - 1, Math.floor((finite.length - 1) * q))];
+  const sum = finite.reduce((total, value) => total + value, 0);
+  return {
+    count: finite.length,
+    min: compact(finite[0], digits),
+    median: compact(pick(0.5), digits),
+    p90: compact(pick(0.9), digits),
+    max: compact(finite[finite.length - 1], digits),
+    avg: compact(sum / finite.length, digits)
+  };
+}
+
 function uniqueCount(rows, keyFn) {
   return new Set(rows.map(keyFn).filter(Boolean)).size;
 }
@@ -204,6 +219,462 @@ function summarizeWalletContext(context = {}) {
     contextSource: context.contextSource || null,
     earliestTouchAt: context.earliestTouchAt || null,
     earliestBuyAt: context.earliestBuyAt || null
+  };
+}
+
+function curveOf(payload = {}) {
+  const raw = payload.providerCurveProgress
+    ?? payload.curveProgress
+    ?? payload.bondingCurveProgress
+    ?? payload.paperCurveProgress
+    ?? payload.progress;
+  const curve = Number(raw);
+  if (!Number.isFinite(curve)) return null;
+  return curve > 1 && curve <= 100 ? curve / 100 : curve;
+}
+
+function priceOf(payload = {}) {
+  const price = Number(payload.providerCurvePriceSol ?? payload.bondingCurvePriceSol ?? payload.curvePriceSol ?? payload.priceSol);
+  return Number.isFinite(price) && price > 0 ? price : null;
+}
+
+function followThroughWindow(row, snapshotsByMint, seconds) {
+  const snapshots = snapshotsByMint.get(row.mint) || [];
+  const future = snapshots.filter((snapshot) => snapshot.atMs > row.atMs && snapshot.atMs <= row.atMs + seconds * 1000);
+  const curves = future.map((snapshot) => Number(snapshot.curveProgress)).filter(Number.isFinite);
+  const prices = future.map((snapshot) => Number(snapshot.priceSol)).filter((value) => Number.isFinite(value) && value > 0);
+  const maxCurve = curves.length ? Math.max(...curves) : null;
+  const maxPrice = prices.length ? Math.max(...prices) : null;
+  const startCurve = Number(row.curveProgress);
+  const startPrice = Number(row.priceSol);
+  const crossed = (threshold) => Number.isFinite(startCurve) && startCurve < threshold && future.some((snapshot) => Number(snapshot.curveProgress) >= threshold);
+  return {
+    seconds,
+    futureSnapshotCount: future.length,
+    maxCurveProgress: compact(maxCurve, 6),
+    curveDelta: maxCurve !== null && Number.isFinite(startCurve) ? compact(maxCurve - startCurve, 6) : null,
+    maxPriceDeltaPct: maxPrice !== null && Number.isFinite(startPrice) && startPrice > 0 ? compact(((maxPrice - startPrice) / startPrice) * 100, 2) : null,
+    crossed85AfterTrade: crossed(0.85),
+    crossed90AfterTrade: crossed(0.9),
+    crossed95AfterTrade: crossed(0.95)
+  };
+}
+
+function summarizeUntrackedWalletOpportunity(rows = [], decisionMints = new Set()) {
+  const buys = rows.filter((row) => row.txType === 'buy' && row.wallet);
+  const sells = rows.filter((row) => row.txType === 'sell' && row.wallet);
+  const allByWallet = new Map();
+  for (const row of rows.filter((item) => item.wallet)) {
+    if (!allByWallet.has(row.wallet)) allByWallet.set(row.wallet, []);
+    allByWallet.get(row.wallet).push(row);
+  }
+  const byWallet = new Map();
+  for (const row of buys) {
+    if (!byWallet.has(row.wallet)) byWallet.set(row.wallet, []);
+    byWallet.get(row.wallet).push(row);
+  }
+  const walletRows = Array.from(byWallet.entries()).map(([wallet, walletRows]) => {
+    const allRows = allByWallet.get(wallet) || [];
+    const sellRows = allRows.filter((row) => row.txType === 'sell').length;
+    const buyRows = walletRows.length;
+    const uniqueMints = new Set(walletRows.map((row) => row.mint).filter(Boolean));
+    const decisionOverlapMints = new Set(walletRows.map((row) => row.mint).filter((mint) => mint && decisionMints.has(mint)));
+    const w120 = walletRows.map((row) => row.window120s || {});
+    const w300 = walletRows.map((row) => row.window300s || {});
+    const crossed90Mints = new Set(walletRows.filter((row) => row.window300s?.crossed90AfterTrade).map((row) => row.mint).filter(Boolean));
+    const curveDelta300s = stat(w300.map((row) => row.curveDelta), 6);
+    const maxPriceDeltaPct300s = stat(w300.map((row) => row.maxPriceDeltaPct), 2);
+    const buyRatio = allRows.length ? compact(buyRows / allRows.length, 4) : null;
+    const decisionOverlapRate = uniqueMints.size ? compact(decisionOverlapMints.size / uniqueMints.size, 4) : null;
+    const rowsPerMint = uniqueMints.size ? compact(buyRows / uniqueMints.size, 2) : null;
+    const medianCurveDelta = Number(curveDelta300s.median || 0);
+    const p90CurveDelta = Number(curveDelta300s.p90 || 0);
+    const reviewScore = compact(Math.max(0, Math.min(100,
+      (Math.min(uniqueMints.size, 20) * 2)
+      + (Math.min(decisionOverlapMints.size, 20) * 1.5)
+      + (Math.min(p90CurveDelta, 0.7) * 45)
+      + (Math.min(medianCurveDelta, 0.5) * 25)
+      + (buyRatio !== null ? buyRatio * 10 : 0)
+      - (rowsPerMint !== null && rowsPerMint > 12 ? 12 : 0)
+      - (buyRows >= 500 ? 10 : 0)
+    )), 2);
+    const reviewReason = reviewScore >= 70
+      ? 'PROMOTE_TO_MANUAL_REVIEW'
+      : (reviewScore >= 45 ? 'WATCH_NEXT_RUN' : 'LOW_PRIORITY');
+    return {
+      wallet,
+      rows: walletRows.length,
+      buyRows,
+      sellRows,
+      buyRatio,
+      uniqueMints: uniqueMints.size,
+      decisionOverlapMints: decisionOverlapMints.size,
+      decisionOverlapRate,
+      rowsPerMint,
+      crossed85Within120s: w120.filter((row) => row.crossed85AfterTrade).length,
+      crossed90Within120s: w120.filter((row) => row.crossed90AfterTrade).length,
+      crossed90Within300s: w300.filter((row) => row.crossed90AfterTrade).length,
+      uniqueMintsCrossed90Within300s: crossed90Mints.size,
+      crossed90Within300sRate: walletRows.length ? compact(w300.filter((row) => row.crossed90AfterTrade).length / walletRows.length, 4) : null,
+      curveDelta120s: stat(w120.map((row) => row.curveDelta), 6),
+      curveDelta300s,
+      maxPriceDeltaPct120s: stat(w120.map((row) => row.maxPriceDeltaPct), 2),
+      maxPriceDeltaPct300s,
+      reviewScore,
+      reviewReason,
+      sampleMints: Array.from(uniqueMints).slice(0, 8)
+    };
+  });
+  const topReviewCandidates = walletRows
+    .filter((row) => row.uniqueMints >= 3 && row.decisionOverlapMints >= 2)
+    .slice()
+    .sort((a, b) => (
+      b.reviewScore - a.reviewScore
+      || Number(b.curveDelta300s?.p90 || 0) - Number(a.curveDelta300s?.p90 || 0)
+      || b.uniqueMints - a.uniqueMints
+      || b.rows - a.rows
+    ))
+    .slice(0, 12);
+  const topByFollowThrough = walletRows
+    .slice()
+    .sort((a, b) => (
+      b.uniqueMintsCrossed90Within300s - a.uniqueMintsCrossed90Within300s
+      || b.crossed90Within300s - a.crossed90Within300s
+      || b.uniqueMints - a.uniqueMints
+      || b.rows - a.rows
+    ))
+    .slice(0, 12);
+  const topByFrequency = walletRows
+    .slice()
+    .sort((a, b) => b.rows - a.rows || b.uniqueMints - a.uniqueMints)
+    .slice(0, 12);
+  return {
+    rows: rows.length,
+    buyRows: buys.length,
+    sellRows: sells.length,
+    uniqueWallets: byWallet.size,
+    uniqueBuyMints: new Set(buys.map((row) => row.mint).filter(Boolean)).size,
+    buyRowsWithDecisionOverlap: buys.filter((row) => row.mint && decisionMints.has(row.mint)).length,
+    buyRowsCrossed90Within300s: buys.filter((row) => row.window300s?.crossed90AfterTrade).length,
+    uniqueBuyMintsCrossed90Within300s: new Set(buys.filter((row) => row.window300s?.crossed90AfterTrade).map((row) => row.mint).filter(Boolean)).size,
+    curveDelta300s: stat(buys.map((row) => row.window300s?.curveDelta), 6),
+    maxPriceDeltaPct300s: stat(buys.map((row) => row.window300s?.maxPriceDeltaPct), 2),
+    topReviewCandidates,
+    topByFollowThrough,
+    topByFrequency
+  };
+}
+
+function summarizeUntrackedDecisionJoin(rows = [], decisions = [], windowSeconds = 120) {
+  const buysByMint = new Map();
+  for (const row of rows) {
+    if (row.txType !== 'buy' || !row.mint || !row.wallet || !Number.isFinite(row.atMs)) continue;
+    if (!buysByMint.has(row.mint)) buysByMint.set(row.mint, []);
+    buysByMint.get(row.mint).push(row);
+  }
+  for (const rowsForMint of buysByMint.values()) {
+    rowsForMint.sort((a, b) => a.atMs - b.atMs);
+  }
+
+  const reasonStats = {};
+  const walletHits = new Map();
+  const samples = [];
+  let decisionsWithPriorUntrackedBuy = 0;
+  let decisionsWithNearPriorUntrackedBuy = 0;
+  let noTrackedFirstTouchBuyWithPriorUntrackedBuy = 0;
+  let noTrackedFirstTouchBuyWithNearPriorUntrackedBuy = 0;
+  const uniqueMintsWithPrior = new Set();
+  const uniqueNearPriorWallets = new Set();
+
+  for (const decision of decisions) {
+    const reason = decision.reason || 'unknown';
+    if (!reasonStats[reason]) {
+      reasonStats[reason] = {
+        decisions: 0,
+        withPriorUntrackedBuy: 0,
+        withNearPriorUntrackedBuy: 0,
+        uniqueMintsWithPrior: new Set(),
+        uniqueNearPriorWallets: new Set()
+      };
+    }
+    const stats = reasonStats[reason];
+    stats.decisions += 1;
+
+    if (!decision.mint || !Number.isFinite(decision.atMs)) continue;
+    const buys = buysByMint.get(decision.mint) || [];
+    const priorBuys = buys.filter((row) => row.atMs <= decision.atMs);
+    if (!priorBuys.length) continue;
+
+    const nearCutoffMs = decision.atMs - windowSeconds * 1000;
+    const nearPriorBuys = priorBuys.filter((row) => row.atMs >= nearCutoffMs);
+    decisionsWithPriorUntrackedBuy += 1;
+    stats.withPriorUntrackedBuy += 1;
+    stats.uniqueMintsWithPrior.add(decision.mint);
+    uniqueMintsWithPrior.add(decision.mint);
+
+    if (reason === 'CURVE_FALSE_NEGATIVE_BRIDGE_NO_TRACKED_FIRST_TOUCH_BUY') {
+      noTrackedFirstTouchBuyWithPriorUntrackedBuy += 1;
+    }
+
+    if (nearPriorBuys.length) {
+      decisionsWithNearPriorUntrackedBuy += 1;
+      stats.withNearPriorUntrackedBuy += 1;
+      const firstNear = nearPriorBuys[0];
+      if (reason === 'CURVE_FALSE_NEGATIVE_BRIDGE_NO_TRACKED_FIRST_TOUCH_BUY') {
+        noTrackedFirstTouchBuyWithNearPriorUntrackedBuy += 1;
+      }
+      for (const buy of nearPriorBuys) {
+        uniqueNearPriorWallets.add(buy.wallet);
+        stats.uniqueNearPriorWallets.add(buy.wallet);
+        const walletRow = walletHits.get(buy.wallet) || {
+          wallet: buy.wallet,
+          nearPriorBuyRows: 0,
+          nearPriorBuyDecisionLinks: 0,
+          decisions: 0,
+          reasons: {},
+          mints: new Set(),
+          buyKeys: new Set()
+        };
+        walletRow.nearPriorBuyDecisionLinks += 1;
+        const buyKey = [
+          buy.wallet || '',
+          buy.mint || '',
+          buy.txType || '',
+          Number.isFinite(buy.atMs) ? buy.atMs : '',
+          buy.provider || '',
+          buy.source || ''
+        ].join('|');
+        if (!walletRow.buyKeys.has(buyKey)) {
+          walletRow.buyKeys.add(buyKey);
+          walletRow.nearPriorBuyRows += 1;
+        }
+        walletRow.reasons[reason] = (walletRow.reasons[reason] || 0) + 1;
+        walletRow.mints.add(decision.mint);
+        walletHits.set(buy.wallet, walletRow);
+      }
+      for (const wallet of new Set(nearPriorBuys.map((row) => row.wallet))) {
+        const walletRow = walletHits.get(wallet);
+        if (walletRow) walletRow.decisions += 1;
+      }
+      if (samples.length < 12) {
+        samples.push({
+          mint: decision.mint,
+          symbol: decision.symbol || null,
+          reason,
+          decisionAt: decision.at || null,
+          score: decision.score ?? null,
+          curveProgress: decision.curveProgress ?? null,
+          priorBuyCount: priorBuys.length,
+          nearPriorBuyCount: nearPriorBuys.length,
+          firstNearPriorBuy: {
+            wallet: firstNear.wallet,
+            at: firstNear.at,
+            txType: firstNear.txType,
+            secondsBeforeDecision: compact((decision.atMs - firstNear.atMs) / 1000, 3),
+            curveProgress: firstNear.curveProgress ?? null
+          }
+        });
+      }
+    }
+  }
+
+  const topNearPriorWallets = Array.from(walletHits.values())
+    .map((row) => ({
+      wallet: row.wallet,
+      nearPriorBuyRows: row.nearPriorBuyRows,
+      nearPriorBuyDecisionLinks: row.nearPriorBuyDecisionLinks,
+      decisions: row.decisions,
+      uniqueMints: row.mints.size,
+      reasonCounts: Object.fromEntries(Object.entries(row.reasons).sort((a, b) => b[1] - a[1]))
+    }))
+    .sort((a, b) => b.decisions - a.decisions || b.nearPriorBuyRows - a.nearPriorBuyRows || b.uniqueMints - a.uniqueMints)
+    .slice(0, 12);
+
+  return {
+    windowSeconds,
+    paperDecisionRows: decisions.length,
+    decisionsWithPriorUntrackedBuy,
+    decisionsWithNearPriorUntrackedBuy,
+    uniqueMintsWithPriorUntrackedBuy: uniqueMintsWithPrior.size,
+    uniqueNearPriorUntrackedWallets: uniqueNearPriorWallets.size,
+    noTrackedFirstTouchBuyDecisions: reasonStats.CURVE_FALSE_NEGATIVE_BRIDGE_NO_TRACKED_FIRST_TOUCH_BUY?.decisions || 0,
+    noTrackedFirstTouchBuyWithPriorUntrackedBuy,
+    noTrackedFirstTouchBuyWithNearPriorUntrackedBuy,
+    byReason: Object.fromEntries(Object.entries(reasonStats)
+      .sort((a, b) => b[1].decisions - a[1].decisions)
+      .map(([reason, row]) => [reason, {
+        decisions: row.decisions,
+        withPriorUntrackedBuy: row.withPriorUntrackedBuy,
+        withNearPriorUntrackedBuy: row.withNearPriorUntrackedBuy,
+        uniqueMintsWithPrior: row.uniqueMintsWithPrior.size,
+        uniqueNearPriorWallets: row.uniqueNearPriorWallets.size
+      }])),
+    topNearPriorWallets,
+    samples
+  };
+}
+
+function dedupeJoinRows(rows = []) {
+  const seen = new Set();
+  const output = [];
+  for (const row of rows) {
+    const key = [
+      row.wallet || '',
+      row.mint || '',
+      row.side || row.txType || '',
+      Number.isFinite(row.atMs) ? Math.floor(row.atMs / 1000) : '',
+      row.watchedReason || ''
+    ].join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(row);
+  }
+  return output;
+}
+
+function summarizeWalletDecisionJoin(walletTouchRows = [], decisionRows = []) {
+  const touches = dedupeJoinRows(walletTouchRows)
+    .filter((row) => row.mint)
+    .sort((a, b) => Number(a.atMs || 0) - Number(b.atMs || 0));
+  const decisions = decisionRows
+    .filter((row) => row.mint)
+    .sort((a, b) => Number(a.atMs || 0) - Number(b.atMs || 0));
+  const decisionsByMint = new Map();
+  const touchesByMint = new Map();
+
+  for (const decision of decisions) {
+    if (!decisionsByMint.has(decision.mint)) decisionsByMint.set(decision.mint, []);
+    decisionsByMint.get(decision.mint).push(decision);
+  }
+  for (const touch of touches) {
+    if (!touchesByMint.has(touch.mint)) touchesByMint.set(touch.mint, []);
+    touchesByMint.get(touch.mint).push(touch);
+  }
+
+  const touchExplanations = [];
+  const joinStatusCounts = {};
+  for (const touch of touches) {
+    const sameMintDecisions = decisionsByMint.get(touch.mint) || [];
+    const firstDecision = sameMintDecisions[0] || null;
+    const lastDecision = sameMintDecisions[sameMintDecisions.length - 1] || null;
+    const contextDecision = sameMintDecisions.find((decision) => decision.hasAnyWalletTouch) || null;
+    const priorOrSameDecisions = sameMintDecisions.filter((decision) => (
+      Number.isFinite(touch.atMs)
+      && Number.isFinite(decision.atMs)
+      && decision.atMs >= touch.atMs
+    ));
+    const firstDecisionAfterTouch = priorOrSameDecisions[0] || null;
+    const lastDecisionBeforeTouch = sameMintDecisions
+      .filter((decision) => Number.isFinite(touch.atMs) && Number.isFinite(decision.atMs) && decision.atMs < touch.atMs)
+      .slice(-1)[0] || null;
+
+    let joinStatus = 'missing_timing';
+    if (!sameMintDecisions.length) {
+      joinStatus = 'no_paper_decision_for_wallet_mint';
+    } else if (contextDecision) {
+      joinStatus = 'same_mint_context_present';
+    } else if (!Number.isFinite(touch.atMs) || !Number.isFinite(firstDecision?.atMs)) {
+      joinStatus = 'same_mint_missing_timing_context_absent';
+    } else if (firstDecisionAfterTouch) {
+      joinStatus = firstDecision === firstDecisionAfterTouch
+        ? 'touch_before_first_decision_context_absent'
+        : 'touch_before_later_decision_context_absent';
+    } else if (lastDecision && Number.isFinite(lastDecision.atMs) && touch.atMs > lastDecision.atMs) {
+      joinStatus = 'touch_after_last_decision';
+    } else {
+      joinStatus = 'same_mint_context_absent';
+    }
+    joinStatusCounts[joinStatus] = (joinStatusCounts[joinStatus] || 0) + 1;
+
+    if (touchExplanations.length < 24) {
+      touchExplanations.push({
+        wallet: touch.wallet || null,
+        mint: touch.mint,
+        symbol: touch.symbol || null,
+        side: touch.side || touch.txType || null,
+        sourceKind: touch.sourceKind || null,
+        watchedReason: touch.watchedReason || null,
+        reviewTier: touch.reviewTier || null,
+        evidenceTier: touch.evidenceTier || null,
+        touchAt: touch.at || (Number.isFinite(touch.atMs) ? new Date(touch.atMs).toISOString() : null),
+        paperDecisionCountForMint: sameMintDecisions.length,
+        firstDecisionAt: firstDecision?.at || null,
+        firstDecisionReason: firstDecision?.reason || null,
+        firstDecisionHasWalletContext: firstDecision ? Boolean(firstDecision.hasAnyWalletTouch) : false,
+        firstDecisionAfterTouchAt: firstDecisionAfterTouch?.at || null,
+        firstDecisionAfterTouchReason: firstDecisionAfterTouch?.reason || null,
+        lastDecisionBeforeTouchAt: lastDecisionBeforeTouch?.at || null,
+        firstDecisionMinusTouchMs: firstDecision && Number.isFinite(firstDecision.atMs) && Number.isFinite(touch.atMs)
+          ? Math.round(firstDecision.atMs - touch.atMs)
+          : null,
+        firstDecisionAfterTouchMinusTouchMs: firstDecisionAfterTouch && Number.isFinite(firstDecisionAfterTouch.atMs) && Number.isFinite(touch.atMs)
+          ? Math.round(firstDecisionAfterTouch.atMs - touch.atMs)
+          : null,
+        joinStatus
+      });
+    }
+  }
+
+  let decisionsWithPriorOrSameTouch = 0;
+  let decisionsWithFutureTouch = 0;
+  let decisionsWithPriorOrSameTouchButNoContext = 0;
+  const decisionMissSamples = [];
+  for (const decision of decisions) {
+    const sameMintTouches = touchesByMint.get(decision.mint) || [];
+    const priorOrSameTouches = sameMintTouches.filter((touch) => (
+      Number.isFinite(touch.atMs)
+      && Number.isFinite(decision.atMs)
+      && touch.atMs <= decision.atMs
+    ));
+    const futureTouches = sameMintTouches.filter((touch) => (
+      Number.isFinite(touch.atMs)
+      && Number.isFinite(decision.atMs)
+      && touch.atMs > decision.atMs
+    ));
+    if (priorOrSameTouches.length) decisionsWithPriorOrSameTouch += 1;
+    if (futureTouches.length) decisionsWithFutureTouch += 1;
+    if (priorOrSameTouches.length && !decision.hasAnyWalletTouch) {
+      decisionsWithPriorOrSameTouchButNoContext += 1;
+      if (decisionMissSamples.length < 16) {
+        const nearest = priorOrSameTouches[priorOrSameTouches.length - 1];
+        decisionMissSamples.push({
+          mint: decision.mint,
+          symbol: decision.symbol || nearest.symbol || null,
+          decisionAt: decision.at || null,
+          reason: decision.reason || null,
+          score: decision.score,
+          curveProgress: decision.curveProgress,
+          nearestTouchAt: nearest.at || null,
+          nearestTouchWallet: nearest.wallet || null,
+          nearestTouchSide: nearest.side || nearest.txType || null,
+          nearestTouchSourceKind: nearest.sourceKind || null,
+          decisionMinusTouchMs: Number.isFinite(decision.atMs) && Number.isFinite(nearest.atMs)
+            ? Math.round(decision.atMs - nearest.atMs)
+            : null
+        });
+      }
+    }
+  }
+
+  const overlapMints = [...touchesByMint.keys()].filter((mint) => decisionsByMint.has(mint));
+  return {
+    walletTouchRows: touches.length,
+    walletTouchUniqueMints: touchesByMint.size,
+    paperDecisionRows: decisions.length,
+    paperDecisionUniqueMints: decisionsByMint.size,
+    overlapMints: overlapMints.length,
+    overlapMintSamples: overlapMints.slice(0, 12),
+    joinStatusCounts,
+    touchRowsWithNoPaperDecisionForMint: Number(joinStatusCounts.no_paper_decision_for_wallet_mint || 0),
+    touchRowsAfterLastPaperDecision: Number(joinStatusCounts.touch_after_last_decision || 0),
+    touchRowsBeforePaperDecisionButContextAbsent: Number(joinStatusCounts.touch_before_first_decision_context_absent || 0)
+      + Number(joinStatusCounts.touch_before_later_decision_context_absent || 0),
+    touchRowsWithSameMintContextPresent: Number(joinStatusCounts.same_mint_context_present || 0),
+    decisionsWithPriorOrSameWalletTouch: decisionsWithPriorOrSameTouch,
+    decisionsWithFutureWalletTouch: decisionsWithFutureTouch,
+    decisionsWithPriorOrSameWalletTouchButNoContext: decisionsWithPriorOrSameTouchButNoContext,
+    touchExplanations,
+    decisionMissSamples
   };
 }
 
@@ -362,6 +833,7 @@ async function summarizeTelemetry(filePath, promotionIndex) {
     traderPresent: 0,
     trackedAccountMatch: 0,
     kolWalletProfileMatch: 0,
+    shadowWalletProfileMatch: 0,
     watchedWalletFlag: 0
   };
   const walletGateDiagnostics = {
@@ -374,6 +846,7 @@ async function summarizeTelemetry(filePath, promotionIndex) {
     ledgerSkipped: 0,
     trackedAccountMatch: 0,
     kolWalletProfileMatch: 0,
+    shadowWalletProfileMatch: 0,
     uniqueWalletsWithTrader: new Set(),
     uniqueUntrackedWallets: new Set(),
     reasonCounts: {},
@@ -382,6 +855,10 @@ async function summarizeTelemetry(filePath, promotionIndex) {
     rawTraderFieldKeyCounts: {},
     samples: []
   };
+  const curveSnapshotsByMint = new Map();
+  const untrackedWalletRows = [];
+  const recordedWalletGateRows = [];
+  const paperDecisionRows = [];
   let startMs = Infinity;
   let endMs = -Infinity;
 
@@ -397,8 +874,28 @@ async function summarizeTelemetry(filePath, promotionIndex) {
 
     if (type === 'wallet.trade_observed') {
       const promotion = promotionFor(promotionIndex, walletOf(payload), payload.name || payload.profile);
-      walletEvents.push({ ...payload, promotion });
+      walletEvents.push({
+        ...payload,
+        atMs,
+        at: Number.isFinite(atMs) ? new Date(atMs).toISOString() : null,
+        sourceKind: 'wallet.trade_observed',
+        promotion
+      });
       return;
+    }
+
+    if (type === 'pump_bonding_curve.provider_snapshot' || type === 'pre_migration.observed') {
+      const mint = mintOf(payload);
+      const atMsForSnapshot = timestampMs(payload.timestamp || event.timestamp);
+      const curveProgress = curveOf(payload);
+      if (mint && Number.isFinite(atMsForSnapshot) && Number.isFinite(Number(curveProgress))) {
+        if (!curveSnapshotsByMint.has(mint)) curveSnapshotsByMint.set(mint, []);
+        curveSnapshotsByMint.get(mint).push({
+          atMs: atMsForSnapshot,
+          curveProgress,
+          priceSol: priceOf(payload)
+        });
+      }
     }
 
     if (type === 'provider.pumpdev.runtime_trade' || type === 'provider.pumpportal.trade') {
@@ -407,6 +904,7 @@ async function summarizeTelemetry(filePath, promotionIndex) {
       if (payload.traderPresent === true) providerTradeDiagnostics.traderPresent += 1;
       if (payload.trackedAccountMatch === true) providerTradeDiagnostics.trackedAccountMatch += 1;
       if (payload.kolWalletProfileMatch === true) providerTradeDiagnostics.kolWalletProfileMatch += 1;
+      if (payload.shadowWalletProfileMatch === true) providerTradeDiagnostics.shadowWalletProfileMatch += 1;
       if (payload.watchedWallet === true) providerTradeDiagnostics.watchedWalletFlag += 1;
     }
 
@@ -428,12 +926,55 @@ async function summarizeTelemetry(filePath, promotionIndex) {
         walletGateDiagnostics.untrackedWallet += 1;
         const wallet = walletOf(payload);
         if (wallet) walletGateDiagnostics.uniqueUntrackedWallets.add(wallet);
+        const mint = mintOf(payload);
+        const rowAtMs = timestampMs(payload.timestamp || event.timestamp);
+        if (wallet && mint && Number.isFinite(rowAtMs)) {
+          untrackedWalletRows.push({
+            atMs: rowAtMs,
+            at: new Date(rowAtMs).toISOString(),
+            provider,
+            source,
+            mint,
+            symbol: payload.symbol || null,
+            wallet,
+            txType: payload.txType || null,
+            curveProgress: curveOf(payload),
+            priceSol: priceOf(payload)
+          });
+        }
       }
       if (reason === 'RECORDED' || payload.ledgerRecord === true) walletGateDiagnostics.recorded += 1;
+      if (reason === 'RECORDED' || payload.ledgerRecord === true) {
+        const wallet = walletOf(payload);
+        const mint = mintOf(payload);
+        const rowAtMs = timestampMs(payload.timestamp || event.timestamp);
+        const promotion = promotionFor(promotionIndex, wallet, payload.name || payload.profile);
+        if (wallet && mint && Number.isFinite(rowAtMs)) {
+          recordedWalletGateRows.push({
+            atMs: rowAtMs,
+            at: new Date(rowAtMs).toISOString(),
+            sourceKind: 'wallet.trade_gate_diagnostic.RECORDED',
+            provider,
+            source,
+            mint,
+            symbol: payload.symbol || null,
+            wallet,
+            side: payload.txType || null,
+            txType: payload.txType || null,
+            watchedReason: payload.watchedReason || null,
+            trackedAccountMatch: payload.trackedAccountMatch === true,
+            kolWalletProfileMatch: payload.kolWalletProfileMatch === true,
+            shadowWalletProfileMatch: payload.shadowWalletProfileMatch === true,
+            reviewTier: promotion?.reviewTier || null,
+            evidenceTier: promotion?.evidenceTier || null
+          });
+        }
+      }
       if (reason === 'WALLET_LEDGER_RECORD_FAILED') walletGateDiagnostics.ledgerFailures += 1;
       if (reason === 'WALLET_LEDGER_RECORD_SKIPPED') walletGateDiagnostics.ledgerSkipped += 1;
       if (payload.trackedAccountMatch === true) walletGateDiagnostics.trackedAccountMatch += 1;
       if (payload.kolWalletProfileMatch === true) walletGateDiagnostics.kolWalletProfileMatch += 1;
+      if (payload.shadowWalletProfileMatch === true) walletGateDiagnostics.shadowWalletProfileMatch += 1;
       for (const key of Array.isArray(payload.rawTraderFieldKeys) ? payload.rawTraderFieldKeys : []) {
         walletGateDiagnostics.rawTraderFieldKeyCounts[key] = (walletGateDiagnostics.rawTraderFieldKeyCounts[key] || 0) + 1;
       }
@@ -447,12 +988,29 @@ async function summarizeTelemetry(filePath, promotionIndex) {
           dropReason: reason,
           trackedAccountMatch: payload.trackedAccountMatch === true,
           kolWalletProfileMatch: payload.kolWalletProfileMatch === true,
+          shadowWalletProfileMatch: payload.shadowWalletProfileMatch === true,
           rawTraderFieldKeys: Array.isArray(payload.rawTraderFieldKeys) ? payload.rawTraderFieldKeys : []
         });
       }
     }
 
     if (type === 'pre_migration_paper.decision') {
+      const context = payload.walletClassificationContext || {};
+      const summarized = summarizeWalletContext(context);
+      paperDecisionRows.push({
+        atMs,
+        at: Number.isFinite(atMs) ? new Date(atMs).toISOString() : null,
+        mint: mintOf(payload),
+        symbol: payload.symbol || null,
+        reason: payload.reason || payload.skipReason || payload.decision || 'unknown',
+        decision: payload.decision || null,
+        score: compact(payload.score, 2),
+        curveProgress: compact(payload.curveProgress ?? payload.providerCurveProgress ?? payload.paperCurveProgress, 6),
+        hasAnyWalletTouch: summarized.anyTouch,
+        positiveOrProvenTouchCount: summarized.positiveOrProvenTouchCount,
+        avoidTouchCount: summarized.avoidTouchCount,
+        contextSource: summarized.contextSource
+      });
       addDecisionCoverage(decisionCoverage, event, promotionIndex);
       return;
     }
@@ -488,6 +1046,29 @@ async function summarizeTelemetry(filePath, promotionIndex) {
 
   const walletMints = new Set(walletEvents.map((event) => event.mint).filter(Boolean));
   const decisionMints = decisionCoverage.mints;
+  for (const snapshots of curveSnapshotsByMint.values()) {
+    snapshots.sort((a, b) => a.atMs - b.atMs);
+  }
+  const untrackedRowsWithFollowThrough = untrackedWalletRows.map((row) => ({
+    ...row,
+    window120s: followThroughWindow(row, curveSnapshotsByMint, 120),
+    window300s: followThroughWindow(row, curveSnapshotsByMint, 300)
+  }));
+  const walletDecisionJoin = summarizeWalletDecisionJoin([
+    ...walletEvents.map((event) => ({
+      atMs: event.atMs,
+      at: event.at,
+      sourceKind: event.sourceKind,
+      mint: event.mint,
+      symbol: event.symbol || null,
+      wallet: walletOf(event),
+      side: event.side || null,
+      watchedReason: event.watchedReason || null,
+      reviewTier: event.promotion?.reviewTier || null,
+      evidenceTier: event.promotion?.evidenceTier || null
+    })),
+    ...recordedWalletGateRows
+  ], paperDecisionRows);
   const overlap = [...walletMints].filter((mint) => decisionMints.has(mint)).length;
   const promoted = walletEvents.filter((event) => event.promotion);
   const providerTradeEvents = Number(eventCounts['provider.pumpdev.runtime_trade'] || 0)
@@ -502,6 +1083,7 @@ async function summarizeTelemetry(filePath, promotionIndex) {
     ledgerSkipped: walletGateDiagnostics.ledgerSkipped,
     trackedAccountMatch: walletGateDiagnostics.trackedAccountMatch,
     kolWalletProfileMatch: walletGateDiagnostics.kolWalletProfileMatch,
+    shadowWalletProfileMatch: walletGateDiagnostics.shadowWalletProfileMatch,
     uniqueWalletsWithTrader: walletGateDiagnostics.uniqueWalletsWithTrader.size,
     uniqueUntrackedWallets: walletGateDiagnostics.uniqueUntrackedWallets.size,
     reasonCounts: Object.fromEntries(Object.entries(walletGateDiagnostics.reasonCounts).sort((a, b) => b[1] - a[1])),
@@ -579,9 +1161,14 @@ async function summarizeTelemetry(filePath, promotionIndex) {
           : null,
         kolWalletProfileMatchRate: providerTradeDiagnostics.withTraderFieldKnown > 0
           ? compact(providerTradeDiagnostics.kolWalletProfileMatch / providerTradeDiagnostics.withTraderFieldKnown, 6)
+          : null,
+        shadowWalletProfileMatchRate: providerTradeDiagnostics.withTraderFieldKnown > 0
+          ? compact(providerTradeDiagnostics.shadowWalletProfileMatch / providerTradeDiagnostics.withTraderFieldKnown, 6)
           : null
       },
       walletGateDiagnostics: finalizedWalletGateDiagnostics,
+      untrackedWalletOpportunity: summarizeUntrackedWalletOpportunity(untrackedRowsWithFollowThrough, decisionMints),
+      untrackedWalletDecisionJoin: summarizeUntrackedDecisionJoin(untrackedRowsWithFollowThrough, paperDecisionRows),
       walletObservationChannel,
       bridgeValidationStatus
     },
@@ -591,6 +1178,7 @@ async function summarizeTelemetry(filePath, promotionIndex) {
       uniqueDecisionMints: decisionMints.size,
       overlapMints: overlap
     },
+    walletDecisionJoin,
     walletRelaxedShadowCoverage: {
       attempts: shadow.attempts,
       wouldEnter: shadow.wouldEnter,

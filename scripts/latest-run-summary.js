@@ -27,6 +27,7 @@ const FILES = {
   preMigrationEntryShape: 'data/reports/pre-migration-entry-shape-latest.json',
   preMigrationEntryFunnel: 'data/reports/pre-migration-entry-funnel-latest.json',
   preMigrationEntryGateMargin: 'data/reports/pre-migration-entry-gate-margin-latest.json',
+  preMigrationSingleGateShadow: 'data/reports/pre-migration-single-gate-shadow-latest.json',
   preMigrationCurveAdvanceDiagnostic: 'data/reports/pre-migration-curve-advance-diagnostic-latest.json',
   preMigrationGuardAttribution: 'data/reports/pre-migration-guard-attribution-latest.json',
   preMigrationSkipFollowThrough: 'data/reports/pre-migration-skip-follow-through-latest.json',
@@ -39,6 +40,7 @@ const FILES = {
   preMigrationCurveStallRelaxedReplay: 'data/reports/pre-migration-curve-stall-relaxed-replay-latest.json',
   preMigrationCurveFalseNegativeReplay: 'data/reports/pre-migration-curve-false-negative-replay-latest.json',
   preMigrationCurveFalseNegativeShadow: 'data/reports/pre-migration-curve-false-negative-shadow-latest.json',
+  preMigrationCurveFalseNegativeShadowReplay: 'data/reports/pre-migration-curve-false-negative-shadow-replay-latest.json',
   preMigrationCurveFalseNegativeRecoveryShadow: 'data/reports/pre-migration-curve-false-negative-recovery-shadow-latest.json',
   preMigrationWalletConditionedRelaxedGateReplay: 'data/reports/pre-migration-wallet-conditioned-relaxed-gate-replay-latest.json',
   preMigrationWalletRelaxedShadowOutcome: 'data/reports/pre-migration-wallet-relaxed-shadow-outcome-latest.json',
@@ -77,6 +79,8 @@ const FILES = {
   walletSniperCrowdedReplay: 'data/reports/wallet-sniper-crowded-replay-latest.json',
   walletPnlEvidence: 'data/reports/wallet-pnl-evidence-latest.json',
   walletPromotionReview: 'data/reports/wallet-promotion-review-latest.json',
+  walletUntrackedReview: 'data/reports/wallet-untracked-review-latest.json',
+  walletUntrackedShadowImpact: 'data/reports/wallet-untracked-shadow-impact-latest.json',
   walletReviewOutcomeLift: 'data/reports/wallet-review-outcome-lift-latest.json',
   walletPerWalletLift: 'data/reports/wallet-per-wallet-lift-latest.json',
   walletDaumenCohort: 'data/reports/wallet-daumen-cohort-latest.json',
@@ -403,6 +407,11 @@ function summarizeRunnerRejectReplayProfile(name, item = {}) {
   const winRatePct = item.winRate === null || item.winRate === undefined ? 'n/a' : `${fmt(Number(item.winRate) * 100, 1)}%`;
   const tags = Array.isArray(item.verdictTags) && item.verdictTags.length ? ` tags=${item.verdictTags.join(',')}` : '';
   return `${name}: trades=${item.trades ?? 'n/a'} wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'} winRate=${winRatePct} totalPnlSol=${fmt(item.totalPnlSol, 9)} exTop1Sol=${fmt(item.pnlAfterRemovingTopWinnerSol, 9)} exTop3Sol=${fmt(item.pnlAfterRemovingTop3WinnersSol, 9)} top1GrossShare=${pct(item.topWinnerShareOfGrossProfit)}${tags} returnMed/p90=${fmt(item.returnPct?.median, 2)}%/${fmt(item.returnPct?.p90, 2)}% rawReturnMed=${fmt(item.rawReturnPct?.median, 2)}% exits=${JSON.stringify(item.exitReasons || {})}`;
+}
+
+function summarizeRunnerRejectReplayStress(name, item = {}) {
+  const winRatePct = item.winRate === null || item.winRate === undefined ? 'n/a' : `${fmt(Number(item.winRate) * 100, 1)}%`;
+  return `${name}: trades=${item.trades ?? 'n/a'} wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'} winRate=${winRatePct} pnl=${sol(item.totalPnlSol, 9)} fillHaircut=${sol(item.pnlAfterFillFailureHaircutSol, 9)} missedWinners=${item.missedWinnerCount ?? 'n/a'} (${sol(item.missedWinnerPnlSol, 9)}) exTop1=${sol(item.pnlAfterRemovingTopWinnerSol, 9)} medianReturn=${fmt(item.returnPct?.median, 2)}% exits=${JSON.stringify(item.exitReasons || {})}`;
 }
 
 function summarizeRaydiumShadow(item = {}) {
@@ -2181,6 +2190,7 @@ function summarizeMfeMaeCapture(row = {}) {
 }
 
 function buildLaunchDecisionLines({
+  battlefield,
   liveReadiness,
   paperEntries,
   paperPnl,
@@ -2190,6 +2200,7 @@ function buildLaunchDecisionLines({
   preMigrationDryRunEntryReplay,
   preMigrationRelaxedGateReplay,
   preMigrationCurveStallRelaxedReplay,
+  preMigrationCurveAdvanceDiagnostic,
   preMigrationCurveConfirmationReplay,
   runnerRejectEntryReplay,
   strategyCandidateScorecard
@@ -2201,11 +2212,19 @@ function buildLaunchDecisionLines({
   const dryBest = bestProfileFromSummary(preMigrationDryRunEntryReplay.firstPerMint?.summaryByProfile);
   const relaxedBest = topArray(preMigrationRelaxedGateReplay.ranking, 1)[0] || null;
   const curveStallBest = topArray(preMigrationCurveStallRelaxedReplay.ranking, 1)[0] || null;
+  const curveAdvanceLikelyBest = bestProfileFromSummary(preMigrationCurveAdvanceDiagnostic.replay?.likelyFalseNegativeUniqueByProfile);
   const curveConfirmationBest = topArray(preMigrationCurveConfirmationReplay.ranking, 1)[0] || null;
   const runnerRejectBest = bestProfileFromSummary(runnerRejectEntryReplay.summaryByProfile);
   const scorecardSummary = strategyCandidateScorecard.summary || {};
   const scorecardBest = topArray(strategyCandidateScorecard.bestCandidates, 1)[0] || null;
   const guardSummary = preMigrationGuardAttribution.summary || {};
+  const paperDecisionCounts = battlefield?.preMigrationPaper?.decisionCounts || {};
+  const paperSkipReasons = battlefield?.preMigrationPaper?.skipReasons || {};
+  const paperSkipped = paperDecisionCounts.PAPER_SKIPPED ?? paperDecisionCounts.paper_skipped ?? null;
+  const paperEntered = battlefield?.preMigrationPaper?.entries ?? paperEntries;
+  const paperBottleneckLine = Object.keys(paperDecisionCounts).length || Object.keys(paperSkipReasons).length
+    ? `paperEntries/skipped=${paperEntered ?? 'n/a'}/${paperSkipped ?? 'n/a'}; top skip reasons=${formatTopCounts(paperSkipReasons)}`
+    : `wouldEnter/wouldSkip=${guardSummary.wouldEnter ?? 'n/a'}/${guardSummary.wouldSkip ?? 'n/a'}; top reasons=${formatTopCounts(guardSummary.byReason)}`;
   const marginSummary = preMigrationEntryGateMargin.summary || {};
   const nearMissSummary = preMigrationEntryGateMargin.nearMissFollowThrough?.summary || {};
   const closestGateMiss = topArray(preMigrationEntryGateMargin.closestByMint, 1)[0] || {};
@@ -2231,7 +2250,7 @@ function buildLaunchDecisionLines({
   lines.push(`- Strategy evidence: paper entries/PnL=${paperEntries ?? 'n/a'} / ${paperPnl === null || paperPnl === undefined ? 'n/a' : sol(paperPnl, 6)}; ${strategyEvidenceBlocked ? 'not live-launchable' : 'sample needs live-review sizing checks'}.`);
   lines.push(`- AI reachability: signals/lifecycle attempts=${aiReachability.generatedSignals}/${aiReachability.lifecycleAttempts}; ${aiNotReached ? 'no real candidate reached runtime AI review this run' : 'runtime AI path was exercised'}.`);
   lines.push(`- Broadcast: ${broadcastBlocked ? 'still report-only; do not enable live broadcast from this evidence' : 'no broadcast launch block reported'}.`);
-  lines.push(`- Current entry gate bottleneck: wouldEnter/wouldSkip=${guardSummary.wouldEnter ?? 'n/a'}/${guardSummary.wouldSkip ?? 'n/a'}; top reasons=${formatTopCounts(guardSummary.byReason)}.`);
+  lines.push(`- Current entry gate bottleneck: ${paperBottleneckLine}.`);
   if (scorecardSummary.candidateCount !== undefined) {
     lines.push(`- Strategy scorecard: candidates=${scorecardSummary.candidateCount}, promotionEligible=${scorecardSummary.promotionEligibleCount ?? 'n/a'}, best=${summarizeStrategyCandidate(scorecardBest)}.`);
   }
@@ -2248,6 +2267,7 @@ function buildLaunchDecisionLines({
   lines.push(`  - dry-run first-eligible replay best: ${formatReplayProfile(dryBest)}`);
   lines.push(`  - LOW_SCORE/FIRST_SIGHT relaxed best: ${formatReplayProfile(relaxedBest)}`);
   lines.push(`  - CURVE_NOT_ADVANCING relaxed best: ${formatReplayProfile(curveStallBest)}`);
+  lines.push(`  - CURVE_NOT_ADVANCING diagnostic replay best: ${formatReplayProfile(curveAdvanceLikelyBest)}`);
   lines.push(`  - curve-confirmation best: ${formatReplayProfile(curveConfirmationBest, 'confirmed')}`);
   lines.push(`  - runner-reject replay best: ${formatReplayProfile(runnerRejectBest)} (report-only; not a live-entry proof)`);
   lines.push(`- Tuning posture: ${relaxedWarning ? 'do not loosen runtime gates from this evidence; the broad relaxed lanes are negative and the positive slices are tiny/median-weak' : 'candidate for deeper review, not automatic live tuning'}.`);
@@ -2287,6 +2307,7 @@ function buildSummary(docs) {
   const curveStallRelaxedReplay = docs.preMigrationCurveStallRelaxedReplay.data || {};
   const curveFalseNegativeReplay = docs.preMigrationCurveFalseNegativeReplay.data || {};
   const curveFalseNegativeShadow = docs.preMigrationCurveFalseNegativeShadow.data || {};
+  const curveFalseNegativeShadowReplay = docs.preMigrationCurveFalseNegativeShadowReplay.data || {};
   const curveFalseNegativeRecoveryShadow = docs.preMigrationCurveFalseNegativeRecoveryShadow.data || {};
   const walletConditionedRelaxedGateReplay = docs.preMigrationWalletConditionedRelaxedGateReplay.data || {};
   const walletRelaxedShadowOutcome = docs.preMigrationWalletRelaxedShadowOutcome.data || {};
@@ -2325,6 +2346,8 @@ function buildSummary(docs) {
   const walletSniperCrowdedReplay = docs.walletSniperCrowdedReplay.data || {};
   const walletPnlEvidence = docs.walletPnlEvidence.data || {};
   const walletPromotionReview = docs.walletPromotionReview.data || {};
+  const walletUntrackedReview = docs.walletUntrackedReview.data || {};
+  const walletUntrackedShadowImpact = docs.walletUntrackedShadowImpact.data || {};
   const walletReviewOutcomeLift = docs.walletReviewOutcomeLift.data || {};
   const walletPerWalletLift = docs.walletPerWalletLift.data || {};
   const walletDaumenCohort = docs.walletDaumenCohort.data || {};
@@ -2395,6 +2418,7 @@ function buildSummary(docs) {
   const signalExecutionLatency = battlefield.runnerLane?.signalExecutionLatencyMs || {};
 
   lines.push(...buildLaunchDecisionLines({
+    battlefield,
     liveReadiness,
     paperEntries,
     paperPnl,
@@ -2404,6 +2428,7 @@ function buildSummary(docs) {
     preMigrationDryRunEntryReplay: docs.preMigrationDryRunEntryReplay.data || {},
     preMigrationRelaxedGateReplay: docs.preMigrationRelaxedGateReplay.data || {},
     preMigrationCurveStallRelaxedReplay: docs.preMigrationCurveStallRelaxedReplay.data || {},
+    preMigrationCurveAdvanceDiagnostic: docs.preMigrationCurveAdvanceDiagnostic.data || {},
     preMigrationCurveConfirmationReplay: docs.preMigrationCurveConfirmationReplay?.data || {},
     runnerRejectEntryReplay: docs.runnerRejectEntryReplay.data || {},
     strategyCandidateScorecard
@@ -2459,6 +2484,11 @@ function buildSummary(docs) {
     lines.push('0c. Entry Candidate Review');
     lines.push('--------------------------');
     lines.push(`- Reviewed paper entries / wallet-shadow would-enter: ${entryReviewSummary.paperEntries ?? 'n/a'} / ${entryReviewSummary.walletShadowWouldEnter ?? 'n/a'}; paper PnL=${sol(entryReviewSummary.paperPnlSol, 6)}; unique mints=${entryReviewSummary.uniqueMints ?? 'n/a'}.`);
+    if (entryReviewSummary.paperEntryWalletContext || entryReviewSummary.paperEntryCurveBands) {
+      const wallet = entryReviewSummary.paperEntryWalletContext || {};
+      const curves = entryReviewSummary.paperEntryCurveBands || {};
+      lines.push(`- Paper-entry wallet context any/positive/avoid: ${wallet.withAny ?? 'n/a'} / ${wallet.withPositiveOrProven ?? 'n/a'} / ${wallet.withAvoidOrNegative ?? 'n/a'}; curve bands 85-90/90-95/95+=${curves.curve85to90 ?? 'n/a'} / ${curves.curve90to95 ?? 'n/a'} / ${curves.curve95plus ?? 'n/a'}.`);
+    }
     lines.push(`- Verdict counts: ${formatTopCounts(entryReviewSummary.verdictCounts)}.`);
     lines.push(`- Flag counts: ${formatTopCounts(entryReviewSummary.flagCounts)}.`);
     if (reviewedCandidates.length) {
@@ -2475,6 +2505,13 @@ function buildSummary(docs) {
     lines.push(`- Cooldown window: ${fmt(Number(impactSummary.cooldownMs || 0) / 1000, 0)}s; historical reentries=${impactSummary.reentryWithinCooldown ?? 'n/a'} / ${impactSummary.totalEntries ?? 'n/a'} entries; unique mints=${impactSummary.reentryUniqueMints ?? 'n/a'}.`);
     lines.push(`- Reentry PnL in scanned telemetry: ${sol(impactSummary.reentryPnlSol, 6)}; wins/losses/flat=${impactSummary.reentryWinLoss?.wins ?? 'n/a'} / ${impactSummary.reentryWinLoss?.losses ?? 'n/a'} / ${impactSummary.reentryWinLoss?.flatOrMissing ?? 'n/a'}.`);
     lines.push(`- Reentry by previous exit: ${formatTopCounts(impactSummary.reentryByPreviousExitReason)}.`);
+    const windowImpacts = topArray(impactSummary.windowImpacts, 6);
+    if (windowImpacts.length) {
+      lines.push('- Reentry cooldown window impacts:');
+      windowImpacts.forEach((row) => {
+        lines.push(`  - ${fmt(Number(row.cooldownMs || 0) / 60000, 1)}m: reentries=${row.reentryWithinCooldown ?? 'n/a'}, unique=${row.reentryUniqueMints ?? 'n/a'}, pnl=${sol(row.reentryPnlSol, 6)}, wins/losses=${row.reentryWinLoss?.wins ?? 'n/a'} / ${row.reentryWinLoss?.losses ?? 'n/a'}`);
+      });
+    }
     const topReentries = topArray(sameMintReentryImpact.topReentries, 5);
     if (topReentries.length) {
       lines.push('- Worst/closest reentries:');
@@ -2515,6 +2552,10 @@ function buildSummary(docs) {
       lines.push('- Best-scenario positive deltas:');
       examples.forEach((row, index) => lines.push(`  ${index + 1}. ${summarizeExitProtectionExample(row)}`));
     }
+    const trailingValidation = exitProtectionReplay.trailingGivebackMfe8Validation || {};
+    if (trailingValidation.comparedEntries !== undefined) {
+      lines.push(`- TRAILING_GIVEBACK MFE>=8 validation: compared=${trailingValidation.comparedEntries ?? 'n/a'} eligible=${trailingValidation.eligibleEntries ?? 'n/a'} current=${sol(trailingValidation.currentPnlSol, 6)} trailing=${sol(trailingValidation.trailingPnlSol, 6)} delta=${sol(trailingValidation.deltaPnlSol, 6)} improved/worsened/unchanged=${trailingValidation.improvedVsCurrent ?? 'n/a'} / ${trailingValidation.worsenedVsCurrent ?? 'n/a'} / ${trailingValidation.unchangedVsCurrent ?? 'n/a'} trailingW/L=${trailingValidation.trailingWins ?? 'n/a'} / ${trailingValidation.trailingLosses ?? 'n/a'} exits=${compactValue(trailingValidation.trailingExitReasonCounts)}`);
+    }
     lines.push('');
   }
 
@@ -2527,6 +2568,17 @@ function buildSummary(docs) {
     lines.push(`- MFE median/p90/max=${pct(captureSummary.mfePct?.median, 2)} / ${pct(captureSummary.mfePct?.p90, 2)} / ${pct(captureSummary.mfePct?.max, 2)}; MAE median/p90/min=${pct(captureSummary.maePct?.median, 2)} / ${pct(captureSummary.maePct?.p90, 2)} / ${pct(captureSummary.maePct?.min, 2)}.`);
     lines.push(`- Capture median/p90=${pct(captureSummary.captureRatio?.median, 1)} / ${pct(captureSummary.captureRatio?.p90, 1)}; high-MFE entries=${captureSummary.highMfeEntries ?? 'n/a'}, low-MFE entries=${captureSummary.lowMfeEntries ?? 'n/a'}, high-MFE gave-back-to-loss=${captureSummary.gaveBackToLossEntries ?? 'n/a'}.`);
     lines.push(`- Capture classes: ${formatTopCounts(captureSummary.captureClassCounts)}.`);
+    lines.push(`- Wallet quality counts: ${formatTopCounts(captureSummary.walletQualityCounts)}.`);
+    lines.push(`- Entry curve bands: ${formatTopCounts(captureSummary.entryCurveBandCounts)}.`);
+    const walletCurveGroups = Object.entries(mfeMaeCapture.byWalletQualityAndCurveBand || {})
+      .sort((a, b) => Number(a[1]?.totalPnlSol || 0) - Number(b[1]?.totalPnlSol || 0))
+      .slice(0, 4);
+    if (walletCurveGroups.length) {
+      lines.push('- Worst wallet/curve groups:');
+      walletCurveGroups.forEach(([key, row], index) => {
+        lines.push(`  ${index + 1}. ${key}: entries=${row.entries ?? 'n/a'}, pnl=${sol(row.totalPnlSol, 6)}, wins/losses=${row.wins ?? 'n/a'} / ${row.losses ?? 'n/a'}, mfeMed=${pct(row.mfePct?.median, 2)}, maeMed=${pct(row.maePct?.median, 2)}`);
+      });
+    }
     const worstCapture = topArray(mfeMaeCapture.worstCapture, 4);
     if (worstCapture.length) {
       lines.push('- Worst capture rows:');
@@ -2878,6 +2930,7 @@ function buildSummary(docs) {
   lines.push('');
 
   const runnerRejectReplayProfiles = runnerRejectEntryReplay.summaryByProfile || {};
+  const runnerRejectReplayStress = runnerRejectEntryReplay.stressSummaryByProfile || {};
   lines.push('2c. Runner Reject Entry Replay');
   lines.push('------------------------------');
   lines.push('- Mode: report-only; simulates rejected pre-90 runner entries from later telemetry snapshots.');
@@ -2885,7 +2938,15 @@ function buildSummary(docs) {
   const replayLines = Object.entries(runnerRejectReplayProfiles).map(([name, item]) => summarizeRunnerRejectReplayProfile(name, item));
   if (replayLines.length) replayLines.forEach((line) => lines.push(`- ${line}`));
   else lines.push('- Profiles: none');
-  lines.push('- Caveat: replay applies configured slippage stress but still does not model quote fill, MEV, liquidity, or broadcast latency.');
+  const bestRunnerRejectProfile = Object.entries(runnerRejectReplayProfiles)
+    .sort((a, b) => Number(b[1]?.totalPnlSol || 0) - Number(a[1]?.totalPnlSol || 0))[0]?.[0];
+  const bestStressRows = bestRunnerRejectProfile ? runnerRejectReplayStress[bestRunnerRejectProfile] || {} : {};
+  const stressLines = Object.entries(bestStressRows).map(([name, item]) => summarizeRunnerRejectReplayStress(name, item));
+  if (stressLines.length) {
+    lines.push(`- Stress scenarios for best profile (${bestRunnerRejectProfile}):`);
+    stressLines.forEach((line) => lines.push(`  - ${line}`));
+  }
+  lines.push('- Caveat: stress scenarios approximate latency, wider slippage, and missed winning fills, but still do not model MEV, exact liquidity, or broadcast landing.');
   lines.push('');
 
   const shadowSummary = runnerRaydiumShadow.summary || {};
@@ -3011,10 +3072,16 @@ function buildSummary(docs) {
 
   const walletPnlSummary = walletPnlEvidence.summary || {};
   const walletPromotionSummary = walletPromotionReview.summary || {};
+  const walletUntrackedSummary = walletUntrackedReview.summary || {};
+  const walletUntrackedImpactSummary = walletUntrackedShadowImpact.summary || {};
   const walletLiftSummary = walletPerWalletLift.summary || {};
   const daumenSummary = walletDaumenCohort.summary || {};
   const stableTrustCandidates = topArray(walletPerWalletLift.stableTrustCandidates, 6);
   const stableAvoidCandidates = topArray(walletPerWalletLift.stableAvoidCandidates, 6);
+  const untrackedManualReview = topArray(walletUntrackedReview.manualReviewNow, 5);
+  const untrackedCaution = topArray(walletUntrackedReview.cautionBusyFlow, 3);
+  const untrackedPromotionTests = topArray(walletUntrackedShadowImpact.promotionTestCandidates, 5);
+  const untrackedRepeatConfirm = topArray(walletUntrackedShadowImpact.needsRepeatConfirmation, 5);
   const topDaumenWallets = topArray(walletDaumenCohort.topDaumenWallets, 8);
   const daumenUseful = topArray(walletDaumenCohort.usefulFirstTouchCandidates, 5);
   const topWalletPnl = topArray(walletPnlEvidence.topPositiveWallets, 5);
@@ -3024,6 +3091,36 @@ function buildSummary(docs) {
   lines.push('- Mode: report-only; realized wallet PnL and promotion review do not mutate runtime trust tiers.');
   lines.push(`- PnL evidence wallets / proven / promising / negative: ${walletPnlSummary.wallets ?? 'n/a'} / ${walletPnlSummary.provenPositiveWallets ?? 'n/a'} / ${walletPnlSummary.promisingPositiveWallets ?? 'n/a'} / ${walletPnlSummary.negativeEvidenceWallets ?? 'n/a'}`);
   lines.push(`- Promotion review trust / profitable-needs-touch / watch / avoid / hold: ${walletPromotionSummary.trustReviewWallets ?? 'n/a'} / ${walletPromotionSummary.profitableNeedsFirstTouchEvidenceWallets ?? 'n/a'} / ${walletPromotionSummary.watchReviewWallets ?? 'n/a'} / ${walletPromotionSummary.avoidReviewWallets ?? 'n/a'} / ${walletPromotionSummary.holdWallets ?? 'n/a'}`);
+  if (walletUntrackedSummary.candidates !== undefined) {
+    lines.push(`- Untracked runtime wallet review queue: candidates=${walletUntrackedSummary.candidates ?? 'n/a'}, actionable=${walletUntrackedSummary.actionable ?? 'n/a'}, manualReviewNow=${walletUntrackedSummary.manualReviewNow ?? 'n/a'}; NO_TRACKED_FIRST_TOUCH_BUY near-prior=${walletUntrackedSummary.noTrackedFirstTouchBuyWithNearPriorUntrackedBuy ?? 'n/a'} / ${walletUntrackedSummary.noTrackedFirstTouchBuyDecisions ?? 'n/a'}`);
+    if (untrackedManualReview.length) {
+      lines.push('- Top untracked manual-review rows:');
+      untrackedManualReview.forEach((item, index) => {
+        lines.push(`  ${index + 1}. ${item.wallet} | score=${fmt(item.reviewScore, 1)} | buys/sells=${item.buyRows ?? 'n/a'}/${item.sellRows ?? 'n/a'} | mints=${item.uniqueMints ?? 'n/a'} | nearPrior=${item.decisionNearPriorCount ?? 'n/a'} decisions/${item.decisionNearPriorMints ?? 'n/a'} mints | noTrackedLinks=${item.noTrackedFirstTouchBuyLinks ?? 'n/a'} | topReason=${item.topDecisionReason || 'n/a'}`);
+      });
+    }
+    if (untrackedCaution.length) {
+      lines.push('- Busy-flow caution rows, review before importing:');
+      untrackedCaution.forEach((item, index) => {
+        lines.push(`  ${index + 1}. ${item.wallet} | score=${fmt(item.reviewScore, 1)} | rowsPerMint=${fmt(item.rowsPerMint, 2)} | buys=${item.buyRows ?? 'n/a'} | nearPriorLinks=${item.nearPriorBuyDecisionLinks ?? 'n/a'} | reason=${item.reasons?.[0] || 'n/a'}`);
+      });
+    }
+    if (walletUntrackedImpactSummary.candidateWallets !== undefined) {
+      lines.push(`- Untracked wallet shadow impact: candidateWallets=${walletUntrackedImpactSummary.candidateWallets ?? 'n/a'}, fullMatchWallets=${walletUntrackedImpactSummary.walletsWithRecoveryFullMatch ?? 'n/a'}, nonBusyNoTrackedLinks=${walletUntrackedImpactSummary.nonBusyCandidateNoTrackedFirstTouchBuyLinks ?? 'n/a'}, bestNonBusyFullMatch=${walletUntrackedImpactSummary.bestNonBusyFullMatchWallet || 'none'}`);
+      if (untrackedPromotionTests.length) {
+        lines.push('- Shadow-promotion test candidates:');
+        untrackedPromotionTests.forEach((item, index) => {
+          lines.push(`  ${index + 1}. ${item.wallet} | score=${fmt(item.reviewScore, 1)} | fullMatchRows=${item.recoveryFullMatchRows ?? 'n/a'} | noTrackedLinks=${item.noTrackedFirstTouchBuyLinks ?? 'n/a'} | rowsPerMint=${fmt(item.rowsPerMint, 2)}`);
+        });
+      }
+      if (untrackedRepeatConfirm.length) {
+        lines.push('- Needs repeat confirmation before watchlist import:');
+        untrackedRepeatConfirm.forEach((item, index) => {
+          lines.push(`  ${index + 1}. ${item.wallet} | class=${item.impactClass || 'n/a'} | fullMatchRows=${item.recoveryFullMatchRows ?? 'n/a'} | noTrackedLinks=${item.noTrackedFirstTouchBuyLinks ?? 'n/a'} | action=${item.suggestedAction || 'n/a'}`);
+        });
+      }
+    }
+  }
   lines.push(`- Per-wallet lift baselines: ledger positive=${pct(walletLiftSummary.ledgerPositiveRate)}, first-touch positive=${pct(walletLiftSummary.firstTouchPositiveRate)}`);
   if (topWalletPnl.length) {
     lines.push('- Top realized PnL evidence wallets:');
@@ -3602,6 +3699,7 @@ function buildSummary(docs) {
   const skipReasonSummaries = topArray(skipFollowThrough.reasonSummaries, 8);
   const skipTopWakeups = topArray(skipFollowThrough.topWakeups, 8);
   const entryGateMargin = docs.preMigrationEntryGateMargin.data || {};
+  const singleGateShadow = docs.preMigrationSingleGateShadow.data || {};
   const entryGateMarginSummary = entryGateMargin.summary || {};
   const entryGateClosest = topArray(entryGateMargin.closestByMint, 8);
 
@@ -3655,7 +3753,76 @@ function buildSummary(docs) {
   }
   lines.push('');
 
+  const singleGateSummary = singleGateShadow.summary || {};
+  const singleGatePaper = singleGateShadow.bySource?.paperDecision || {};
+  const singleGateRecovery = singleGateShadow.bySource?.recoveryShadow || {};
+  const singleGateSafe = singleGateSummary.safeTestCandidates || {};
+  const singleGateSafeUnique = singleGateSummary.safeTestCandidatesUniqueMints || {};
+  const singleGateReplay = singleGateShadow.replay || {};
+  const singleGateSafeReplay = singleGateReplay.safeTestUniqueMintsByProfile || {};
+  const singleGateByGateReplay = singleGateReplay.unprotectedSingleGateUniqueByGateProfile || {};
+  const singleGateTop = topArray(singleGateShadow.topSafeTestCandidates, 8);
+  const singleGateTopMints = topArray(singleGateShadow.topSafeTestMints, 8);
+
+  lines.push('9b2a. Single-Gate Shadow');
+  lines.push('------------------------');
+  lines.push('- Mode: report-only leave-one-out diagnostic; isolates PAPER_SKIPPED and recovery-shadow rows that fail exactly one recorded gate. Does not alter entries or live behavior.');
+  lines.push(`- Rows / single-gate / multi-gate / safe-test rows: ${singleGateSummary.rows ?? 'n/a'} / ${singleGateSummary.singleGateRows ?? 'n/a'} / ${singleGateSummary.multiGateRows ?? 'n/a'} / ${singleGateSummary.safeTestCandidateRows ?? 'n/a'}`);
+  lines.push(`- Paper decision single/multi/safe: ${singleGatePaper.singleGateRows ?? 'n/a'} / ${singleGatePaper.multiGateRows ?? 'n/a'} / ${singleGatePaper.safeTestCandidateRows ?? 'n/a'}; recovery-shadow single/multi/safe: ${singleGateRecovery.singleGateRows ?? 'n/a'} / ${singleGateRecovery.multiGateRows ?? 'n/a'} / ${singleGateRecovery.safeTestCandidateRows ?? 'n/a'}`);
+  lines.push(`- Protected vs unprotected single-gate rows: ${singleGateSummary.protectedSingleGateRows ?? 'n/a'} / ${singleGateSummary.unprotectedSingleGateRows ?? 'n/a'}`);
+  lines.push(`- Safe-test follow-through rows/unique/cross90_300/rate: ${singleGateSafe.rows ?? 'n/a'} / ${singleGateSafe.uniqueMints ?? 'n/a'} / ${singleGateSafe.crossed90Within300s ?? 'n/a'} / ${singleGateSafe.crossed90Within300sRate === null || singleGateSafe.crossed90Within300sRate === undefined ? 'n/a' : pct(singleGateSafe.crossed90Within300sRate, 1)}`);
+  lines.push(`- Safe-test unique-mint follow-through unique/cross90_300/rate: ${singleGateSafeUnique.uniqueMints ?? singleGateSafeUnique.rows ?? 'n/a'} / ${singleGateSafeUnique.uniqueMintsCrossed90Within300s ?? 'n/a'} / ${singleGateSafeUnique.crossed90Within300sRate === null || singleGateSafeUnique.crossed90Within300sRate === undefined ? 'n/a' : pct(singleGateSafeUnique.crossed90Within300sRate, 1)}; duplicate rows collapsed=${singleGateSafeUnique.duplicateRowsCollapsed ?? 'n/a'}`);
+  lines.push(`- Safe-test curve delta 300s median/p90/max: ${fmt(singleGateSafe.curveDelta300s?.median, 4)} / ${fmt(singleGateSafe.curveDelta300s?.p90, 4)} / ${fmt(singleGateSafe.curveDelta300s?.max, 4)}`);
+  const safeReplayLines = Object.entries(singleGateSafeReplay)
+    .sort((a, b) => Number(b[1]?.totalPnlSol || 0) - Number(a[1]?.totalPnlSol || 0))
+    .slice(0, 4);
+  if (safeReplayLines.length) {
+    lines.push('- Safe-test unique-mint replay:');
+    safeReplayLines.forEach(([profile, row]) => {
+      lines.push(`  - ${profile}: trades=${row.trades ?? 'n/a'}, unique=${row.uniqueMints ?? 'n/a'}, W/L=${row.wins ?? 'n/a'} / ${row.losses ?? 'n/a'}, pnl=${sol(row.totalPnlSol, 9)}, exTop1=${sol(row.pnlAfterRemovingTopWinnerSol, 9)}, median=${sol(row.pnlSol?.median, 9)}, exits=${compactValue(row.exitReasons)}`);
+    });
+  }
+  const gateReplayLines = Object.entries(singleGateByGateReplay)
+    .map(([gate, group]) => {
+      const best = Object.entries(group.profiles || {})
+        .sort((a, b) => Number(b[1]?.totalPnlSol || 0) - Number(a[1]?.totalPnlSol || 0))[0];
+      return best ? { gate, group, profile: best[0], summary: best[1] } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => Number(b.summary?.totalPnlSol || 0) - Number(a.summary?.totalPnlSol || 0))
+    .slice(0, 5);
+  if (gateReplayLines.length) {
+    lines.push('- Best unique-mint replay by unprotected single gate:');
+    gateReplayLines.forEach((item) => {
+      lines.push(`  - ${item.gate}: profile=${item.profile}, gateRows=${item.group.rows ?? 'n/a'}, unique=${item.group.uniqueMints ?? 'n/a'}, trades=${item.summary.trades ?? 'n/a'}, W/L=${item.summary.wins ?? 'n/a'} / ${item.summary.losses ?? 'n/a'}, pnl=${sol(item.summary.totalPnlSol, 9)}, exTop1=${sol(item.summary.pnlAfterRemovingTopWinnerSol, 9)}, median=${sol(item.summary.pnlSol?.median, 9)}`);
+    });
+  }
+  lines.push('- Single-gate counts:');
+  objectLines(singleGateSummary.singleGateCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('- Protected single-gate counts:');
+  objectLines(singleGateSummary.protectedSingleGateCounts, 6).forEach((line) => lines.push(`  - ${line}`));
+  if (singleGateTop.length) {
+    lines.push('- Top safe-test candidates:');
+    singleGateTop.forEach((item, index) => {
+      const w300 = item.window300s || {};
+      const margin = item.margin || {};
+      lines.push(`  ${index + 1}. ${candidateLabel(item)} | gate=${item.singleGate || 'n/a'} | protected=${item.protectedGate === true} | ready=${fmt(item.readinessPct, 2)}% | gap=${fmt(margin.absoluteGap, 4)} | curve=${fmt(item.curveProgress, 4)} | max300=${fmt(w300.maxCurveProgress, 4)} | cross90_300=${w300.crossed90AfterSkip === true}`);
+    });
+  } else {
+    lines.push('- Top safe-test candidates: none');
+  }
+  if (singleGateTopMints.length) {
+    lines.push('- Top safe-test unique mints:');
+    singleGateTopMints.forEach((item, index) => {
+      const w300 = item.window300s || {};
+      const margin = item.margin || {};
+      lines.push(`  ${index + 1}. ${candidateLabel(item)} | gate=${item.singleGate || 'n/a'} | ready=${fmt(item.readinessPct, 2)}% | gap=${fmt(margin.absoluteGap, 4)} | curve=${fmt(item.curveProgress, 4)} | max300=${fmt(w300.maxCurveProgress, 4)} | cross90_300=${w300.crossed90AfterSkip === true}`);
+    });
+  }
+  lines.push('');
+
   const curveAdvanceSummary = curveAdvanceDiagnostic.summary || {};
+  const curveAdvanceReplay = curveAdvanceDiagnostic.replay || {};
   const curveAdvanceFalseNegatives = topArray(curveAdvanceDiagnostic.topLikelyFalseNegatives, 8);
   const curveAdvanceClosest = topArray(curveAdvanceDiagnostic.closestThresholdMisses, 8);
 
@@ -3667,6 +3834,24 @@ function buildSummary(docs) {
   lines.push(`- Crossed 85/90 within 120s: ${curveAdvanceSummary.crossed85Within120s ?? 'n/a'} / ${curveAdvanceSummary.crossed90Within120s ?? 'n/a'}; within 300s: ${curveAdvanceSummary.crossed85Within300s ?? 'n/a'} / ${curveAdvanceSummary.crossed90Within300s ?? 'n/a'}`);
   lines.push(`- Readiness pct median/p90/max: ${fmt(curveAdvanceSummary.readinessPct?.median, 2)}% / ${fmt(curveAdvanceSummary.readinessPct?.p90, 2)}% / ${fmt(curveAdvanceSummary.readinessPct?.max, 2)}%`);
   lines.push(`- Curve delta 120s median/p90/max: ${fmt(curveAdvanceSummary.curveDelta120s?.median, 4)} / ${fmt(curveAdvanceSummary.curveDelta120s?.p90, 4)} / ${fmt(curveAdvanceSummary.curveDelta120s?.max, 4)}`);
+  const curveLikelyReplay = Object.entries(curveAdvanceReplay.likelyFalseNegativeUniqueByProfile || {})
+    .sort((a, b) => Number(b[1]?.totalPnlSol || 0) - Number(a[1]?.totalPnlSol || 0))
+    .slice(0, 4);
+  if (curveLikelyReplay.length) {
+    lines.push('- Likely false-negative unique-mint replay:');
+    curveLikelyReplay.forEach(([profile, row]) => {
+      lines.push(`  - ${profile}: trades=${row.trades ?? 'n/a'}, unique=${row.uniqueMints ?? 'n/a'}, W/L=${row.wins ?? 'n/a'} / ${row.losses ?? 'n/a'}, pnl=${sol(row.totalPnlSol, 9)}, exTop1=${sol(row.pnlAfterRemovingTopWinnerSol, 9)}, exTop3=${sol(row.pnlAfterRemovingTop3WinnersSol, 9)}, median=${sol(row.pnlSol?.median, 9)}, exits=${compactValue(row.exitReasons)}`);
+    });
+  }
+  const curveNearReplay = Object.entries(curveAdvanceReplay.nearThresholdUniqueByProfile || {})
+    .sort((a, b) => Number(b[1]?.totalPnlSol || 0) - Number(a[1]?.totalPnlSol || 0))
+    .slice(0, 2);
+  if (curveNearReplay.length) {
+    lines.push('- Near-threshold unique-mint replay:');
+    curveNearReplay.forEach(([profile, row]) => {
+      lines.push(`  - ${profile}: trades=${row.trades ?? 'n/a'}, unique=${row.uniqueMints ?? 'n/a'}, W/L=${row.wins ?? 'n/a'} / ${row.losses ?? 'n/a'}, pnl=${sol(row.totalPnlSol, 9)}, exTop1=${sol(row.pnlAfterRemovingTopWinnerSol, 9)}, median=${sol(row.pnlSol?.median, 9)}`);
+    });
+  }
   lines.push('- Classification counts:');
   objectLines(curveAdvanceSummary.classificationCounts, 8).forEach((line) => lines.push(`  - ${line}`));
   if (curveAdvanceFalseNegatives.length) {
@@ -3842,6 +4027,45 @@ function buildSummary(docs) {
   }
   lines.push('');
 
+  const curveFalseNegativeShadowReplayRanking = topArray(curveFalseNegativeShadowReplay.ranking, 8);
+  const bestCurveFalseNegativeShadowReplayName = curveFalseNegativeShadowReplayRanking[0]?.name;
+  const bestCurveFalseNegativeShadowReplay = bestCurveFalseNegativeShadowReplayName ? curveFalseNegativeShadowReplay.profiles?.[bestCurveFalseNegativeShadowReplayName] : null;
+
+  lines.push('9c2d2. Curve False-Negative Shadow Replay');
+  lines.push('-----------------------------------------');
+  lines.push('- Mode: report-only; replays prospective runtime would_watch rows from the curve false-negative shadow lane. Does not alter runtime gates.');
+  lines.push(`- Telemetry files / shadow rows: ${curveFalseNegativeShadowReplay.inputs?.telemetryFilesRead ?? 'n/a'} / ${curveFalseNegativeShadowReplay.inputs?.shadowRows ?? 'n/a'}`);
+  lines.push(`- Base profile: amount=${sol(curveFalseNegativeShadowReplay.inputs?.baseProfile?.amountSol, 4)}, TP=${pct(curveFalseNegativeShadowReplay.inputs?.baseProfile?.takeProfitPct, 1)}, SL=${pct(curveFalseNegativeShadowReplay.inputs?.baseProfile?.stopLossPct, 1)}, maxHold=${curveFalseNegativeShadowReplay.inputs?.baseProfile?.maxHoldSeconds ?? 'n/a'}s, slippage=${fmt(curveFalseNegativeShadowReplay.inputs?.baseProfile?.entrySlippagePct, 2)}%/${fmt(curveFalseNegativeShadowReplay.inputs?.baseProfile?.exitSlippagePct, 2)}%`);
+  if (curveFalseNegativeShadowReplayRanking.length) {
+    lines.push('- Profile ranking:');
+    curveFalseNegativeShadowReplayRanking.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.name}: trades=${item.trades ?? 'n/a'}, closed=${item.closed ?? 'n/a'}, wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}, winRate=${pct(item.winRate, 1)}, pnl=${sol(item.totalPnlSol, 6)}, median=${sol(item.medianPnlSol, 6)}, exits=${Object.entries(item.exitReasonCounts || {}).map(([key, value]) => `${key}=${value}`).join(', ') || 'n/a'}`);
+    });
+  } else {
+    lines.push('- Profile ranking: none');
+  }
+  const curveFalseNegativeShadowReplaySlices = topArray(curveFalseNegativeShadowReplay.sliceRanking, 8);
+  if (curveFalseNegativeShadowReplaySlices.length) {
+    lines.push('- Best ex-ante slices:');
+    curveFalseNegativeShadowReplaySlices.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.profileName || 'n/a'} / ${item.name || 'n/a'}: closed=${item.closed ?? 'n/a'}, kept=${pct(item.keptShare, 1)}, wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}, winRate=${pct(item.winRate, 1)}, pnl=${sol(item.totalPnlSol, 6)}, median=${sol(item.medianPnlSol, 6)}, avg=${sol(item.averagePnlSol, 6)} | ${item.description || 'n/a'}`);
+    });
+  }
+  if (bestCurveFalseNegativeShadowReplay) {
+    const bestWinners = topArray(bestCurveFalseNegativeShadowReplay.topWinners, 5);
+    const bestLosers = topArray(bestCurveFalseNegativeShadowReplay.topLosers, 5);
+    lines.push(`- Best profile detail: ${bestCurveFalseNegativeShadowReplayName} | ${bestCurveFalseNegativeShadowReplay.profile?.description || 'n/a'}`);
+    if (bestWinners.length) {
+      lines.push('- Best-profile top winners:');
+      bestWinners.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRelaxedGateTrade(item)}`));
+    }
+    if (bestLosers.length) {
+      lines.push('- Best-profile top losers:');
+      bestLosers.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRelaxedGateTrade(item)}`));
+    }
+  }
+  lines.push('');
+
   const recoveryShadowSummary = curveFalseNegativeRecoveryShadow.summary || {};
   const recoveryShadowWouldEnter = curveFalseNegativeRecoveryShadow.groups?.wouldEnter || {};
   const recoveryShadowTop = topArray(curveFalseNegativeRecoveryShadow.topWouldEnterFollowThrough, 6);
@@ -3855,11 +4079,42 @@ function buildSummary(docs) {
   lines.push(`- Would-enter delta120 median/p90/max: ${fmt(recoveryShadowWouldEnter.curveDelta120s?.median, 4)} / ${fmt(recoveryShadowWouldEnter.curveDelta120s?.p90, 4)} / ${fmt(recoveryShadowWouldEnter.curveDelta120s?.max, 4)}; price120 median/p90/max=${fmt(recoveryShadowWouldEnter.maxPriceDeltaPct120s?.median, 2)}% / ${fmt(recoveryShadowWouldEnter.maxPriceDeltaPct120s?.p90, 2)}% / ${fmt(recoveryShadowWouldEnter.maxPriceDeltaPct120s?.max, 2)}%`);
   lines.push('- Recovery-shadow failed checks:');
   objectLines(recoveryShadowSummary.failedCheckCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  lines.push(`- Parity sampled rows: ${recoveryShadowSummary.paritySampledRows ?? 'n/a'}`);
+  lines.push(`- Would-enter if parity verified / full-match still blocked: ${recoveryShadowSummary.wouldEnterIfParityVerified ?? 'n/a'} / ${recoveryShadowSummary.fullMatchStillBlockedRows ?? 'n/a'}`);
+  lines.push('- Parity status counts:');
+  objectLines(recoveryShadowSummary.parityStatusCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  if (recoveryShadowSummary.fullMatchStillBlockedCheckCounts) {
+    lines.push('- Full-match still-blocked checks:');
+    objectLines(recoveryShadowSummary.fullMatchStillBlockedCheckCounts, 6).forEach((line) => lines.push(`  - ${line}`));
+  }
+  const recoveryWalletCoverage = recoveryShadowSummary.walletCoverage || {};
+  const recoveryWalletCoverageFullMatch = recoveryShadowSummary.walletCoverageFullMatch || {};
+  const recoveryUntrackedCoverage = recoveryShadowSummary.untrackedWalletCoverage || {};
+  const recoveryUntrackedCoverageFullMatch = recoveryShadowSummary.untrackedWalletCoverageFullMatch || {};
+  lines.push(`- Wallet coverage all rows any/positive/tracked-first/recovery-pass: ${recoveryWalletCoverage.withAnyWalletTouch ?? 'n/a'} / ${recoveryWalletCoverage.withPositiveOrProvenTouch ?? 'n/a'} / ${recoveryWalletCoverage.withTrackedFirstTouchBuy ?? 'n/a'} / ${recoveryWalletCoverage.recoveryPassed ?? 'n/a'}`);
+  lines.push(`- Wallet coverage FULL_MATCH any/positive/tracked-first/recovery-pass: ${recoveryWalletCoverageFullMatch.withAnyWalletTouch ?? 'n/a'} / ${recoveryWalletCoverageFullMatch.withPositiveOrProvenTouch ?? 'n/a'} / ${recoveryWalletCoverageFullMatch.withTrackedFirstTouchBuy ?? 'n/a'} / ${recoveryWalletCoverageFullMatch.recoveryPassed ?? 'n/a'}`);
+  lines.push(`- Untracked buyer context all/FULL_MATCH rows: ${recoveryUntrackedCoverage.withUntrackedBuy ?? 'n/a'} / ${recoveryUntrackedCoverageFullMatch.withUntrackedBuy ?? 'n/a'}; two-plus buyers all/FULL_MATCH=${recoveryUntrackedCoverage.withTwoPlusUntrackedBuyWallets ?? 'n/a'} / ${recoveryUntrackedCoverageFullMatch.withTwoPlusUntrackedBuyWallets ?? 'n/a'}`);
+  const topUntrackedByFollowThrough = topArray(recoveryUntrackedCoverage.topUntrackedBuyWalletsByFollowThrough, 5);
+  if (topUntrackedByFollowThrough.length) {
+    lines.push('- Top untracked buyer follow-through candidates:');
+    topUntrackedByFollowThrough.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.wallet || 'unknown'} | rows=${item.rows ?? 'n/a'} | unique=${item.uniqueMints ?? 'n/a'} | fullMatch=${item.fullMatchRows ?? 'n/a'} | cross85/90_120=${item.crossed85Within120s ?? 'n/a'} / ${item.crossed90Within120s ?? 'n/a'} | delta120 p90/max=${fmt(item.curveDelta120s?.p90, 4)} / ${fmt(item.curveDelta120s?.max, 4)}`);
+    });
+  }
   if (recoveryShadowTop.length) {
     lines.push('- Top recovery-shadow would-enter follow-through:');
     recoveryShadowTop.forEach((item, index) => {
       const w120 = item.windows?.['120s'] || {};
       lines.push(`  ${index + 1}. ${candidateLabel(item)} | score=${fmt(item.score, 2)} | curve=${fmt(item.curveProgress, 4)} | delta120=${fmt(w120.curveDelta, 4)} | max120=${fmt(w120.maxCurveProgress, 4)} | reason=${item.reason || 'n/a'}`);
+    });
+  }
+  const recoveryShadowParityTop = topArray(curveFalseNegativeRecoveryShadow.topParityExplainRows, 5);
+  if (recoveryShadowParityTop.length) {
+    lines.push('- Top recovery-shadow parity explain rows:');
+    recoveryShadowParityTop.forEach((item, index) => {
+      const w120 = item.window120 || {};
+      const parity = item.parityExplain || {};
+      lines.push(`  ${index + 1}. ${candidateLabel(item)} | status=${parity.status || 'n/a'} | parityOnlyEnter=${item.wouldEnterIfParityVerified ? 'yes' : 'no'} | source=${parity.source || 'n/a'} | provider=${fmt(parity.providerCurveProgress, 4)} | onchain=${fmt(parity.onchainCurveProgress, 4)} | delta=${fmt(parity.curveDelta, 4)} | max120=${fmt(w120.maxCurveProgress, 4)} | reason=${item.reason || 'n/a'}`);
     });
   }
   lines.push('');
@@ -3950,6 +4205,7 @@ function buildSummary(docs) {
   const walletContextTrackingOpportunity = walletContextRuntime.trackingOpportunity || {};
   const walletContextDecision = walletContextRuntime.decisionCoverage || {};
   const walletContextOverlap = walletContextRuntime.walletDecisionMintOverlap || {};
+  const walletContextJoin = walletContextRuntime.walletDecisionJoin || {};
   const walletContextShadow = walletContextRuntime.walletRelaxedShadowCoverage || {};
   const walletContextLedger = walletContextCoverage.historicalLedger || {};
   const walletRuntimeToHistoricalRatio = Number(walletContextLedger.uniqueWallets) > 0 && Number(walletContextRuntimeEvents.uniqueWallets) >= 0
@@ -3972,18 +4228,67 @@ function buildSummary(docs) {
     lines.push(`- Runtime wallet tracking opportunity: provider trade events=${walletContextTrackingOpportunity.providerTradeEvents ?? 'n/a'}, wallet.trade_observed=${walletContextTrackingOpportunity.walletTradeObservedEvents ?? 'n/a'}, hitRate=${pct(walletContextTrackingOpportunity.walletObservedHitRate, 2)}`);
     const providerTradeDiagnostics = walletContextTrackingOpportunity.providerTradeDiagnostics || {};
     if (providerTradeDiagnostics.withTraderFieldKnown > 0) {
-      lines.push(`- Runtime provider trade wallet fields: traderPresent=${providerTradeDiagnostics.traderPresent ?? 'n/a'}/${providerTradeDiagnostics.withTraderFieldKnown}, trackedAccountMatch=${providerTradeDiagnostics.trackedAccountMatch ?? 'n/a'}, kolWalletProfileMatch=${providerTradeDiagnostics.kolWalletProfileMatch ?? 'n/a'}, watchedWalletFlag=${providerTradeDiagnostics.watchedWalletFlag ?? 'n/a'}`);
+      lines.push(`- Runtime provider trade wallet fields: traderPresent=${providerTradeDiagnostics.traderPresent ?? 'n/a'}/${providerTradeDiagnostics.withTraderFieldKnown}, trackedAccountMatch=${providerTradeDiagnostics.trackedAccountMatch ?? 'n/a'}, kolWalletProfileMatch=${providerTradeDiagnostics.kolWalletProfileMatch ?? 'n/a'}, shadowWalletProfileMatch=${providerTradeDiagnostics.shadowWalletProfileMatch ?? 'n/a'}, watchedWalletFlag=${providerTradeDiagnostics.watchedWalletFlag ?? 'n/a'}`);
     }
     const walletGateDiagnostics = walletContextTrackingOpportunity.walletGateDiagnostics || {};
     if (walletGateDiagnostics.rows > 0) {
-      lines.push(`- Wallet trade gate diagnostics: rows=${walletGateDiagnostics.rows}, noTrader=${walletGateDiagnostics.noTraderField ?? 'n/a'}, untracked=${walletGateDiagnostics.untrackedWallet ?? 'n/a'}, recorded=${walletGateDiagnostics.recorded ?? 'n/a'}, uniqueTraderWallets=${walletGateDiagnostics.uniqueWalletsWithTrader ?? 'n/a'}`);
+      lines.push(`- Wallet trade gate diagnostics: rows=${walletGateDiagnostics.rows}, noTrader=${walletGateDiagnostics.noTraderField ?? 'n/a'}, untracked=${walletGateDiagnostics.untrackedWallet ?? 'n/a'}, recorded=${walletGateDiagnostics.recorded ?? 'n/a'}, shadowRecorded=${walletGateDiagnostics.shadowWalletProfileMatch ?? 'n/a'}, uniqueTraderWallets=${walletGateDiagnostics.uniqueWalletsWithTrader ?? 'n/a'}`);
       lines.push(`- Wallet observation channel: ${walletContextTrackingOpportunity.walletObservationChannel || 'n/a'}; bridge validation=${walletContextTrackingOpportunity.bridgeValidationStatus || 'n/a'}`);
+    }
+    const untrackedOpportunity = walletContextTrackingOpportunity.untrackedWalletOpportunity || {};
+    if (untrackedOpportunity.rows !== undefined) {
+      lines.push(`- Untracked wallet opportunity: buys=${untrackedOpportunity.buyRows ?? 'n/a'} wallets=${untrackedOpportunity.uniqueWallets ?? 'n/a'} mints=${untrackedOpportunity.uniqueBuyMints ?? 'n/a'} decisionOverlapRows=${untrackedOpportunity.buyRowsWithDecisionOverlap ?? 'n/a'} cross90_300 rows/mints=${untrackedOpportunity.buyRowsCrossed90Within300s ?? 'n/a'} / ${untrackedOpportunity.uniqueBuyMintsCrossed90Within300s ?? 'n/a'}`);
+      lines.push(`- Untracked wallet curve delta 300s median/p90/max: ${fmt(untrackedOpportunity.curveDelta300s?.median, 4)} / ${fmt(untrackedOpportunity.curveDelta300s?.p90, 4)} / ${fmt(untrackedOpportunity.curveDelta300s?.max, 4)}; price delta 300s median/p90/max=${fmt(untrackedOpportunity.maxPriceDeltaPct300s?.median, 2)}% / ${fmt(untrackedOpportunity.maxPriceDeltaPct300s?.p90, 2)}% / ${fmt(untrackedOpportunity.maxPriceDeltaPct300s?.max, 2)}%`);
+      const topUntrackedReviewCandidates = topArray(untrackedOpportunity.topReviewCandidates, 5);
+      if (topUntrackedReviewCandidates.length) {
+        lines.push('- Top untracked wallet review candidates:');
+        topUntrackedReviewCandidates.forEach((item, index) => {
+          lines.push(`  ${index + 1}. ${item.wallet} | score=${fmt(item.reviewScore, 1)} ${item.reviewReason || 'n/a'} | buys/sells=${item.buyRows ?? item.rows ?? 'n/a'}/${item.sellRows ?? 'n/a'} ratio=${pct(item.buyRatio, 1)} | mints=${item.uniqueMints} overlap=${item.decisionOverlapMints} | delta300 med/p90/max=${fmt(item.curveDelta300s?.median, 4)}/${fmt(item.curveDelta300s?.p90, 4)}/${fmt(item.curveDelta300s?.max, 4)}`);
+        });
+      }
+      const topUntrackedRuntime = topArray(untrackedOpportunity.topByFollowThrough, 5);
+      if (topUntrackedRuntime.length) {
+        lines.push('- Top runtime untracked wallet follow-through:');
+        topUntrackedRuntime.forEach((item, index) => {
+          lines.push(`  ${index + 1}. ${item.wallet} | rows=${item.rows} mints=${item.uniqueMints} overlap=${item.decisionOverlapMints} cross90_300=${item.crossed90Within300s}/${item.uniqueMintsCrossed90Within300s} | delta300 med/p90/max=${fmt(item.curveDelta300s?.median, 4)}/${fmt(item.curveDelta300s?.p90, 4)}/${fmt(item.curveDelta300s?.max, 4)} | price300 med/p90/max=${fmt(item.maxPriceDeltaPct300s?.median, 2)}%/${fmt(item.maxPriceDeltaPct300s?.p90, 2)}%/${fmt(item.maxPriceDeltaPct300s?.max, 2)}%`);
+        });
+      }
+    }
+    const untrackedDecisionJoin = walletContextTrackingOpportunity.untrackedWalletDecisionJoin || {};
+    if (untrackedDecisionJoin.paperDecisionRows !== undefined) {
+      lines.push(`- Untracked wallet decision join (${untrackedDecisionJoin.windowSeconds ?? 'n/a'}s prior): decisionsWithPrior=${untrackedDecisionJoin.decisionsWithPriorUntrackedBuy ?? 'n/a'}, nearPrior=${untrackedDecisionJoin.decisionsWithNearPriorUntrackedBuy ?? 'n/a'}, nearPriorWallets=${untrackedDecisionJoin.uniqueNearPriorUntrackedWallets ?? 'n/a'}`);
+      lines.push(`- NO_TRACKED_FIRST_TOUCH_BUY with untracked prior/near-prior: ${untrackedDecisionJoin.noTrackedFirstTouchBuyWithPriorUntrackedBuy ?? 'n/a'} / ${untrackedDecisionJoin.noTrackedFirstTouchBuyWithNearPriorUntrackedBuy ?? 'n/a'} of ${untrackedDecisionJoin.noTrackedFirstTouchBuyDecisions ?? 'n/a'}`);
+      const topUntrackedJoinWallets = topArray(untrackedDecisionJoin.topNearPriorWallets, 5);
+      if (topUntrackedJoinWallets.length) {
+        lines.push('- Top untracked near-prior decision wallets:');
+        topUntrackedJoinWallets.forEach((item, index) => {
+          const topReason = Object.entries(item.reasonCounts || {}).sort((a, b) => b[1] - a[1])[0];
+          lines.push(`  ${index + 1}. ${item.wallet} | decisions=${item.decisions ?? 'n/a'} buys=${item.nearPriorBuyRows ?? 'n/a'} links=${item.nearPriorBuyDecisionLinks ?? 'n/a'} mints=${item.uniqueMints ?? 'n/a'} topReason=${topReason ? `${topReason[0]}:${topReason[1]}` : 'n/a'}`);
+        });
+      }
     }
   }
   lines.push(`- Runtime-vs-historical wallet coverage: ${pct(walletRuntimeToHistoricalRatio, 1)} of tracked historical wallets active this run; historical/runtime wallet ratio=${fmt(walletHistoricalToRuntimeRatio, 1)}x`);
   lines.push(`- Runtime promoted rows positive-or-proven / avoid / any promotion: ${walletContextRuntimeEvents.promotionCoverage?.positiveOrProvenRows ?? 'n/a'} / ${walletContextRuntimeEvents.promotionCoverage?.avoidRows ?? 'n/a'} / ${walletContextRuntimeEvents.promotionCoverage?.rowsWithPromotion ?? 'n/a'}`);
   lines.push(`- Paper decision wallet context any / positive-or-proven / avoid: ${walletContextDecision.withAnyWalletTouch ?? 'n/a'} / ${walletContextDecision.withPositiveOrProvenTouch ?? 'n/a'} / ${walletContextDecision.withAvoidTouch ?? 'n/a'} of ${walletContextDecision.decisions ?? 'n/a'} decisions`);
   lines.push(`- Wallet-event mints / decision mints / overlap: ${walletContextOverlap.uniqueWalletEventMints ?? 'n/a'} / ${walletContextOverlap.uniqueDecisionMints ?? 'n/a'} / ${walletContextOverlap.overlapMints ?? 'n/a'}`);
+  if (walletContextJoin.walletTouchRows !== undefined) {
+    lines.push(`- Wallet proof join: touches=${walletContextJoin.walletTouchRows ?? 'n/a'} touchMints=${walletContextJoin.walletTouchUniqueMints ?? 'n/a'} decisionRows=${walletContextJoin.paperDecisionRows ?? 'n/a'} decisionMints=${walletContextJoin.paperDecisionUniqueMints ?? 'n/a'} overlapMints=${walletContextJoin.overlapMints ?? 'n/a'}`);
+    lines.push(`- Wallet proof join misses: noDecisionMint=${walletContextJoin.touchRowsWithNoPaperDecisionForMint ?? 'n/a'}, afterLastDecision=${walletContextJoin.touchRowsAfterLastPaperDecision ?? 'n/a'}, beforeDecisionButNoContext=${walletContextJoin.touchRowsBeforePaperDecisionButContextAbsent ?? 'n/a'}, sameMintContextPresent=${walletContextJoin.touchRowsWithSameMintContextPresent ?? 'n/a'}, decisionsPriorTouchNoContext=${walletContextJoin.decisionsWithPriorOrSameWalletTouchButNoContext ?? 'n/a'}`);
+    const joinStatus = walletContextJoin.joinStatusCounts || {};
+    const statusLines = objectLines(joinStatus, 5);
+    if (statusLines.length) {
+      lines.push('- Wallet proof join status:');
+      statusLines.forEach((line) => lines.push(`  - ${line}`));
+    }
+    const joinSamples = topArray(walletContextJoin.touchExplanations, 5);
+    if (joinSamples.length) {
+      lines.push('- Wallet proof join samples:');
+      joinSamples.forEach((sample, index) => {
+        lines.push(`  ${index + 1}. ${sample.wallet || 'unknown'} ${sample.side || 'n/a'} ${sample.mint || 'unknown'} | ${sample.joinStatus || 'unknown'} | touch=${sample.touchAt || 'n/a'} firstDecision=${sample.firstDecisionAt || 'n/a'} reason=${sample.firstDecisionReason || 'n/a'} deltaMs=${sample.firstDecisionMinusTouchMs ?? 'n/a'}`);
+      });
+    }
+  }
   lines.push(`- Wallet-relaxed shadow coverage attempts / withAny / positive-or-proven / avoid: ${walletContextShadow.attempts ?? 'n/a'} / ${walletContextShadow.withAnyWalletTouch ?? 'n/a'} / ${walletContextShadow.withPositiveOrProvenTouch ?? 'n/a'} / ${walletContextShadow.withAvoidTouch ?? 'n/a'}`);
   lines.push('- Decision context by reason:');
   if (walletContextByReason.length) {

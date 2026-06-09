@@ -63,9 +63,11 @@ class WalletEventLedger {
       watchedReason,
       walletProfile: walletProfile ? {
         name: walletProfile.name || null,
+        source: walletProfile.source || null,
         trustTier: walletProfile.trustTier || null,
         profile: walletProfile.profile || null,
         score: this.numberOrNull(walletProfile.score, 4),
+        shadowOnly: walletProfile.shadowOnly === true,
         flags: Array.isArray(walletProfile.flags) ? walletProfile.flags.slice(0, 8) : []
       } : null,
       mint,

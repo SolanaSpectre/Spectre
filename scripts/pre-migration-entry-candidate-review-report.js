@@ -100,6 +100,63 @@ function priceOf(payload) {
   return Number.isFinite(price) && price > 0 ? price : null;
 }
 
+function isPositiveOrProvenWallet(row = {}) {
+  return ['PROVEN_POSITIVE', 'PROMISING_POSITIVE'].includes(row.evidenceTier)
+    || ['TRUST_REVIEW', 'PROFITABLE_NEEDS_FIRST_TOUCH_EVIDENCE'].includes(row.reviewTier)
+    || row.positiveOrProven === true;
+}
+
+function isAvoidOrNegativeWallet(row = {}) {
+  return row.evidenceTier === 'NEGATIVE_EVIDENCE'
+    || row.reviewTier === 'AVOID_REVIEW'
+    || row.avoidOrNegative === true;
+}
+
+function walletTouchToSummary(row = {}) {
+  return {
+    wallet: row.wallet || null,
+    name: row.name || null,
+    reviewTier: row.reviewTier || null,
+    evidenceTier: row.evidenceTier || null,
+    label: row.label || null,
+    side: row.side || null,
+    phase: row.phase || null,
+    tradeAt: row.tradeAt || null,
+    curveProgress: num(row.curveProgress, 6),
+    solAmount: num(row.solAmount, 6),
+    positiveOrProven: isPositiveOrProvenWallet(row),
+    avoidOrNegative: isAvoidOrNegativeWallet(row)
+  };
+}
+
+function walletContextSummary(context = {}) {
+  const wallets = Array.isArray(context.wallets) ? context.wallets : [];
+  const sorted = wallets
+    .filter((row) => row && typeof row === 'object')
+    .slice()
+    .sort((a, b) => timestampMs(a.tradeAt) - timestampMs(b.tradeAt));
+  const firstTouch = sorted[0] || null;
+  const firstBuy = sorted.find((row) => String(row.side || '').toLowerCase() === 'buy') || null;
+  const positiveFirstTouch = sorted.find(isPositiveOrProvenWallet) || null;
+  const avoidFirstTouch = sorted.find(isAvoidOrNegativeWallet) || null;
+  return {
+    touched: Boolean(context.touched || sorted.length),
+    observedWalletTradeCount: Number(context.observedWalletTradeCount || sorted.length || 0),
+    positiveOrProvenTouchCount: sorted.filter(isPositiveOrProvenWallet).length,
+    avoidOrNegativeTouchCount: sorted.filter(isAvoidOrNegativeWallet).length,
+    earlySniperCount: Number(context.earlySniperCount || 0),
+    alphaScalperCount: Number(context.alphaScalperCount || 0),
+    riskWalletCount: Number(context.riskWalletCount || 0),
+    contextSource: context.contextSource || null,
+    earliestTouchAt: context.earliestTouchAt || firstTouch?.tradeAt || null,
+    earliestBuyAt: context.earliestBuyAt || firstBuy?.tradeAt || null,
+    firstTouch: firstTouch ? walletTouchToSummary(firstTouch) : null,
+    positiveFirstTouch: positiveFirstTouch ? walletTouchToSummary(positiveFirstTouch) : null,
+    avoidFirstTouch: avoidFirstTouch ? walletTouchToSummary(avoidFirstTouch) : null,
+    sampleWallets: sorted.slice(0, 6).map(walletTouchToSummary)
+  };
+}
+
 function snapshotFromEvent(event) {
   const payload = payloadOf(event);
   const mint = mintOf(payload);
@@ -121,8 +178,9 @@ function makeCandidate(kind, event) {
   const mint = mintOf(payload);
   const atMs = timestampMs(payload.timestamp || event.timestamp);
   if (!mint || !Number.isFinite(atMs)) return null;
-  const touch = payload.qualifyingFirstTouch || null;
-  const positiveTouch = payload.positiveFirstTouch || null;
+  const walletContext = walletContextSummary(payload.walletClassificationContext || {});
+  const touch = payload.qualifyingFirstTouch || walletContext.firstTouch || null;
+  const positiveTouch = payload.positiveFirstTouch || walletContext.positiveFirstTouch || null;
   return {
     kind,
     mint,
@@ -138,25 +196,30 @@ function makeCandidate(kind, event) {
     priceSol: num(priceOf(payload), 15),
     entryPriceSol: num(payload.entryPriceSol, 15),
     amountSol: num(payload.amountSol, 6),
+    walletContext,
     qualifyingFirstTouch: touch ? {
+      wallet: touch.wallet || null,
       name: touch.name || null,
       reviewTier: touch.reviewTier || null,
       evidenceTier: touch.evidenceTier || null,
       label: touch.label || null,
       side: touch.side || null,
       phase: touch.phase || null,
+      tradeAt: touch.tradeAt || null,
       curveProgress: num(touch.curveProgress, 6),
       solAmount: num(touch.solAmount, 6),
-      positiveOrProven: touch.positiveOrProven === true,
-      avoidOrNegative: touch.avoidOrNegative === true
+      positiveOrProven: isPositiveOrProvenWallet(touch),
+      avoidOrNegative: isAvoidOrNegativeWallet(touch)
     } : null,
     positiveFirstTouch: positiveTouch ? {
+      wallet: positiveTouch.wallet || null,
       name: positiveTouch.name || null,
       reviewTier: positiveTouch.reviewTier || null,
       evidenceTier: positiveTouch.evidenceTier || null,
       label: positiveTouch.label || null,
       side: positiveTouch.side || null,
       phase: positiveTouch.phase || null,
+      tradeAt: positiveTouch.tradeAt || null,
       curveProgress: num(positiveTouch.curveProgress, 6),
       solAmount: num(positiveTouch.solAmount, 6)
     } : null
@@ -205,12 +268,16 @@ function classifyCandidate(candidate, exitsByEntryKey, dryRunByMint, priorEntryB
   if (candidate.kind === 'paper_entry' && exit?.pnlSol < 0) flags.push('NEGATIVE_PAPER_EXIT');
   if (candidate.kind === 'paper_entry' && exit?.reason === 'BREAKEVEN_STOP' && exit?.pnlSol < 0) flags.push('BREAKEVEN_STOP_LOSS');
   if (candidate.kind === 'paper_entry' && prior && prior.atMs < candidate.atMs) flags.push('REPEAT_SAME_MINT_ENTRY');
+  if (candidate.kind === 'paper_entry' && Number(candidate.curveProgress) >= 0.9) flags.push('VERY_HIGH_CURVE_ENTRY');
+  else if (candidate.kind === 'paper_entry' && Number(candidate.curveProgress) >= 0.85) flags.push('HIGH_CURVE_ENTRY');
   if (candidate.kind === 'wallet_shadow_would_enter' && candidate.qualifyingFirstTouch?.avoidOrNegative) flags.push('AVOID_OR_NEGATIVE_FIRST_TOUCH');
   if (candidate.kind === 'wallet_shadow_would_enter' && !candidate.qualifyingFirstTouch?.positiveOrProven) flags.push('NO_POSITIVE_FIRST_TOUCH');
+  if (candidate.kind === 'paper_entry' && candidate.walletContext?.positiveOrProvenTouchCount > 0) flags.push('POSITIVE_WALLET_CONTEXT_ON_ENTRY');
+  if (candidate.kind === 'paper_entry' && candidate.walletContext?.avoidOrNegativeTouchCount > 0) flags.push('AVOID_WALLET_CONTEXT_ON_ENTRY');
   if (candidate.kind === 'wallet_shadow_would_enter' && future120.crossed85 !== true) flags.push('NO_85_CROSS_WITHIN_120S');
   if (dryBlocks.some((row) => row.reason === 'UNSUPPORTED_QUOTE_MINT')) flags.push('DRY_RUN_UNSUPPORTED_QUOTE_MINT');
   if (!drySends.length && dryBlocks.length) flags.push('DRY_RUN_POLICY_BLOCKED');
-  if (candidate.kind === 'paper_entry' && candidate.qualifyingFirstTouch === null) flags.push('NO_WALLET_CONTEXT_ON_ENTRY');
+  if (candidate.kind === 'paper_entry' && !candidate.walletContext?.touched && candidate.qualifyingFirstTouch === null) flags.push('NO_WALLET_CONTEXT_ON_ENTRY');
 
   let verdict = 'WATCH';
   if (flags.includes('NEGATIVE_PAPER_EXIT') || flags.includes('AVOID_OR_NEGATIVE_FIRST_TOUCH') || flags.includes('DRY_RUN_UNSUPPORTED_QUOTE_MINT')) {
@@ -378,6 +445,16 @@ async function main() {
       paperPnlSol: num(reviewed.reduce((sum, row) => sum + Number(row.exit?.pnlSol || 0), 0), 9),
       verdictCounts: countBy(reviewed, (row) => row.verdict),
       flagCounts: countBy(reviewed.flatMap((row) => row.flags || []), (flag) => flag),
+      paperEntryWalletContext: {
+        withAny: reviewed.filter((row) => row.kind === 'paper_entry' && row.walletContext?.touched).length,
+        withPositiveOrProven: reviewed.filter((row) => row.kind === 'paper_entry' && Number(row.walletContext?.positiveOrProvenTouchCount || 0) > 0).length,
+        withAvoidOrNegative: reviewed.filter((row) => row.kind === 'paper_entry' && Number(row.walletContext?.avoidOrNegativeTouchCount || 0) > 0).length
+      },
+      paperEntryCurveBands: {
+        curve85to90: reviewed.filter((row) => row.kind === 'paper_entry' && Number(row.curveProgress) >= 0.85 && Number(row.curveProgress) < 0.9).length,
+        curve90to95: reviewed.filter((row) => row.kind === 'paper_entry' && Number(row.curveProgress) >= 0.9 && Number(row.curveProgress) < 0.95).length,
+        curve95plus: reviewed.filter((row) => row.kind === 'paper_entry' && Number(row.curveProgress) >= 0.95).length
+      },
       uniqueMints: new Set(reviewed.map((row) => row.mint)).size
     },
     candidates: reviewed

@@ -13,6 +13,10 @@ const EVENT_TYPES = new Set([
   'pre_migration_curve_false_negative_recovery_shadow.would_enter',
   'pre_migration_curve_false_negative_recovery_shadow.would_skip'
 ]);
+const PARITY_FAILED_CHECKS = new Set([
+  'CURVE_FALSE_NEGATIVE_RECOVERY_SHADOW_MISSING_ONCHAIN_CURVE_PARITY',
+  'CURVE_FALSE_NEGATIVE_RECOVERY_SHADOW_CURVE_PARITY_MISMATCH'
+]);
 const WINDOWS_SECONDS = [120, 300];
 
 function parseArgs(argv) {
@@ -75,6 +79,12 @@ function numberOrNull(value, digits = null) {
   const number = Number(value);
   if (!Number.isFinite(number)) return null;
   return digits === null ? number : Number(number.toFixed(digits));
+}
+
+function finiteNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function stat(values, digits = 6) {
@@ -141,6 +151,58 @@ function snapshotFromEvent(event) {
   };
 }
 
+function paritySampleFromEvent(event) {
+  if (eventType(event) !== 'pumpdev.targeted_curve_parity_sample') return null;
+  const payload = payloadOf(event);
+  const mint = mintOf(payload);
+  const atMs = timestampMs(payload.onchainFetchedAt || event.timestamp || payload.scheduledAt);
+  if (!mint || !Number.isFinite(atMs)) return null;
+  return {
+    mint,
+    atMs,
+    at: new Date(atMs).toISOString(),
+    trigger: payload.trigger || null,
+    providerAt: payload.providerAt || null,
+    providerCurveProgress: numberOrNull(payload.providerCurveProgress, 6),
+    onchainFetchedAt: payload.onchainFetchedAt || null,
+    onchainFresh: payload.onchainFresh === true,
+    refreshed: payload.refreshed === true,
+    accountFound: payload.accountFound === true,
+    invalidAccountData: payload.invalidAccountData === true,
+    bondingCurveValidated: payload.bondingCurveValidated === true,
+    bondingCurveValidationReason: payload.bondingCurveValidationReason || null,
+    bondingCurveAccountOwner: payload.bondingCurveAccountOwner || null,
+    timedOut: payload.timedOut === true,
+    latencyMs: numberOrNull(payload.latencyMs, 0),
+    onchainFetchLatencyMs: numberOrNull(payload.onchainFetchLatencyMs, 0),
+    onchainCurveProgress: numberOrNull(payload.onchainCurveProgress, 6),
+    curveDelta: numberOrNull(payload.curveDelta, 6),
+    absCurveDelta: numberOrNull(payload.absCurveDelta, 6),
+    lastErrorMessage: payload.lastErrorMessage || payload.error || null
+  };
+}
+
+function walletDiagnosticFromEvent(event) {
+  if (eventType(event) !== 'wallet.trade_gate_diagnostic') return null;
+  const payload = payloadOf(event);
+  const mint = mintOf(payload);
+  const atMs = timestampMs(payload.timestamp || event.timestamp);
+  if (!mint || !Number.isFinite(atMs)) return null;
+  return {
+    mint,
+    atMs,
+    at: new Date(atMs).toISOString(),
+    symbol: payload.symbol || null,
+    wallet: payload.wallet || null,
+    txType: String(payload.txType || payload.side || '').toLowerCase() || null,
+    dropReason: payload.dropReason || null,
+    trackedAccountMatch: payload.trackedAccountMatch === true,
+    kolWalletProfileMatch: payload.kolWalletProfileMatch === true,
+    ledgerRecord: payload.ledgerRecord === true,
+    source: payload.source || payload.provider || null
+  };
+}
+
 function shadowFromEvent(event) {
   const type = eventType(event);
   if (!EVENT_TYPES.has(type)) return null;
@@ -172,6 +234,7 @@ function shadowFromEvent(event) {
     recovery: payload.recovery || null,
     noTrackedSellAfterQualifyingBuy: payload.noTrackedSellAfterQualifyingBuy || null,
     curveParity: payload.curveParity || null,
+    thresholdDecision: payload.thresholdDecision || null,
     priceSol: numberOrNull(priceOf(payload), 12)
   };
 }
@@ -179,6 +242,8 @@ function shadowFromEvent(event) {
 async function readTelemetry(filePath) {
   const shadows = [];
   const snapshotsByMint = new Map();
+  const paritySamplesByMint = new Map();
+  const walletDiagnosticsByMint = new Map();
   let malformedLines = 0;
   const rl = readline.createInterface({
     input: fs.createReadStream(filePath, { encoding: 'utf8' }),
@@ -201,13 +266,27 @@ async function readTelemetry(filePath) {
       rows.push(snapshot);
       snapshotsByMint.set(snapshot.mint, rows);
     }
+    const paritySample = paritySampleFromEvent(event);
+    if (paritySample) {
+      const rows = paritySamplesByMint.get(paritySample.mint) || [];
+      rows.push(paritySample);
+      paritySamplesByMint.set(paritySample.mint, rows);
+    }
+    const walletDiagnostic = walletDiagnosticFromEvent(event);
+    if (walletDiagnostic) {
+      const rows = walletDiagnosticsByMint.get(walletDiagnostic.mint) || [];
+      rows.push(walletDiagnostic);
+      walletDiagnosticsByMint.set(walletDiagnostic.mint, rows);
+    }
     const shadow = shadowFromEvent(event);
     if (shadow) shadows.push(shadow);
   }
 
   for (const rows of snapshotsByMint.values()) rows.sort((a, b) => a.atMs - b.atMs);
+  for (const rows of paritySamplesByMint.values()) rows.sort((a, b) => a.atMs - b.atMs);
+  for (const rows of walletDiagnosticsByMint.values()) rows.sort((a, b) => a.atMs - b.atMs);
   shadows.sort((a, b) => a.atMs - b.atMs);
-  return { shadows, snapshotsByMint, malformedLines };
+  return { shadows, snapshotsByMint, paritySamplesByMint, walletDiagnosticsByMint, malformedLines };
 }
 
 function windowAnalysis(shadow, snapshots, seconds) {
@@ -232,10 +311,129 @@ function windowAnalysis(shadow, snapshots, seconds) {
   };
 }
 
-function analyzeShadow(shadow, snapshots) {
+function nearestParitySample(shadow, samples = []) {
+  const future = samples.filter((sample) => sample.atMs >= shadow.atMs && sample.atMs <= shadow.atMs + 30_000);
+  if (future.length) return future[0];
+  const prior = samples.filter((sample) => sample.atMs < shadow.atMs && shadow.atMs - sample.atMs <= 30_000);
+  return prior[prior.length - 1] || null;
+}
+
+function parityStatus(shadow, sample = null) {
+  const parity = shadow.curveParity || {};
+  const maxAbsCurveDelta = Number(parity.maxAbsCurveDelta ?? 0.03);
+  const providerCurve = numberOrNull(sample?.providerCurveProgress ?? parity.providerCurveProgress ?? shadow.curveProgress, 6);
+  const onchainCurve = numberOrNull(sample?.onchainCurveProgress ?? parity.onchainCurveProgress, 6);
+  const sampleCurveDelta = finiteNumber(sample?.curveDelta);
+  const providerCurveNumber = finiteNumber(providerCurve);
+  const onchainCurveNumber = finiteNumber(onchainCurve);
+  const curveDelta = sampleCurveDelta !== null
+    ? sampleCurveDelta
+    : onchainCurveNumber !== null && providerCurveNumber !== null
+      ? onchainCurveNumber - providerCurveNumber
+      : null;
+  const absCurveDelta = finiteNumber(curveDelta) !== null ? Math.abs(Number(curveDelta)) : null;
+
+  let status = parity.status || null;
+  let source = sample ? 'targeted_sample' : 'runtime_payload';
+  let detail = parity.reason || shadow.reason || null;
+
+  if (sample) {
+    if (sample.timedOut) {
+      status = 'RPC_TIMEOUT';
+      detail = sample.lastErrorMessage || 'TARGETED_PARITY_TIMEOUT';
+    } else if (!sample.accountFound) {
+      status = 'MISSING_ONCHAIN';
+      detail = sample.lastErrorMessage || 'BONDING_CURVE_ACCOUNT_NOT_FOUND';
+    } else if (sample.invalidAccountData) {
+      status = 'INVALID_ONCHAIN_DATA';
+      detail = sample.lastErrorMessage || 'INVALID_ACCOUNT_DATA';
+    } else if (!sample.bondingCurveValidated) {
+      status = 'UNVALIDATED_BONDING_CURVE';
+      detail = sample.bondingCurveValidationReason || sample.lastErrorMessage || 'UNVALIDATED_BONDING_CURVE_ACCOUNT';
+    } else if (!sample.onchainFresh || !sample.refreshed) {
+      status = 'STALE_OR_UNREFRESHED_ONCHAIN_SAMPLE';
+      detail = sample.lastErrorMessage || 'STALE_OR_UNREFRESHED_ONCHAIN_SAMPLE';
+    } else if (onchainCurveNumber === null) {
+      status = 'MISSING_ONCHAIN_CURVE';
+      detail = sample.lastErrorMessage || 'NO_COMPARABLE_ONCHAIN_CURVE';
+    } else if (finiteNumber(absCurveDelta) !== null && absCurveDelta <= maxAbsCurveDelta) {
+      status = 'FULL_MATCH';
+      detail = null;
+    } else if (finiteNumber(curveDelta) !== null && curveDelta > maxAbsCurveDelta) {
+      status = 'STALE_WS_OR_ADVANCED_ONCHAIN';
+      detail = 'ONCHAIN_CURVE_AHEAD_OF_PROVIDER';
+    } else {
+      status = 'DIVERGED';
+      detail = 'PROVIDER_ONCHAIN_CURVE_MISMATCH';
+    }
+  } else if (parity.passed === true) {
+    status = 'FULL_MATCH';
+    detail = null;
+  } else if (!status && parity.reason === 'CURVE_FALSE_NEGATIVE_RECOVERY_SHADOW_MISSING_ONCHAIN_CURVE_PARITY') {
+    status = 'MISSING_ONCHAIN_UNSAMPLED';
+  } else if (!status && parity.reason === 'CURVE_FALSE_NEGATIVE_RECOVERY_SHADOW_CURVE_PARITY_MISMATCH') {
+    status = 'DIVERGED';
+  } else if (!status) {
+    status = 'UNKNOWN';
+  }
+
+  return {
+    status,
+    source,
+    detail,
+    providerCurveProgress: providerCurve,
+    onchainCurveProgress: onchainCurve,
+    curveDelta: numberOrNull(curveDelta, 6),
+    absCurveDelta: numberOrNull(absCurveDelta, 6),
+    maxAbsCurveDelta: numberOrNull(maxAbsCurveDelta, 6),
+    sampleAt: sample?.at || null,
+    sampleTrigger: sample?.trigger || null,
+    sampleLatencyMs: sample?.latencyMs ?? null
+  };
+}
+
+function untrackedWalletContext(shadow, diagnostics = []) {
+  const lookbackMs = 60_000;
+  const before = diagnostics.filter((row) => row.atMs <= shadow.atMs && shadow.atMs - row.atMs <= lookbackMs);
+  const untracked = before.filter((row) => row.dropReason === 'UNTRACKED_WALLET');
+  const untrackedBuys = untracked.filter((row) => row.txType === 'buy');
+  const untrackedSells = untracked.filter((row) => row.txType === 'sell');
+  const uniqueBuyWallets = Array.from(new Set(untrackedBuys.map((row) => row.wallet).filter(Boolean)));
+  const uniqueSellWallets = Array.from(new Set(untrackedSells.map((row) => row.wallet).filter(Boolean)));
+  const firstBuy = untrackedBuys[0] || null;
+  const lastBuy = untrackedBuys[untrackedBuys.length - 1] || null;
+  return {
+    lookbackMs,
+    untrackedTradeCount: untracked.length,
+    untrackedBuyCount: untrackedBuys.length,
+    untrackedSellCount: untrackedSells.length,
+    uniqueUntrackedBuyWallets: uniqueBuyWallets.length,
+    uniqueUntrackedSellWallets: uniqueSellWallets.length,
+    firstUntrackedBuyAt: firstBuy?.at || null,
+    firstUntrackedBuyWallet: firstBuy?.wallet || null,
+    lastUntrackedBuyAt: lastBuy?.at || null,
+    lastUntrackedBuyWallet: lastBuy?.wallet || null,
+    buyWallets: uniqueBuyWallets.slice(0, 8)
+  };
+}
+
+function analyzeShadow(shadow, snapshots, paritySamples, walletDiagnostics) {
   const windows = {};
   for (const seconds of WINDOWS_SECONDS) windows[`${seconds}s`] = windowAnalysis(shadow, snapshots, seconds);
-  return { ...shadow, windows };
+  const sample = nearestParitySample(shadow, paritySamples);
+  const parityExplain = parityStatus(shadow, sample);
+  const nonParityFailedChecks = (shadow.failedChecks || []).filter((check) => !PARITY_FAILED_CHECKS.has(check));
+  const wouldEnterIfParityVerified = !shadow.wouldEnter
+    && parityExplain.status === 'FULL_MATCH'
+    && nonParityFailedChecks.length === 0;
+  return {
+    ...shadow,
+    windows,
+    parityExplain,
+    nonParityFailedChecks,
+    wouldEnterIfParityVerified,
+    untrackedWalletContext: untrackedWalletContext(shadow, walletDiagnostics)
+  };
 }
 
 function summarizeGroup(name, rows) {
@@ -256,6 +454,101 @@ function summarizeGroup(name, rows) {
   };
 }
 
+function walletCoverageSummary(rows = []) {
+  const withAnyWalletTouch = rows.filter((row) => Number(row.walletTouchCount || 0) > 0);
+  const withPositiveOrProvenTouch = rows.filter((row) => Number(row.positiveOrProvenTouchCount || 0) > 0);
+  const withAvoidTouch = rows.filter((row) => Number(row.avoidTouchCount || 0) > 0);
+  const withTrackedFirstTouchBuy = rows.filter((row) => row.trackedFirstTouchBuy);
+  const recoveryPassed = rows.filter((row) => row.recovery?.passed === true);
+  const noSellPassed = rows.filter((row) => row.noTrackedSellAfterQualifyingBuy?.passed === true);
+  const thresholdPassed = rows.filter((row) => row.thresholdDecision?.passed === true);
+  return {
+    rows: rows.length,
+    withAnyWalletTouch: withAnyWalletTouch.length,
+    withPositiveOrProvenTouch: withPositiveOrProvenTouch.length,
+    withAvoidTouch: withAvoidTouch.length,
+    withTrackedFirstTouchBuy: withTrackedFirstTouchBuy.length,
+    recoveryPassed: recoveryPassed.length,
+    noTrackedSellAfterQualifyingBuyPassed: noSellPassed.length,
+    thresholdPassed: thresholdPassed.length,
+    walletTouchContextRate: rows.length ? numberOrNull(withAnyWalletTouch.length / rows.length, 4) : null,
+    positiveOrProvenContextRate: rows.length ? numberOrNull(withPositiveOrProvenTouch.length / rows.length, 4) : null,
+    trackedFirstTouchBuyRate: rows.length ? numberOrNull(withTrackedFirstTouchBuy.length / rows.length, 4) : null,
+    walletTouchByReason: countBy(rows.filter((row) => Number(row.walletTouchCount || 0) > 0), (row) => row.reason),
+    noWalletTouchByReason: countBy(rows.filter((row) => Number(row.walletTouchCount || 0) <= 0), (row) => row.reason)
+  };
+}
+
+function untrackedWalletCoverageSummary(rows = []) {
+  const withUntrackedBuy = rows.filter((row) => Number(row.untrackedWalletContext?.untrackedBuyCount || 0) > 0);
+  const withTwoPlusUntrackedBuyWallets = rows.filter((row) => Number(row.untrackedWalletContext?.uniqueUntrackedBuyWallets || 0) >= 2);
+  const wallets = new Map();
+  for (const row of rows) {
+    for (const wallet of row.untrackedWalletContext?.buyWallets || []) {
+      const current = wallets.get(wallet) || {
+        wallet,
+        rows: 0,
+        uniqueMints: new Set(),
+        fullMatchRows: 0,
+        crossed85Within120s: 0,
+        crossed90Within120s: 0,
+        crossed95Within120s: 0,
+        curveDelta120s: [],
+        maxPriceDeltaPct120s: []
+      };
+      current.rows += 1;
+      current.uniqueMints.add(row.mint);
+      if (row.parityExplain?.status === 'FULL_MATCH') current.fullMatchRows += 1;
+      if (row.windows?.['120s']?.crossed85) current.crossed85Within120s += 1;
+      if (row.windows?.['120s']?.crossed90) current.crossed90Within120s += 1;
+      if (row.windows?.['120s']?.crossed95) current.crossed95Within120s += 1;
+      const curveDelta120s = finiteNumber(row.windows?.['120s']?.curveDelta);
+      if (curveDelta120s !== null) current.curveDelta120s.push(curveDelta120s);
+      const maxPriceDeltaPct120s = finiteNumber(row.windows?.['120s']?.maxPriceDeltaPct);
+      if (maxPriceDeltaPct120s !== null) current.maxPriceDeltaPct120s.push(maxPriceDeltaPct120s);
+      wallets.set(wallet, current);
+    }
+  }
+  const walletRows = Array.from(wallets.values()).map((row) => ({
+    wallet: row.wallet,
+    rows: row.rows,
+    uniqueMints: row.uniqueMints.size,
+    fullMatchRows: row.fullMatchRows,
+    crossed85Within120s: row.crossed85Within120s,
+    crossed90Within120s: row.crossed90Within120s,
+    crossed95Within120s: row.crossed95Within120s,
+    crossed85Within120sRate: row.rows ? numberOrNull(row.crossed85Within120s / row.rows, 4) : null,
+    crossed90Within120sRate: row.rows ? numberOrNull(row.crossed90Within120s / row.rows, 4) : null,
+    curveDelta120s: stat(row.curveDelta120s, 6),
+    maxPriceDeltaPct120s: stat(row.maxPriceDeltaPct120s, 2)
+  }));
+  const byFrequency = walletRows
+    .slice()
+    .sort((a, b) => b.rows - a.rows || b.crossed90Within120s - a.crossed90Within120s || a.wallet.localeCompare(b.wallet))
+    .slice(0, 12);
+  const byFollowThrough = walletRows
+    .filter((row) => row.rows >= 2 || row.crossed85Within120s > 0 || row.crossed90Within120s > 0)
+    .sort((a, b) => (
+      b.crossed90Within120s - a.crossed90Within120s
+      || b.crossed85Within120s - a.crossed85Within120s
+      || Number(b.curveDelta120s?.p90 ?? -Infinity) - Number(a.curveDelta120s?.p90 ?? -Infinity)
+      || Number(b.curveDelta120s?.max ?? -Infinity) - Number(a.curveDelta120s?.max ?? -Infinity)
+      || b.rows - a.rows
+      || a.wallet.localeCompare(b.wallet)
+    ))
+    .slice(0, 12);
+  return {
+    rows: rows.length,
+    withUntrackedBuy: withUntrackedBuy.length,
+    withTwoPlusUntrackedBuyWallets: withTwoPlusUntrackedBuyWallets.length,
+    untrackedBuyContextRate: rows.length ? numberOrNull(withUntrackedBuy.length / rows.length, 4) : null,
+    twoPlusUntrackedBuyWalletRate: rows.length ? numberOrNull(withTwoPlusUntrackedBuyWallets.length / rows.length, 4) : null,
+    untrackedBuyByReason: countBy(withUntrackedBuy, (row) => row.reason),
+    topUntrackedBuyWallets: byFrequency,
+    topUntrackedBuyWalletsByFollowThrough: byFollowThrough
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const telemetryPath = repoPath(args.telemetry || telemetryFromBattlefield() || latestTelemetryFile());
@@ -263,8 +556,13 @@ async function main() {
     throw new Error(`Telemetry file not found: ${telemetryPath || '(none)'}`);
   }
 
-  const { shadows, snapshotsByMint, malformedLines } = await readTelemetry(telemetryPath);
-  const analyzed = shadows.map((shadow) => analyzeShadow(shadow, snapshotsByMint.get(shadow.mint) || []));
+  const { shadows, snapshotsByMint, paritySamplesByMint, walletDiagnosticsByMint, malformedLines } = await readTelemetry(telemetryPath);
+  const analyzed = shadows.map((shadow) => analyzeShadow(
+    shadow,
+    snapshotsByMint.get(shadow.mint) || [],
+    paritySamplesByMint.get(shadow.mint) || [],
+    walletDiagnosticsByMint.get(shadow.mint) || []
+  ));
   const wouldEnter = analyzed.filter((row) => row.wouldEnter);
   const wouldSkip = analyzed.filter((row) => !row.wouldEnter);
   const report = {
@@ -280,7 +578,23 @@ async function main() {
       paperEntryPausedRows: analyzed.filter((row) => row.paperEntryPaused).length,
       failedCheckCounts: countBy(wouldSkip.flatMap((row) => row.failedChecks || []), (item) => item),
       reasonCounts: countBy(wouldSkip, (row) => row.reason),
-      sourceReasonCounts: countBy(analyzed, (row) => row.sourceReason)
+      sourceReasonCounts: countBy(analyzed, (row) => row.sourceReason),
+      parityStatusCounts: countBy(analyzed, (row) => row.parityExplain?.status),
+      paritySourceCounts: countBy(analyzed, (row) => row.parityExplain?.source),
+      paritySampledRows: analyzed.filter((row) => row.parityExplain?.source === 'targeted_sample').length,
+      wouldEnterIfParityVerified: analyzed.filter((row) => row.wouldEnterIfParityVerified).length,
+      fullMatchStillBlockedRows: analyzed.filter((row) => row.parityExplain?.status === 'FULL_MATCH' && !row.wouldEnter && !row.wouldEnterIfParityVerified).length,
+      fullMatchStillBlockedCheckCounts: countBy(
+        analyzed
+          .filter((row) => row.parityExplain?.status === 'FULL_MATCH' && !row.wouldEnter && !row.wouldEnterIfParityVerified)
+          .flatMap((row) => row.nonParityFailedChecks || []),
+        (item) => item
+      ),
+      walletCoverage: walletCoverageSummary(analyzed),
+      walletCoverageFullMatch: walletCoverageSummary(analyzed.filter((row) => row.parityExplain?.status === 'FULL_MATCH')),
+      walletCoverageStaleOrDiverged: walletCoverageSummary(analyzed.filter((row) => ['STALE_WS_OR_ADVANCED_ONCHAIN', 'DIVERGED'].includes(row.parityExplain?.status))),
+      untrackedWalletCoverage: untrackedWalletCoverageSummary(analyzed),
+      untrackedWalletCoverageFullMatch: untrackedWalletCoverageSummary(analyzed.filter((row) => row.parityExplain?.status === 'FULL_MATCH'))
     },
     groups: {
       all: summarizeGroup('all', analyzed),
@@ -291,6 +605,27 @@ async function main() {
       .slice()
       .sort((a, b) => Number(b.windows['120s']?.curveDelta || -Infinity) - Number(a.windows['120s']?.curveDelta || -Infinity))
       .slice(0, 12),
+    topParityExplainRows: analyzed
+      .slice()
+      .sort((a, b) => Number(b.windows['120s']?.curveDelta || -Infinity) - Number(a.windows['120s']?.curveDelta || -Infinity))
+      .slice(0, 20)
+      .map((row) => ({
+        mint: row.mint,
+        symbol: row.symbol,
+        at: row.at,
+        wouldEnter: row.wouldEnter,
+        reason: row.reason,
+        failedChecks: row.failedChecks,
+        score: row.score,
+        curveProgress: row.curveProgress,
+        sourceReason: row.sourceReason,
+        parityExplain: row.parityExplain,
+        nonParityFailedChecks: row.nonParityFailedChecks,
+        wouldEnterIfParityVerified: row.wouldEnterIfParityVerified,
+        untrackedWalletContext: row.untrackedWalletContext,
+        window120: row.windows['120s'],
+        trackedFirstTouchBuy: row.trackedFirstTouchBuy
+      })),
     sampleRows: analyzed.slice(0, 25)
   };
 

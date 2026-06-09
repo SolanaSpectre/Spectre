@@ -15,6 +15,7 @@ class LaunchIntelStore {
     this.walletIntelFilePath = config.walletIntelFilePath;
     this.kolscanLeaderboardFilePath = config.kolscanLeaderboardFilePath;
     this.manualKolWalletFilePath = config.manualKolWalletFilePath;
+    this.shadowWalletFilePath = config.shadowWalletFilePath;
     this.flushIntervalMs = config.launchIntelFlushIntervalMs;
     this.indexFlushIntervalMs = config.launchIntelIndexFlushIntervalMs;
     this.maxTrackedTokens = config.launchIntelMaxTrackedTokens;
@@ -175,6 +176,7 @@ class LaunchIntelStore {
         trustTier: null,
         profile: null,
         score: null,
+        shadowOnly: false,
         flags: []
       };
 
@@ -190,6 +192,7 @@ class LaunchIntelStore {
         trustTier: patch.trustTier || existing.trustTier || null,
         profile: patch.profile || existing.profile || null,
         score: patch.score ?? existing.score ?? null,
+        shadowOnly: patch.shadowOnly === true || existing.shadowOnly === true,
         flags: Array.from(new Set([
           ...(Array.isArray(existing.flags) ? existing.flags : []),
           ...(Array.isArray(patch.flags) ? patch.flags : [])
@@ -261,6 +264,29 @@ class LaunchIntelStore {
           });
         }
       }
+
+      if (this.shadowWalletFilePath && fs.existsSync(this.shadowWalletFilePath)) {
+        const parsed = JSON.parse(fs.readFileSync(this.shadowWalletFilePath, 'utf8'));
+        for (const item of parsed.wallets || []) {
+          const wallet = item?.walletAddress || item?.wallet;
+          if (!wallet) {
+            continue;
+          }
+
+          upsertProfile(wallet, {
+            name: item.name || null,
+            source: item.source || 'shadow_wallet_review',
+            trustTier: null,
+            profile: item.profile || 'shadow_untracked_review',
+            score: Number(item.score || 0) || null,
+            shadowOnly: true,
+            flags: Array.from(new Set([
+              'SHADOW_ONLY',
+              ...(Array.isArray(item.flags) ? item.flags : [])
+            ])).slice(0, 8)
+          });
+        }
+      }
     } catch (error) {
       this.logger.warn('Failed to load KOL wallet profiles', error.message);
       return;
@@ -289,6 +315,8 @@ class LaunchIntelStore {
       trustTier: profile.trustTier || null,
       profile: profile.profile || null,
       score: profile.score || null,
+      source: profile.source || null,
+      shadowOnly: profile.shadowOnly === true,
       flags: Array.isArray(profile.flags) ? profile.flags.slice(0, 5) : [],
       ...extras
     };

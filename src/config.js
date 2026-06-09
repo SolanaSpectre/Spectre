@@ -633,7 +633,39 @@ class Config {
   }
 
   static get preMigrationPaperSameMintReentryCooldownMs() {
-    return parseInt(process.env.PRE_MIGRATION_PAPER_SAME_MINT_REENTRY_COOLDOWN_MS || '120000', 10);
+    return parseInt(process.env.PRE_MIGRATION_PAPER_SAME_MINT_REENTRY_COOLDOWN_MS || '1800000', 10);
+  }
+
+  static get preMigrationPaperBlockAvoidWalletContext() {
+    return process.env.PRE_MIGRATION_PAPER_BLOCK_AVOID_WALLET_CONTEXT !== 'false';
+  }
+
+  static get preMigrationPaperHighCurveRequireWalletContext() {
+    return process.env.PRE_MIGRATION_PAPER_HIGH_CURVE_REQUIRE_WALLET_CONTEXT !== 'false';
+  }
+
+  static get preMigrationPaperHighCurveRequireWalletContextMinCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_HIGH_CURVE_REQUIRE_WALLET_CONTEXT_MIN_CURVE_PROGRESS || '0.88');
+  }
+
+  static get preMigrationPaperHighCurveWalletQualityGuardEnabled() {
+    return process.env.PRE_MIGRATION_PAPER_HIGH_CURVE_WALLET_QUALITY_GUARD_ENABLED !== 'false';
+  }
+
+  static get preMigrationPaperHighCurveWalletQualityMinCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_HIGH_CURVE_WALLET_QUALITY_MIN_CURVE_PROGRESS || '0.9');
+  }
+
+  static get preMigrationPaperHighCurveWalletQualityBlockPositiveSellAfterBuy() {
+    return process.env.PRE_MIGRATION_PAPER_HIGH_CURVE_WALLET_QUALITY_BLOCK_POSITIVE_SELL_AFTER_BUY !== 'false';
+  }
+
+  static get preMigrationPaperHighCurveWalletQualityBlockLowSignalFirstTouch() {
+    return process.env.PRE_MIGRATION_PAPER_HIGH_CURVE_WALLET_QUALITY_BLOCK_LOW_SIGNAL_FIRST_TOUCH !== 'false';
+  }
+
+  static get preMigrationPaperHighCurveWalletQualityMaxSniperWalletCount() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_HIGH_CURVE_WALLET_QUALITY_MAX_SNIPER_WALLET_COUNT || '7', 10);
   }
 
   static get preMigrationPaperMaxObservedStates() {
@@ -642,6 +674,10 @@ class Config {
 
   static get preMigrationPaperRecheckEnabled() {
     return process.env.PRE_MIGRATION_PAPER_RECHECK_ENABLED !== 'false';
+  }
+
+  static get preMigrationPaperRecheckReasons() {
+    return process.env.PRE_MIGRATION_PAPER_RECHECK_REASONS || 'NO_PRIOR_CURVE_PROGRESS,CURVE_NOT_ADVANCING';
   }
 
   static get preMigrationPaperRecheckDelayMs() {
@@ -944,6 +980,10 @@ class Config {
     return process.env.PRE_MIGRATION_PAPER_EARLY_ACCELERATION_BLOCK_WEAK_WALLET_FLOW !== 'false';
   }
 
+  static get preMigrationPaperEarlyAccelerationBlockAvoidWalletContext() {
+    return process.env.PRE_MIGRATION_PAPER_EARLY_ACCELERATION_BLOCK_AVOID_WALLET_CONTEXT !== 'false';
+  }
+
   static get preMigrationPaperEarlyAccelerationWeakWalletFlowMinLowSignalTouches() {
     return parseInt(process.env.PRE_MIGRATION_PAPER_EARLY_ACCELERATION_WEAK_WALLET_FLOW_MIN_LOW_SIGNAL_TOUCHES || '3', 10);
   }
@@ -984,6 +1024,10 @@ class Config {
     return parseInt(process.env.PRE_MIGRATION_PAPER_HIGH_CONVICTION_FIRST_SIGHT_MAX_HOLD_SECONDS || '240', 10);
   }
 
+  static get preMigrationPaperHighConvictionFirstSightRequireWalletContext() {
+    return process.env.PRE_MIGRATION_PAPER_HIGH_CONVICTION_FIRST_SIGHT_REQUIRE_WALLET_CONTEXT !== 'false';
+  }
+
   static get preMigrationPaperCurveFalseNegativeBridgeMinScore() {
     return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_MIN_SCORE || '50');
   }
@@ -1018,6 +1062,18 @@ class Config {
 
   static get preMigrationPaperCurveFalseNegativeBridgeRecoveryShadowEnabled() {
     return process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_RECOVERY_SHADOW_ENABLED !== 'false';
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeRequireRecoveryForEntries() {
+    return process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_REQUIRE_RECOVERY_FOR_ENTRIES !== 'false';
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeRequireNoSellForEntries() {
+    return process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_REQUIRE_NO_SELL_FOR_ENTRIES !== 'false';
+  }
+
+  static get preMigrationPaperCurveFalseNegativeBridgeRequireParityForEntries() {
+    return process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_REQUIRE_PARITY_FOR_ENTRIES !== 'false';
   }
 
   static get preMigrationPaperCurveFalseNegativeBridgeRecoveryMinConsecutiveAdvances() {
@@ -1353,6 +1409,10 @@ class Config {
 
   static get manualKolWalletFilePath() {
     return process.env.MANUAL_KOL_WALLET_FILE_PATH || path.join(process.cwd(), 'data', 'wallet-watchlists', 'manual-kol-wallets.json');
+  }
+
+  static get shadowWalletFilePath() {
+    return process.env.SHADOW_WALLET_FILE_PATH || path.join(process.cwd(), 'data', 'wallet-watchlists', 'shadow-untracked-wallets.json');
   }
 
   static get telegramContextEnabled() {

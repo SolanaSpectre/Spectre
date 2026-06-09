@@ -1,0 +1,23 @@
+{
+  "source": "wallet_untracked_shadow_impact",
+  "updatedAt": "2026-06-07T22:52:34.372Z",
+  "mode": "report_only_shadow_profiles",
+  "note": "Shadow wallets are used for telemetry and report-only validation. They must not satisfy real wallet-proof entry guards.",
+  "wallets": [
+    {
+      "walletAddress": "FjBooaCwFzgsyt7VJ1Y6rYdqQhdLDTUXFE4AjeKdYHYN",
+      "name": "untracked_runtime_FjBooa",
+      "source": "runtime_untracked_shadow_impact",
+      "trustTier": null,
+      "profile": "shadow_untracked_review",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "REPORT_ONLY_SHADOW",
+        "NEEDS_REPEAT_CONFIRMATION",
+        "UNTRACKED_FIRST_TOUCH_CANDIDATE"
+      ]
+    }
+  ]
+}

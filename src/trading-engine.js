@@ -3305,15 +3305,17 @@ class TradingEngine {
 
     const labels = {};
     const walletRows = [];
+    const shadowWalletRows = [];
     for (const event of events) {
       const wallet = event.wallet;
+      const shadowOnly = event.walletProfile?.shadowOnly === true;
       const classification = wallet
         ? this.walletEventLedger.walletStats.get(wallet)?.classification
         : null;
       const promotion = this.getWalletPromotionReview(wallet, event.walletProfile?.name);
       const label = classification?.label || 'UNCLASSIFIED';
       labels[label] = (labels[label] || 0) + 1;
-      walletRows.push({
+      const row = {
         wallet,
         name: event.walletProfile?.name || promotion?.name || null,
         label,
@@ -3325,17 +3327,29 @@ class TradingEngine {
         evidenceTier: promotion?.evidenceTier || null,
         solAmount: event.amount?.sol ?? null,
         curveProgress: event.market?.curveProgress ?? null,
-        secondsSinceCreate: event.timing?.secondsSinceCreate ?? null
-      });
+        secondsSinceCreate: event.timing?.secondsSinceCreate ?? null,
+        shadowOnly
+      };
+      if (shadowOnly) {
+        shadowWalletRows.push(row);
+      } else {
+        walletRows.push(row);
+      }
     }
     const wallets = walletRows
+      .sort((a, b) => new Date(a.tradeAt || 0).getTime() - new Date(b.tradeAt || 0).getTime())
+      .slice(0, 8);
+    const shadowWallets = shadowWalletRows
       .sort((a, b) => new Date(a.tradeAt || 0).getTime() - new Date(b.tradeAt || 0).getTime())
       .slice(0, 8);
 
     const count = (...selectedLabels) => selectedLabels.reduce((sum, label) => sum + Number(labels[label] || 0), 0);
     return {
-      touched: true,
+      touched: wallets.length > 0,
+      shadowTouched: shadowWallets.length > 0,
       observedWalletTradeCount: events.length,
+      observedNonShadowWalletTradeCount: walletRows.length,
+      observedShadowWalletTradeCount: shadowWalletRows.length,
       labelCounts: labels,
       earlySniperCount: count('EARLY_SNIPER'),
       alphaScalperCount: count('EARLY_ALPHA_SCALPER'),
@@ -3345,7 +3359,10 @@ class TradingEngine {
       contextSource: typeof this.walletEventLedger.recentEventsForMint === 'function' ? 'per_mint_cache' : 'recent_events_scan',
       earliestTouchAt: wallets[0]?.tradeAt || null,
       earliestBuyAt: wallets.find((wallet) => String(wallet.side || '').toLowerCase() === 'buy')?.tradeAt || null,
-      wallets
+      wallets,
+      shadowWallets,
+      earliestShadowTouchAt: shadowWallets[0]?.tradeAt || null,
+      earliestShadowBuyAt: shadowWallets.find((wallet) => String(wallet.side || '').toLowerCase() === 'buy')?.tradeAt || null
     };
   }
 
@@ -3465,11 +3482,7 @@ class TradingEngine {
         }
       }
 
-      if (
-        event.telemetryType === 'pre_migration_paper.decision'
-        && event.payload?.decision === 'PAPER_SKIPPED'
-        && event.payload?.reason === 'NO_PRIOR_CURVE_PROGRESS'
-      ) {
+      if (this.shouldSchedulePreMigrationPaperRecheck(event)) {
         this.schedulePreMigrationPaperRecheck(event.payload);
       }
 
@@ -3533,6 +3546,26 @@ class TradingEngine {
         });
       }
     }
+  }
+
+  shouldSchedulePreMigrationPaperRecheck(event = {}) {
+    if (
+      event.telemetryType !== 'pre_migration_paper.decision'
+      || event.payload?.decision !== 'PAPER_SKIPPED'
+    ) {
+      return false;
+    }
+
+    const reason = event.payload?.reason || event.payload?.skipReason || null;
+    if (!reason) {
+      return false;
+    }
+
+    const configuredReasons = String(this.config.preMigrationPaperRecheckReasons || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return configuredReasons.includes(reason);
   }
 
   maybeRecordWalletRelaxedShadowDecision(event) {
@@ -3805,18 +3838,29 @@ class TradingEngine {
   }
 
   maybeSchedulePumpDevTargetedCurveParitySampleFromPaperEvent(event) {
-    if (!event?.payload || !event.telemetryType?.startsWith?.('pre_migration_paper.')) {
+    if (!event?.payload) {
       return;
     }
 
     const payload = event.payload;
+    const telemetryType = event.telemetryType || '';
     const decision = payload.decision || null;
     const reason = payload.reason || payload.skipReason || null;
     const score = Number(payload.entryScore ?? payload.score);
     const curve = Number(payload.entryCurveProgress ?? payload.curveProgress);
     let trigger = null;
 
-    if (event.type === 'entry' || event.telemetryType === 'pre_migration_paper.entry') {
+    if (telemetryType.startsWith('pre_migration_curve_false_negative_recovery_shadow.')) {
+      const failedChecks = Array.isArray(payload.failedChecks) ? payload.failedChecks : [];
+      const needsParity = failedChecks.includes('CURVE_FALSE_NEGATIVE_RECOVERY_SHADOW_MISSING_ONCHAIN_CURVE_PARITY')
+        || failedChecks.includes('CURVE_FALSE_NEGATIVE_RECOVERY_SHADOW_CURVE_PARITY_MISMATCH')
+        || payload.curveParity?.passed !== true;
+      if (needsParity) {
+        trigger = `recovery_shadow:${reason || decision || 'unknown'}`;
+      }
+    } else if (!telemetryType.startsWith('pre_migration_paper.')) {
+      return;
+    } else if (event.type === 'entry' || telemetryType === 'pre_migration_paper.entry') {
       trigger = 'actual_entry';
     } else if (
       this.config.pumpDevTargetedCurveParitySampleEligibleEnabled
@@ -3844,7 +3888,9 @@ class TradingEngine {
     }
 
     this.maybeSchedulePumpDevTargetedCurveParitySample(trigger, payload, {
-      source: 'pre_migration_paper',
+      source: telemetryType.startsWith('pre_migration_curve_false_negative_recovery_shadow.')
+        ? 'pre_migration_curve_false_negative_recovery_shadow'
+        : 'pre_migration_paper',
       decision,
       reason,
       preset: payload.preset || null,
@@ -4859,7 +4905,9 @@ class TradingEngine {
       ? this.config.pumpPortalTrackedAccounts
       : [];
     const trackedAccountMatch = Boolean(trader && trackedAccounts.includes(trader));
-    const kolWalletProfileMatch = Boolean(trader && this.launchIntelStore.buildKolWalletSummary(trader));
+    const tradeWalletProfile = trader ? this.launchIntelStore.buildKolWalletSummary(trader) : null;
+    const kolWalletProfileMatch = Boolean(tradeWalletProfile);
+    const shadowWalletProfileMatch = tradeWalletProfile?.shadowOnly === true;
     if (trackedAccountMatch) {
       current.accountTradeCount = (current.accountTradeCount || 0) + 1;
     }
@@ -4874,7 +4922,18 @@ class TradingEngine {
     const curveRefreshDue = Boolean(this.pumpBondingCurveLane?.isRefreshDue?.(mint));
     const hasUsableCurveState = Number.isFinite(Number(current.curveProgress));
     this.scheduleProviderBackedBondingCurveSync(mint, current, launchIntelSummary, providerCurveSnapshotApplied);
-    if (!curveRefreshDue || hasUsableCurveState || providerCurveSnapshotApplied) {
+    const watchedWalletPaperObserve = Boolean(walletLedgerRecord && this.executionModeManager?.isPaper?.());
+    if (!curveRefreshDue || hasUsableCurveState || providerCurveSnapshotApplied || watchedWalletPaperObserve) {
+      if (watchedWalletPaperObserve && curveRefreshDue && !hasUsableCurveState && !providerCurveSnapshotApplied) {
+        this.telemetry.record('pre_migration_paper.wallet_context_observe_forced', {
+          mint,
+          symbol: current.symbol || null,
+          wallet: walletLedgerRecord.wallet || null,
+          side: walletLedgerRecord.side || null,
+          watchedReason: walletLedgerRecord.watchedReason || null,
+          reason: 'WATCHED_WALLET_TRADE_WITH_PENDING_CURVE_REFRESH'
+        });
+      }
       this.observePreMigrationToken(current, launchIntelSummary);
     }
     this.telemetry.record(options.telemetryType || 'provider.pumpportal.trade', {
@@ -4883,6 +4942,7 @@ class TradingEngine {
       traderPresent: Boolean(trader),
       trackedAccountMatch,
       kolWalletProfileMatch,
+      shadowWalletProfileMatch,
       watchedWallet: Boolean(walletLedgerRecord),
       watchedWalletReason: walletLedgerRecord?.watchedReason || null
     });
@@ -5086,6 +5146,7 @@ class TradingEngine {
         dropReason: details.dropReason || null,
         trackedAccountMatch: details.trackedAccountMatch === true,
         kolWalletProfileMatch: details.kolWalletProfileMatch === true,
+        shadowWalletProfileMatch: details.shadowWalletProfileMatch === true,
         watchedReason: details.watchedReason || null,
         ledgerRecord: details.ledgerRecord === true
       });
@@ -5120,7 +5181,7 @@ class TradingEngine {
 
     const watchedReason = walletProfile && isTrackedAccount
       ? 'tracked_account_and_watchlist_profile'
-      : (walletProfile ? 'watchlist_profile' : 'tracked_account');
+      : (walletProfile ? (walletProfile.shadowOnly ? 'shadow_wallet_profile' : 'watchlist_profile') : 'tracked_account');
 
     let record = null;
     try {
@@ -5142,6 +5203,7 @@ class TradingEngine {
         dropReason: 'WALLET_LEDGER_RECORD_FAILED',
         trackedAccountMatch: isTrackedAccount,
         kolWalletProfileMatch: Boolean(walletProfile),
+        shadowWalletProfileMatch: walletProfile?.shadowOnly === true,
         watchedReason
       });
       return null;
@@ -5153,6 +5215,7 @@ class TradingEngine {
         dropReason: 'RECORDED',
         trackedAccountMatch: isTrackedAccount,
         kolWalletProfileMatch: Boolean(walletProfile),
+        shadowWalletProfileMatch: walletProfile?.shadowOnly === true,
         watchedReason,
         ledgerRecord: true
       });
@@ -5166,6 +5229,7 @@ class TradingEngine {
         secondsSinceCreate: record.timing?.secondsSinceCreate,
         profile: record.walletProfile?.profile || null,
         trustTier: record.walletProfile?.trustTier || null,
+        shadowOnly: record.walletProfile?.shadowOnly === true,
         classification: this.walletEventLedger.walletStats.get(wallet)?.classification?.label || null
       });
     } else {
@@ -5174,6 +5238,7 @@ class TradingEngine {
         dropReason: 'WALLET_LEDGER_RECORD_SKIPPED',
         trackedAccountMatch: isTrackedAccount,
         kolWalletProfileMatch: Boolean(walletProfile),
+        shadowWalletProfileMatch: walletProfile?.shadowOnly === true,
         watchedReason
       });
     }

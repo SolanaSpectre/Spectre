@@ -10,6 +10,15 @@ class PreMigrationPaperLane {
     this.cloneGuardMaxEntriesPerSymbol = Number(config.preMigrationPaperCloneGuardMaxEntriesPerSymbol ?? 1);
     this.badExitCooldownMs = Number(config.preMigrationPaperBadExitCooldownMs ?? 15 * 60 * 1000);
     this.sameMintReentryCooldownMs = Number(config.preMigrationPaperSameMintReentryCooldownMs ?? 2 * 60 * 1000);
+    this.avoidWalletContextGuardEnabled = config.preMigrationPaperBlockAvoidWalletContext !== false;
+    this.highConvictionFirstSightRequireWalletContext = config.preMigrationPaperHighConvictionFirstSightRequireWalletContext !== false;
+    this.highCurveRequireWalletContext = config.preMigrationPaperHighCurveRequireWalletContext !== false;
+    this.highCurveRequireWalletContextMinCurveProgress = Number(config.preMigrationPaperHighCurveRequireWalletContextMinCurveProgress ?? 0.88);
+    this.highCurveWalletQualityGuardEnabled = config.preMigrationPaperHighCurveWalletQualityGuardEnabled !== false;
+    this.highCurveWalletQualityMinCurveProgress = Number(config.preMigrationPaperHighCurveWalletQualityMinCurveProgress ?? 0.9);
+    this.highCurveWalletQualityBlockPositiveSellAfterBuy = config.preMigrationPaperHighCurveWalletQualityBlockPositiveSellAfterBuy !== false;
+    this.highCurveWalletQualityBlockLowSignalFirstTouch = config.preMigrationPaperHighCurveWalletQualityBlockLowSignalFirstTouch !== false;
+    this.highCurveWalletQualityMaxSniperWalletCount = Number(config.preMigrationPaperHighCurveWalletQualityMaxSniperWalletCount ?? 7);
     this.lateFastTrackEnabled = config.preMigrationPaperLateFastTrackEnabled !== false;
     this.lateFastTrackMinScore = Number(config.preMigrationPaperLateFastTrackMinScore ?? 87);
     this.lateFastTrackMinCurveProgress = Number(config.preMigrationPaperLateFastTrackMinCurveProgress ?? 0.92);
@@ -74,6 +83,7 @@ class PreMigrationPaperLane {
     this.earlyAccelerationWeakWalletFlowGuardEnabled = config.preMigrationPaperEarlyAccelerationBlockWeakWalletFlow !== false;
     this.earlyAccelerationWeakWalletFlowMinLowSignalTouches = Number(config.preMigrationPaperEarlyAccelerationWeakWalletFlowMinLowSignalTouches ?? 3);
     this.earlyAccelerationWeakWalletFlowMinLateSellSol = Number(config.preMigrationPaperEarlyAccelerationWeakWalletFlowMinLateSellSol ?? 1);
+    this.earlyAccelerationAvoidWalletContextGuardEnabled = config.preMigrationPaperEarlyAccelerationBlockAvoidWalletContext !== false;
     this.curveFalseNegativeBridgeMinScore = Number(config.preMigrationPaperCurveFalseNegativeBridgeMinScore ?? 50);
     this.curveFalseNegativeBridgeMinCurveProgress = Number(config.preMigrationPaperCurveFalseNegativeBridgeMinCurveProgress ?? 0.3);
     this.curveFalseNegativeBridgeMaxCurveProgress = Number(config.preMigrationPaperCurveFalseNegativeBridgeMaxCurveProgress ?? 0.9);
@@ -84,6 +94,9 @@ class PreMigrationPaperLane {
     this.curveFalseNegativeBridgeMaxEntriesPerRun = Number(config.preMigrationPaperCurveFalseNegativeBridgeMaxEntriesPerRun ?? 3);
     this.curveFalseNegativeBridgePaperEntriesEnabled = config.preMigrationPaperCurveFalseNegativeBridgePaperEntriesEnabled === true;
     this.curveFalseNegativeBridgeRecoveryShadowEnabled = config.preMigrationPaperCurveFalseNegativeBridgeRecoveryShadowEnabled !== false;
+    this.curveFalseNegativeBridgeRequireRecoveryForEntries = config.preMigrationPaperCurveFalseNegativeBridgeRequireRecoveryForEntries !== false;
+    this.curveFalseNegativeBridgeRequireNoSellForEntries = config.preMigrationPaperCurveFalseNegativeBridgeRequireNoSellForEntries !== false;
+    this.curveFalseNegativeBridgeRequireParityForEntries = config.preMigrationPaperCurveFalseNegativeBridgeRequireParityForEntries !== false;
     this.curveFalseNegativeBridgeRecoveryMinConsecutiveAdvances = Math.max(1, Number(config.preMigrationPaperCurveFalseNegativeBridgeRecoveryMinConsecutiveAdvances ?? 2));
     this.curveFalseNegativeBridgeRecoveryLookbackMs = Math.max(1000, Number(config.preMigrationPaperCurveFalseNegativeBridgeRecoveryLookbackMs ?? 30_000));
     this.curveFalseNegativeBridgeRecoveryMinAdvance = Number(config.preMigrationPaperCurveFalseNegativeBridgeRecoveryMinAdvance ?? 0.003);
@@ -379,6 +392,9 @@ class PreMigrationPaperLane {
       sellPressureExitEnabled: true,
       sellPressureBuyRatioThreshold: 0.45,
       sellPressureMinHoldSeconds: 30,
+      trailingGivebackEnabled: true,
+      trailingActivationPct: 0.08,
+      trailingGivebackPct: 0.08,
       curveStallExitEnabled: true,
       curveStallSeconds: 120,
       curveStallMinProgressAdvance: 0.012
@@ -472,11 +488,43 @@ class PreMigrationPaperLane {
       };
     }
 
+    const walletContextGuard = this.evaluateRequiredWalletContextGuard(state, preset);
+    if (!walletContextGuard.passed) {
+      return {
+        ...entryGuards,
+        ...walletContextGuard
+      };
+    }
+
+    const highCurveWalletContextGuard = this.evaluateHighCurveRequiredWalletContextGuard(state, preset);
+    if (!highCurveWalletContextGuard.passed) {
+      return {
+        ...entryGuards,
+        ...highCurveWalletContextGuard
+      };
+    }
+
+    const highCurveWalletQualityGuard = this.evaluateHighCurveWalletQualityGuard(state, preset);
+    if (!highCurveWalletQualityGuard.passed) {
+      return {
+        ...entryGuards,
+        ...highCurveWalletQualityGuard
+      };
+    }
+
     const weakWalletFlowGuard = this.evaluateEarlyAccelerationWeakWalletFlowGuard(state, preset, entryGuards);
     if (!weakWalletFlowGuard.passed) {
       return {
         ...entryGuards,
         ...weakWalletFlowGuard
+      };
+    }
+
+    const avoidWalletContextGuard = this.evaluateAvoidWalletContextGuard(state, preset);
+    if (!avoidWalletContextGuard.passed) {
+      return {
+        ...entryGuards,
+        ...avoidWalletContextGuard
       };
     }
 
@@ -556,11 +604,54 @@ class PreMigrationPaperLane {
       return capDecision;
     }
 
+    const history = this.observationHistory.get(state.mint) || [];
+    const recovery = this.curveFalseNegativeBridgeRequireRecoveryForEntries
+      ? this.evaluateCurveRecoveryConfirmation(history, timestamp)
+      : { passed: true };
+    if (!recovery.passed) {
+      return {
+        ...entryGuards,
+        ...bridge,
+        ...recovery,
+        passed: false
+      };
+    }
+
+    const noSell = this.curveFalseNegativeBridgeRequireNoSellForEntries
+      ? this.evaluateNoTrackedSellAfterQualifyingBuy(state, bridge)
+      : { passed: true };
+    if (!noSell.passed) {
+      return {
+        ...entryGuards,
+        ...bridge,
+        ...recovery,
+        ...noSell,
+        passed: false
+      };
+    }
+
+    const parity = this.curveFalseNegativeBridgeRequireParityForEntries
+      ? this.evaluateBridgeCurveParity(state)
+      : { passed: true };
+    if (!parity.passed) {
+      return {
+        ...entryGuards,
+        ...bridge,
+        ...recovery,
+        ...noSell,
+        ...parity,
+        passed: false
+      };
+    }
+
     const staleGuard = this.evaluateHighCurveStaleSnapshotGuard(state, timestamp, 'CURVE_FALSE_NEGATIVE_WALLET_BRIDGE');
     if (staleGuard.blocked) {
       return {
         ...entryGuards,
         ...bridge,
+        ...recovery,
+        ...noSell,
+        ...parity,
         ...staleGuard,
         passed: false,
         reason: 'HIGH_CURVE_STALE_CURVE_UPDATE'
@@ -572,6 +663,9 @@ class PreMigrationPaperLane {
       return {
         ...entryGuards,
         ...bridge,
+        ...recovery,
+        ...noSell,
+        ...parity,
         ...cloneGuard,
         passed: false
       };
@@ -582,6 +676,9 @@ class PreMigrationPaperLane {
       return {
         ...entryGuards,
         ...bridge,
+        ...recovery,
+        ...noSell,
+        ...parity,
         ...thresholdDecision,
         passed: false
       };
@@ -590,6 +687,9 @@ class PreMigrationPaperLane {
     return {
       ...entryGuards,
       ...bridge,
+      ...recovery,
+      ...noSell,
+      ...parity,
       ...thresholdDecision,
       ...staleGuard,
       ...cloneGuard,
@@ -838,13 +938,18 @@ class PreMigrationPaperLane {
     if (!Number.isFinite(providerCurve)) {
       return {
         passed: false,
-        reason: 'CURVE_FALSE_NEGATIVE_RECOVERY_SHADOW_MISSING_PROVIDER_CURVE'
+        status: 'MISSING_PROVIDER_CURVE',
+        reason: 'CURVE_FALSE_NEGATIVE_RECOVERY_SHADOW_MISSING_PROVIDER_CURVE',
+        providerCurveProgress: null,
+        onchainCurveProgress: null,
+        maxAbsCurveDelta: this.compact(this.curveFalseNegativeBridgeParityMaxDelta, 6)
       };
     }
 
     if (!Number.isFinite(onchainCurve)) {
       return {
         passed: false,
+        status: 'MISSING_ONCHAIN_CURVE',
         reason: 'CURVE_FALSE_NEGATIVE_RECOVERY_SHADOW_MISSING_ONCHAIN_CURVE_PARITY',
         providerCurveProgress: this.compact(providerCurve, 6),
         onchainCurveProgress: null,
@@ -857,6 +962,7 @@ class PreMigrationPaperLane {
     const passed = absCurveDelta <= this.curveFalseNegativeBridgeParityMaxDelta;
     return {
       passed,
+      status: passed ? 'FULL_MATCH' : 'DIVERGED',
       reason: passed ? null : 'CURVE_FALSE_NEGATIVE_RECOVERY_SHADOW_CURVE_PARITY_MISMATCH',
       providerCurveProgress: this.compact(providerCurve, 6),
       onchainCurveProgress: this.compact(onchainCurve, 6),
@@ -1776,7 +1882,7 @@ class PreMigrationPaperLane {
   }
 
   evaluateEarlyAccelerationWeakWalletFlowGuard(state = {}, preset = {}, entryGuards = {}) {
-    if (!this.earlyAccelerationWeakWalletFlowGuardEnabled) {
+    if (!this.earlyAccelerationWeakWalletFlowGuardEnabled && !this.earlyAccelerationAvoidWalletContextGuardEnabled) {
       return { passed: true };
     }
 
@@ -1795,6 +1901,20 @@ class PreMigrationPaperLane {
       + Number(context.alphaScalperCount || 0)
       + Number(context.convictionWhaleCount || 0);
     const wallets = Array.isArray(context.wallets) ? context.wallets : [];
+    const avoidWalletTouches = wallets.filter((wallet) => this.isAvoidOrNegativeWalletTouch(wallet));
+    if (this.earlyAccelerationAvoidWalletContextGuardEnabled && avoidWalletTouches.length > 0) {
+      return {
+        passed: false,
+        reason: 'EARLY_ACCELERATION_AVOID_WALLET_CONTEXT',
+        earlyAccelerationAvoidWalletContextBlocked: true,
+        earlyAccelerationAvoidWalletContextTouchCount: avoidWalletTouches.length,
+        earlyAccelerationAvoidWalletContextTouches: avoidWalletTouches.slice(0, 5).map((wallet) => this.walletTouchPayload(wallet)),
+        earlyAccelerationAvoidWalletContextThresholds: {
+          maxAvoidOrNegativeTouches: 0
+        }
+      };
+    }
+
     const lateSellSol = wallets.reduce((sum, wallet) => {
       const side = String(wallet.side || '').toLowerCase();
       const phase = String(wallet.phase || '').toLowerCase();
@@ -1829,6 +1949,162 @@ class PreMigrationPaperLane {
         minLowSignalShare: 0.75
       }
     };
+  }
+
+  evaluateAvoidWalletContextGuard(state = {}, preset = {}) {
+    if (!this.avoidWalletContextGuardEnabled || preset.name === 'curveFalseNegativeWalletBridge') {
+      return { passed: true };
+    }
+
+    const context = state.walletClassificationContext || {};
+    const wallets = Array.isArray(context.wallets) ? context.wallets : [];
+    const avoidWalletTouches = wallets.filter((wallet) => this.isAvoidOrNegativeWalletTouch(wallet));
+    const blocked = avoidWalletTouches.length > 0;
+    return {
+      passed: !blocked,
+      reason: blocked ? 'AVOID_WALLET_CONTEXT' : null,
+      avoidWalletContextBlocked: blocked,
+      avoidWalletContextTouchCount: avoidWalletTouches.length,
+      avoidWalletContextTouches: avoidWalletTouches.slice(0, 5).map((wallet) => this.walletTouchPayload(wallet)),
+      avoidWalletContextThresholds: {
+        maxAvoidOrNegativeTouches: 0
+      }
+    };
+  }
+
+  evaluateRequiredWalletContextGuard(state = {}, preset = {}) {
+    if (preset.name !== 'highConvictionFirstSight' || !this.highConvictionFirstSightRequireWalletContext) {
+      return { passed: true };
+    }
+
+    const context = state.walletClassificationContext || {};
+    const wallets = Array.isArray(context.wallets) ? context.wallets : [];
+    const blocked = wallets.length === 0;
+    return {
+      passed: !blocked,
+      reason: blocked ? 'HIGH_CONVICTION_FIRST_SIGHT_REQUIRES_WALLET_CONTEXT' : null,
+      requiredWalletContextBlocked: blocked,
+      requiredWalletContextPreset: preset.name,
+      requiredWalletContextTouchCount: wallets.length,
+      requiredWalletContextThresholds: {
+        minWalletTouches: 1
+      }
+    };
+  }
+
+  evaluateHighCurveRequiredWalletContextGuard(state = {}, preset = {}) {
+    if (!this.highCurveRequireWalletContext || preset.name === 'curveFalseNegativeWalletBridge') {
+      return { passed: true };
+    }
+
+    const curveProgress = Number(state.curveProgress);
+    if (!Number.isFinite(curveProgress) || curveProgress < this.highCurveRequireWalletContextMinCurveProgress) {
+      return { passed: true };
+    }
+
+    const context = state.walletClassificationContext || {};
+    const wallets = Array.isArray(context.wallets) ? context.wallets : [];
+    const blocked = wallets.length === 0;
+    return {
+      passed: !blocked,
+      reason: blocked ? 'HIGH_CURVE_REQUIRES_WALLET_CONTEXT' : null,
+      highCurveWalletContextBlocked: blocked,
+      highCurveWalletContextPreset: preset.name,
+      highCurveWalletContextTouchCount: wallets.length,
+      highCurveWalletContextCurveProgress: this.compact(curveProgress, 6),
+      highCurveWalletContextThresholds: {
+        minCurveProgress: this.highCurveRequireWalletContextMinCurveProgress,
+        minWalletTouches: 1
+      }
+    };
+  }
+
+  evaluateHighCurveWalletQualityGuard(state = {}, preset = {}) {
+    if (!this.highCurveWalletQualityGuardEnabled || preset.name === 'curveFalseNegativeWalletBridge') {
+      return { passed: true };
+    }
+
+    const curveProgress = Number(state.curveProgress);
+    if (!Number.isFinite(curveProgress) || curveProgress < this.highCurveWalletQualityMinCurveProgress) {
+      return { passed: true };
+    }
+
+    const context = state.walletClassificationContext || {};
+    const wallets = Array.isArray(context.wallets) ? context.wallets : [];
+    if (!wallets.length) {
+      return { passed: true };
+    }
+
+    const sortedWallets = wallets
+      .slice()
+      .sort((a, b) => new Date(a.tradeAt || 0).getTime() - new Date(b.tradeAt || 0).getTime());
+    const positiveTouches = sortedWallets.filter((wallet) => this.isPositiveOrProvenWalletTouch(wallet));
+    const positiveFirstTouch = positiveTouches.find((wallet) => String(wallet.side || '').toLowerCase() === 'buy') || null;
+    const firstPositiveBuyAtMs = new Date(positiveFirstTouch?.tradeAt || 0).getTime();
+    const positiveSellAfterFirstBuy = Number.isFinite(firstPositiveBuyAtMs)
+      ? positiveTouches.find((wallet) =>
+          String(wallet.side || '').toLowerCase() === 'sell'
+          && new Date(wallet.tradeAt || 0).getTime() > firstPositiveBuyAtMs
+        )
+      : null;
+    const firstPositiveTouchLowSignal = positiveFirstTouch
+      ? this.isLowSignalWalletTouch(positiveFirstTouch)
+      : false;
+    const sniperWalletCount = Number(state.sniperWalletCount);
+    const sniperCrowdingBlocked = Number.isFinite(sniperWalletCount)
+      && Number.isFinite(this.highCurveWalletQualityMaxSniperWalletCount)
+      && this.highCurveWalletQualityMaxSniperWalletCount >= 0
+      && sniperWalletCount > this.highCurveWalletQualityMaxSniperWalletCount;
+
+    let reason = null;
+    if (this.highCurveWalletQualityBlockPositiveSellAfterBuy && positiveSellAfterFirstBuy) {
+      reason = 'HIGH_CURVE_WALLET_SELL_AFTER_FIRST_TOUCH';
+    } else if (this.highCurveWalletQualityBlockLowSignalFirstTouch && firstPositiveTouchLowSignal) {
+      reason = 'HIGH_CURVE_WALLET_LOW_SIGNAL_FIRST_TOUCH';
+    } else if (sniperCrowdingBlocked) {
+      reason = 'HIGH_CURVE_WALLET_SNIPER_CROWDING';
+    }
+
+    return {
+      passed: !reason,
+      reason,
+      highCurveWalletQualityBlocked: Boolean(reason),
+      highCurveWalletQualityPreset: preset.name,
+      highCurveWalletQualityCurveProgress: this.compact(curveProgress, 6),
+      highCurveWalletQualityPositiveTouchCount: positiveTouches.length,
+      highCurveWalletQualityFirstPositiveTouch: positiveFirstTouch ? this.walletTouchPayload(positiveFirstTouch) : null,
+      highCurveWalletQualityPositiveSellAfterFirstBuy: positiveSellAfterFirstBuy ? this.walletTouchPayload(positiveSellAfterFirstBuy) : null,
+      highCurveWalletQualityFirstPositiveTouchLowSignal: firstPositiveTouchLowSignal,
+      highCurveWalletQualitySniperWalletCount: Number.isFinite(sniperWalletCount) ? sniperWalletCount : null,
+      highCurveWalletQualityThresholds: {
+        minCurveProgress: this.highCurveWalletQualityMinCurveProgress,
+        blockPositiveSellAfterBuy: this.highCurveWalletQualityBlockPositiveSellAfterBuy,
+        blockLowSignalFirstTouch: this.highCurveWalletQualityBlockLowSignalFirstTouch,
+        maxSniperWalletCount: this.highCurveWalletQualityMaxSniperWalletCount
+      }
+    };
+  }
+
+  isPositiveOrProvenWalletTouch(wallet = {}) {
+    return ['PROVEN_POSITIVE', 'PROMISING_POSITIVE'].includes(wallet.evidenceTier)
+      || ['TRUST_REVIEW', 'PROFITABLE_NEEDS_FIRST_TOUCH_EVIDENCE'].includes(wallet.reviewTier);
+  }
+
+  isLowSignalWalletTouch(wallet = {}) {
+    const label = String(wallet.label || '').toUpperCase();
+    return label === 'LOW_SIGNAL'
+      || label === 'LOW_SIGNAL_AVOID'
+      || label === 'INSUFFICIENT_DATA';
+  }
+
+  isAvoidOrNegativeWalletTouch(wallet = {}) {
+    const reviewTier = String(wallet.reviewTier || '').toUpperCase();
+    const evidenceTier = String(wallet.evidenceTier || '').toUpperCase();
+    const label = String(wallet.label || '').toUpperCase();
+    return reviewTier === 'AVOID_REVIEW'
+      || evidenceTier === 'NEGATIVE_EVIDENCE'
+      || label === 'LOW_SIGNAL_AVOID'
+      || label === 'AVOID';
   }
 
   computeBuyRatio(state = {}) {
@@ -2115,6 +2391,14 @@ class PreMigrationPaperLane {
     const strategy = this.getStrategy(position.presetName);
     const exitProfile = position.exitProfile || this.getExitProfile(position.presetName);
     position.peakReturnPct = Math.max(Number(position.peakReturnPct || 0), returnPct);
+
+    if (
+      exitProfile.trailingGivebackEnabled
+      && Number(position.peakReturnPct || 0) >= Number(exitProfile.trailingActivationPct)
+      && Number(position.peakReturnPct || 0) - returnPct >= Number(exitProfile.trailingGivebackPct)
+    ) {
+      return this.exitPosition(position, timestamp, price, 'TRAILING_GIVEBACK', state);
+    }
 
     if (
       exitProfile.breakevenStopEnabled
@@ -2582,6 +2866,10 @@ class PreMigrationPaperLane {
         earlyAccelerationWeakWalletFlowLateSellSol: this.compact(details.earlyAccelerationWeakWalletFlowLateSellSol, 4),
         earlyAccelerationWeakWalletFlowPositiveSignals: details.earlyAccelerationWeakWalletFlowPositiveSignals ?? null,
         earlyAccelerationWeakWalletFlowThresholds: details.earlyAccelerationWeakWalletFlowThresholds || null,
+        earlyAccelerationAvoidWalletContextBlocked: details.earlyAccelerationAvoidWalletContextBlocked ?? null,
+        earlyAccelerationAvoidWalletContextTouchCount: details.earlyAccelerationAvoidWalletContextTouchCount ?? null,
+        earlyAccelerationAvoidWalletContextTouches: details.earlyAccelerationAvoidWalletContextTouches || null,
+        earlyAccelerationAvoidWalletContextThresholds: details.earlyAccelerationAvoidWalletContextThresholds || null,
         earlySurgeScore: this.compact(details.earlySurgeScore, 2),
         earlySurgeCurveProgress: this.compact(details.earlySurgeCurveProgress, 6),
         earlySurgeRecentVolumeSol: this.compact(details.earlySurgeRecentVolumeSol, 4),
@@ -2618,6 +2906,28 @@ class PreMigrationPaperLane {
         sameMintCooldownRemainingMs: details.sameMintCooldownRemainingMs ?? null,
         sameMintCooldownReason: details.sameMintCooldownReason || null,
         sameMintCooldownPreset: details.sameMintCooldownPreset || null,
+        requiredWalletContextBlocked: details.requiredWalletContextBlocked ?? null,
+        requiredWalletContextPreset: details.requiredWalletContextPreset || null,
+        requiredWalletContextTouchCount: details.requiredWalletContextTouchCount ?? null,
+        requiredWalletContextThresholds: details.requiredWalletContextThresholds || null,
+        highCurveWalletContextBlocked: details.highCurveWalletContextBlocked ?? null,
+        highCurveWalletContextPreset: details.highCurveWalletContextPreset || null,
+        highCurveWalletContextTouchCount: details.highCurveWalletContextTouchCount ?? null,
+        highCurveWalletContextCurveProgress: details.highCurveWalletContextCurveProgress ?? null,
+        highCurveWalletContextThresholds: details.highCurveWalletContextThresholds || null,
+        highCurveWalletQualityBlocked: details.highCurveWalletQualityBlocked ?? null,
+        highCurveWalletQualityPreset: details.highCurveWalletQualityPreset || null,
+        highCurveWalletQualityCurveProgress: details.highCurveWalletQualityCurveProgress ?? null,
+        highCurveWalletQualityPositiveTouchCount: details.highCurveWalletQualityPositiveTouchCount ?? null,
+        highCurveWalletQualityFirstPositiveTouch: details.highCurveWalletQualityFirstPositiveTouch || null,
+        highCurveWalletQualityPositiveSellAfterFirstBuy: details.highCurveWalletQualityPositiveSellAfterFirstBuy || null,
+        highCurveWalletQualityFirstPositiveTouchLowSignal: details.highCurveWalletQualityFirstPositiveTouchLowSignal ?? null,
+        highCurveWalletQualitySniperWalletCount: details.highCurveWalletQualitySniperWalletCount ?? null,
+        highCurveWalletQualityThresholds: details.highCurveWalletQualityThresholds || null,
+        avoidWalletContextBlocked: details.avoidWalletContextBlocked ?? null,
+        avoidWalletContextTouchCount: details.avoidWalletContextTouchCount ?? null,
+        avoidWalletContextTouches: details.avoidWalletContextTouches || null,
+        avoidWalletContextThresholds: details.avoidWalletContextThresholds || null,
         walletClassificationContext: state.walletClassificationContext || null,
         reasons: Array.isArray(state.reasons) ? state.reasons.slice(0, 10) : []
       }
@@ -2689,6 +2999,32 @@ class PreMigrationPaperLane {
         sameMintCooldownRemainingMs: decision.sameMintCooldownRemainingMs ?? null,
         sameMintCooldownReason: decision.sameMintCooldownReason || null,
         sameMintCooldownPreset: decision.sameMintCooldownPreset || null,
+        requiredWalletContextBlocked: decision.requiredWalletContextBlocked ?? entryGuards.requiredWalletContextBlocked ?? null,
+        requiredWalletContextPreset: decision.requiredWalletContextPreset || entryGuards.requiredWalletContextPreset || null,
+        requiredWalletContextTouchCount: decision.requiredWalletContextTouchCount ?? entryGuards.requiredWalletContextTouchCount ?? null,
+        requiredWalletContextThresholds: decision.requiredWalletContextThresholds || entryGuards.requiredWalletContextThresholds || null,
+        highCurveWalletContextBlocked: decision.highCurveWalletContextBlocked ?? entryGuards.highCurveWalletContextBlocked ?? null,
+        highCurveWalletContextPreset: decision.highCurveWalletContextPreset || entryGuards.highCurveWalletContextPreset || null,
+        highCurveWalletContextTouchCount: decision.highCurveWalletContextTouchCount ?? entryGuards.highCurveWalletContextTouchCount ?? null,
+        highCurveWalletContextCurveProgress: decision.highCurveWalletContextCurveProgress ?? entryGuards.highCurveWalletContextCurveProgress ?? null,
+        highCurveWalletContextThresholds: decision.highCurveWalletContextThresholds || entryGuards.highCurveWalletContextThresholds || null,
+        highCurveWalletQualityBlocked: decision.highCurveWalletQualityBlocked ?? entryGuards.highCurveWalletQualityBlocked ?? null,
+        highCurveWalletQualityPreset: decision.highCurveWalletQualityPreset || entryGuards.highCurveWalletQualityPreset || null,
+        highCurveWalletQualityCurveProgress: decision.highCurveWalletQualityCurveProgress ?? entryGuards.highCurveWalletQualityCurveProgress ?? null,
+        highCurveWalletQualityPositiveTouchCount: decision.highCurveWalletQualityPositiveTouchCount ?? entryGuards.highCurveWalletQualityPositiveTouchCount ?? null,
+        highCurveWalletQualityFirstPositiveTouch: decision.highCurveWalletQualityFirstPositiveTouch || entryGuards.highCurveWalletQualityFirstPositiveTouch || null,
+        highCurveWalletQualityPositiveSellAfterFirstBuy: decision.highCurveWalletQualityPositiveSellAfterFirstBuy || entryGuards.highCurveWalletQualityPositiveSellAfterFirstBuy || null,
+        highCurveWalletQualityFirstPositiveTouchLowSignal: decision.highCurveWalletQualityFirstPositiveTouchLowSignal ?? entryGuards.highCurveWalletQualityFirstPositiveTouchLowSignal ?? null,
+        highCurveWalletQualitySniperWalletCount: decision.highCurveWalletQualitySniperWalletCount ?? entryGuards.highCurveWalletQualitySniperWalletCount ?? null,
+        highCurveWalletQualityThresholds: decision.highCurveWalletQualityThresholds || entryGuards.highCurveWalletQualityThresholds || null,
+        avoidWalletContextBlocked: decision.avoidWalletContextBlocked ?? entryGuards.avoidWalletContextBlocked ?? null,
+        avoidWalletContextTouchCount: decision.avoidWalletContextTouchCount ?? entryGuards.avoidWalletContextTouchCount ?? null,
+        avoidWalletContextTouches: decision.avoidWalletContextTouches || entryGuards.avoidWalletContextTouches || null,
+        avoidWalletContextThresholds: decision.avoidWalletContextThresholds || entryGuards.avoidWalletContextThresholds || null,
+        earlyAccelerationAvoidWalletContextBlocked: decision.earlyAccelerationAvoidWalletContextBlocked ?? entryGuards.earlyAccelerationAvoidWalletContextBlocked ?? null,
+        earlyAccelerationAvoidWalletContextTouchCount: decision.earlyAccelerationAvoidWalletContextTouchCount ?? entryGuards.earlyAccelerationAvoidWalletContextTouchCount ?? null,
+        earlyAccelerationAvoidWalletContextTouches: decision.earlyAccelerationAvoidWalletContextTouches || entryGuards.earlyAccelerationAvoidWalletContextTouches || null,
+        earlyAccelerationAvoidWalletContextThresholds: decision.earlyAccelerationAvoidWalletContextThresholds || entryGuards.earlyAccelerationAvoidWalletContextThresholds || null,
         reasons: Array.isArray(state.reasons) ? state.reasons.slice(0, 10) : []
       }
     };
@@ -2705,7 +3041,12 @@ class PreMigrationPaperLane {
         }
       }
       if (details.highCurveStaleSnapshotBlocked) checks.add('HIGH_CURVE_STALE_CURVE_UPDATE');
+      if (details.requiredWalletContextBlocked) checks.add('HIGH_CONVICTION_FIRST_SIGHT_REQUIRES_WALLET_CONTEXT');
+      if (details.highCurveWalletContextBlocked) checks.add('HIGH_CURVE_REQUIRES_WALLET_CONTEXT');
+      if (details.highCurveWalletQualityBlocked) checks.add(details.reason || 'HIGH_CURVE_WALLET_QUALITY');
       if (details.earlyAccelerationWeakWalletFlowBlocked) checks.add('EARLY_ACCELERATION_WEAK_WALLET_FLOW');
+      if (details.avoidWalletContextBlocked) checks.add('AVOID_WALLET_CONTEXT');
+      if (details.earlyAccelerationAvoidWalletContextBlocked) checks.add('EARLY_ACCELERATION_AVOID_WALLET_CONTEXT');
       if (details.firstCurveSnapshotScalpSniperCrowdingBlocked) checks.add('FIRST_CURVE_SNAPSHOT_SCALP_SNIPER_CROWDING');
       if (details.firstCurveSnapshotScalpStaleCurveBlocked) checks.add('FIRST_CURVE_SNAPSHOT_SCALP_STALE_CURVE_UPDATE');
     }

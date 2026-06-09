@@ -277,6 +277,35 @@ function classify(row) {
   return 'UNCLASSIFIED';
 }
 
+function isPositiveOrProvenWallet(row = {}) {
+  return ['PROVEN_POSITIVE', 'PROMISING_POSITIVE'].includes(row.evidenceTier)
+    || ['TRUST_REVIEW', 'PROFITABLE_NEEDS_FIRST_TOUCH_EVIDENCE'].includes(row.reviewTier);
+}
+
+function isAvoidOrNegativeWallet(row = {}) {
+  return row.evidenceTier === 'NEGATIVE_EVIDENCE' || row.reviewTier === 'AVOID_REVIEW';
+}
+
+function walletContextQuality(context = {}) {
+  const wallets = Array.isArray(context.wallets) ? context.wallets : [];
+  const positive = wallets.filter(isPositiveOrProvenWallet).length;
+  const avoid = wallets.filter(isAvoidOrNegativeWallet).length;
+  if (!context?.touched && !wallets.length) return 'no_wallet_context';
+  if (avoid > 0) return 'avoid_wallet_context';
+  if (positive > 0) return 'positive_wallet_context';
+  return 'broad_wallet_context';
+}
+
+function curveBand(curveProgress) {
+  const curve = Number(curveProgress);
+  if (!Number.isFinite(curve)) return 'curve_unknown';
+  if (curve >= 0.95) return 'curve_95_plus';
+  if (curve >= 0.9) return 'curve_90_95';
+  if (curve >= 0.85) return 'curve_85_90';
+  if (curve >= 0.75) return 'curve_75_85';
+  return 'curve_lt75';
+}
+
 function annotateEntry(entry, samplesByMint) {
   const exit = entry.exit || null;
   const endMs = Number.isFinite(exit?.exitMs) ? exit.exitMs : Infinity;
@@ -358,6 +387,14 @@ function annotateEntry(entry, samplesByMint) {
     sampleCount: pathRows.length,
     guardOverride: entry.guardOverride,
     walletTouched: Boolean(entry.walletClassificationContext?.touched),
+    walletQuality: walletContextQuality(entry.walletClassificationContext || {}),
+    positiveWalletTouchCount: Array.isArray(entry.walletClassificationContext?.wallets)
+      ? entry.walletClassificationContext.wallets.filter(isPositiveOrProvenWallet).length
+      : 0,
+    avoidWalletTouchCount: Array.isArray(entry.walletClassificationContext?.wallets)
+      ? entry.walletClassificationContext.wallets.filter(isAvoidOrNegativeWallet).length
+      : 0,
+    entryCurveBand: curveBand(entry.entryCurveProgress),
     reasons: entry.reasons.slice(0, 8)
   };
   row.captureClass = classify(row);
@@ -393,6 +430,8 @@ function summarizeRows(rows) {
     holdSeconds: stats(rows.map((row) => row.holdSeconds), 2),
     captureClassCounts: countBy(rows, (row) => row.captureClass),
     exitReasonCounts: countBy(rows, (row) => row.exitReason),
+    walletQualityCounts: countBy(rows, (row) => row.walletQuality),
+    entryCurveBandCounts: countBy(rows, (row) => row.entryCurveBand),
     byProfile: countBy(rows, (row) => row.profileName),
     byPreset: countBy(rows, (row) => row.preset)
   };
@@ -428,6 +467,9 @@ function analyze(files) {
     },
     byProfile: groupSummaries(rows, (row) => row.profileName),
     byPreset: groupSummaries(rows, (row) => row.preset),
+    byWalletQuality: groupSummaries(rows, (row) => row.walletQuality),
+    byEntryCurveBand: groupSummaries(rows, (row) => row.entryCurveBand),
+    byWalletQualityAndCurveBand: groupSummaries(rows, (row) => `${row.walletQuality || 'unknown'}__${row.entryCurveBand || 'unknown'}`),
     worstCapture: rows
       .filter((row) => Number.isFinite(Number(row.captureRatio)))
       .sort((a, b) => Number(a.captureRatio ?? 999) - Number(b.captureRatio ?? 999))
@@ -467,6 +509,9 @@ async function main() {
     summary: analyzed.summary,
     byProfile: analyzed.byProfile,
     byPreset: analyzed.byPreset,
+    byWalletQuality: analyzed.byWalletQuality,
+    byEntryCurveBand: analyzed.byEntryCurveBand,
+    byWalletQualityAndCurveBand: analyzed.byWalletQualityAndCurveBand,
     worstCapture: analyzed.worstCapture,
     bestMfe: analyzed.bestMfe,
     worstMae: analyzed.worstMae

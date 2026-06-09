@@ -12,6 +12,32 @@ const DEFAULT_SIZE_SOL = 0.05;
 const DEFAULT_FEE_SOL = 0.0005;
 const DEFAULT_ENTRY_SLIPPAGE_PCT = 1.5;
 const DEFAULT_EXIT_SLIPPAGE_PCT = 1.5;
+const STRESS_SCENARIOS = [
+  {
+    name: 'latency500ms_slip5_fill10',
+    description: 'Enter at first observed price >=500ms later, use 5% entry/exit slippage, and remove the best 10% winners as missed fills.',
+    latencyMs: 500,
+    entrySlippagePct: 5,
+    exitSlippagePct: 5,
+    fillFailureRate: 0.10
+  },
+  {
+    name: 'latency1200ms_slip10_fill20',
+    description: 'Enter at first observed price >=1200ms later, use 10% entry/exit slippage, and remove the best 20% winners as missed fills.',
+    latencyMs: 1200,
+    entrySlippagePct: 10,
+    exitSlippagePct: 10,
+    fillFailureRate: 0.20
+  },
+  {
+    name: 'latency2000ms_slip15_fill20',
+    description: 'Enter at first observed price >=2000ms later, use 15% entry/exit slippage, and remove the best 20% winners as missed fills.',
+    latencyMs: 2000,
+    entrySlippagePct: 15,
+    exitSlippagePct: 15,
+    fillFailureRate: 0.20
+  }
+];
 const PROFILES = [
   { name: 'fast_120s_tp50_sl25_slip3', holdSeconds: 120, takeProfitPct: 50, stopLossPct: -25, entrySlippagePct: 1.5, exitSlippagePct: 1.5 },
   { name: 'fast_300s_tp50_sl25_slip3', holdSeconds: 300, takeProfitPct: 50, stopLossPct: -25, entrySlippagePct: 1.5, exitSlippagePct: 1.5 },
@@ -72,13 +98,15 @@ function keyOf(row) {
   return `${row.telemetryPath}:${row.mint}:${row.reason}:${row.pumpFailureReason || 'none'}:${row.atMs}`;
 }
 
-function summarizeRows(rows) {
+function summarizeRows(rows, fillFailureRate = 0) {
   const pnlSol = rows.map((row) => row.pnlSol);
   const sortedWinners = pnlSol.map(Number).filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => b - a);
   const totalPnlSol = pnlSol.reduce((total, value) => total + Number(value || 0), 0);
   const grossWinnerPnlSol = sortedWinners.reduce((total, value) => total + value, 0);
   const topWinnerPnlSol = sortedWinners[0] || 0;
   const top3WinnerPnlSol = sortedWinners.slice(0, 3).reduce((total, value) => total + value, 0);
+  const missedWinnerCount = Math.min(sortedWinners.length, Math.ceil(rows.length * Math.max(0, Number(fillFailureRate) || 0)));
+  const missedWinnerPnlSol = sortedWinners.slice(0, missedWinnerCount).reduce((total, value) => total + value, 0);
   const topWinnerShareOfGrossProfit = grossWinnerPnlSol > 0 ? topWinnerPnlSol / grossWinnerPnlSol : null;
   const outlierDominated = Number(topWinnerShareOfGrossProfit) > 0.5;
   return {
@@ -92,6 +120,10 @@ function summarizeRows(rows) {
     top3WinnerPnlSol: numberOrNull(top3WinnerPnlSol, 9),
     pnlAfterRemovingTopWinnerSol: numberOrNull(totalPnlSol - topWinnerPnlSol, 9),
     pnlAfterRemovingTop3WinnersSol: numberOrNull(totalPnlSol - top3WinnerPnlSol, 9),
+    fillFailureRate: numberOrNull(fillFailureRate, 4),
+    missedWinnerCount,
+    missedWinnerPnlSol: numberOrNull(missedWinnerPnlSol, 9),
+    pnlAfterFillFailureHaircutSol: numberOrNull(totalPnlSol - missedWinnerPnlSol, 9),
     topWinnerShareOfGrossProfit: topWinnerShareOfGrossProfit === null ? null : numberOrNull(topWinnerShareOfGrossProfit, 4),
     outlierDominated,
     verdictTags: outlierDominated ? ['OUTLIER_DOMINATED'] : [],
@@ -110,15 +142,23 @@ function getSlippagePct(profile, key, fallback) {
   return Number.isFinite(value) ? value : fallback;
 }
 
-function replayCandidate(candidate, snapshots, profile, sizeSol, feeSol) {
-  const entryPrice = Number(candidate.priceSol);
-  if (!Number.isFinite(entryPrice) || entryPrice <= 0) return null;
-  const entrySlippagePct = getSlippagePct(profile, 'entrySlippagePct', DEFAULT_ENTRY_SLIPPAGE_PCT);
-  const exitSlippagePct = getSlippagePct(profile, 'exitSlippagePct', DEFAULT_EXIT_SLIPPAGE_PCT);
-  const effectiveEntryPrice = entryPrice * (1 + entrySlippagePct / 100);
-  const future = snapshots
-    .filter((row) => row.atMs > candidate.atMs && row.atMs <= candidate.atMs + profile.holdSeconds * 1000)
+function replayCandidate(candidate, snapshots, profile, sizeSol, feeSol, stress = null) {
+  const latencyMs = Math.max(0, Number(stress?.latencyMs || 0));
+  const orderedSnapshots = snapshots
     .filter((row) => Number.isFinite(Number(row.priceSol)) && Number(row.priceSol) > 0)
+    .sort((a, b) => a.atMs - b.atMs);
+  const delayedEntry = latencyMs > 0
+    ? orderedSnapshots.find((row) => row.atMs >= candidate.atMs + latencyMs)
+    : null;
+  const entryAtMs = delayedEntry?.atMs || candidate.atMs;
+  const entryAt = delayedEntry?.at || candidate.at;
+  const entryPrice = Number(delayedEntry?.priceSol ?? candidate.priceSol);
+  if (!Number.isFinite(entryPrice) || entryPrice <= 0) return null;
+  const entrySlippagePct = stress?.entrySlippagePct ?? getSlippagePct(profile, 'entrySlippagePct', DEFAULT_ENTRY_SLIPPAGE_PCT);
+  const exitSlippagePct = stress?.exitSlippagePct ?? getSlippagePct(profile, 'exitSlippagePct', DEFAULT_EXIT_SLIPPAGE_PCT);
+  const effectiveEntryPrice = entryPrice * (1 + entrySlippagePct / 100);
+  const future = orderedSnapshots
+    .filter((row) => row.atMs > entryAtMs && row.atMs <= entryAtMs + profile.holdSeconds * 1000)
     .sort((a, b) => a.atMs - b.atMs);
   if (!future.length) return null;
 
@@ -149,12 +189,15 @@ function replayCandidate(candidate, snapshots, profile, sizeSol, feeSol) {
     telemetryPath: candidate.telemetryPath,
     mint: candidate.mint,
     symbol: candidate.symbol || null,
+    stressScenario: stress?.name || 'base',
+    entryLatencyMs: latencyMs,
     reason: candidate.reason,
     pumpFailureReason: candidate.pumpFailureReason || null,
-    entryAt: candidate.at,
+    originalSignalAt: candidate.at,
+    entryAt,
     exitAt: exit.at,
-    holdSeconds: numberOrNull((exit.atMs - candidate.atMs) / 1000, 3),
-    entryCurve: candidate.curveProgress,
+    holdSeconds: numberOrNull((exit.atMs - entryAtMs) / 1000, 3),
+    entryCurve: delayedEntry?.curveProgress ?? candidate.curveProgress,
     exitCurve: exit.curveProgress,
     entryPriceSol: numberOrNull(entryPrice, 12),
     exitPriceSol: numberOrNull(exitPrice, 12),
@@ -183,12 +226,17 @@ async function buildReport(options = {}) {
   const feeSol = Number(options.feeSol || DEFAULT_FEE_SOL);
 
   const rows = [];
+  const stressedRowsByScenario = Object.fromEntries(STRESS_SCENARIOS.map((scenario) => [scenario.name, []]));
   for (const candidate of candidates) {
     const run = runByPath.get(candidate.telemetryPath);
     const snapshots = run?.snapshotsByMint?.get(candidate.mint) || [];
     for (const profile of PROFILES) {
       const row = replayCandidate(candidate, snapshots, profile, sizeSol, feeSol);
       if (row) rows.push(row);
+      for (const scenario of STRESS_SCENARIOS) {
+        const stressed = replayCandidate(candidate, snapshots, profile, sizeSol, feeSol, scenario);
+        if (stressed) stressedRowsByScenario[scenario.name].push(stressed);
+      }
     }
   }
 
@@ -196,6 +244,14 @@ async function buildReport(options = {}) {
     groups[profile.name] = rows.filter((row) => row.profile === profile.name);
     return groups;
   }, {});
+  const stressSummaryByProfile = {};
+  for (const profile of PROFILES) {
+    stressSummaryByProfile[profile.name] = {};
+    for (const scenario of STRESS_SCENARIOS) {
+      const profileRows = stressedRowsByScenario[scenario.name].filter((row) => row.profile === profile.name);
+      stressSummaryByProfile[profile.name][scenario.name] = summarizeRows(profileRows, scenario.fillFailureRate);
+    }
+  }
 
   return {
     generatedAt: new Date().toISOString(),
@@ -205,8 +261,9 @@ async function buildReport(options = {}) {
       feeSol,
       defaultEntrySlippagePct: DEFAULT_ENTRY_SLIPPAGE_PCT,
       defaultExitSlippagePct: DEFAULT_EXIT_SLIPPAGE_PCT,
+      stressScenarios: STRESS_SCENARIOS,
       entry: 'Use reject-time prior PumpDev price for pre-90 rejected runner candidates.',
-      caveat: 'Replay uses later telemetry snapshots with configured slippage stress. It still does not model quote fill, MEV, pool liquidity, or broadcast latency.'
+      caveat: 'Replay uses later telemetry snapshots with configured slippage stress. Stress scenarios approximate latency and missed fills, but still do not model MEV, exact pool liquidity, or broadcast landing.'
     },
     profiles: PROFILES,
     inputs: {
@@ -218,6 +275,7 @@ async function buildReport(options = {}) {
     summaryByProfile: Object.fromEntries(
       Object.entries(rowsByProfile).map(([profile, profileRows]) => [profile, summarizeRows(profileRows)])
     ),
+    stressSummaryByProfile,
     rows: rows
       .slice()
       .sort((a, b) => Number(b.pnlSol) - Number(a.pnlSol))

@@ -9,7 +9,8 @@ const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-same-mint-reentry-impact-latest.json');
 const DEFAULT_MAX_FILES = 24;
-const DEFAULT_COOLDOWN_MS = Number(process.env.PRE_MIGRATION_PAPER_SAME_MINT_REENTRY_COOLDOWN_MS || 120000);
+const DEFAULT_COOLDOWN_MS = Number(process.env.PRE_MIGRATION_PAPER_SAME_MINT_REENTRY_COOLDOWN_MS || 1800000);
+const DEFAULT_COOLDOWN_WINDOWS_MS = [120000, 600000, 1800000, 3600000];
 
 function parseArgs(argv) {
   const args = {};
@@ -188,9 +189,7 @@ async function readTelemetry(filePath) {
   };
 }
 
-function analyzeRows(rows, cooldownMs) {
-  const entries = rows.flatMap((row) => row.entries).sort((a, b) => a.atMs - b.atMs);
-  const exits = rows.flatMap((row) => row.exits).sort((a, b) => a.atMs - b.atMs);
+function buildReentries(entries, exits, cooldownMs) {
   const exitByEntryKey = new Map(exits.map((exit) => [entryKey(exit), exit]));
   const priorExitsByMint = new Map();
   const reentries = [];
@@ -231,10 +230,41 @@ function analyzeRows(rows, cooldownMs) {
     }
   }
 
+  return reentries;
+}
+
+function summarizeReentries(reentries, cooldownMs) {
   const reentryPnl = reentries.map((row) => row.exit?.pnlSol);
   const blockedHistoricalPnlSol = reentryPnl.reduce((sum, value) => (
     Number.isFinite(Number(value)) ? sum + Number(value) : sum
   ), 0);
+
+  return {
+    cooldownMs,
+    cooldownMinutes: num(cooldownMs / 60000, 2),
+    reentryWithinCooldown: reentries.length,
+    reentryUniqueMints: new Set(reentries.map((row) => row.mint)).size,
+    reentryPnlSol: num(blockedHistoricalPnlSol, 9),
+    reentryPnlStats: stats(reentryPnl, 9),
+    reentryWinLoss: {
+      wins: reentries.filter((row) => Number(row.exit?.pnlSol) > 0).length,
+      losses: reentries.filter((row) => Number(row.exit?.pnlSol) < 0).length,
+      flatOrMissing: reentries.filter((row) => !Number.isFinite(Number(row.exit?.pnlSol)) || Number(row.exit?.pnlSol) === 0).length
+    },
+    reentryByPreviousExitReason: countBy(reentries, (row) => row.previousExit?.reason),
+    reentryByEntryProfile: countBy(reentries, (row) => row.profileName)
+  };
+}
+
+function analyzeRows(rows, cooldownMs) {
+  const entries = rows.flatMap((row) => row.entries).sort((a, b) => a.atMs - b.atMs);
+  const exits = rows.flatMap((row) => row.exits).sort((a, b) => a.atMs - b.atMs);
+  const windowSet = Array.from(new Set([
+    cooldownMs,
+    ...DEFAULT_COOLDOWN_WINDOWS_MS
+  ].map(Number).filter((value) => Number.isFinite(value) && value > 0))).sort((a, b) => a - b);
+  const reentries = buildReentries(entries, exits, cooldownMs);
+  const windowImpacts = windowSet.map((windowMs) => summarizeReentries(buildReentries(entries, exits, windowMs), windowMs));
 
   return {
     entries,
@@ -246,17 +276,8 @@ function analyzeRows(rows, cooldownMs) {
       cooldownMs,
       totalEntries: entries.length,
       totalExits: exits.length,
-      reentryWithinCooldown: reentries.length,
-      reentryUniqueMints: new Set(reentries.map((row) => row.mint)).size,
-      reentryPnlSol: num(blockedHistoricalPnlSol, 9),
-      reentryPnlStats: stats(reentryPnl, 9),
-      reentryWinLoss: {
-        wins: reentries.filter((row) => Number(row.exit?.pnlSol) > 0).length,
-        losses: reentries.filter((row) => Number(row.exit?.pnlSol) < 0).length,
-        flatOrMissing: reentries.filter((row) => !Number.isFinite(Number(row.exit?.pnlSol)) || Number(row.exit?.pnlSol) === 0).length
-      },
-      reentryByPreviousExitReason: countBy(reentries, (row) => row.previousExit?.reason),
-      reentryByEntryProfile: countBy(reentries, (row) => row.profileName),
+      ...summarizeReentries(reentries, cooldownMs),
+      windowImpacts,
       observedCooldownSkips: rows.reduce((sum, row) => sum + row.cooldownSkips.length, 0)
     }
   };

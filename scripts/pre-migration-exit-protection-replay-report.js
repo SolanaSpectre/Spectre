@@ -493,6 +493,72 @@ function summarizeScenario(name, rows, baselineRows) {
   };
 }
 
+function summarizeTrailingGivebackMfe8Validation(currentRows, trailingRows) {
+  const trailingByKey = new Map((trailingRows || []).map((row) => [entryKey(row), row]));
+  const baselineRows = (currentRows || [])
+    .filter((row) => Number(row.peakReturnPct) >= 0.08)
+    .filter((row) => trailingByKey.has(entryKey(row)));
+
+  const pairs = baselineRows.map((currentRow) => {
+    const trailingRow = trailingByKey.get(entryKey(currentRow));
+    const delta = Number(trailingRow?.pnlSol) - Number(currentRow.pnlSol);
+    return {
+      current: currentRow,
+      trailing: trailingRow,
+      deltaPnlSol: Number.isFinite(delta) ? num(delta, 9) : null
+    };
+  }).filter((pair) => Number.isFinite(Number(pair.deltaPnlSol)));
+
+  const trailingValidRows = pairs.map((pair) => pair.trailing);
+  const currentValidRows = pairs.map((pair) => pair.current);
+  const improved = pairs.filter((pair) => Number(pair.deltaPnlSol) > 0).length;
+  const worsened = pairs.filter((pair) => Number(pair.deltaPnlSol) < 0).length;
+  const unchanged = pairs.length - improved - worsened;
+  const currentPnlSol = currentValidRows.reduce((sum, row) => sum + Number(row.pnlSol || 0), 0);
+  const trailingPnlSol = trailingValidRows.reduce((sum, row) => sum + Number(row.pnlSol || 0), 0);
+  const trailingWins = trailingValidRows.filter((row) => Number(row.pnlSol) > 0).length;
+  const trailingLosses = trailingValidRows.filter((row) => Number(row.pnlSol) < 0).length;
+
+  return {
+    scope: 'current_profile entries with observed MFE >= 8%',
+    baselineScenario: 'current_profile',
+    trailingScenario: 'trailing_giveback_8pct',
+    eligibleEntries: baselineRows.length,
+    comparedEntries: pairs.length,
+    currentPnlSol: num(currentPnlSol, 9),
+    trailingPnlSol: num(trailingPnlSol, 9),
+    deltaPnlSol: pairs.length ? num(trailingPnlSol - currentPnlSol, 9) : null,
+    improvedVsCurrent: improved,
+    worsenedVsCurrent: worsened,
+    unchangedVsCurrent: unchanged,
+    trailingWins,
+    trailingLosses,
+    trailingWinRate: trailingWins + trailingLosses > 0 ? num(trailingWins / (trailingWins + trailingLosses), 4) : null,
+    currentExitReasonCounts: countBy(currentValidRows, (row) => row.reason),
+    trailingExitReasonCounts: countBy(trailingValidRows, (row) => row.reason),
+    currentReturnPct: stats(currentValidRows.map((row) => row.returnPct), 6),
+    trailingReturnPct: stats(trailingValidRows.map((row) => row.returnPct), 6),
+    deltaPnlSolStats: stats(pairs.map((pair) => pair.deltaPnlSol), 9),
+    peakReturnPct: stats(currentValidRows.map((row) => row.peakReturnPct), 6),
+    examples: pairs
+      .slice()
+      .sort((a, b) => Number(b.deltaPnlSol) - Number(a.deltaPnlSol))
+      .slice(0, 8)
+      .map((pair) => ({
+        telemetryPath: pair.current.telemetryPath,
+        mint: pair.current.mint,
+        symbol: pair.current.symbol,
+        entryAt: pair.current.entryAt,
+        peakReturnPct: pair.current.peakReturnPct,
+        currentReason: pair.current.reason,
+        currentPnlSol: pair.current.pnlSol,
+        trailingReason: pair.trailing.reason,
+        trailingPnlSol: pair.trailing.pnlSol,
+        deltaPnlSol: pair.deltaPnlSol
+      }))
+  };
+}
+
 function analyze(files) {
   const entries = files.flatMap((file) => file.entries);
   const rowsByScenario = {};
@@ -516,6 +582,10 @@ function analyze(files) {
 
   const best = summaries[0] || null;
   const current = summaries.find((row) => row.name === 'current_profile') || null;
+  const trailingGivebackMfe8Validation = summarizeTrailingGivebackMfe8Validation(
+    currentRows,
+    rowsByScenario.trailing_giveback_8pct || []
+  );
   const bestRows = best ? rowsByScenario[best.name] || [] : [];
   const currentByKey = new Map(currentRows.map((row) => [entryKey(row), row]));
   const bestDeltas = bestRows
@@ -553,6 +623,7 @@ function analyze(files) {
       bestScenarioDeltaVsCurrentSol: best && current ? num(Number(best.totalPnlSol || 0) - Number(current.totalPnlSol || 0), 9) : null
     },
     scenarioSummaries: summaries,
+    trailingGivebackMfe8Validation,
     bestScenarioExamples: bestDeltas.slice(0, 12),
     worstScenarioExamples: bestDeltas.slice().reverse().slice(0, 12)
   };
@@ -580,6 +651,7 @@ async function main() {
     },
     summary: analyzed.summary,
     scenarioSummaries: analyzed.scenarioSummaries,
+    trailingGivebackMfe8Validation: analyzed.trailingGivebackMfe8Validation,
     bestScenarioExamples: analyzed.bestScenarioExamples,
     worstScenarioExamples: analyzed.worstScenarioExamples
   };

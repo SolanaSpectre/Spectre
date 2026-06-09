@@ -10,6 +10,14 @@ const LOG_DIR = path.join(ROOT, 'run-logs');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-curve-advance-diagnostic-latest.json');
 const WINDOWS_SECONDS = [30, 60, 120, 300];
 const TARGET_REASON = 'CURVE_NOT_ADVANCING';
+const DEFAULT_SIZE_SOL = 0.05;
+const DEFAULT_FEE_SOL = 0.0005;
+const REPLAY_PROFILES = [
+  { name: 'curve_120s_tp50_sl25_slip3', holdSeconds: 120, takeProfitPct: 50, stopLossPct: -25, entrySlippagePct: 3, exitSlippagePct: 3 },
+  { name: 'curve_300s_tp50_sl25_slip3', holdSeconds: 300, takeProfitPct: 50, stopLossPct: -25, entrySlippagePct: 3, exitSlippagePct: 3 },
+  { name: 'curve_120s_tp35_sl20_slip5', holdSeconds: 120, takeProfitPct: 35, stopLossPct: -20, entrySlippagePct: 5, exitSlippagePct: 5 },
+  { name: 'curve_300s_tp35_sl20_slip5', holdSeconds: 300, takeProfitPct: 35, stopLossPct: -20, entrySlippagePct: 5, exitSlippagePct: 5 }
+];
 
 function parseArgs(argv) {
   const args = {};
@@ -119,6 +127,32 @@ function countBy(items, keyFn) {
     counts[key] = (counts[key] || 0) + 1;
   }
   return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1]));
+}
+
+function summarizeReplayRows(rows) {
+  const pnl = rows.map((row) => Number(row.pnlSol)).filter(Number.isFinite);
+  const winners = pnl.filter((value) => value > 0).sort((a, b) => b - a);
+  const totalPnlSol = pnl.reduce((sum, value) => sum + value, 0);
+  const grossWinnerPnlSol = winners.reduce((sum, value) => sum + value, 0);
+  const topWinnerPnlSol = winners[0] || 0;
+  const top3WinnerPnlSol = winners.slice(0, 3).reduce((sum, value) => sum + value, 0);
+  const wins = rows.filter((row) => Number(row.pnlSol) > 0).length;
+  const losses = rows.filter((row) => Number(row.pnlSol) < 0).length;
+  return {
+    trades: rows.length,
+    uniqueMints: new Set(rows.map((row) => row.mint)).size,
+    wins,
+    losses,
+    winRate: wins + losses > 0 ? num(wins / (wins + losses), 4) : null,
+    totalPnlSol: num(totalPnlSol, 9),
+    pnlAfterRemovingTopWinnerSol: num(totalPnlSol - topWinnerPnlSol, 9),
+    pnlAfterRemovingTop3WinnersSol: num(totalPnlSol - top3WinnerPnlSol, 9),
+    topWinnerShareOfGrossProfit: grossWinnerPnlSol > 0 ? num(topWinnerPnlSol / grossWinnerPnlSol, 4) : null,
+    pnlSol: stat(pnl, 9),
+    returnPct: stat(rows.map((row) => row.returnPct), 4),
+    rawReturnPct: stat(rows.map((row) => row.rawReturnPct), 4),
+    exitReasons: countBy(rows, (row) => row.exitReason)
+  };
 }
 
 function snapshotFromEvent(event) {
@@ -299,6 +333,75 @@ function analyzeDecision(decision, snapshots) {
   };
 }
 
+function replayDecision(decision, snapshotsByMint, profile, sizeSol = DEFAULT_SIZE_SOL, feeSol = DEFAULT_FEE_SOL) {
+  const entryPrice = Number(decision.priceSol);
+  if (!Number.isFinite(entryPrice) || entryPrice <= 0) return null;
+  const snapshots = (snapshotsByMint.get(decision.mint) || [])
+    .filter((row) => row.atMs > decision.atMs && row.atMs <= decision.atMs + profile.holdSeconds * 1000)
+    .filter((row) => Number.isFinite(Number(row.priceSol)) && Number(row.priceSol) > 0)
+    .sort((a, b) => a.atMs - b.atMs);
+  if (!snapshots.length) return null;
+
+  const effectiveEntryPrice = entryPrice * (1 + Number(profile.entrySlippagePct || 0) / 100);
+  let exit = snapshots[snapshots.length - 1];
+  let exitReason = 'MAX_HOLD';
+  for (const snapshot of snapshots) {
+    const effectiveExitPrice = Number(snapshot.priceSol) * (1 - Number(profile.exitSlippagePct || 0) / 100);
+    const returnPct = ((effectiveExitPrice / effectiveEntryPrice) - 1) * 100;
+    if (returnPct <= profile.stopLossPct) {
+      exit = snapshot;
+      exitReason = 'STOP_LOSS';
+      break;
+    }
+    if (returnPct >= profile.takeProfitPct) {
+      exit = snapshot;
+      exitReason = 'TAKE_PROFIT';
+      break;
+    }
+  }
+
+  const exitPrice = Number(exit.priceSol);
+  const effectiveExitPrice = exitPrice * (1 - Number(profile.exitSlippagePct || 0) / 100);
+  const rawReturnPct = ((exitPrice / entryPrice) - 1) * 100;
+  const returnPct = ((effectiveExitPrice / effectiveEntryPrice) - 1) * 100;
+  return {
+    profile: profile.name,
+    mint: decision.mint,
+    symbol: decision.symbol,
+    at: decision.at,
+    classification: decision.classification,
+    readinessPct: decision.readinessPct,
+    score: decision.score,
+    entryCurveProgress: decision.curveProgress,
+    exitCurveProgress: num(exit.curveProgress, 6),
+    holdSeconds: num((exit.atMs - decision.atMs) / 1000, 3),
+    rawReturnPct: num(rawReturnPct, 4),
+    returnPct: num(returnPct, 4),
+    pnlSol: num(sizeSol * (returnPct / 100) - feeSol, 9),
+    exitReason
+  };
+}
+
+function uniqueRows(rows) {
+  const picked = new Map();
+  for (const row of rows) {
+    const current = picked.get(row.mint);
+    const currentDelta = Number(current?.windows?.['120s']?.curveDelta ?? -Infinity);
+    const nextDelta = Number(row.windows?.['120s']?.curveDelta ?? -Infinity);
+    if (!current || nextDelta > currentDelta) picked.set(row.mint, row);
+  }
+  return Array.from(picked.values());
+}
+
+function replayRowsByProfile(rows, snapshotsByMint) {
+  return Object.fromEntries(REPLAY_PROFILES.map((profile) => {
+    const replayRows = rows
+      .map((row) => replayDecision(row, snapshotsByMint, profile))
+      .filter(Boolean);
+    return [profile.name, summarizeReplayRows(replayRows)];
+  }));
+}
+
 function compactDecision(row) {
   return {
     mint: row.mint,
@@ -346,6 +449,8 @@ function buildReport(filePath, telemetry) {
   ));
   const correctlyBlocked = analyzed.filter((row) => row.classification === 'CORRECTLY_BLOCKED_FLAT_120S');
   const nearThreshold = analyzed.filter((row) => Number(row.readinessPct) >= 80);
+  const likelyFalseNegativeUnique = uniqueRows(likelyFalseNegatives);
+  const nearThresholdUnique = uniqueRows(nearThreshold);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -375,6 +480,16 @@ function buildReport(filePath, telemetry) {
       curveDelta120s: stat(w120.map((row) => row.curveDelta), 6),
       curveDelta300s: stat(w300.map((row) => row.curveDelta), 6),
       maxPriceDeltaPct120s: stat(w120.map((row) => row.maxPriceDeltaPct), 2)
+    },
+    replay: {
+      assumptions: {
+        sizeSol: DEFAULT_SIZE_SOL,
+        feeSol: DEFAULT_FEE_SOL,
+        profiles: REPLAY_PROFILES,
+        caveat: 'Report-only observed-path replay over provider price snapshots. It does not model quote availability, MEV, exact liquidity, latency, or transaction landing.'
+      },
+      likelyFalseNegativeUniqueByProfile: replayRowsByProfile(likelyFalseNegativeUnique, telemetry.snapshotsByMint),
+      nearThresholdUniqueByProfile: replayRowsByProfile(nearThresholdUnique, telemetry.snapshotsByMint)
     },
     topLikelyFalseNegatives: uniqueBest(likelyFalseNegatives, (row) => Number(row.windows['120s']?.curveDelta ?? -Infinity), 12),
     closestThresholdMisses: uniqueBest(nearThreshold, (row) => Number(row.readinessPct ?? -Infinity), 12),
