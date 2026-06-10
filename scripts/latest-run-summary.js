@@ -384,7 +384,9 @@ function summarizeHighConvictionWatchDrilldown(item = {}) {
 
 function summarizeRelaxedGateTrade(item = {}) {
   const label = candidateLabel(item);
-  return `${label} | ${item.exitReason || 'n/a'} | pnl=${sol(item.pnlSol, 6)} | net=${fmt(item.netReturnPct, 2)}% | hold=${fmt(item.holdSeconds, 2)}s | curve=${fmt(item.entryCurveProgress, 4)}->${fmt(item.exitCurveProgress, 4)} | score=${fmt(item.score, 2)} | reason=${item.reasonAtEntry || 'n/a'}`;
+  const score = item.score ?? item.skipScore ?? item.entryScore ?? null;
+  const reason = item.reasonAtEntry || item.reasonAtSkip || item.reason || 'n/a';
+  return `${label} | ${item.exitReason || 'n/a'} | pnl=${sol(item.pnlSol, 6)} | net=${fmt(item.netReturnPct, 2)}% | hold=${fmt(item.holdSeconds, 2)}s | curve=${fmt(item.entryCurveProgress, 4)}->${fmt(item.exitCurveProgress, 4)} | score=${fmt(score, 2)} | reason=${reason}`;
 }
 
 function summarizeRunnerReject(item = {}) {
@@ -2309,6 +2311,7 @@ function buildSummary(docs) {
   const dryRunOutcome = docs.preMigrationDryRunOutcome.data || {};
   const relaxedGateReplay = docs.preMigrationRelaxedGateReplay.data || {};
   const curveStallRelaxedReplay = docs.preMigrationCurveStallRelaxedReplay.data || {};
+  const curveConfirmationReplay = docs.preMigrationCurveConfirmationReplay.data || {};
   const curveFalseNegativeReplay = docs.preMigrationCurveFalseNegativeReplay.data || {};
   const curveFalseNegativeShadow = docs.preMigrationCurveFalseNegativeShadow.data || {};
   const curveFalseNegativeShadowReplay = docs.preMigrationCurveFalseNegativeShadowReplay.data || {};
@@ -3972,6 +3975,44 @@ function buildSummary(docs) {
     const bestWinners = topArray(bestCurveStallProfile.topWinners, 5);
     const bestLosers = topArray(bestCurveStallProfile.topLosers, 5);
     lines.push(`- Best profile detail: ${bestCurveStallProfileName} | ${bestCurveStallProfile.profile?.description || 'n/a'}`);
+    if (bestWinners.length) {
+      lines.push('- Best-profile top winners:');
+      bestWinners.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRelaxedGateTrade(item)}`));
+    }
+    if (bestLosers.length) {
+      lines.push('- Best-profile top losers:');
+      bestLosers.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRelaxedGateTrade(item)}`));
+    }
+  }
+  lines.push('');
+
+  const curveConfirmationRanking = topArray(curveConfirmationReplay.ranking, 8);
+  const curveConfirmationSlices = topArray(curveConfirmationReplay.sliceRanking, 8);
+  const bestCurveConfirmationProfileName = curveConfirmationRanking[0]?.name;
+  const bestCurveConfirmationProfile = bestCurveConfirmationProfileName ? curveConfirmationReplay.profiles?.[bestCurveConfirmationProfileName] : null;
+
+  lines.push('9c2b2. Curve Confirmation Replay');
+  lines.push('---------------------------------');
+  lines.push('- Mode: report-only; waits for later curve confirmation after CURVE_NOT_ADVANCING/NO_PRIOR skips, then replays exits. Does not alter runtime gates.');
+  lines.push(`- Telemetry files / target reasons: ${curveConfirmationReplay.inputs?.telemetryFilesRead ?? 'n/a'} / ${Array.isArray(curveConfirmationReplay.inputs?.targetReasons) ? curveConfirmationReplay.inputs.targetReasons.join(', ') : 'n/a'}`);
+  if (curveConfirmationRanking.length) {
+    lines.push('- Profile ranking:');
+    curveConfirmationRanking.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.name}: decisions=${item.decisions ?? 'n/a'}, confirmed=${item.confirmedEntries ?? 'n/a'}, closed=${item.closed ?? 'n/a'}, wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}, winRate=${pct(item.winRate, 1)}, pnl=${sol(item.totalPnlSol, 6)}, median=${sol(item.pnlStats?.median, 6)}, exits=${Object.entries(item.exitReasonCounts || {}).map(([key, value]) => `${key}=${value}`).join(', ') || 'n/a'}`);
+    });
+  } else {
+    lines.push('- Profile ranking: none');
+  }
+  if (curveConfirmationSlices.length) {
+    lines.push('- Best ex-ante slices:');
+    curveConfirmationSlices.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.profileName || 'n/a'} / ${item.name || 'n/a'}: decisions=${item.decisions ?? 'n/a'}, confirmed=${item.confirmedEntries ?? 'n/a'}, closed=${item.closed ?? 'n/a'}, kept=${pct(item.keptShare, 1)}, wins/losses=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'}, winRate=${pct(item.winRate, 1)}, pnl=${sol(item.totalPnlSol, 6)}, median=${sol(item.pnlStats?.median, 6)}, avg=${sol(item.averagePnlSol, 6)} | ${item.description || 'n/a'}`);
+    });
+  }
+  if (bestCurveConfirmationProfile) {
+    const bestWinners = topArray(bestCurveConfirmationProfile.topWinners, 5);
+    const bestLosers = topArray(bestCurveConfirmationProfile.topLosers, 5);
+    lines.push(`- Best profile detail: ${bestCurveConfirmationProfileName} | ${bestCurveConfirmationProfile.profile?.description || 'n/a'}`);
     if (bestWinners.length) {
       lines.push('- Best-profile top winners:');
       bestWinners.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRelaxedGateTrade(item)}`));
