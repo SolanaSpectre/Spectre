@@ -36,6 +36,7 @@ const FILES = {
   preMigrationDryRunOutcome: 'data/reports/pre-migration-dry-run-outcome-latest.json',
   preMigrationDryRunEntryReplay: 'data/reports/pre-migration-dry-run-entry-replay-latest.json',
   preMigrationCurveConfirmationReplay: 'data/reports/pre-migration-curve-confirmation-replay-latest.json',
+  preMigrationCurveConfirmationShadow: 'data/reports/pre-migration-curve-confirmation-shadow-latest.json',
   preMigrationRelaxedGateReplay: 'data/reports/pre-migration-relaxed-gate-replay-latest.json',
   preMigrationCurveStallRelaxedReplay: 'data/reports/pre-migration-curve-stall-relaxed-replay-latest.json',
   preMigrationCurveFalseNegativeReplay: 'data/reports/pre-migration-curve-false-negative-replay-latest.json',
@@ -2312,6 +2313,7 @@ function buildSummary(docs) {
   const relaxedGateReplay = docs.preMigrationRelaxedGateReplay.data || {};
   const curveStallRelaxedReplay = docs.preMigrationCurveStallRelaxedReplay.data || {};
   const curveConfirmationReplay = docs.preMigrationCurveConfirmationReplay.data || {};
+  const curveConfirmationShadow = docs.preMigrationCurveConfirmationShadow.data || {};
   const curveFalseNegativeReplay = docs.preMigrationCurveFalseNegativeReplay.data || {};
   const curveFalseNegativeShadow = docs.preMigrationCurveFalseNegativeShadow.data || {};
   const curveFalseNegativeShadowReplay = docs.preMigrationCurveFalseNegativeShadowReplay.data || {};
@@ -4021,6 +4023,28 @@ function buildSummary(docs) {
       lines.push('- Best-profile top losers:');
       bestLosers.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeRelaxedGateTrade(item)}`));
     }
+  }
+  lines.push('');
+
+  const curveConfirmationShadowSummary = curveConfirmationShadow.summary || {};
+  const curveConfirmationShadowAll = curveConfirmationShadowSummary.all || {};
+  const curveConfirmationShadowNoAvoid = curveConfirmationShadowSummary.noAvoidWalletTouch || {};
+  const curveConfirmationShadowTop = topArray(curveConfirmationShadow.confirmedRows, 6);
+
+  lines.push('9c2b3. Curve Confirmation Prospective Shadow');
+  lines.push('--------------------------------------------');
+  lines.push('- Mode: report-only; logs strict delayed confirmation rows during runtime after CURVE_NOT_ADVANCING skips. Does not alter runtime gates.');
+  lines.push(`- Rows / would_enter / would_skip: ${curveConfirmationShadowSummary.shadowRows ?? 'n/a'} / ${curveConfirmationShadowSummary.wouldEnter ?? 'n/a'} / ${curveConfirmationShadowSummary.wouldSkip ?? 'n/a'}; entryRate=${pct(curveConfirmationShadowSummary.entryRate, 1)}`);
+  lines.push(`- Unique would_enter / would_skip mints: ${curveConfirmationShadowSummary.uniqueWouldEnterMints ?? 'n/a'} / ${curveConfirmationShadowSummary.uniqueWouldSkipMints ?? 'n/a'}`);
+  lines.push(`- Confirmed delta median/p90/max: ${fmt(curveConfirmationShadowAll.confirmedDelta?.median, 4)} / ${fmt(curveConfirmationShadowAll.confirmedDelta?.p90, 4)} / ${fmt(curveConfirmationShadowAll.confirmedDelta?.max, 4)}; secondsToConfirm median/p90/max=${fmt(curveConfirmationShadowAll.secondsToConfirm?.median, 1)} / ${fmt(curveConfirmationShadowAll.secondsToConfirm?.p90, 1)} / ${fmt(curveConfirmationShadowAll.secondsToConfirm?.max, 1)}`);
+  lines.push(`- No-avoid wallet slice: rows=${curveConfirmationShadowNoAvoid.rows ?? 'n/a'}, would_enter=${curveConfirmationShadowNoAvoid.wouldEnter ?? 'n/a'}, entryRate=${pct(curveConfirmationShadowNoAvoid.entryRate, 1)}, delta median/p90/max=${fmt(curveConfirmationShadowNoAvoid.confirmedDelta?.median, 4)} / ${fmt(curveConfirmationShadowNoAvoid.confirmedDelta?.p90, 4)} / ${fmt(curveConfirmationShadowNoAvoid.confirmedDelta?.max, 4)}`);
+  lines.push('- Shadow reason counts:');
+  objectLines(curveConfirmationShadowSummary.shadowReasonCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  if (curveConfirmationShadowTop.length) {
+    lines.push('- Fastest confirmed rows:');
+    curveConfirmationShadowTop.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${candidateLabel(item)} | score=${fmt(item.score, 2)} | sourceCurve=${fmt(item.curveProgress, 4)} | confirmCurve=${fmt(item.confirmCurveProgress, 4)} | delta=${fmt(item.curveProgressDeltaFromSource, 4)} | t=${fmt(item.secondsToConfirm, 1)}s | noAvoid=${item.noAvoidWalletTouch === true}`);
+    });
   }
   lines.push('');
 

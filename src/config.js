@@ -1423,6 +1423,30 @@ class Config {
     return process.env.PRE_MIGRATION_WALLET_RELAXED_SHADOW_ENABLED !== 'false';
   }
 
+  static get preMigrationCurveFalseNegativeShadowEnabled() {
+    return process.env.PRE_MIGRATION_CURVE_FALSE_NEGATIVE_SHADOW_ENABLED !== 'false';
+  }
+
+  static get preMigrationCurveConfirmationShadowEnabled() {
+    return process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_ENABLED !== 'false';
+  }
+
+  static get preMigrationCurveConfirmationShadowMinScore() {
+    return parseFloat(process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_MIN_SCORE || '75');
+  }
+
+  static get preMigrationCurveConfirmationShadowMinCurveDelta() {
+    return parseFloat(process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_MIN_CURVE_DELTA || '0.05');
+  }
+
+  static get preMigrationCurveConfirmationShadowLookaheadMs() {
+    return parseInt(process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_LOOKAHEAD_MS || '120000', 10);
+  }
+
+  static get preMigrationCurveConfirmationShadowMaxTrackedMints() {
+    return parseInt(process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_MAX_TRACKED_MINTS || '500', 10);
+  }
+
   static get kolscanLeaderboardFilePath() {
     return process.env.KOLSCAN_LEADERBOARD_FILE_PATH || path.join(process.cwd(), 'data', 'wallet-watchlists', 'kolscan-leaderboard.json');
   }

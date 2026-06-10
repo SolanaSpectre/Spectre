@@ -195,6 +195,9 @@ class TradingEngine {
     this.walletRelaxedShadowSkipSeen = new Set();
     this.curveFalseNegativeShadowWatchSeen = new Set();
     this.curveFalseNegativeShadowSkipSeen = new Set();
+    this.curveConfirmationShadowPending = new Map();
+    this.curveConfirmationShadowEnterSeen = new Set();
+    this.curveConfirmationShadowSkipSeen = new Set();
 
     this.dailyPnL = 0;
     this.realizedPnL = 0;
@@ -3497,6 +3500,8 @@ class TradingEngine {
 
       this.maybeRecordWalletRelaxedShadowDecision(event);
       this.maybeRecordCurveFalseNegativeShadowDecision(event);
+      this.maybeRecordCurveConfirmationShadowDecision(event);
+      this.maybeUpdateCurveConfirmationShadow(event);
 
       if (
         event.type === 'diagnostic'
@@ -3844,6 +3849,246 @@ class TradingEngine {
         }))
       }
     );
+  }
+
+  maybeRecordCurveConfirmationShadowDecision(event) {
+    if (this.config.preMigrationCurveConfirmationShadowEnabled === false) {
+      return;
+    }
+    if (
+      event?.telemetryType !== 'pre_migration_paper.decision'
+      || event.payload?.decision !== 'PAPER_SKIPPED'
+      || event.payload?.reason !== 'CURVE_NOT_ADVANCING'
+    ) {
+      return;
+    }
+
+    const payload = event.payload || {};
+    const mint = payload.mint;
+    if (!mint) return;
+
+    const nowMs = this.timestampMs(payload.timestamp) || Date.now();
+    this.expireCurveConfirmationShadow(nowMs);
+
+    const minScore = Number(this.config.preMigrationCurveConfirmationShadowMinScore ?? 75);
+    const lookaheadMs = Math.max(1000, Number(this.config.preMigrationCurveConfirmationShadowLookaheadMs ?? 120000));
+    const minCurveDelta = Number(this.config.preMigrationCurveConfirmationShadowMinCurveDelta ?? 0.05);
+    const maxTracked = Math.max(1, Number(this.config.preMigrationCurveConfirmationShadowMaxTrackedMints ?? 500));
+    const score = Number(payload.score);
+    const curveProgress = Number(payload.curveProgress);
+    if (!Number.isFinite(score) || score < minScore || !Number.isFinite(curveProgress)) {
+      return;
+    }
+
+    const context = payload.walletClassificationContext || {};
+    const wallets = Array.isArray(context.wallets) ? context.wallets : [];
+    const positiveWalletTouches = wallets.filter((wallet) => (
+      ['PROVEN_POSITIVE', 'PROMISING_POSITIVE'].includes(wallet.evidenceTier)
+      || ['TRUST_REVIEW', 'PROFITABLE_NEEDS_FIRST_TOUCH_EVIDENCE'].includes(wallet.reviewTier)
+    ));
+    const avoidWalletTouches = wallets.filter((wallet) => (
+      wallet.reviewTier === 'AVOID_REVIEW' || wallet.evidenceTier === 'NEGATIVE_EVIDENCE'
+    ));
+
+    const shadowProfile = `delta${String(minCurveDelta).replace(/^0\./, '').replace('.', '')}_${Math.round(lookaheadMs / 1000)}_score${Math.round(minScore)}`;
+    const key = `${shadowProfile}:${mint}`;
+    if (this.curveConfirmationShadowPending.has(key)
+      || this.curveConfirmationShadowEnterSeen.has(key)
+      || this.curveConfirmationShadowSkipSeen.has(key)) {
+      return;
+    }
+
+    if (this.curveConfirmationShadowPending.size >= maxTracked) {
+      const oldestKey = this.curveConfirmationShadowPending.keys().next().value;
+      const oldest = this.curveConfirmationShadowPending.get(oldestKey);
+      this.recordCurveConfirmationShadowSkip(oldest, nowMs, 'MAX_TRACKED_EVICTION');
+      this.curveConfirmationShadowPending.delete(oldestKey);
+    }
+
+    this.curveConfirmationShadowPending.set(key, {
+      key,
+      shadowProfile,
+      mint,
+      symbol: payload.symbol || null,
+      sourceAtMs: nowMs,
+      sourceAt: new Date(nowMs).toISOString(),
+      expiresAtMs: nowMs + lookaheadMs,
+      lookaheadMs,
+      minScore,
+      minCurveDelta,
+      sourceDecision: payload.decision,
+      sourceReason: payload.reason,
+      sourcePreset: payload.preset || null,
+      sourceLane: payload.lane || null,
+      score,
+      curveProgress,
+      curveProgressDelta: Number(payload.curveProgressDelta),
+      threshold: Number(payload.threshold),
+      recentVolumeSol: Number(payload.recentVolumeSol),
+      tradeVelocityPerMin: Number(payload.tradeVelocityPerMin),
+      buyRatio: Number(payload.buyRatio),
+      uniqueBuyerCount: Number(payload.uniqueBuyerCount),
+      priceSol: payload.priceSol ?? payload.bondingCurvePriceSol ?? payload.curvePriceSol ?? null,
+      walletTouchCount: wallets.length,
+      positiveWalletTouchCount: positiveWalletTouches.length,
+      avoidWalletTouchCount: avoidWalletTouches.length,
+      noAvoidWalletTouch: avoidWalletTouches.length === 0,
+      walletContextSource: context.contextSource || null
+    });
+  }
+
+  maybeUpdateCurveConfirmationShadow(event) {
+    if (
+      this.config.preMigrationCurveConfirmationShadowEnabled === false
+      || this.curveConfirmationShadowPending.size === 0
+    ) {
+      return;
+    }
+
+    const payload = event?.payload || event || {};
+    const mint = payload.mint || payload.token || payload.mintAddress || payload.address || null;
+    const curveProgress = this.curveProgressFromPayload(payload);
+    const atMs = this.timestampMs(payload.timestamp || event?.timestamp) || Date.now();
+    this.expireCurveConfirmationShadow(atMs);
+    if (!mint || !Number.isFinite(curveProgress)) {
+      return;
+    }
+
+    for (const [key, pending] of Array.from(this.curveConfirmationShadowPending.entries())) {
+      if (pending.mint !== mint) continue;
+      if (atMs <= pending.sourceAtMs) continue;
+      if (atMs > pending.expiresAtMs) {
+        this.recordCurveConfirmationShadowSkip(pending, atMs, 'NO_CURVE_CONFIRMATION_WITHIN_WINDOW');
+        this.curveConfirmationShadowPending.delete(key);
+        continue;
+      }
+      const delta = curveProgress - pending.curveProgress;
+      if (!Number.isFinite(delta) || delta < pending.minCurveDelta) {
+        continue;
+      }
+      this.recordCurveConfirmationShadowEnter(pending, {
+        atMs,
+        curveProgress,
+        priceSol: this.priceSolFromPayload(payload),
+        telemetryType: event?.telemetryType || event?.type || null,
+        delta
+      });
+      this.curveConfirmationShadowPending.delete(key);
+    }
+  }
+
+  expireCurveConfirmationShadow(nowMs = Date.now()) {
+    if (this.curveConfirmationShadowPending.size === 0) {
+      return;
+    }
+    for (const [key, pending] of Array.from(this.curveConfirmationShadowPending.entries())) {
+      if (nowMs <= pending.expiresAtMs) continue;
+      this.recordCurveConfirmationShadowSkip(pending, nowMs, 'NO_CURVE_CONFIRMATION_WITHIN_WINDOW');
+      this.curveConfirmationShadowPending.delete(key);
+    }
+  }
+
+  recordCurveConfirmationShadowEnter(pending, confirmation = {}) {
+    if (!pending || this.curveConfirmationShadowEnterSeen.has(pending.key)) {
+      return;
+    }
+    this.curveConfirmationShadowEnterSeen.add(pending.key);
+    const confirmAtMs = confirmation.atMs || Date.now();
+    const confirmCurveProgress = Number(confirmation.curveProgress);
+    const delta = Number.isFinite(Number(confirmation.delta))
+      ? Number(confirmation.delta)
+      : confirmCurveProgress - pending.curveProgress;
+    this.telemetry.record('pre_migration_curve_confirmation_shadow.would_enter', {
+      ...this.curveConfirmationShadowBasePayload(pending),
+      timestamp: new Date(confirmAtMs).toISOString(),
+      wouldEnter: true,
+      shadowDecision: 'WOULD_ENTER',
+      shadowReason: 'DELAYED_CURVE_CONFIRMATION',
+      confirmationTelemetryType: confirmation.telemetryType || null,
+      confirmedAt: new Date(confirmAtMs).toISOString(),
+      secondsToConfirm: this.roundNumber((confirmAtMs - pending.sourceAtMs) / 1000, 3),
+      confirmCurveProgress: this.roundNumber(confirmCurveProgress, 6),
+      confirmPriceSol: this.roundNumber(confirmation.priceSol, 12),
+      curveProgressDeltaFromSource: this.roundNumber(delta, 6)
+    });
+  }
+
+  recordCurveConfirmationShadowSkip(pending, atMs = Date.now(), reason = 'NO_CURVE_CONFIRMATION_WITHIN_WINDOW') {
+    if (!pending || this.curveConfirmationShadowSkipSeen.has(pending.key) || this.curveConfirmationShadowEnterSeen.has(pending.key)) {
+      return;
+    }
+    this.curveConfirmationShadowSkipSeen.add(pending.key);
+    this.telemetry.record('pre_migration_curve_confirmation_shadow.would_skip', {
+      ...this.curveConfirmationShadowBasePayload(pending),
+      timestamp: new Date(atMs).toISOString(),
+      wouldEnter: false,
+      shadowDecision: 'WOULD_SKIP',
+      shadowReason: reason,
+      expiredAt: new Date(atMs).toISOString()
+    });
+  }
+
+  curveConfirmationShadowBasePayload(pending) {
+    return {
+      mode: 'report_only_curve_confirmation_shadow',
+      shadowProfile: pending.shadowProfile,
+      mint: pending.mint,
+      symbol: pending.symbol || null,
+      sourceDecision: pending.sourceDecision,
+      sourceReason: pending.sourceReason,
+      sourcePreset: pending.sourcePreset,
+      sourceLane: pending.sourceLane,
+      sourceAt: pending.sourceAt,
+      lookaheadMs: pending.lookaheadMs,
+      minScore: pending.minScore,
+      minCurveDelta: this.roundNumber(pending.minCurveDelta, 6),
+      score: this.roundNumber(pending.score, 2),
+      curveProgress: this.roundNumber(pending.curveProgress, 6),
+      curveProgressDelta: this.roundNumber(pending.curveProgressDelta, 6),
+      threshold: this.roundNumber(pending.threshold, 6),
+      recentVolumeSol: this.roundNumber(pending.recentVolumeSol, 4),
+      tradeVelocityPerMin: this.roundNumber(pending.tradeVelocityPerMin, 2),
+      buyRatio: this.roundNumber(pending.buyRatio, 4),
+      uniqueBuyerCount: Number.isFinite(pending.uniqueBuyerCount) ? pending.uniqueBuyerCount : null,
+      priceSol: this.roundNumber(pending.priceSol, 12),
+      walletTouchCount: pending.walletTouchCount,
+      positiveWalletTouchCount: pending.positiveWalletTouchCount,
+      avoidWalletTouchCount: pending.avoidWalletTouchCount,
+      noAvoidWalletTouch: pending.noAvoidWalletTouch,
+      walletContextSource: pending.walletContextSource
+    };
+  }
+
+  curveProgressFromPayload(payload = {}) {
+    const raw = payload.providerCurveProgress
+      ?? payload.curveProgress
+      ?? payload.bondingCurveProgress
+      ?? payload.progress
+      ?? payload.market?.maxCurveProgress;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) return null;
+    return value > 1 && value <= 100 ? value / 100 : value;
+  }
+
+  priceSolFromPayload(payload = {}) {
+    const raw = payload.providerCurvePriceSol
+      ?? payload.bondingCurvePriceSol
+      ?? payload.curvePriceSol
+      ?? payload.priceSol
+      ?? payload.market?.priceSol;
+    const value = Number(raw);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+
+  timestampMs(value) {
+    const ms = new Date(value || 0).getTime();
+    return Number.isFinite(ms) && ms > 0 ? ms : null;
+  }
+
+  roundNumber(value, digits) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return null;
+    return Number(number.toFixed(digits));
   }
 
   maybeSchedulePumpDevTargetedCurveParitySampleFromPaperEvent(event) {
@@ -4829,6 +5074,17 @@ class TradingEngine {
       rawEvent: event
     };
     const providerCurveSnapshotApplied = this.applyProviderCurveSnapshot(nextToken, event, 'new_token');
+    this.maybeUpdateCurveConfirmationShadow({
+      telemetryType: options.telemetryType || 'provider.pumpportal.new_token',
+      payload: {
+        ...event,
+        mint,
+        curveProgress: nextToken.curveProgress,
+        providerCurveProgress: event.providerCurveProgress ?? event.curveProgress ?? nextToken.curveProgress,
+        priceSol: event.priceSol ?? nextToken.priceSol ?? null,
+        timestamp: new Date().toISOString()
+      }
+    });
     this.latestPumpPortalTokens.set(mint, nextToken);
     const launchIntelSummary = this.launchIntelStore.registerNewToken(event);
     if (launchIntelSummary) {
@@ -4892,6 +5148,17 @@ class TradingEngine {
     current.marketCapSol = Number(event.marketCapSol || current.marketCapSol || 0);
     current.bondingStage = this.inferBondingStage(event, current.bondingStage);
     const providerCurveSnapshotApplied = this.applyProviderCurveSnapshot(current, event, 'trade');
+    this.maybeUpdateCurveConfirmationShadow({
+      telemetryType: options.telemetryType || 'provider.pumpportal.trade',
+      payload: {
+        ...event,
+        mint,
+        curveProgress: current.curveProgress,
+        providerCurveProgress: event.providerCurveProgress ?? event.curveProgress ?? current.curveProgress,
+        priceSol: event.priceSol ?? current.priceSol ?? null,
+        timestamp: new Date().toISOString()
+      }
+    });
 
     if (event.txType === 'buy') {
       current.buys = (current.buys || 0) + 1;
