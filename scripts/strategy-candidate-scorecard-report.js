@@ -286,8 +286,14 @@ function main() {
   addSummaryByProfile(candidates, 'runner_reject_entry_replay', docs.runnerRejectEntryReplay.path, docs.runnerRejectEntryReplay.data?.summaryByProfile);
   addRanking(candidates, 'wallet_false_negative_entry_replay', docs.walletFalseNegativeEntryReplay.path, docs.walletFalseNegativeEntryReplay.data?.ranking);
 
-  const paperEntries = number(docs.battlefield.data?.preMigrationPaper?.entries, 0);
-  const paperPnl = number(docs.battlefield.data?.preMigrationPaper?.pnlSol, 0);
+  const paperEntries = number(
+    docs.liveReadiness.data?.metrics?.paperEntries,
+    number(docs.battlefield.data?.preMigrationPaper?.entries, 0)
+  );
+  const paperPnl = number(
+    docs.liveReadiness.data?.metrics?.paperPnl,
+    number(docs.battlefield.data?.preMigrationPaper?.pnlSol, 0)
+  );
   const launchBlocks = Array.isArray(docs.liveReadiness.data?.launchBlocks) ? docs.liveReadiness.data.launchBlocks : [];
   const broadcastBlocked = launchBlocks.some((line) => String(line).toLowerCase().includes('broadcast'));
   const walletCoverageRuntime = docs.walletContextCoverage.data?.runtime || {};

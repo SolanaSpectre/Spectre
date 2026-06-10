@@ -2209,6 +2209,7 @@ function buildLaunchDecisionLines({
   preMigrationCurveStallRelaxedReplay,
   preMigrationCurveAdvanceDiagnostic,
   preMigrationCurveConfirmationReplay,
+  preMigrationEntryFunnel,
   runnerRejectEntryReplay,
   strategyCandidateScorecard
 }) {
@@ -2225,11 +2226,14 @@ function buildLaunchDecisionLines({
   const scorecardSummary = strategyCandidateScorecard.summary || {};
   const scorecardBest = topArray(strategyCandidateScorecard.bestCandidates, 1)[0] || null;
   const guardSummary = preMigrationGuardAttribution.summary || {};
+  const funnelSummary = preMigrationEntryFunnel.summary || {};
   const paperDecisionCounts = battlefield?.preMigrationPaper?.decisionCounts || {};
   const paperSkipReasons = battlefield?.preMigrationPaper?.skipReasons || {};
   const paperSkipped = paperDecisionCounts.PAPER_SKIPPED ?? paperDecisionCounts.paper_skipped ?? null;
   const paperEntered = battlefield?.preMigrationPaper?.entries ?? paperEntries;
-  const paperBottleneckLine = Object.keys(paperDecisionCounts).length || Object.keys(paperSkipReasons).length
+  const paperBottleneckLine = Object.keys(funnelSummary).length
+    ? `observed/flagged/evaluated/wouldEnter/entered=${funnelSummary.observedMints ?? 'n/a'}/${funnelSummary.flaggedMints ?? 'n/a'}/${funnelSummary.evaluatedMints ?? 'n/a'}/${funnelSummary.wouldEnterMints ?? 'n/a'}/${funnelSummary.enteredMints ?? 'n/a'}; top skip reasons=${formatTopCounts(funnelSummary.topSkipReasons)}`
+    : Object.keys(paperDecisionCounts).length || Object.keys(paperSkipReasons).length
     ? `paperEntries/skipped=${paperEntered ?? 'n/a'}/${paperSkipped ?? 'n/a'}; top skip reasons=${formatTopCounts(paperSkipReasons)}`
     : `wouldEnter/wouldSkip=${guardSummary.wouldEnter ?? 'n/a'}/${guardSummary.wouldSkip ?? 'n/a'}; top reasons=${formatTopCounts(guardSummary.byReason)}`;
   const marginSummary = preMigrationEntryGateMargin.summary || {};
@@ -2398,24 +2402,24 @@ function buildSummary(docs) {
   ], get(preOutcomes, ['runDurationMinutes', 'durationMinutes'], null));
   const events = get(battlefield, ['session.eventCount', 'events', 'eventCount', 'summary.events'], null);
   const dossiers = get(battlefield, ['session.dossierCount', 'dossierCount', 'summary.dossiers'], null);
-  const paperEntries = get(battlefield, [
+  const paperEntries = get(liveReadiness, ['metrics.paperEntries'], get(battlefield, [
     'preMigrationPaper.entries',
     'pre_migration_paper.entries',
     'paper.entries',
     'summary.paperEntries'
-  ], get(paper, ['actual.entries', 'actualPaper.entries', 'entries'], null));
-  const paperExits = get(battlefield, [
+  ], get(paper, ['actual.entries', 'actualPaper.entries', 'entries'], null)));
+  const paperExits = get(liveReadiness, ['metrics.paperExits'], get(battlefield, [
     'preMigrationPaper.exits',
     'pre_migration_paper.exits',
     'paper.exits',
     'summary.paperExits'
-  ], get(paper, ['actual.exits', 'actualPaper.exits', 'exits'], null));
-  const paperPnl = get(battlefield, [
+  ], get(paper, ['actual.exits', 'actualPaper.exits', 'exits'], null)));
+  const paperPnl = get(liveReadiness, ['metrics.paperPnl'], get(battlefield, [
     'preMigrationPaper.pnlSol',
     'pre_migration_paper.pnlSol',
     'paper.pnlSol',
     'summary.paperPnlSol'
-  ], null);
+  ], null));
   const aiEvidence = collectSimpleRuntimeEvidence();
   const aiReachability = buildAiReachability(battlefield);
   const aiHistoricalSummary = simpleRuntimeAiEvidence.summary || {};
@@ -2439,6 +2443,7 @@ function buildSummary(docs) {
     preMigrationCurveStallRelaxedReplay: docs.preMigrationCurveStallRelaxedReplay.data || {},
     preMigrationCurveAdvanceDiagnostic: docs.preMigrationCurveAdvanceDiagnostic.data || {},
     preMigrationCurveConfirmationReplay: docs.preMigrationCurveConfirmationReplay?.data || {},
+    preMigrationEntryFunnel: docs.preMigrationEntryFunnel?.data || {},
     runnerRejectEntryReplay: docs.runnerRejectEntryReplay.data || {},
     strategyCandidateScorecard
   }));
