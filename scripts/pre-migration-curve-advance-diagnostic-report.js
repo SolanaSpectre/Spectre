@@ -12,6 +12,7 @@ const WINDOWS_SECONDS = [30, 60, 120, 300];
 const TARGET_REASON = 'CURVE_NOT_ADVANCING';
 const DEFAULT_SIZE_SOL = 0.05;
 const DEFAULT_FEE_SOL = 0.0005;
+const PARITY_NEAR_DECISION_WINDOW_MS = 5000;
 const REPLAY_PROFILES = [
   { name: 'curve_120s_tp50_sl25_slip3', holdSeconds: 120, takeProfitPct: 50, stopLossPct: -25, entrySlippagePct: 3, exitSlippagePct: 3 },
   { name: 'curve_300s_tp50_sl25_slip3', holdSeconds: 300, takeProfitPct: 50, stopLossPct: -25, entrySlippagePct: 3, exitSlippagePct: 3 },
@@ -129,6 +130,120 @@ function countBy(items, keyFn) {
   return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1]));
 }
 
+function isPositiveOrProvenWallet(wallet = {}) {
+  return ['PROVEN_POSITIVE', 'PROMISING_POSITIVE'].includes(wallet.evidenceTier)
+    || ['TRUST_REVIEW', 'PROFITABLE_NEEDS_FIRST_TOUCH_EVIDENCE'].includes(wallet.reviewTier);
+}
+
+function isAvoidWallet(wallet = {}) {
+  return wallet.evidenceTier === 'NEGATIVE_EVIDENCE' || wallet.reviewTier === 'AVOID_REVIEW';
+}
+
+function walletContextSummary(context = {}) {
+  const wallets = Array.isArray(context.wallets) ? context.wallets : [];
+  const buys = wallets.filter((wallet) => String(wallet.side || '').toLowerCase() === 'buy');
+  const positiveWalletTouchCount = wallets.filter(isPositiveOrProvenWallet).length;
+  const avoidWalletTouchCount = wallets.filter(isAvoidWallet).length;
+  let walletBucket = 'no_wallet_touch';
+  if (avoidWalletTouchCount > 0) walletBucket = 'avoid_or_negative_wallet_touch';
+  else if (positiveWalletTouchCount > 0) walletBucket = 'positive_or_proven_wallet_touch';
+  else if (wallets.length > 0) walletBucket = 'unknown_wallet_touch';
+  return {
+    walletContext: {
+      touched: wallets.length > 0,
+      walletTouchCount: wallets.length,
+      walletBuyTouchCount: buys.length,
+      positiveWalletTouchCount,
+      avoidWalletTouchCount,
+      contextSource: context.contextSource || null,
+      earliestTouchAt: context.earliestTouchAt || null,
+      earliestBuyAt: context.earliestBuyAt || null,
+      firstTouchName: wallets[0]?.name || wallets[0]?.wallet || null,
+      firstBuyName: buys[0]?.name || buys[0]?.wallet || null,
+      bucket: walletBucket
+    }
+  };
+}
+
+function targetedParityFromEvent(event) {
+  if (eventType(event) !== 'pumpdev.targeted_curve_parity_sample') return null;
+  const payload = payloadOf(event);
+  const mint = mintOf(payload);
+  const atMs = timestampMs(payload.onchainFetchedAt || payload.timestamp || event.timestamp);
+  if (!mint || !Number.isFinite(atMs)) return null;
+  const providerCurveProgress = num(payload.providerCurveProgress, 6);
+  const onchainCurveProgress = num(payload.onchainCurveProgress, 6);
+  const curveDelta = Number.isFinite(Number(providerCurveProgress)) && Number.isFinite(Number(onchainCurveProgress))
+    ? Number(onchainCurveProgress) - Number(providerCurveProgress)
+    : null;
+  const absCurveDelta = Number.isFinite(Number(curveDelta)) ? Math.abs(Number(curveDelta)) : null;
+  return {
+    mint,
+    at: new Date(atMs).toISOString(),
+    atMs,
+    targetAt: payload.targetAt || payload.timestamp || null,
+    targetClasses: Array.isArray(payload.targetClasses) ? payload.targetClasses : [],
+    reasons: Array.isArray(payload.reasons) ? payload.reasons : [],
+    providerCurveProgress,
+    onchainCurveProgress,
+    onchainCurveProgressByVirtualTokenReserves: num(payload.onchainCurveProgressByVirtualTokenReserves, 6),
+    curveDelta: num(curveDelta, 6),
+    absCurveDelta: num(absCurveDelta, 6),
+    providerToOnchainAgeMs: num(payload.providerToOnchainAgeMs, 0),
+    accountFound: payload.accountFound === true,
+    fetchError: payload.fetchError || payload.error || null,
+    semanticDiagnosis: payload.semanticDiagnosis || null,
+    bondingCurveValidated: payload.bondingCurveValidated === true,
+    onchainFresh: payload.onchainFresh === true
+  };
+}
+
+function nearestParitySample(decision, samples) {
+  if (!samples?.length) return null;
+  let best = null;
+  for (const sample of samples) {
+    const ageMs = Math.abs(Number(sample.atMs) - Number(decision.atMs));
+    if (!Number.isFinite(ageMs) || ageMs > PARITY_NEAR_DECISION_WINDOW_MS) continue;
+    if (!best || ageMs < best.nearDecisionAgeMs) {
+      best = { ...sample, nearDecisionAgeMs: num(ageMs, 0) };
+    }
+  }
+  return best;
+}
+
+function curveEvidenceVerdict(row) {
+  const w120 = row.windows?.['120s'] || {};
+  const w300 = row.windows?.['300s'] || {};
+  const hasFuture = Object.values(row.windows || {}).some((window) => Number(window.futureSnapshotCount) > 0);
+  const parity = row.nearestTargetedParity;
+  const absParityDelta = Number(parity?.absCurveDelta);
+
+  if (!hasFuture) return 'INSUFFICIENT_PROVIDER_FOLLOW_THROUGH_DATA';
+  if (parity?.fetchError) return 'ONCHAIN_PARITY_FETCH_ERROR';
+  if (Number.isFinite(absParityDelta) && absParityDelta > 0.05) return 'PROVIDER_ONCHAIN_DIVERGENCE_GT_5PTS';
+  if (w120.crossed90AfterSkip || w120.crossed85AfterSkip) return 'GATE_BLOCKED_HIGH_CURVE_FOLLOW_THROUGH_120S';
+  if (Number(w120.curveDelta) >= 0.1) return 'LATER_CURVE_ACCELERATION_120S_GT_10PTS';
+  if (Number(w120.curveDelta) >= 0.05) return 'LATER_CURVE_ADVANCE_120S_GT_5PTS';
+  if (w300.crossed90AfterSkip || w300.crossed85AfterSkip || Number(w300.curveDelta) >= 0.1) return 'DELAYED_CURVE_ADVANCE_300S';
+  if (Number(w120.curveDelta) <= 0.005) return 'TRUE_STALL_OR_NO_USEFUL_ADVANCE_120S';
+  return 'MINOR_FOLLOW_THROUGH_BELOW_ACTIONABLE_BAND';
+}
+
+function nestedCount(rows, outerFn, innerFn) {
+  const result = {};
+  for (const row of rows) {
+    const outer = outerFn(row) || 'unknown';
+    const inner = innerFn(row) || 'unknown';
+    if (!result[outer]) result[outer] = {};
+    result[outer][inner] = (result[outer][inner] || 0) + 1;
+  }
+  return Object.fromEntries(Object.entries(result).sort((a, b) => {
+    const sumA = Object.values(a[1]).reduce((sum, value) => sum + value, 0);
+    const sumB = Object.values(b[1]).reduce((sum, value) => sum + value, 0);
+    return sumB - sumA;
+  }));
+}
+
 function summarizeReplayRows(rows) {
   const pnl = rows.map((row) => Number(row.pnlSol)).filter(Number.isFinite);
   const winners = pnl.filter((value) => value > 0).sort((a, b) => b - a);
@@ -218,13 +333,15 @@ function decisionFromEvent(event) {
     uniqueBuyerCount: num(payload.uniqueBuyerCount, 0),
     sniperWalletCount: num(payload.sniperWalletCount, 0),
     guardOverride: payload.guardOverride || null,
-    failedChecks: Array.isArray(payload.failedChecks) ? payload.failedChecks : []
+    failedChecks: Array.isArray(payload.failedChecks) ? payload.failedChecks : [],
+    ...walletContextSummary(payload.walletClassificationContext || {})
   };
 }
 
 async function readTelemetry(filePath) {
   const decisions = [];
   const snapshotsByMint = new Map();
+  const targetedParityByMint = new Map();
   const eventCounts = {};
   let malformedLines = 0;
   let startMs = Infinity;
@@ -258,14 +375,22 @@ async function readTelemetry(filePath) {
       rows.push(snapshot);
       snapshotsByMint.set(snapshot.mint, rows);
     }
+    const parity = targetedParityFromEvent(event);
+    if (parity) {
+      const rows = targetedParityByMint.get(parity.mint) || [];
+      rows.push(parity);
+      targetedParityByMint.set(parity.mint, rows);
+    }
     const decision = decisionFromEvent(event);
     if (decision) decisions.push(decision);
   }
 
   for (const rows of snapshotsByMint.values()) rows.sort((a, b) => a.atMs - b.atMs);
+  for (const rows of targetedParityByMint.values()) rows.sort((a, b) => a.atMs - b.atMs);
   return {
     decisions,
     snapshotsByMint,
+    targetedParityByMint,
     eventCounts,
     malformedLines,
     startMs: Number.isFinite(startMs) ? startMs : null,
@@ -321,16 +446,19 @@ function classify(decision) {
   return 'MODEST_FOLLOW_THROUGH';
 }
 
-function analyzeDecision(decision, snapshots) {
+function analyzeDecision(decision, snapshots, targetedParitySamples) {
   const windows = {};
   for (const seconds of WINDOWS_SECONDS) {
     windows[`${seconds}s`] = windowAnalysis(decision, snapshots, seconds);
   }
-  return {
+  const analyzed = {
     ...decision,
     windows,
-    classification: classify({ ...decision, windows })
+    nearestTargetedParity: nearestParitySample(decision, targetedParitySamples)
   };
+  analyzed.classification = classify(analyzed);
+  analyzed.curveEvidenceVerdict = curveEvidenceVerdict(analyzed);
+  return analyzed;
 }
 
 function replayDecision(decision, snapshotsByMint, profile, sizeSol = DEFAULT_SIZE_SOL, feeSol = DEFAULT_FEE_SOL) {
@@ -419,6 +547,9 @@ function compactDecision(row) {
     baselineAgeMs: row.baselineAgeMs,
     recentVolumeSol: row.recentVolumeSol,
     tradeVelocityPerMin: row.tradeVelocityPerMin,
+    walletContext: row.walletContext,
+    curveEvidenceVerdict: row.curveEvidenceVerdict,
+    nearestTargetedParity: row.nearestTargetedParity,
     window120s: row.windows['120s'],
     window300s: row.windows['300s']
   };
@@ -438,7 +569,11 @@ function uniqueBest(rows, scoreFn, limit) {
 
 function buildReport(filePath, telemetry) {
   const analyzed = telemetry.decisions.map((decision) => (
-    analyzeDecision(decision, telemetry.snapshotsByMint.get(decision.mint) || [])
+    analyzeDecision(
+      decision,
+      telemetry.snapshotsByMint.get(decision.mint) || [],
+      telemetry.targetedParityByMint.get(decision.mint) || []
+    )
   ));
   const uniqueMints = new Set(analyzed.map((row) => row.mint));
   const w120 = analyzed.map((row) => row.windows['120s'] || {});
@@ -451,6 +586,15 @@ function buildReport(filePath, telemetry) {
   const nearThreshold = analyzed.filter((row) => Number(row.readinessPct) >= 80);
   const likelyFalseNegativeUnique = uniqueRows(likelyFalseNegatives);
   const nearThresholdUnique = uniqueRows(nearThreshold);
+  const rowsWithWalletTouch = analyzed.filter((row) => row.walletContext?.touched);
+  const rowsWithPositiveWalletTouch = analyzed.filter((row) => Number(row.walletContext?.positiveWalletTouchCount) > 0);
+  const rowsWithTargetedParity = analyzed.filter((row) => row.nearestTargetedParity);
+  const actionableDataConcern = analyzed.filter((row) => [
+    'PROVIDER_ONCHAIN_DIVERGENCE_GT_5PTS',
+    'GATE_BLOCKED_HIGH_CURVE_FOLLOW_THROUGH_120S',
+    'LATER_CURVE_ACCELERATION_120S_GT_10PTS',
+    'LATER_CURVE_ADVANCE_120S_GT_5PTS'
+  ].includes(row.curveEvidenceVerdict));
 
   return {
     generatedAt: new Date().toISOString(),
@@ -472,6 +616,24 @@ function buildReport(filePath, telemetry) {
       crossed85Within300s: w300.filter((row) => row.crossed85AfterSkip).length,
       crossed90Within300s: w300.filter((row) => row.crossed90AfterSkip).length,
       classificationCounts: countBy(analyzed, (row) => row.classification),
+      curveEvidenceVerdictCounts: countBy(analyzed, (row) => row.curveEvidenceVerdict),
+      curveEvidenceVerdictByWalletBucket: nestedCount(
+        analyzed,
+        (row) => row.curveEvidenceVerdict,
+        (row) => row.walletContext?.bucket
+      ),
+      walletBucketCounts: countBy(analyzed, (row) => row.walletContext?.bucket),
+      walletContext: {
+        touched: rowsWithWalletTouch.length,
+        positiveOrProven: rowsWithPositiveWalletTouch.length,
+        avoidOrNegative: analyzed.filter((row) => Number(row.walletContext?.avoidWalletTouchCount) > 0).length
+      },
+      targetedParityNearDecision: {
+        decisionsWithSample: rowsWithTargetedParity.length,
+        absCurveDelta: stat(rowsWithTargetedParity.map((row) => row.nearestTargetedParity?.absCurveDelta), 6),
+        semanticDiagnosisCounts: countBy(rowsWithTargetedParity, (row) => row.nearestTargetedParity?.semanticDiagnosis),
+        fetchErrors: rowsWithTargetedParity.filter((row) => row.nearestTargetedParity?.fetchError).length
+      },
       readinessPct: stat(analyzed.map((row) => row.readinessPct), 2),
       curveProgressDelta: stat(analyzed.map((row) => row.curveProgressDelta), 6),
       curveProgressDelta60s: stat(analyzed.map((row) => row.curveProgressDelta60s), 6),
@@ -492,13 +654,19 @@ function buildReport(filePath, telemetry) {
       nearThresholdUniqueByProfile: replayRowsByProfile(nearThresholdUnique, telemetry.snapshotsByMint)
     },
     topLikelyFalseNegatives: uniqueBest(likelyFalseNegatives, (row) => Number(row.windows['120s']?.curveDelta ?? -Infinity), 12),
+    topActionableDataConcerns: uniqueBest(actionableDataConcern, (row) => {
+      const parityDelta = Number(row.nearestTargetedParity?.absCurveDelta || 0);
+      const curveDelta = Number(row.windows?.['120s']?.curveDelta || 0);
+      return Math.max(parityDelta, curveDelta);
+    }, 12),
     closestThresholdMisses: uniqueBest(nearThreshold, (row) => Number(row.readinessPct ?? -Infinity), 12),
     topDelayedWakeups: uniqueBest(analyzed, (row) => Number(row.windows['300s']?.curveDelta ?? -Infinity), 12),
     topCorrectlyBlockedFlat: uniqueBest(correctlyBlocked, (row) => Number(row.score ?? -Infinity), 12),
     sourceCoverage: {
       eventCounts: telemetry.eventCounts,
       malformedLines: telemetry.malformedLines,
-      mintsWithCurveSnapshots: telemetry.snapshotsByMint.size
+      mintsWithCurveSnapshots: telemetry.snapshotsByMint.size,
+      mintsWithTargetedParitySamples: telemetry.targetedParityByMint.size
     },
     note: 'Report-only CURVE_NOT_ADVANCING diagnostic. It compares decision-time baseline/delta fields to later curve and price snapshots. It does not alter gates, thresholds, entries, exits, AI review, quotes, broadcasts, or live behavior.'
   };

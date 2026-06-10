@@ -354,7 +354,11 @@ function summarizeCurveAdvanceDiagnostic(item = {}) {
   const label = candidateLabel(item);
   const w120 = item.window120s || {};
   const w300 = item.window300s || {};
-  return `${label} | class=${item.classification || 'n/a'} | ready=${fmt(item.readinessPct, 2)}% | delta=${fmt(item.curveProgressDelta, 4)}/${fmt(item.threshold, 4)} gap=${fmt(item.deltaGap, 4)} | curve=${fmt(item.curveProgress, 4)} | max120=${fmt(w120.maxCurveProgress, 4)} d120=${fmt(w120.curveDelta, 4)} | max300=${fmt(w300.maxCurveProgress, 4)} | price120=${w120.maxPriceDeltaPct === null || w120.maxPriceDeltaPct === undefined ? 'n/a' : `${fmt(w120.maxPriceDeltaPct, 2)}%`}`;
+  const wallet = item.walletContext?.bucket || 'wallet?n/a';
+  const parity = item.nearestTargetedParity
+    ? ` | parityDelta=${fmt(item.nearestTargetedParity.absCurveDelta, 4)}`
+    : '';
+  return `${label} | verdict=${item.curveEvidenceVerdict || 'n/a'} | class=${item.classification || 'n/a'} | wallet=${wallet} | ready=${fmt(item.readinessPct, 2)}% | delta=${fmt(item.curveProgressDelta, 4)}/${fmt(item.threshold, 4)} gap=${fmt(item.deltaGap, 4)} | curve=${fmt(item.curveProgress, 4)} | max120=${fmt(w120.maxCurveProgress, 4)} d120=${fmt(w120.curveDelta, 4)} | max300=${fmt(w300.maxCurveProgress, 4)} | price120=${w120.maxPriceDeltaPct === null || w120.maxPriceDeltaPct === undefined ? 'n/a' : `${fmt(w120.maxPriceDeltaPct, 2)}%`}${parity}`;
 }
 
 function summarizeEntryGateNearMissFollowThrough(name, item = {}) {
@@ -3828,6 +3832,7 @@ function buildSummary(docs) {
   const curveAdvanceReplay = curveAdvanceDiagnostic.replay || {};
   const curveAdvanceFalseNegatives = topArray(curveAdvanceDiagnostic.topLikelyFalseNegatives, 8);
   const curveAdvanceClosest = topArray(curveAdvanceDiagnostic.closestThresholdMisses, 8);
+  const curveAdvanceActionable = topArray(curveAdvanceDiagnostic.topActionableDataConcerns, 8);
 
   lines.push('9b3. CURVE_NOT_ADVANCING Diagnostic');
   lines.push('-----------------------------------');
@@ -3837,6 +3842,18 @@ function buildSummary(docs) {
   lines.push(`- Crossed 85/90 within 120s: ${curveAdvanceSummary.crossed85Within120s ?? 'n/a'} / ${curveAdvanceSummary.crossed90Within120s ?? 'n/a'}; within 300s: ${curveAdvanceSummary.crossed85Within300s ?? 'n/a'} / ${curveAdvanceSummary.crossed90Within300s ?? 'n/a'}`);
   lines.push(`- Readiness pct median/p90/max: ${fmt(curveAdvanceSummary.readinessPct?.median, 2)}% / ${fmt(curveAdvanceSummary.readinessPct?.p90, 2)}% / ${fmt(curveAdvanceSummary.readinessPct?.max, 2)}%`);
   lines.push(`- Curve delta 120s median/p90/max: ${fmt(curveAdvanceSummary.curveDelta120s?.median, 4)} / ${fmt(curveAdvanceSummary.curveDelta120s?.p90, 4)} / ${fmt(curveAdvanceSummary.curveDelta120s?.max, 4)}`);
+  if (curveAdvanceSummary.curveEvidenceVerdictCounts) {
+    lines.push('- Curve evidence verdicts:');
+    objectLines(curveAdvanceSummary.curveEvidenceVerdictCounts, 8).forEach((line) => lines.push(`  - ${line}`));
+  }
+  if (curveAdvanceSummary.walletBucketCounts) {
+    const walletContext = curveAdvanceSummary.walletContext || {};
+    lines.push(`- Wallet buckets: touched/positive/avoid=${walletContext.touched ?? 'n/a'} / ${walletContext.positiveOrProven ?? 'n/a'} / ${walletContext.avoidOrNegative ?? 'n/a'}; ${objectLines(curveAdvanceSummary.walletBucketCounts, 4).join(', ') || 'n/a'}`);
+  }
+  if (curveAdvanceSummary.targetedParityNearDecision) {
+    const parity = curveAdvanceSummary.targetedParityNearDecision;
+    lines.push(`- Targeted parity near decision: samples=${parity.decisionsWithSample ?? 'n/a'}, absDelta median/p90/max=${fmt(parity.absCurveDelta?.median, 4)} / ${fmt(parity.absCurveDelta?.p90, 4)} / ${fmt(parity.absCurveDelta?.max, 4)}, fetchErrors=${parity.fetchErrors ?? 'n/a'}`);
+  }
   const curveLikelyReplay = Object.entries(curveAdvanceReplay.likelyFalseNegativeUniqueByProfile || {})
     .sort((a, b) => Number(b[1]?.totalPnlSol || 0) - Number(a[1]?.totalPnlSol || 0))
     .slice(0, 4);
@@ -3862,6 +3879,12 @@ function buildSummary(docs) {
     curveAdvanceFalseNegatives.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeCurveAdvanceDiagnostic(item)}`));
   } else {
     lines.push('- Top likely false negatives: none');
+  }
+  if (curveAdvanceActionable.length) {
+    lines.push('- Top actionable data concerns:');
+    curveAdvanceActionable.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeCurveAdvanceDiagnostic(item)}`));
+  } else {
+    lines.push('- Top actionable data concerns: none');
   }
   if (curveAdvanceClosest.length) {
     lines.push('- Closest threshold misses:');
