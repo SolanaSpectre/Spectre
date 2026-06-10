@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { readJsonl } = require('./lib/jsonl');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_LOG_DIR = path.join(REPO_ROOT, 'run-logs');
@@ -74,21 +75,6 @@ function extractStampMs(fileName) {
   );
   const ms = new Date(iso).getTime();
   return Number.isFinite(ms) ? ms : null;
-}
-
-function readJsonl(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  return fs.readFileSync(filePath, 'utf8')
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line.replace(/^\uFEFF/, ''));
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
 }
 
 function readJson(filePath, fallback = null) {

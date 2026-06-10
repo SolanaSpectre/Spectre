@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { readJsonl } = require('./lib/jsonl');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
@@ -53,21 +54,6 @@ function readJson(filePath, fallback = null) {
   } catch {
     return fallback;
   }
-}
-
-function readJsonl(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  return fs.readFileSync(filePath, 'utf8')
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line.replace(/^\uFEFF/, ''));
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
 }
 
 function eventType(event) {
