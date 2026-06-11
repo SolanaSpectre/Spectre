@@ -77,6 +77,7 @@ const POST_RUN_REPORTS = [
   { title: 'Pre-Migration Breakeven Stop Gap', script: 'pre-migration-breakeven-stop-gap-report.js' },
   { title: 'Pre-Migration Exit Protection Replay', script: 'pre-migration-exit-protection-replay-report.js' },
   { title: 'Pre-Migration MFE/MAE Capture', script: 'pre-migration-mfe-mae-capture-report.js' },
+  { title: 'Weak-Market Scalp Replay', script: 'weak-market-scalp-replay-report.js' },
   { title: 'Pre-Migration Preset Replay Report', script: 'pre-migration-preset-replay-report.js' },
   { title: 'Pre-Migration Signal Quality Report', script: 'pre-migration-signal-quality-report.js' },
   { title: 'Broad Organic Surge Replay Report', script: 'broad-organic-surge-replay-report.js' },

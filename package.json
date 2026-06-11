@@ -75,6 +75,7 @@
     "report:pre-migration-breakeven-stop-gap": "node scripts/pre-migration-breakeven-stop-gap-report.js",
     "report:pre-migration-exit-protection-replay": "node scripts/pre-migration-exit-protection-replay-report.js",
     "report:pre-migration-mfe-mae-capture": "node scripts/pre-migration-mfe-mae-capture-report.js",
+    "report:weak-market-scalp-replay": "node scripts/weak-market-scalp-replay-report.js",
     "report:pre-migration-sweep": "node scripts/pre-migration-paper-sweep-report.js",
     "report:pre-migration-presets": "node scripts/pre-migration-preset-replay-report.js",
     "report:pre-migration-signal-quality": "node scripts/pre-migration-signal-quality-report.js",
