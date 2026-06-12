@@ -2429,6 +2429,22 @@ function buildSummary(docs) {
     lines.push(`- Funnel rates flagged/observed=${pct(rates.flaggedPerObserved, 1)}, evaluated/flagged=${pct(rates.evaluatedPerFlagged, 1)}, wouldEnter/evaluated=${pct(rates.wouldEnterPerEvaluated, 1)}, entered/evaluated=${pct(rates.enteredPerEvaluated, 1)}.`);
     lines.push(`- Dropoffs: observed-not-flagged=${dropoffs.observedNotFlaggedMints ?? 'n/a'}, flagged-not-evaluated=${dropoffs.flaggedNotEvaluatedMints ?? 'n/a'}, evaluated-never-would-enter=${dropoffs.evaluatedNeverWouldEnterMints ?? 'n/a'}, wouldEnter-no-entry=${dropoffs.wouldEnterNoEntryMints ?? 'n/a'}, unflagged-shadow-would-enter=${dropoffs.unflaggedShadowWouldEnterMints ?? 'n/a'}.`);
     lines.push(`- Top skip reasons: ${formatTopCounts(funnel.topSkipReasons)}.`);
+    if (funnel.curveNotAdvancingDiagnostics) {
+      const curve = funnel.curveNotAdvancingDiagnostics || {};
+      lines.push(`- CURVE_NOT_ADVANCING diagnostics: rows=${curve.rows ?? 'n/a'}, mints=${curve.mints ?? 'n/a'}, near-threshold=${curve.nearThresholdRows ?? 'n/a'}, positive-60s=${curve.positive60sRows ?? 'n/a'}, negative-delta=${curve.negativeDeltaRows ?? 'n/a'}; readiness=${formatTopCounts(curve.readinessBuckets)}.`);
+    }
+    if (funnel.firstTouchDiagnostics) {
+      const touch = funnel.firstTouchDiagnostics || {};
+      lines.push(`- First-touch proof diagnostics: rows=${touch.rows ?? 'n/a'}, mints=${touch.mints ?? 'n/a'}, with wallet context=${touch.withWalletContextRows ?? 'n/a'}, with positive touch=${touch.withPositiveTouchRows ?? 'n/a'}, with avoid touch=${touch.withAvoidTouchRows ?? 'n/a'}.`);
+    }
+    if (funnel.staleCurveDiagnostics) {
+      const stale = funnel.staleCurveDiagnostics || {};
+      lines.push(`- Stale curve diagnostics: rows=${stale.rows ?? 'n/a'}, first-curve=${stale.firstCurveStaleRows ?? 'n/a'}, high-curve=${stale.highCurveStaleRows ?? 'n/a'}; age buckets=${formatTopCounts(stale.ageBuckets)}.`);
+    }
+    if (funnel.targetedParityDiagnostics) {
+      const parity = funnel.targetedParityDiagnostics || {};
+      lines.push(`- Targeted parity join: joined=${parity.joinedMints ?? 'n/a'}, high-delta=${parity.joinedHighDeltaMints ?? 'n/a'}, sampled=${parity.sampledTargets ?? 'n/a'}, comparable=${parity.comparableRows ?? 'n/a'}; diagnoses=${formatTopCounts(parity.semanticDiagnosisCounts)}.`);
+    }
     lines.push(`- Top guard failed checks: ${formatTopCounts(funnel.topGuardFailedChecks)}.`);
     lines.push(`- Top unflagged shadow failed checks: ${formatTopCounts(funnel.topShadowGuardFailedChecks)}.`);
     const closest = topArray(entryFunnel.closestBlocked, 5);

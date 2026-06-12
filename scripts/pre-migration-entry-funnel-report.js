@@ -8,6 +8,7 @@ const readline = require('readline');
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-entry-funnel-latest.json');
+const TARGETED_PARITY_PATH = path.join(ROOT, 'data', 'reports', 'pumpdev-targeted-curve-parity-latest.json');
 
 function parseArgs(argv) {
   const args = {};
@@ -40,6 +41,15 @@ function latestTelemetryFile() {
       return { filePath, mtimeMs: fs.statSync(filePath).mtimeMs };
     })
     .sort((a, b) => b.mtimeMs - a.mtimeMs)[0]?.filePath || null;
+}
+
+function readJson(filePath, fallback = null) {
+  if (!filePath || !fs.existsSync(filePath)) return fallback;
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return fallback;
+  }
 }
 
 function payloadOf(event) {
@@ -87,6 +97,69 @@ function topObject(object = {}, limit = 12) {
     .slice(0, limit));
 }
 
+function topRows(rows = [], sorter, limit = 12) {
+  return rows
+    .slice()
+    .sort(sorter)
+    .slice(0, limit);
+}
+
+function bucketReadiness(value) {
+  if (value === null || value === undefined || value === '') return 'unknown';
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 'unknown';
+  if (parsed >= 95) return 'near_95_plus';
+  if (parsed >= 80) return 'near_80_95';
+  if (parsed >= 50) return 'mid_50_80';
+  return 'low_under_50';
+}
+
+function bucketAge(seconds) {
+  if (seconds === null || seconds === undefined || seconds === '') return 'unknown';
+  const parsed = Number(seconds);
+  if (!Number.isFinite(parsed)) return 'unknown';
+  if (parsed <= 5) return 'fresh_0_5s';
+  if (parsed <= 15) return 'watch_5_15s';
+  if (parsed <= 60) return 'stale_15_60s';
+  return 'very_stale_60s_plus';
+}
+
+function addSample(samples, sample, limit = 5) {
+  if (!Array.isArray(samples) || samples.length >= limit) return;
+  samples.push(sample);
+}
+
+function walletTouchCount(context = {}, predicate) {
+  if (!Array.isArray(context.wallets)) return 0;
+  return context.wallets.filter(predicate).length;
+}
+
+function positiveWalletTouchCount(context = {}) {
+  const explicit = num(context.positiveTouchCount ?? context.provenTouchCount ?? context.provenBuyCount);
+  if (Number.isFinite(explicit)) return explicit;
+  return walletTouchCount(context, (wallet = {}) => {
+    const label = String(wallet.label || wallet.classification || wallet.category || wallet.bucket || '').toLowerCase();
+    return label.includes('positive') || label.includes('proven') || label.includes('alpha');
+  });
+}
+
+function avoidWalletTouchCount(context = {}) {
+  const explicit = num(context.avoidTouchCount ?? context.negativeTouchCount ?? context.riskTouchCount);
+  if (Number.isFinite(explicit)) return explicit;
+  return walletTouchCount(context, (wallet = {}) => {
+    const label = String(wallet.label || wallet.classification || wallet.category || wallet.bucket || '').toLowerCase();
+    return label.includes('avoid') || label.includes('negative') || label.includes('risk') || label.includes('sniper');
+  });
+}
+
+function hasWalletContext(payload = {}) {
+  const context = payload.walletClassificationContext || null;
+  return Boolean(context)
+    || Number(payload.requiredWalletContextTouchCount || 0) > 0
+    || Number(payload.avoidWalletContextTouchCount || 0) > 0
+    || Number(payload.highCurveWalletQualityPositiveTouchCount || 0) > 0;
+}
+
 function getMintRow(rowsByMint, mint, seed = {}) {
   let row = rowsByMint.get(mint);
   if (!row) {
@@ -126,12 +199,154 @@ function getMintRow(rowsByMint, mint, seed = {}) {
       maxCurveProgressDelta: null,
       maxCurveProgressDelta60s: null,
       bestReadinessPct: null,
-      bestReadinessReason: null
+      bestReadinessReason: null,
+      curveNotAdvancingRows: 0,
+      curveNotAdvancingReadinessBuckets: {},
+      curveNotAdvancingNearThresholdRows: 0,
+      curveNotAdvancingNegativeDeltaRows: 0,
+      curveNotAdvancingPositive60sRows: 0,
+      curveNotAdvancingMaxReadinessPct: null,
+      curveNotAdvancingMinDeltaGap: null,
+      curveNotAdvancingSamples: [],
+      staleCurveRows: 0,
+      firstCurveStaleRows: 0,
+      highCurveStaleRows: 0,
+      curveSnapshotAgeBuckets: {},
+      noTrackedFirstTouchRows: 0,
+      noTrackedFirstTouchWithWalletContextRows: 0,
+      noTrackedFirstTouchWithPositiveTouchRows: 0,
+      noTrackedFirstTouchWithAvoidTouchRows: 0,
+      walletContextRows: 0,
+      positiveWalletTouchRows: 0,
+      avoidWalletTouchRows: 0,
+      targetedParity: null
     };
     rowsByMint.set(mint, row);
   }
   if (!row.symbol && seed.symbol) row.symbol = seed.symbol;
   return row;
+}
+
+function recordCurveNotAdvancing(row, payload = {}) {
+  if (payload.reason !== 'CURVE_NOT_ADVANCING' && payload.guardReason !== 'CURVE_NOT_ADVANCING') return;
+  const delta = num(payload.curveProgressDelta);
+  const delta60s = num(payload.curveProgressDelta60s);
+  const threshold = num(payload.threshold ?? payload.curveProgressDeltaThreshold);
+  const readinessRatio = ratio(delta, threshold, 'min');
+  const readinessPct = Number.isFinite(readinessRatio) ? num(readinessRatio * 100, 2) : null;
+  const deltaGap = Number.isFinite(delta) && Number.isFinite(threshold) ? num(threshold - delta, 6) : null;
+
+  row.curveNotAdvancingRows += 1;
+  bump(row.curveNotAdvancingReadinessBuckets, bucketReadiness(readinessPct));
+  if (Number.isFinite(readinessPct)) {
+    row.curveNotAdvancingMaxReadinessPct = row.curveNotAdvancingMaxReadinessPct === null
+      ? readinessPct
+      : Math.max(row.curveNotAdvancingMaxReadinessPct, readinessPct);
+  }
+  if (Number.isFinite(deltaGap)) {
+    row.curveNotAdvancingMinDeltaGap = row.curveNotAdvancingMinDeltaGap === null
+      ? deltaGap
+      : Math.min(row.curveNotAdvancingMinDeltaGap, deltaGap);
+  }
+  if (Number.isFinite(readinessPct) && readinessPct >= 80) row.curveNotAdvancingNearThresholdRows += 1;
+  if (Number.isFinite(delta) && delta < 0) row.curveNotAdvancingNegativeDeltaRows += 1;
+  if (Number.isFinite(delta60s) && Number.isFinite(threshold) && delta60s >= threshold) row.curveNotAdvancingPositive60sRows += 1;
+
+  addSample(row.curveNotAdvancingSamples, {
+    reason: payload.reason || payload.guardReason || null,
+    score: num(payload.score, 2),
+    curveProgress: num(payload.curveProgress, 6),
+    curveProgressDelta: num(delta, 6),
+    curveProgressDelta60s: num(delta60s, 6),
+    threshold: num(threshold, 6),
+    readinessPct,
+    deltaGap
+  });
+}
+
+function recordStaleCurve(row, payload = {}) {
+  const firstAge = num(payload.firstCurveSnapshotScalpCurveSnapshotAgeSeconds, 2);
+  const highAge = num(payload.highCurveStaleSnapshotCurveSnapshotAgeSeconds, 2);
+  const checks = Array.isArray(payload.failedChecks) ? payload.failedChecks : [];
+  const firstStale = payload.firstCurveSnapshotScalpStaleCurveBlocked === true
+    || checks.includes('FIRST_CURVE_SNAPSHOT_SCALP_STALE_CURVE_UPDATE');
+  const highStale = payload.highCurveStaleSnapshotBlocked === true
+    || checks.includes('HIGH_CURVE_STALE_CURVE_UPDATE');
+
+  if (!firstStale && !highStale) return;
+  row.staleCurveRows += 1;
+  if (firstStale) {
+    row.firstCurveStaleRows += 1;
+    bump(row.curveSnapshotAgeBuckets, `first_${bucketAge(firstAge)}`);
+  }
+  if (highStale) {
+    row.highCurveStaleRows += 1;
+    bump(row.curveSnapshotAgeBuckets, `high_${bucketAge(highAge)}`);
+  }
+}
+
+function recordWalletCoverage(row, payload = {}) {
+  const context = payload.walletClassificationContext || {};
+  const hasContext = hasWalletContext(payload);
+  const positiveTouches = Math.max(
+    Number(payload.highCurveWalletQualityPositiveTouchCount || 0),
+    positiveWalletTouchCount(context) || 0
+  );
+  const avoidTouches = Math.max(
+    Number(payload.avoidWalletContextTouchCount || 0),
+    avoidWalletTouchCount(context) || 0
+  );
+  if (hasContext) row.walletContextRows += 1;
+  if (positiveTouches > 0 || payload.highCurveWalletQualityFirstPositiveTouch) row.positiveWalletTouchRows += 1;
+  if (avoidTouches > 0) row.avoidWalletTouchRows += 1;
+
+  const reasons = [payload.reason, payload.guardReason].filter(Boolean);
+  const failedChecks = Array.isArray(payload.failedChecks) ? payload.failedChecks : [];
+  const noTrackedFirstTouch = reasons.includes('CURVE_FALSE_NEGATIVE_BRIDGE_NO_TRACKED_FIRST_TOUCH_BUY')
+    || failedChecks.includes('CURVE_FALSE_NEGATIVE_BRIDGE_NO_TRACKED_FIRST_TOUCH_BUY');
+  if (!noTrackedFirstTouch) return;
+
+  row.noTrackedFirstTouchRows += 1;
+  if (hasContext) row.noTrackedFirstTouchWithWalletContextRows += 1;
+  if (positiveTouches > 0 || payload.highCurveWalletQualityFirstPositiveTouch) {
+    row.noTrackedFirstTouchWithPositiveTouchRows += 1;
+  }
+  if (avoidTouches > 0) row.noTrackedFirstTouchWithAvoidTouchRows += 1;
+}
+
+function paritySummary(row = {}) {
+  if (!row || !row.mint) return null;
+  return {
+    mint: row.mint,
+    symbol: row.symbol || null,
+    semanticDiagnosis: row.semanticDiagnosis || null,
+    absCurveDelta: num(row.absCurveDelta, 6),
+    curveDelta: num(row.curveDelta, 6),
+    providerCurveProgress: num(row.providerCurveProgress, 6),
+    onchainCurveProgress: num(row.onchainCurveProgress, 6),
+    providerToOnchainAgeMs: num(row.providerToOnchainAgeMs),
+    onchainFresh: row.onchainFresh ?? null,
+    accountFound: row.accountFound ?? null,
+    complete: row.complete ?? null,
+    targetClasses: Array.isArray(row.targetClasses) ? row.targetClasses : []
+  };
+}
+
+function readTargetedParityIndex(filePath = TARGETED_PARITY_PATH) {
+  const report = readJson(filePath, null);
+  if (!report) return { report: null, byMint: new Map() };
+  const byMint = new Map();
+  const rows = []
+    .concat(Array.isArray(report.rows) ? report.rows : [])
+    .concat(Array.isArray(report.highDeltaRows) ? report.highDeltaRows : []);
+  for (const row of rows) {
+    if (!row?.mint) continue;
+    const existing = byMint.get(row.mint);
+    if (!existing || Number(row.absCurveDelta || 0) > Number(existing.absCurveDelta || 0)) {
+      byMint.set(row.mint, paritySummary(row));
+    }
+  }
+  return { report, byMint };
 }
 
 function updateWindow(row, atMs) {
@@ -269,6 +484,9 @@ async function readTelemetry(filePath) {
         bump(row.shadowGuardReasons, payload.guardReason || payload.reason);
         for (const check of payload.failedChecks || []) bump(row.shadowGuardFailedChecks, check);
       }
+      recordCurveNotAdvancing(row, payload);
+      recordStaleCurve(row, payload);
+      recordWalletCoverage(row, payload);
     } else if (type === 'pre_migration_paper.decision') {
       row.decisionRows += 1;
       if (payload.decision === 'PAPER_SKIPPED') {
@@ -280,6 +498,9 @@ async function readTelemetry(filePath) {
         row.bestReadinessPct = readinessPct;
         row.bestReadinessReason = payload.reason || null;
       }
+      recordCurveNotAdvancing(row, payload);
+      recordStaleCurve(row, payload);
+      recordWalletCoverage(row, payload);
     } else if (type === 'pre_migration_paper.entry') {
       row.entries += 1;
     } else if (type === 'pre_migration_paper.exit') {
@@ -311,12 +532,14 @@ async function readTelemetry(filePath) {
       maxRecentVolumeSol: num(row.maxRecentVolumeSol, 4),
       maxTradeVelocityPerMin: num(row.maxTradeVelocityPerMin, 2),
       maxCurveProgressDelta: num(row.maxCurveProgressDelta, 6),
-      maxCurveProgressDelta60s: num(row.maxCurveProgressDelta60s, 6)
+      maxCurveProgressDelta60s: num(row.maxCurveProgressDelta60s, 6),
+      curveNotAdvancingMaxReadinessPct: num(row.curveNotAdvancingMaxReadinessPct, 2),
+      curveNotAdvancingMinDeltaGap: num(row.curveNotAdvancingMinDeltaGap, 6)
     }))
   };
 }
 
-function summarize(rows, telemetry) {
+function summarize(rows, telemetry, parityReport = null) {
   const observed = rows.length;
   const firstCurve = rows.filter((row) => row.firstCurveNearMissRows > 0);
   const flagged = rows.filter((row) => row.flaggedRows > 0);
@@ -340,6 +563,9 @@ function summarize(rows, telemetry) {
   const allShadowGuardFailedChecks = {};
   const allFirstCurveFailedChecks = {};
   const allFlagReasons = {};
+  const curveReadinessBuckets = {};
+  const curveAgeBuckets = {};
+  const parityDiagnosisCounts = {};
   for (const row of rows) {
     Object.entries(row.guardReasons).forEach(([key, value]) => bump(allGuardReasons, key, value));
     Object.entries(row.shadowGuardReasons).forEach(([key, value]) => bump(allShadowGuardReasons, key, value));
@@ -348,7 +574,15 @@ function summarize(rows, telemetry) {
     Object.entries(row.shadowGuardFailedChecks).forEach(([key, value]) => bump(allShadowGuardFailedChecks, key, value));
     Object.entries(row.firstCurveFailedChecks).forEach(([key, value]) => bump(allFirstCurveFailedChecks, key, value));
     Object.entries(row.flagReasons).forEach(([key, value]) => bump(allFlagReasons, key, value));
+    Object.entries(row.curveNotAdvancingReadinessBuckets || {}).forEach(([key, value]) => bump(curveReadinessBuckets, key, value));
+    Object.entries(row.curveSnapshotAgeBuckets || {}).forEach(([key, value]) => bump(curveAgeBuckets, key, value));
+    if (row.targetedParity?.semanticDiagnosis) bump(parityDiagnosisCounts, row.targetedParity.semanticDiagnosis);
   }
+  const curveRows = rows.filter((row) => row.curveNotAdvancingRows > 0);
+  const firstTouchRows = rows.filter((row) => row.noTrackedFirstTouchRows > 0);
+  const staleRows = rows.filter((row) => row.staleCurveRows > 0);
+  const parityRows = rows.filter((row) => row.targetedParity);
+  const parityHighDeltaRows = parityRows.filter((row) => Number(row.targetedParity?.absCurveDelta || 0) > 0.05);
 
   return {
     telemetryPath: path.relative(ROOT, telemetry.filePath),
@@ -395,7 +629,80 @@ function summarize(rows, telemetry) {
     topSkipReasons: topObject(allSkipReasons),
     topGuardFailedChecks: topObject(allGuardFailedChecks),
     topShadowGuardFailedChecks: topObject(allShadowGuardFailedChecks),
-    topFirstCurveFailedChecks: topObject(allFirstCurveFailedChecks)
+    topFirstCurveFailedChecks: topObject(allFirstCurveFailedChecks),
+    curveNotAdvancingDiagnostics: {
+      mints: curveRows.length,
+      rows: curveRows.reduce((sum, row) => sum + row.curveNotAdvancingRows, 0),
+      nearThresholdRows: curveRows.reduce((sum, row) => sum + row.curveNotAdvancingNearThresholdRows, 0),
+      negativeDeltaRows: curveRows.reduce((sum, row) => sum + row.curveNotAdvancingNegativeDeltaRows, 0),
+      positive60sRows: curveRows.reduce((sum, row) => sum + row.curveNotAdvancingPositive60sRows, 0),
+      readinessBuckets: topObject(curveReadinessBuckets),
+      topNearThresholdMints: topRows(
+        curveRows.filter((row) => Number.isFinite(Number(row.curveNotAdvancingMaxReadinessPct))),
+        (a, b) => Number(b.curveNotAdvancingMaxReadinessPct ?? -1) - Number(a.curveNotAdvancingMaxReadinessPct ?? -1),
+        10
+      ).map((row) => ({
+        mint: row.mint,
+        symbol: row.symbol,
+        rows: row.curveNotAdvancingRows,
+        maxReadinessPct: num(row.curveNotAdvancingMaxReadinessPct, 2),
+        minDeltaGap: num(row.curveNotAdvancingMinDeltaGap, 6),
+        maxScore: num(row.maxScore, 2),
+        maxCurveProgress: num(row.maxCurveProgress, 6),
+        samples: row.curveNotAdvancingSamples
+      }))
+    },
+    staleCurveDiagnostics: {
+      mints: staleRows.length,
+      rows: staleRows.reduce((sum, row) => sum + row.staleCurveRows, 0),
+      firstCurveStaleRows: staleRows.reduce((sum, row) => sum + row.firstCurveStaleRows, 0),
+      highCurveStaleRows: staleRows.reduce((sum, row) => sum + row.highCurveStaleRows, 0),
+      ageBuckets: topObject(curveAgeBuckets)
+    },
+    firstTouchDiagnostics: {
+      mints: firstTouchRows.length,
+      rows: firstTouchRows.reduce((sum, row) => sum + row.noTrackedFirstTouchRows, 0),
+      withWalletContextRows: firstTouchRows.reduce((sum, row) => sum + row.noTrackedFirstTouchWithWalletContextRows, 0),
+      withPositiveTouchRows: firstTouchRows.reduce((sum, row) => sum + row.noTrackedFirstTouchWithPositiveTouchRows, 0),
+      withAvoidTouchRows: firstTouchRows.reduce((sum, row) => sum + row.noTrackedFirstTouchWithAvoidTouchRows, 0),
+      walletContextRows: rows.reduce((sum, row) => sum + row.walletContextRows, 0),
+      positiveWalletTouchRows: rows.reduce((sum, row) => sum + row.positiveWalletTouchRows, 0),
+      avoidWalletTouchRows: rows.reduce((sum, row) => sum + row.avoidWalletTouchRows, 0),
+      topMints: topRows(
+        firstTouchRows,
+        (a, b) => Number(b.noTrackedFirstTouchRows || 0) - Number(a.noTrackedFirstTouchRows || 0),
+        10
+      ).map((row) => ({
+        mint: row.mint,
+        symbol: row.symbol,
+        noTrackedFirstTouchRows: row.noTrackedFirstTouchRows,
+        withWalletContextRows: row.noTrackedFirstTouchWithWalletContextRows,
+        withPositiveTouchRows: row.noTrackedFirstTouchWithPositiveTouchRows,
+        withAvoidTouchRows: row.noTrackedFirstTouchWithAvoidTouchRows,
+        targetedParity: row.targetedParity
+      }))
+    },
+    targetedParityDiagnostics: {
+      sourcePath: fs.existsSync(TARGETED_PARITY_PATH) ? path.relative(ROOT, TARGETED_PARITY_PATH) : null,
+      sampledTargets: parityReport?.summary?.sampledTargets ?? null,
+      comparableRows: parityReport?.summary?.comparableRows ?? null,
+      highDeltaCountGt005: parityReport?.summary?.highDeltaCountGt005 ?? null,
+      joinedMints: parityRows.length,
+      joinedHighDeltaMints: parityHighDeltaRows.length,
+      semanticDiagnosisCounts: topObject(parityDiagnosisCounts),
+      topHighDeltaMints: topRows(
+        parityRows,
+        (a, b) => Number(b.targetedParity?.absCurveDelta || 0) - Number(a.targetedParity?.absCurveDelta || 0),
+        10
+      ).map((row) => ({
+        mint: row.mint,
+        symbol: row.symbol,
+        absCurveDelta: num(row.targetedParity?.absCurveDelta, 6),
+        semanticDiagnosis: row.targetedParity?.semanticDiagnosis || null,
+        noTrackedFirstTouchRows: row.noTrackedFirstTouchRows,
+        curveNotAdvancingRows: row.curveNotAdvancingRows
+      }))
+    }
   };
 }
 
@@ -427,6 +734,14 @@ function selectRows(rows) {
   return { closestBlocked: blocked, highScoreBlocked, flaggedNotEvaluated, unflaggedShadowWouldEnter, unflaggedShadowBlocked, firstCurveOnly };
 }
 
+function applyTargetedParity(rows, parityByMint) {
+  if (!parityByMint || parityByMint.size === 0) return;
+  for (const row of rows) {
+    const parity = parityByMint.get(row.mint);
+    if (parity) row.targetedParity = parity;
+  }
+}
+
 function printReport(report) {
   const s = report.summary;
   console.log('Pre-Migration Entry Funnel');
@@ -437,6 +752,17 @@ function printReport(report) {
   console.log(`Dropoffs: observedNotFlagged=${s.dropoffs.observedNotFlaggedMints}, flaggedNotEvaluated=${s.dropoffs.flaggedNotEvaluatedMints}, evaluatedNeverWouldEnter=${s.dropoffs.evaluatedNeverWouldEnterMints}`);
   console.log('Top skip reasons:');
   Object.entries(s.topSkipReasons).slice(0, 8).forEach(([key, value]) => console.log(`  - ${key}: ${value}`));
+  const curve = s.curveNotAdvancingDiagnostics || {};
+  console.log(`CURVE_NOT_ADVANCING diagnostics: rows=${curve.rows || 0}, mints=${curve.mints || 0}, nearThreshold=${curve.nearThresholdRows || 0}, positive60s=${curve.positive60sRows || 0}, negativeDelta=${curve.negativeDeltaRows || 0}`);
+  console.log('CURVE_NOT_ADVANCING readiness buckets:');
+  Object.entries(curve.readinessBuckets || {}).slice(0, 8).forEach(([key, value]) => console.log(`  - ${key}: ${value}`));
+  const touch = s.firstTouchDiagnostics || {};
+  console.log(`First-touch proof diagnostics: rows=${touch.rows || 0}, mints=${touch.mints || 0}, withWalletContext=${touch.withWalletContextRows || 0}, withPositiveTouch=${touch.withPositiveTouchRows || 0}, withAvoidTouch=${touch.withAvoidTouchRows || 0}`);
+  const stale = s.staleCurveDiagnostics || {};
+  console.log(`Stale curve diagnostics: rows=${stale.rows || 0}, firstCurve=${stale.firstCurveStaleRows || 0}, highCurve=${stale.highCurveStaleRows || 0}`);
+  const parity = s.targetedParityDiagnostics || {};
+  console.log(`Targeted parity join: joined=${parity.joinedMints || 0}, highDelta=${parity.joinedHighDeltaMints || 0}, sampled=${parity.sampledTargets ?? 'n/a'}, comparable=${parity.comparableRows ?? 'n/a'}`);
+  Object.entries(parity.semanticDiagnosisCounts || {}).slice(0, 6).forEach(([key, value]) => console.log(`  - ${key}: ${value}`));
   console.log('Top guard failed checks:');
   Object.entries(s.topGuardFailedChecks).slice(0, 8).forEach(([key, value]) => console.log(`  - ${key}: ${value}`));
   console.log('Top unflagged shadow failed checks:');
@@ -453,7 +779,9 @@ async function main() {
   }
 
   const telemetry = await readTelemetry(telemetryPath);
-  const summary = summarize(telemetry.rows, telemetry);
+  const { report: targetedParityReport, byMint: targetedParityByMint } = readTargetedParityIndex();
+  applyTargetedParity(telemetry.rows, targetedParityByMint);
+  const summary = summarize(telemetry.rows, telemetry, targetedParityReport);
   const selections = selectRows(telemetry.rows);
   const output = {
     generatedAt: new Date().toISOString(),
