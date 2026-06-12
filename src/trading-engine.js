@@ -198,6 +198,7 @@ class TradingEngine {
     this.curveConfirmationShadowPending = new Map();
     this.curveConfirmationShadowEnterSeen = new Set();
     this.curveConfirmationShadowSkipSeen = new Set();
+    this.freshCurveOverrideShadowSeen = new Set();
 
     this.dailyPnL = 0;
     this.realizedPnL = 0;
@@ -3478,6 +3479,7 @@ class TradingEngine {
           preset: event.payload?.preset || null,
           lane: event.payload?.lane || null
         });
+        this.maybeRecordFreshCurveOverrideShadow(event, shadowGateResult);
         if (shadowGateResult?.status === 'LIVE_SHADOW_READY_FRESH_ACCOUNT_STATE') {
           this.liveExecutionDryRunLane?.evaluate?.(event.payload || {}, {
             decision: event.payload?.decision || (event.type === 'entry' ? 'PAPER_ENTRY' : null),
@@ -3492,6 +3494,16 @@ class TradingEngine {
             });
           });
         }
+      }
+
+      if (event.telemetryType === 'pre_migration_paper.guard_attribution') {
+        const shadowGateResult = this.finalistAccountVerifier?.evaluateShadowGate?.(event.payload || {}, {
+          decision: event.payload?.outcome || null,
+          reason: event.payload?.reason || event.payload?.guardReason || null,
+          preset: event.payload?.preset || null,
+          lane: event.payload?.lane || null
+        });
+        this.maybeRecordFreshCurveOverrideShadow(event, shadowGateResult);
       }
 
       if (this.shouldSchedulePreMigrationPaperRecheck(event)) {
@@ -3580,6 +3592,169 @@ class TradingEngine {
       .map((item) => item.trim())
       .filter(Boolean);
     return configuredReasons.includes(reason);
+  }
+
+  maybeRecordFreshCurveOverrideShadow(event, shadowGateResult = null) {
+    if (this.config.preMigrationFreshCurveOverrideShadowEnabled === false) {
+      return;
+    }
+    if (!event?.payload || !this.preMigrationPaperLane || !shadowGateResult?.update) {
+      return;
+    }
+
+    const payload = event.payload || {};
+    const mint = payload.mint;
+    if (!mint || !this.isFreshCurveOverrideCandidate(payload)) {
+      return;
+    }
+
+    const update = shadowGateResult.update || {};
+    const accountCurve = Number(update.curveProgress);
+    if (!Number.isFinite(accountCurve)) {
+      return;
+    }
+
+    const accountAgeMs = Number(shadowGateResult.accountAgeMs);
+    const freshForMs = Number(this.config.finalistAccountVerifierFreshMs || 1500);
+    const fresh = shadowGateResult.fresh === true
+      || (Number.isFinite(accountAgeMs) && accountAgeMs <= freshForMs);
+    if (!fresh || update.complete === true) {
+      return;
+    }
+
+    const presetName = payload.preset || 'strictMigration';
+    const preset = (this.preMigrationPaperLane.presets || []).find((item) => item.name === presetName)
+      || {
+        name: presetName,
+        lane: payload.lane || null,
+        profileName: payload.profileName || null,
+        strategy: this.preMigrationPaperLane.getStrategy?.(presetName) || this.preMigrationPaperLane.strategy || {}
+      };
+    const key = `${event.telemetryType || event.type}:${presetName}:${mint}:${payload.reason || payload.guardReason || payload.outcome || 'unknown'}`;
+    if (this.freshCurveOverrideShadowSeen.has(key)) {
+      return;
+    }
+    this.freshCurveOverrideShadowSeen.add(key);
+
+    const originalCurve = Number(payload.curveProgress ?? payload.providerCurveProgress);
+    const originalAgeSeconds = Number(
+      payload.firstCurveSnapshotScalpCurveSnapshotAgeSeconds
+      ?? payload.highCurveStaleSnapshotCurveSnapshotAgeSeconds
+      ?? payload.curveSnapshotAgeSeconds
+    );
+    const timestamp = new Date().toISOString();
+    const overrideState = this.buildFreshCurveOverrideState(payload, update, timestamp);
+    const history = this.preMigrationPaperLane.observationHistory?.get?.(mint) || [];
+    const originalReason = payload.reason || payload.guardReason || null;
+
+    let entryGuards;
+    let decision;
+    try {
+      entryGuards = this.preMigrationPaperLane.evaluateEntryGuards(overrideState, history, timestamp);
+      decision = this.preMigrationPaperLane.evaluateEntryDecision(overrideState, preset, entryGuards, timestamp);
+    } catch (error) {
+      this.telemetry.record('pre_migration_paper.fresh_curve_override_shadow_error', {
+        mint,
+        symbol: payload.symbol || update.symbol || null,
+        sourceTelemetryType: event.telemetryType || event.type || null,
+        sourceReason: originalReason,
+        preset: presetName,
+        errorMessage: error.message
+      });
+      return;
+    }
+
+    const wouldEnter = decision?.passed === true;
+    this.telemetry.record('pre_migration_paper.fresh_curve_override_shadow', {
+      mode: 'report_only_fresh_curve_override_shadow',
+      mint,
+      symbol: payload.symbol || update.symbol || null,
+      timestamp,
+      sourceTelemetryType: event.telemetryType || event.type || null,
+      sourceDecision: payload.decision || payload.outcome || null,
+      sourceReason: originalReason,
+      sourceFailedChecks: Array.isArray(payload.failedChecks) ? payload.failedChecks.slice(0, 12) : [],
+      preset: presetName,
+      lane: payload.lane || preset.lane || null,
+      profileName: payload.profileName || preset.profileName || null,
+      verifierStatus: shadowGateResult.status || null,
+      verifierBlockedReason: shadowGateResult.blockedReason || null,
+      accountAgeMs: Number.isFinite(accountAgeMs) ? Number(accountAgeMs.toFixed(0)) : null,
+      accountReceivedAt: update.receivedAt || null,
+      accountSlot: update.slot ?? null,
+      originalCurveProgress: Number.isFinite(originalCurve) ? Number(originalCurve.toFixed(6)) : null,
+      accountCurveProgress: Number(accountCurve.toFixed(6)),
+      curveDelta: Number.isFinite(originalCurve) ? Number((accountCurve - originalCurve).toFixed(6)) : null,
+      originalCurveSnapshotAgeSeconds: Number.isFinite(originalAgeSeconds) ? Number(originalAgeSeconds.toFixed(2)) : null,
+      overrideCurveSnapshotAgeSeconds: 0,
+      originalPriceSol: payload.priceSol ?? payload.bondingCurvePriceSol ?? payload.curvePriceSol ?? null,
+      accountPriceSol: update.priceSol ?? null,
+      score: payload.score ?? null,
+      recentVolumeSol: payload.recentVolumeSol ?? null,
+      tradeVelocityPerMin: payload.tradeVelocityPerMin ?? null,
+      buyRatio: payload.buyRatio ?? null,
+      entryGuardPassed: entryGuards?.passed === true,
+      entryGuardReason: entryGuards?.reason || null,
+      entryGuardOverride: entryGuards?.guardOverride || null,
+      decisionPassed: decision?.passed === true,
+      decisionReason: decision?.reason || null,
+      wouldEnter,
+      changedOutcome: Boolean(payload.decision === 'PAPER_SKIPPED' && wouldEnter),
+      freshCurveStillBlocked: !wouldEnter,
+      walletBridgeProof: payload.walletBridgeProof || null,
+      walletClassificationContext: payload.walletClassificationContext || null
+    });
+  }
+
+  isFreshCurveOverrideCandidate(payload = {}) {
+    const reasons = new Set([
+      payload.reason,
+      payload.guardReason,
+      ...(Array.isArray(payload.failedChecks) ? payload.failedChecks : [])
+    ].filter(Boolean));
+    return [
+      'CURVE_NOT_ADVANCING',
+      'NO_PRIOR_CURVE_PROGRESS',
+      'FIRST_CURVE_SNAPSHOT_SCALP_STALE_CURVE_UPDATE',
+      'HIGH_CURVE_STALE_CURVE_UPDATE',
+      'STALE_CURVE_UPDATE'
+    ].some((reason) => reasons.has(reason));
+  }
+
+  buildFreshCurveOverrideState(payload = {}, update = {}, timestamp = new Date().toISOString()) {
+    const accountCurve = Number(update.curveProgress);
+    const accountPrice = Number(update.priceSol);
+    const originalPrice = Number(payload.priceSol ?? payload.bondingCurvePriceSol ?? payload.curvePriceSol);
+    const priceSol = Number.isFinite(accountPrice) && accountPrice > 0
+      ? accountPrice
+      : (Number.isFinite(originalPrice) && originalPrice > 0 ? originalPrice : null);
+    return {
+      ...payload,
+      curveProgress: Number.isFinite(accountCurve) ? accountCurve : payload.curveProgress,
+      providerCurveProgress: payload.curveProgress ?? payload.providerCurveProgress ?? null,
+      onchainCurveProgress: Number.isFinite(accountCurve) ? accountCurve : null,
+      priceSol,
+      bondingCurvePriceSol: priceSol,
+      curvePriceSol: priceSol,
+      bondingStage: update.bondingStage || payload.bondingStage || null,
+      bondingCurveComplete: update.complete === true,
+      bondingCurveState: {
+        ...(payload.bondingCurveState || {}),
+        source: 'finalist_account_verifier_fresh_curve_override_shadow',
+        curveProgress: Number.isFinite(accountCurve) ? accountCurve : null,
+        onchainCurveProgress: Number.isFinite(accountCurve) ? accountCurve : null,
+        curveProgressOnchain: Number.isFinite(accountCurve) ? accountCurve : null,
+        priceSol,
+        virtualSolReservesSol: update.virtualSolReservesSol ?? payload.virtualSolReservesSol ?? null,
+        virtualTokenReservesTokens: update.virtualTokenReservesTokens ?? payload.virtualTokenReservesTokens ?? null,
+        complete: update.complete === true,
+        bondingStage: update.bondingStage || payload.bondingStage || null,
+        lastFetchAtIso: update.receivedAt || timestamp,
+        lastFetchAt: update.receivedAt || timestamp,
+        approximate: false,
+        refreshed: true
+      }
+    };
   }
 
   maybeRecordWalletRelaxedShadowDecision(event) {

@@ -44,6 +44,7 @@ const FILES = {
   preMigrationCurveFalseNegativeShadow: 'data/reports/pre-migration-curve-false-negative-shadow-latest.json',
   preMigrationCurveFalseNegativeShadowReplay: 'data/reports/pre-migration-curve-false-negative-shadow-replay-latest.json',
   preMigrationCurveFalseNegativeRecoveryShadow: 'data/reports/pre-migration-curve-false-negative-recovery-shadow-latest.json',
+  preMigrationFreshCurveOverrideShadow: 'data/reports/pre-migration-fresh-curve-override-shadow-latest.json',
   preMigrationWalletConditionedRelaxedGateReplay: 'data/reports/pre-migration-wallet-conditioned-relaxed-gate-replay-latest.json',
   preMigrationWalletRelaxedShadowOutcome: 'data/reports/pre-migration-wallet-relaxed-shadow-outcome-latest.json',
   preMigrationWalletContextCoverage: 'data/reports/pre-migration-wallet-context-coverage-latest.json',
@@ -2266,6 +2267,7 @@ function buildSummary(docs) {
   const curveFalseNegativeShadow = docs.preMigrationCurveFalseNegativeShadow.data || {};
   const curveFalseNegativeShadowReplay = docs.preMigrationCurveFalseNegativeShadowReplay.data || {};
   const curveFalseNegativeRecoveryShadow = docs.preMigrationCurveFalseNegativeRecoveryShadow.data || {};
+  const freshCurveOverrideShadow = docs.preMigrationFreshCurveOverrideShadow.data || {};
   const walletConditionedRelaxedGateReplay = docs.preMigrationWalletConditionedRelaxedGateReplay.data || {};
   const walletRelaxedShadowOutcome = docs.preMigrationWalletRelaxedShadowOutcome.data || {};
   const walletContextCoverage = docs.preMigrationWalletContextCoverage.data || {};
@@ -4172,6 +4174,30 @@ function buildSummary(docs) {
       const parity = item.parityExplain || {};
       lines.push(`  ${index + 1}. ${candidateLabel(item)} | status=${parity.status || 'n/a'} | parityOnlyEnter=${item.wouldEnterIfParityVerified ? 'yes' : 'no'} | source=${parity.source || 'n/a'} | provider=${fmt(parity.providerCurveProgress, 4)} | onchain=${fmt(parity.onchainCurveProgress, 4)} | delta=${fmt(parity.curveDelta, 4)} | max120=${fmt(w120.maxCurveProgress, 4)} | reason=${item.reason || 'n/a'}`);
     });
+  }
+  lines.push('');
+
+  const freshCurveOverrideSummary = freshCurveOverrideShadow.summary || {};
+  const freshCurveOverrideChanged = topArray(freshCurveOverrideShadow.changedOutcomeRows, 8);
+  const freshCurveOverrideDelta = freshCurveOverrideSummary.curveDelta || {};
+  const freshCurveOverrideAge = freshCurveOverrideSummary.originalCurveSnapshotAgeSeconds || {};
+  const freshCurveOverrideAccountAge = freshCurveOverrideSummary.accountAgeMs || {};
+  lines.push('9c2f. Fresh Curve Override Shadow');
+  lines.push('----------------------------------');
+  lines.push('- Mode: report-only; replays stale/CURVE_NOT_ADVANCING paper decisions using fresh finalist account curve state. Does not alter runtime gates or entries.');
+  lines.push(`- Rows / unique / would_enter / changed_outcome / still_blocked: ${freshCurveOverrideSummary.rows ?? 'n/a'} / ${freshCurveOverrideSummary.uniqueMints ?? 'n/a'} / ${freshCurveOverrideSummary.wouldEnter ?? 'n/a'} / ${freshCurveOverrideSummary.changedOutcome ?? 'n/a'} / ${freshCurveOverrideSummary.stillBlocked ?? 'n/a'}`);
+  lines.push(`- Entry guard passed: ${freshCurveOverrideSummary.entryGuardPassed ?? 'n/a'}; account age median/p90/max=${ms(freshCurveOverrideAccountAge.median)} / ${ms(freshCurveOverrideAccountAge.p90)} / ${ms(freshCurveOverrideAccountAge.max)}`);
+  lines.push(`- Curve delta median/p90/max/min: ${fmt(freshCurveOverrideDelta.median, 4)} / ${fmt(freshCurveOverrideDelta.p90, 4)} / ${fmt(freshCurveOverrideDelta.max, 4)} / ${fmt(freshCurveOverrideDelta.min, 4)}; original stale age median/p90/max=${fmt(freshCurveOverrideAge.median, 1)}s / ${fmt(freshCurveOverrideAge.p90, 1)}s / ${fmt(freshCurveOverrideAge.max, 1)}s`);
+  lines.push(`- Source reasons: ${formatTopCounts(freshCurveOverrideSummary.bySourceReason)}.`);
+  lines.push(`- Decision reasons after fresh curve: ${formatTopCounts(freshCurveOverrideSummary.byDecisionReason)}.`);
+  lines.push(`- Entry guard reasons after fresh curve: ${formatTopCounts(freshCurveOverrideSummary.byEntryGuardReason)}.`);
+  if (freshCurveOverrideChanged.length) {
+    lines.push('- Changed-outcome rows:');
+    freshCurveOverrideChanged.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.symbol || 'UNKNOWN'} ${item.mint || ''} | source=${item.sourceReason || 'n/a'} | preset=${item.preset || 'n/a'} | score=${fmt(item.score, 2)} | provider=${fmt(item.originalCurveProgress, 4)} -> account=${fmt(item.accountCurveProgress, 4)} | delta=${fmt(item.curveDelta, 4)} | staleAge=${fmt(item.originalCurveSnapshotAgeSeconds, 1)}s | guard=${item.entryGuardReason || 'pass'} | decision=${item.decisionReason || 'pass'}`);
+    });
+  } else {
+    lines.push('- Changed-outcome rows: none observed.');
   }
   lines.push('');
 
