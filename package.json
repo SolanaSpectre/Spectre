@@ -53,6 +53,7 @@
     "report:pre-migration-single-gate-shadow": "node scripts/pre-migration-single-gate-shadow-report.js",
     "report:pre-migration-curve-advance-diagnostic": "node scripts/pre-migration-curve-advance-diagnostic-report.js",
     "report:pre-migration-curve-not-advancing-separability": "node scripts/pre-migration-curve-not-advancing-separability-report.js",
+    "report:pre-migration-curve-not-advancing-separator-shadow": "node scripts/pre-migration-curve-not-advancing-separator-shadow-report.js",
     "report:pre-migration-guard-attribution": "node scripts/pre-migration-guard-attribution-report.js",
     "report:pre-migration-skip-follow-through": "node scripts/pre-migration-skip-follow-through-report.js",
     "report:pre-migration-skip-near-90-watchlist": "node scripts/pre-migration-skip-near-90-watchlist-report.js",

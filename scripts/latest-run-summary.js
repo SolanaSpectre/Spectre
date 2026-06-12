@@ -32,6 +32,7 @@ const FILES = {
   preMigrationSingleGateShadow: 'data/reports/pre-migration-single-gate-shadow-latest.json',
   preMigrationCurveAdvanceDiagnostic: 'data/reports/pre-migration-curve-advance-diagnostic-latest.json',
   preMigrationCurveNotAdvancingSeparability: 'data/reports/pre-migration-curve-not-advancing-separability-latest.json',
+  preMigrationCurveNotAdvancingSeparatorShadow: 'data/reports/pre-migration-curve-not-advancing-separator-shadow-latest.json',
   preMigrationGuardAttribution: 'data/reports/pre-migration-guard-attribution-latest.json',
   preMigrationSkipFollowThrough: 'data/reports/pre-migration-skip-follow-through-latest.json',
   preMigrationSkipNear90Watchlist: 'data/reports/pre-migration-skip-near-90-watchlist-latest.json',
@@ -2259,6 +2260,7 @@ function buildSummary(docs) {
   const entryFunnel = docs.preMigrationEntryFunnel.data || {};
   const curveAdvanceDiagnostic = docs.preMigrationCurveAdvanceDiagnostic.data || {};
   const curveNotAdvancingSeparability = docs.preMigrationCurveNotAdvancingSeparability.data || {};
+  const curveNotAdvancingSeparatorShadow = docs.preMigrationCurveNotAdvancingSeparatorShadow.data || {};
   const skipFollowThrough = docs.preMigrationSkipFollowThrough.data || {};
   const skipNear90Watchlist = docs.preMigrationSkipNear90Watchlist.data || {};
   const highConvictionWatchFollowThrough = docs.preMigrationHighConvictionWatchFollowThrough.data || {};
@@ -3907,6 +3909,40 @@ function buildSummary(docs) {
     featureRows.forEach((item, index) => {
       lines.push(`  ${index + 1}. ${item.key || item.label || 'unknown'} | score=${fmt(item.separationScore, 4)} | dir=${item.bestDirection || 'n/a'} | strongMed=${fmt(item.strong?.median, 4)} | flatMed=${fmt(item.flat?.median, 4)}`);
     });
+  }
+  lines.push('');
+
+  const separatorShadowSummary = curveNotAdvancingSeparatorShadow.summary || {};
+  const separatorShadowRanked = topArray(curveNotAdvancingSeparatorShadow.rankedRuns, 8);
+  const separatorShadowRobust = topArray(curveNotAdvancingSeparatorShadow.robustPositiveRuns, 8);
+  const separatorShadowSamples = curveNotAdvancingSeparatorShadow.bestRunSamples || {};
+
+  lines.push('9b3b. CURVE_NOT_ADVANCING Separator Shadow');
+  lines.push('------------------------------------------');
+  lines.push('- Mode: report-only; replays candidate separator rules against observed price paths. No runtime gates are changed.');
+  lines.push(`- Verdict: ${separatorShadowSummary.verdict || 'n/a'}; analyzed rows=${separatorShadowSummary.analyzedRows ?? 'n/a'}; rules/profile tests=${separatorShadowSummary.evaluatedRuleProfileCount ?? 'n/a'}; robust positive=${separatorShadowSummary.robustPositiveCount ?? 'n/a'}.`);
+  if (separatorShadowSummary.bestRun) {
+    const best = separatorShadowSummary.bestRun;
+    lines.push(`- Best run: ${best.rule || 'n/a'} / ${best.exitProfile || 'n/a'} | trades=${best.replayedTrades ?? 'n/a'} | pnl=${sol(best.totalPnlSol, 4)} | median=${sol(best.medianPnlSol, 4)} | exTop3=${sol(best.pnlAfterRemovingTop3WinnersSol, 4)} | outlierDominated=${best.outlierDominated === true ? 'yes' : 'no'}.`);
+  } else {
+    lines.push('- Best run: n/a');
+  }
+  if (separatorShadowRobust.length) {
+    lines.push('- Robust positive runs:');
+    separatorShadowRobust.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.rule || 'unknown'} / ${item.exitProfile || 'unknown'} | trades=${item.replayedTrades ?? 'n/a'} | winRate=${pct(item.winRate, 1)} | pnl=${sol(item.totalPnlSol, 4)} | exTop3=${sol(item.pnlAfterRemovingTop3WinnersSol, 4)}`);
+    });
+  } else {
+    lines.push('- Robust positive runs: none');
+  }
+  if (separatorShadowRanked.length) {
+    lines.push('- Top ranked shadow tests:');
+    separatorShadowRanked.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.rule || 'unknown'} / ${item.exitProfile || 'unknown'} | trades=${item.replayedTrades ?? 'n/a'} | winRate=${pct(item.winRate, 1)} | pnl=${sol(item.totalPnlSol, 4)} | median=${sol(item.medianPnlSol, 4)} | exTop3=${sol(item.pnlAfterRemovingTop3WinnersSol, 4)}`);
+    });
+  }
+  if (Array.isArray(separatorShadowSamples.topWinners) && separatorShadowSamples.topWinners.length) {
+    lines.push('- Best-run top winners/losers are captured in the JSON report for mint-level inspection.');
   }
   lines.push('');
 
