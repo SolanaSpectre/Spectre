@@ -1,6 +1,6 @@
 {
   "source": "wallet_untracked_shadow_impact",
-  "updatedAt": "2026-06-07T22:52:34.372Z",
+  "updatedAt": "2026-06-12T16:55:00.000Z",
   "mode": "report_only_shadow_profiles",
   "note": "Shadow wallets are used for telemetry and report-only validation. They must not satisfy real wallet-proof entry guards.",
   "wallets": [
@@ -17,6 +17,42 @@
         "REPORT_ONLY_SHADOW",
         "NEEDS_REPEAT_CONFIRMATION",
         "UNTRACKED_FIRST_TOUCH_CANDIDATE"
+      ]
+    },
+    {
+      "walletAddress": "BWJxBMRtqqHhGtJmtUo7whFW2TBd9LPqxWDy6tJdSo8u",
+      "name": "untracked_runtime_BWJxBM",
+      "source": "runtime_untracked_shadow_impact",
+      "trustTier": null,
+      "profile": "shadow_untracked_review",
+      "score": 73.72,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "REPORT_ONLY_SHADOW",
+        "SHADOW_PROMOTION_TEST_CANDIDATE",
+        "MANUAL_REVIEW_NOW",
+        "NEEDS_REPEAT_CONFIRMATION",
+        "UNTRACKED_FIRST_TOUCH_CANDIDATE",
+        "NO_RUNTIME_TRUST"
+      ]
+    },
+    {
+      "walletAddress": "4zX15mBSPfwVvuMnyU4ncM4L8yjN9QxZDGBqsMBWAzHY",
+      "name": "untracked_runtime_4zX15m",
+      "source": "runtime_untracked_shadow_impact",
+      "trustTier": null,
+      "profile": "shadow_untracked_review",
+      "score": 61.54,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "REPORT_ONLY_SHADOW",
+        "SHADOW_PROMOTION_TEST_CANDIDATE",
+        "OBSERVE_NEXT_RUN",
+        "NEEDS_REPEAT_CONFIRMATION",
+        "UNTRACKED_FIRST_TOUCH_CANDIDATE",
+        "NO_RUNTIME_TRUST"
       ]
     }
   ]
