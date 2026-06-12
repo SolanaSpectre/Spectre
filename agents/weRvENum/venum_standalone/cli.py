@@ -617,7 +617,7 @@ def main() -> int:
                     memory.remember(topic.topic_id, best["text"].strip().lower())
             if args.remember:
                 memory.save()
-            print(json.dumps({"drafts": rendered, "skipped": skipped, "missing_query_names": missing_query_names, "x_budget": x_client.budget_status()}, indent=2))
+            print(json.dumps({"drafts": rendered, "skipped": skipped, "x_budget": x_client.budget_status()}, indent=2))
             return 0
 
         if args.command == "x-post":
