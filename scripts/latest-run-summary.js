@@ -53,6 +53,7 @@ const FILES = {
   preMigrationWalletContextCoverage: 'data/reports/pre-migration-wallet-context-coverage-latest.json',
   preMigrationWalletContextFollowThrough: 'data/reports/pre-migration-wallet-context-follow-through-latest.json',
   preMigrationEntryCandidateReview: 'data/reports/pre-migration-entry-candidate-review-latest.json',
+  preMigrationWalletSupportedNearMissReplay: 'data/reports/pre-migration-wallet-supported-near-miss-replay-latest.json',
   preMigrationSameMintReentryImpact: 'data/reports/pre-migration-same-mint-reentry-impact-latest.json',
   preMigrationBreakevenStopGap: 'data/reports/pre-migration-breakeven-stop-gap-latest.json',
   preMigrationExitProtectionReplay: 'data/reports/pre-migration-exit-protection-replay-latest.json',
@@ -2099,6 +2100,12 @@ function summarizeEntryCandidate(candidate = {}) {
   return `${candidate.kind || 'candidate'} ${candidate.symbol || 'UNKNOWN'} ${candidate.mint || ''} | verdict=${candidate.verdict || 'n/a'} | score=${fmt(candidate.score, 2)} | curve=${fmt(candidate.curveProgress, 4)} | max120=${fmt(future120.maxCurveProgress, 4)} | price120=${fmt(future120.maxPriceDeltaPct, 2)}%${exitText}${touch} | flags=${flags}`;
 }
 
+function summarizeWalletSupportedNearMissReplay(row = {}) {
+  if (!row || typeof row !== 'object' || !Object.keys(row).length) return 'none';
+  const label = `${row.symbol || 'UNKNOWN'} ${row.mint || ''}`.trim();
+  return `${label} | profile=${row.profile || 'n/a'} | wallet=${row.walletName || row.wallet || 'n/a'} | wait=${fmt(row.waitSeconds, 1)}s | hold=${fmt(row.holdSeconds, 1)}s | curve=${fmt(row.candidateCurve, 4)}->${fmt(row.confirmCurve, 4)} | exit=${row.exitReason || 'n/a'} | pnl=${sol(row.pnlSol, 6)} | return=${pct(Number(row.returnPct) / 100, 1)}`;
+}
+
 function summarizeEntryFunnelRow(row = {}) {
   if (!row || typeof row !== 'object' || !Object.keys(row).length) return 'none';
   const reason = Object.keys(row.topSkipReasons || {})[0]
@@ -2279,6 +2286,7 @@ function buildSummary(docs) {
   const walletContextCoverage = docs.preMigrationWalletContextCoverage.data || {};
   const walletContextFollowThrough = docs.preMigrationWalletContextFollowThrough.data || {};
   const entryCandidateReview = docs.preMigrationEntryCandidateReview.data || {};
+  const walletSupportedNearMissReplay = docs.preMigrationWalletSupportedNearMissReplay.data || {};
   const sameMintReentryImpact = docs.preMigrationSameMintReentryImpact.data || {};
   const breakevenStopGap = docs.preMigrationBreakevenStopGap.data || {};
   const exitProtectionReplay = docs.preMigrationExitProtectionReplay.data || {};
@@ -2496,6 +2504,22 @@ function buildSummary(docs) {
     if (reviewedCandidates.length) {
       lines.push('- Candidates:');
       reviewedCandidates.forEach((candidate, index) => lines.push(`  ${index + 1}. ${summarizeEntryCandidate(candidate)}`));
+    }
+    lines.push('');
+  }
+
+  if (walletSupportedNearMissReplay.summary) {
+    const replaySummary = walletSupportedNearMissReplay.summary || {};
+    const best = replaySummary.bestProfile ? replaySummary.byProfile?.[replaySummary.bestProfile] : null;
+    const topRows = topArray(walletSupportedNearMissReplay.rows, 5);
+    lines.push('0c2. Wallet-Supported Near-Miss Replay');
+    lines.push('--------------------------------------');
+    lines.push('- Mode: report-only; replays wallet-shadow would-enter near misses with positive wallet support and optional fresh curve confirmation. Does not alter runtime gates.');
+    lines.push(`- Wallet-shadow candidates / eligible / replay rows: ${replaySummary.walletShadowWouldEnter ?? 'n/a'} / ${replaySummary.eligibleCandidates ?? 'n/a'} / ${replaySummary.replayRows ?? 'n/a'}.`);
+    lines.push(`- Best profile: ${replaySummary.bestProfile || 'none'} | verdict=${replaySummary.bestProfileVerdict || 'n/a'} | trades=${best?.trades ?? 'n/a'} | wins/losses=${best?.wins ?? 'n/a'}/${best?.losses ?? 'n/a'} | pnl=${best?.totalPnlSol === null || best?.totalPnlSol === undefined ? 'n/a' : sol(best.totalPnlSol, 6)} | median=${best?.medianPnlSol === null || best?.medianPnlSol === undefined ? 'n/a' : sol(best.medianPnlSol, 6)} | top3-removed=${best?.pnlAfterRemovingTop3WinnersSol === null || best?.pnlAfterRemovingTop3WinnersSol === undefined ? 'n/a' : sol(best.pnlAfterRemovingTop3WinnersSol, 6)}.`);
+    if (topRows.length) {
+      lines.push('- Top replay rows:');
+      topRows.forEach((row, index) => lines.push(`  ${index + 1}. ${summarizeWalletSupportedNearMissReplay(row)}`));
     }
     lines.push('');
   }
