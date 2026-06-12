@@ -764,12 +764,29 @@ class PreMigrationPaperLane {
       String(wallet.side || '').toLowerCase() === 'buy' && isPre85(wallet) && isPositiveOrProven(wallet)
     );
     const avoidTouches = sortedWallets.filter(isAvoidOrNegative);
+    const buyTouches = sortedWallets.filter((wallet) => String(wallet.side || '').toLowerCase() === 'buy');
+    const pre85BuyTouches = buyTouches.filter(isPre85);
+    const positiveOrProvenTouches = sortedWallets.filter(isPositiveOrProven);
+    const walletBridgeProof = {
+      walletTouchCount: sortedWallets.length,
+      walletBuyTouchCount: buyTouches.length,
+      pre85BuyTouchCount: pre85BuyTouches.length,
+      positiveOrProvenTouchCount: positiveOrProvenTouches.length,
+      avoidTouchCount: avoidTouches.length,
+      bridgeRequiresPositiveWallet: this.curveFalseNegativeBridgeRequirePositiveWallet,
+      earliestWalletTouch: sortedWallets[0] ? this.walletTouchPayload(sortedWallets[0]) : null,
+      earliestWalletBuy: buyTouches[0] ? this.walletTouchPayload(buyTouches[0]) : null,
+      earliestPre85BuyTouch: pre85BuyTouches[0] ? this.walletTouchPayload(pre85BuyTouches[0]) : null,
+      walletContextSource: context.contextSource || null,
+      walletContextEarliestTouchAt: context.earliestTouchAt || null,
+      walletContextEarliestBuyAt: context.earliestBuyAt || null
+    };
 
     if (!trackedFirstTouchBuy) {
       return {
         passed: false,
         reason: 'CURVE_FALSE_NEGATIVE_BRIDGE_NO_TRACKED_FIRST_TOUCH_BUY',
-        walletTouchCount: sortedWallets.length
+        ...walletBridgeProof
       };
     }
 
@@ -777,7 +794,8 @@ class PreMigrationPaperLane {
       return {
         passed: false,
         reason: 'CURVE_FALSE_NEGATIVE_BRIDGE_NO_POSITIVE_WALLET_TOUCH',
-        walletTouchCount: sortedWallets.length
+        trackedFirstTouchBuy: this.walletTouchPayload(trackedFirstTouchBuy),
+        ...walletBridgeProof
       };
     }
 
@@ -785,20 +803,19 @@ class PreMigrationPaperLane {
       return {
         passed: false,
         reason: 'CURVE_FALSE_NEGATIVE_BRIDGE_AVOID_WALLET_TOUCH',
-        walletTouchCount: sortedWallets.length,
-        avoidTouchCount: avoidTouches.length
+        trackedFirstTouchBuy: this.walletTouchPayload(trackedFirstTouchBuy),
+        positiveFirstTouchBuy: positiveFirstTouchBuy ? this.walletTouchPayload(positiveFirstTouchBuy) : null,
+        firstAvoidTouch: avoidTouches[0] ? this.walletTouchPayload(avoidTouches[0]) : null,
+        ...walletBridgeProof
       };
     }
 
     return {
       passed: true,
       guardOverride: 'CURVE_FALSE_NEGATIVE_WALLET_BRIDGE',
-      walletTouchCount: sortedWallets.length,
-      positiveOrProvenTouchCount: sortedWallets.filter(isPositiveOrProven).length,
-      avoidTouchCount: avoidTouches.length,
-      bridgeRequiresPositiveWallet: this.curveFalseNegativeBridgeRequirePositiveWallet,
       trackedFirstTouchBuy: this.walletTouchPayload(trackedFirstTouchBuy),
       positiveFirstTouchBuy: positiveFirstTouchBuy ? this.walletTouchPayload(positiveFirstTouchBuy) : null,
+      ...walletBridgeProof,
       bridgeCurveProgress: this.compact(curveProgress, 6)
     };
   }
@@ -2881,6 +2898,7 @@ class PreMigrationPaperLane {
         highCurveStaleSnapshotCurveSnapshotAgeSeconds: this.compact(details.highCurveStaleSnapshotCurveSnapshotAgeSeconds, 2),
         highCurveStaleSnapshotMinCurveProgress: this.compact(details.highCurveStaleSnapshotMinCurveProgress, 6),
         highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds: this.compact(details.highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds, 2),
+        walletBridgeProof: this.walletBridgeProofPayload(details),
         curvePauseScore: this.compact(details.curvePauseScore, 2),
         curvePauseCurveProgress: this.compact(details.curvePauseCurveProgress, 6),
         curvePauseRecentVolumeSol: this.compact(details.curvePauseRecentVolumeSol, 4),
@@ -3020,6 +3038,16 @@ class PreMigrationPaperLane {
         baselineAt: decision.baselineAt || entryGuards.baselineAt || null,
         baselineAt60s: decision.baselineAt60s || entryGuards.baselineAt60s || null,
         highCurveStaleSnapshotBlocked: decision.highCurveStaleSnapshotBlocked ?? entryGuards.highCurveStaleSnapshotBlocked ?? null,
+        highCurveStaleSnapshotGuardEnabled: decision.highCurveStaleSnapshotGuardEnabled ?? entryGuards.highCurveStaleSnapshotGuardEnabled ?? null,
+        highCurveStaleSnapshotGuardOverride: decision.highCurveStaleSnapshotGuardOverride || entryGuards.highCurveStaleSnapshotGuardOverride || null,
+        highCurveStaleSnapshotCurveProgress: this.compact(decision.highCurveStaleSnapshotCurveProgress ?? entryGuards.highCurveStaleSnapshotCurveProgress, 6),
+        highCurveStaleSnapshotCurveSnapshotAgeSeconds: this.compact(decision.highCurveStaleSnapshotCurveSnapshotAgeSeconds ?? entryGuards.highCurveStaleSnapshotCurveSnapshotAgeSeconds, 2),
+        highCurveStaleSnapshotMinCurveProgress: this.compact(decision.highCurveStaleSnapshotMinCurveProgress ?? entryGuards.highCurveStaleSnapshotMinCurveProgress, 6),
+        highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds: this.compact(decision.highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds ?? entryGuards.highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds, 2),
+        firstCurveSnapshotScalpCurveSnapshotAgeSeconds: this.compact(decision.firstCurveSnapshotScalpCurveSnapshotAgeSeconds ?? entryGuards.firstCurveSnapshotScalpCurveSnapshotAgeSeconds, 2),
+        firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds: this.compact(decision.firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds ?? entryGuards.firstCurveSnapshotScalpMaxCurveSnapshotAgeSeconds, 2),
+        firstCurveSnapshotScalpStaleCurveBlocked: decision.firstCurveSnapshotScalpStaleCurveBlocked ?? entryGuards.firstCurveSnapshotScalpStaleCurveBlocked ?? null,
+        firstCurveSnapshotScalpSniperCrowdingBlocked: decision.firstCurveSnapshotScalpSniperCrowdingBlocked ?? entryGuards.firstCurveSnapshotScalpSniperCrowdingBlocked ?? null,
         firstSightHasConfirmation: decision.firstSightHasConfirmation ?? entryGuards.firstSightHasConfirmation ?? null,
         earlySurgeHasConfirmation: decision.earlySurgeHasConfirmation ?? entryGuards.earlySurgeHasConfirmation ?? null,
         broadOrganicSurgeHasConfirmation: decision.broadOrganicSurgeHasConfirmation ?? entryGuards.broadOrganicSurgeHasConfirmation ?? null,
@@ -3063,9 +3091,56 @@ class PreMigrationPaperLane {
         earlyAccelerationAvoidWalletContextTouchCount: decision.earlyAccelerationAvoidWalletContextTouchCount ?? entryGuards.earlyAccelerationAvoidWalletContextTouchCount ?? null,
         earlyAccelerationAvoidWalletContextTouches: decision.earlyAccelerationAvoidWalletContextTouches || entryGuards.earlyAccelerationAvoidWalletContextTouches || null,
         earlyAccelerationAvoidWalletContextThresholds: decision.earlyAccelerationAvoidWalletContextThresholds || entryGuards.earlyAccelerationAvoidWalletContextThresholds || null,
+        walletBridgeProof: this.walletBridgeProofPayload(decision, entryGuards),
         walletClassificationContext: state.walletClassificationContext || null,
         reasons: Array.isArray(state.reasons) ? state.reasons.slice(0, 10) : []
       }
+    };
+  }
+
+  walletBridgeProofPayload(...sources) {
+    const pick = (key) => {
+      for (const source of sources) {
+        if (!source || typeof source !== 'object') continue;
+        const value = source[key];
+        if (value !== undefined && value !== null) return value;
+      }
+      return null;
+    };
+
+    const hasBridgeContext = sources.some((source) => (
+      source
+      && typeof source === 'object'
+      && (
+        source.trackedFirstTouchBuy
+        || source.positiveFirstTouchBuy
+        || source.earliestWalletTouch
+        || source.earliestWalletBuy
+        || source.earliestPre85BuyTouch
+        || source.firstAvoidTouch
+        || source.walletTouchCount !== undefined
+        || source.walletBuyTouchCount !== undefined
+        || source.pre85BuyTouchCount !== undefined
+      )
+    ));
+    if (!hasBridgeContext) return null;
+
+    return {
+      walletTouchCount: pick('walletTouchCount'),
+      walletBuyTouchCount: pick('walletBuyTouchCount'),
+      pre85BuyTouchCount: pick('pre85BuyTouchCount'),
+      positiveOrProvenTouchCount: pick('positiveOrProvenTouchCount'),
+      avoidTouchCount: pick('avoidTouchCount'),
+      bridgeRequiresPositiveWallet: pick('bridgeRequiresPositiveWallet'),
+      trackedFirstTouchBuy: pick('trackedFirstTouchBuy'),
+      positiveFirstTouchBuy: pick('positiveFirstTouchBuy'),
+      earliestWalletTouch: pick('earliestWalletTouch'),
+      earliestWalletBuy: pick('earliestWalletBuy'),
+      earliestPre85BuyTouch: pick('earliestPre85BuyTouch'),
+      firstAvoidTouch: pick('firstAvoidTouch'),
+      walletContextSource: pick('walletContextSource'),
+      walletContextEarliestTouchAt: pick('walletContextEarliestTouchAt'),
+      walletContextEarliestBuyAt: pick('walletContextEarliestBuyAt')
     };
   }
 

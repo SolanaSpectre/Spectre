@@ -154,10 +154,13 @@ function avoidWalletTouchCount(context = {}) {
 
 function hasWalletContext(payload = {}) {
   const context = payload.walletClassificationContext || null;
+  const proof = payload.walletBridgeProof || null;
   return Boolean(context)
+    || Boolean(proof)
     || Number(payload.requiredWalletContextTouchCount || 0) > 0
     || Number(payload.avoidWalletContextTouchCount || 0) > 0
-    || Number(payload.highCurveWalletQualityPositiveTouchCount || 0) > 0;
+    || Number(payload.highCurveWalletQualityPositiveTouchCount || 0) > 0
+    || Number(proof?.walletTouchCount || 0) > 0;
 }
 
 function getMintRow(rowsByMint, mint, seed = {}) {
@@ -287,17 +290,20 @@ function recordStaleCurve(row, payload = {}) {
 
 function recordWalletCoverage(row, payload = {}) {
   const context = payload.walletClassificationContext || {};
+  const proof = payload.walletBridgeProof || {};
   const hasContext = hasWalletContext(payload);
   const positiveTouches = Math.max(
     Number(payload.highCurveWalletQualityPositiveTouchCount || 0),
-    positiveWalletTouchCount(context) || 0
+    positiveWalletTouchCount(context) || 0,
+    Number(proof.positiveOrProvenTouchCount || 0)
   );
   const avoidTouches = Math.max(
     Number(payload.avoidWalletContextTouchCount || 0),
-    avoidWalletTouchCount(context) || 0
+    avoidWalletTouchCount(context) || 0,
+    Number(proof.avoidTouchCount || 0)
   );
   if (hasContext) row.walletContextRows += 1;
-  if (positiveTouches > 0 || payload.highCurveWalletQualityFirstPositiveTouch) row.positiveWalletTouchRows += 1;
+  if (positiveTouches > 0 || payload.highCurveWalletQualityFirstPositiveTouch || proof.positiveFirstTouchBuy) row.positiveWalletTouchRows += 1;
   if (avoidTouches > 0) row.avoidWalletTouchRows += 1;
 
   const reasons = [payload.reason, payload.guardReason].filter(Boolean);
@@ -308,7 +314,7 @@ function recordWalletCoverage(row, payload = {}) {
 
   row.noTrackedFirstTouchRows += 1;
   if (hasContext) row.noTrackedFirstTouchWithWalletContextRows += 1;
-  if (positiveTouches > 0 || payload.highCurveWalletQualityFirstPositiveTouch) {
+  if (positiveTouches > 0 || payload.highCurveWalletQualityFirstPositiveTouch || proof.positiveFirstTouchBuy) {
     row.noTrackedFirstTouchWithPositiveTouchRows += 1;
   }
   if (avoidTouches > 0) row.noTrackedFirstTouchWithAvoidTouchRows += 1;
