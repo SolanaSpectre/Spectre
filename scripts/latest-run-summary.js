@@ -2456,11 +2456,11 @@ function buildSummary(docs) {
     lines.push(`- Top skip reasons: ${formatTopCounts(funnel.topSkipReasons)}.`);
     if (funnel.curveNotAdvancingDiagnostics) {
       const curve = funnel.curveNotAdvancingDiagnostics || {};
-      lines.push(`- CURVE_NOT_ADVANCING diagnostics: rows=${curve.rows ?? 'n/a'}, mints=${curve.mints ?? 'n/a'}, near-threshold=${curve.nearThresholdRows ?? 'n/a'}, positive-60s=${curve.positive60sRows ?? 'n/a'}, negative-delta=${curve.negativeDeltaRows ?? 'n/a'}; readiness=${formatTopCounts(curve.readinessBuckets)}.`);
+      lines.push(`- CURVE_NOT_ADVANCING diagnostics: rows=${curve.rows ?? 'n/a'}, mints=${curve.mints ?? 'n/a'}, near-threshold=${curve.nearThresholdRows ?? 'n/a'}, positive-60s=${curve.positive60sRows ?? 'n/a'}, candidate-60s=${curve.positive60sCandidateRows ?? 'n/a'}, high-score-60s=${curve.positive60sHighScoreRows ?? 'n/a'}, high-volume-60s=${curve.positive60sHighVolumeRows ?? 'n/a'}, no-negative-delta-60s=${curve.positive60sNoNegativeDeltaRows ?? 'n/a'}, negative-delta=${curve.negativeDeltaRows ?? 'n/a'}; readiness=${formatTopCounts(curve.readinessBuckets)}.`);
     }
     if (funnel.firstTouchDiagnostics) {
       const touch = funnel.firstTouchDiagnostics || {};
-      lines.push(`- First-touch proof diagnostics: rows=${touch.rows ?? 'n/a'}, mints=${touch.mints ?? 'n/a'}, with wallet context=${touch.withWalletContextRows ?? 'n/a'}, with positive touch=${touch.withPositiveTouchRows ?? 'n/a'}, with avoid touch=${touch.withAvoidTouchRows ?? 'n/a'}.`);
+      lines.push(`- First-touch proof diagnostics: rows=${touch.rows ?? 'n/a'}, mints=${touch.mints ?? 'n/a'}, proof rows=${touch.proofRows ?? 'n/a'}, zero-touch=${touch.zeroTouchRows ?? 'n/a'}, any-touch=${touch.anyTouchRows ?? 'n/a'}, buy-touch=${touch.buyTouchRows ?? 'n/a'}, pre85-buy=${touch.pre85BuyTouchRows ?? 'n/a'}, untrusted-touch=${touch.untrustedTouchRows ?? 'n/a'}, untrusted-buy=${touch.untrustedBuyTouchRows ?? 'n/a'}, untrusted-pre85=${touch.untrustedPre85BuyTouchRows ?? 'n/a'}, positive-touch=${touch.withPositiveTouchRows ?? 'n/a'}, avoid-touch=${touch.withAvoidTouchRows ?? 'n/a'}; proof buckets=${formatTopCounts(touch.proofBuckets)}.`);
     }
     if (funnel.staleCurveDiagnostics) {
       const stale = funnel.staleCurveDiagnostics || {};
@@ -4398,7 +4398,7 @@ function buildSummary(docs) {
     }
     const walletGateDiagnostics = walletContextTrackingOpportunity.walletGateDiagnostics || {};
     if (walletGateDiagnostics.rows > 0) {
-      lines.push(`- Wallet trade gate diagnostics: rows=${walletGateDiagnostics.rows}, noTrader=${walletGateDiagnostics.noTraderField ?? 'n/a'}, untracked=${walletGateDiagnostics.untrackedWallet ?? 'n/a'}, recorded=${walletGateDiagnostics.recorded ?? 'n/a'}, shadowRecorded=${walletGateDiagnostics.shadowWalletProfileMatch ?? 'n/a'}, uniqueTraderWallets=${walletGateDiagnostics.uniqueWalletsWithTrader ?? 'n/a'}`);
+      lines.push(`- Wallet trade gate diagnostics: rows=${walletGateDiagnostics.rows}, noTrader=${walletGateDiagnostics.noTraderField ?? 'n/a'}, untracked=${walletGateDiagnostics.untrackedWallet ?? 'n/a'}, untrustedTape=${walletGateDiagnostics.untrustedTapeRecords ?? 'n/a'}, recorded=${walletGateDiagnostics.recorded ?? 'n/a'}, shadowRecorded=${walletGateDiagnostics.shadowWalletProfileMatch ?? 'n/a'}, uniqueTraderWallets=${walletGateDiagnostics.uniqueWalletsWithTrader ?? 'n/a'}`);
       lines.push(`- Wallet observation channel: ${walletContextTrackingOpportunity.walletObservationChannel || 'n/a'}; bridge validation=${walletContextTrackingOpportunity.bridgeValidationStatus || 'n/a'}`);
     }
     const untrackedOpportunity = walletContextTrackingOpportunity.untrackedWalletOpportunity || {};

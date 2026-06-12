@@ -740,7 +740,13 @@ class PreMigrationPaperLane {
   evaluateCurveFalseNegativeWalletBridgeSupport(state = {}) {
     const context = state.walletClassificationContext || {};
     const wallets = Array.isArray(context.wallets) ? context.wallets.slice() : [];
+    const untrustedWallets = Array.isArray(context.untrustedWallets) ? context.untrustedWallets.slice() : [];
     const sortedWallets = wallets.sort((a, b) => {
+      const atA = new Date(a.tradeAt || 0).getTime();
+      const atB = new Date(b.tradeAt || 0).getTime();
+      return atA - atB;
+    });
+    const sortedUntrustedWallets = untrustedWallets.sort((a, b) => {
       const atA = new Date(a.tradeAt || 0).getTime();
       const atB = new Date(b.tradeAt || 0).getTime();
       return atA - atB;
@@ -767,19 +773,29 @@ class PreMigrationPaperLane {
     const buyTouches = sortedWallets.filter((wallet) => String(wallet.side || '').toLowerCase() === 'buy');
     const pre85BuyTouches = buyTouches.filter(isPre85);
     const positiveOrProvenTouches = sortedWallets.filter(isPositiveOrProven);
+    const untrustedBuyTouches = sortedUntrustedWallets.filter((wallet) => String(wallet.side || '').toLowerCase() === 'buy');
+    const untrustedPre85BuyTouches = untrustedBuyTouches.filter(isPre85);
     const walletBridgeProof = {
       walletTouchCount: sortedWallets.length,
       walletBuyTouchCount: buyTouches.length,
       pre85BuyTouchCount: pre85BuyTouches.length,
       positiveOrProvenTouchCount: positiveOrProvenTouches.length,
       avoidTouchCount: avoidTouches.length,
+      untrustedWalletTouchCount: sortedUntrustedWallets.length,
+      untrustedWalletBuyTouchCount: untrustedBuyTouches.length,
+      untrustedPre85BuyTouchCount: untrustedPre85BuyTouches.length,
       bridgeRequiresPositiveWallet: this.curveFalseNegativeBridgeRequirePositiveWallet,
       earliestWalletTouch: sortedWallets[0] ? this.walletTouchPayload(sortedWallets[0]) : null,
       earliestWalletBuy: buyTouches[0] ? this.walletTouchPayload(buyTouches[0]) : null,
       earliestPre85BuyTouch: pre85BuyTouches[0] ? this.walletTouchPayload(pre85BuyTouches[0]) : null,
+      earliestUntrustedWalletTouch: sortedUntrustedWallets[0] ? this.walletTouchPayload(sortedUntrustedWallets[0]) : null,
+      earliestUntrustedWalletBuy: untrustedBuyTouches[0] ? this.walletTouchPayload(untrustedBuyTouches[0]) : null,
+      earliestUntrustedPre85BuyTouch: untrustedPre85BuyTouches[0] ? this.walletTouchPayload(untrustedPre85BuyTouches[0]) : null,
       walletContextSource: context.contextSource || null,
       walletContextEarliestTouchAt: context.earliestTouchAt || null,
-      walletContextEarliestBuyAt: context.earliestBuyAt || null
+      walletContextEarliestBuyAt: context.earliestBuyAt || null,
+      walletContextEarliestUntrustedTouchAt: context.earliestUntrustedTouchAt || null,
+      walletContextEarliestUntrustedBuyAt: context.earliestUntrustedBuyAt || null
     };
 
     if (!trackedFirstTouchBuy) {
@@ -1036,7 +1052,9 @@ class PreMigrationPaperLane {
       phase: wallet.phase || null,
       tradeAt: wallet.tradeAt || null,
       curveProgress: wallet.curveProgress ?? null,
-      solAmount: wallet.solAmount ?? null
+      solAmount: wallet.solAmount ?? null,
+      trustedSignal: wallet.trustedSignal === false ? false : null,
+      untrustedRuntimeTape: wallet.untrustedRuntimeTape === true
     };
   }
 
@@ -3117,10 +3135,16 @@ class PreMigrationPaperLane {
         || source.earliestWalletTouch
         || source.earliestWalletBuy
         || source.earliestPre85BuyTouch
+        || source.earliestUntrustedWalletTouch
+        || source.earliestUntrustedWalletBuy
+        || source.earliestUntrustedPre85BuyTouch
         || source.firstAvoidTouch
         || source.walletTouchCount !== undefined
         || source.walletBuyTouchCount !== undefined
         || source.pre85BuyTouchCount !== undefined
+        || source.untrustedWalletTouchCount !== undefined
+        || source.untrustedWalletBuyTouchCount !== undefined
+        || source.untrustedPre85BuyTouchCount !== undefined
       )
     ));
     if (!hasBridgeContext) return null;
@@ -3131,16 +3155,24 @@ class PreMigrationPaperLane {
       pre85BuyTouchCount: pick('pre85BuyTouchCount'),
       positiveOrProvenTouchCount: pick('positiveOrProvenTouchCount'),
       avoidTouchCount: pick('avoidTouchCount'),
+      untrustedWalletTouchCount: pick('untrustedWalletTouchCount'),
+      untrustedWalletBuyTouchCount: pick('untrustedWalletBuyTouchCount'),
+      untrustedPre85BuyTouchCount: pick('untrustedPre85BuyTouchCount'),
       bridgeRequiresPositiveWallet: pick('bridgeRequiresPositiveWallet'),
       trackedFirstTouchBuy: pick('trackedFirstTouchBuy'),
       positiveFirstTouchBuy: pick('positiveFirstTouchBuy'),
       earliestWalletTouch: pick('earliestWalletTouch'),
       earliestWalletBuy: pick('earliestWalletBuy'),
       earliestPre85BuyTouch: pick('earliestPre85BuyTouch'),
+      earliestUntrustedWalletTouch: pick('earliestUntrustedWalletTouch'),
+      earliestUntrustedWalletBuy: pick('earliestUntrustedWalletBuy'),
+      earliestUntrustedPre85BuyTouch: pick('earliestUntrustedPre85BuyTouch'),
       firstAvoidTouch: pick('firstAvoidTouch'),
       walletContextSource: pick('walletContextSource'),
       walletContextEarliestTouchAt: pick('walletContextEarliestTouchAt'),
-      walletContextEarliestBuyAt: pick('walletContextEarliestBuyAt')
+      walletContextEarliestBuyAt: pick('walletContextEarliestBuyAt'),
+      walletContextEarliestUntrustedTouchAt: pick('walletContextEarliestUntrustedTouchAt'),
+      walletContextEarliestUntrustedBuyAt: pick('walletContextEarliestUntrustedBuyAt')
     };
   }
 

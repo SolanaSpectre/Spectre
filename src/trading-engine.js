@@ -3312,13 +3312,17 @@ class TradingEngine {
     const events = typeof this.walletEventLedger.recentEventsForMint === 'function'
       ? this.walletEventLedger.recentEventsForMint(mint, 50)
       : (this.walletEventLedger.recentEvents || []).filter((event) => event?.mint === mint).slice(0, 25);
-    if (events.length === 0) {
+    const untrustedEvents = typeof this.walletEventLedger.recentUntrustedEventsForMint === 'function'
+      ? this.walletEventLedger.recentUntrustedEventsForMint(mint, 50)
+      : (this.walletEventLedger.recentUntrustedEvents || []).filter((event) => event?.mint === mint).slice(0, 25);
+    if (events.length === 0 && untrustedEvents.length === 0) {
       return null;
     }
 
     const labels = {};
     const walletRows = [];
     const shadowWalletRows = [];
+    const untrustedWalletRows = [];
     for (const event of events) {
       const wallet = event.wallet;
       const shadowOnly = event.walletProfile?.shadowOnly === true;
@@ -3349,20 +3353,45 @@ class TradingEngine {
         walletRows.push(row);
       }
     }
+    for (const event of untrustedEvents) {
+      untrustedWalletRows.push({
+        wallet: event.wallet || null,
+        name: null,
+        label: 'UNTRUSTED_RUNTIME_TAPE',
+        confidence: null,
+        side: event.side || null,
+        phase: event.phase || null,
+        tradeAt: event.tradeAt || event.observedAt || null,
+        reviewTier: null,
+        evidenceTier: null,
+        solAmount: event.amount?.sol ?? null,
+        curveProgress: event.market?.curveProgress ?? null,
+        secondsSinceCreate: event.timing?.secondsSinceCreate ?? null,
+        shadowOnly: false,
+        trustedSignal: false,
+        untrustedRuntimeTape: true,
+        untrustedReason: event.reason || null
+      });
+    }
     const wallets = walletRows
       .sort((a, b) => new Date(a.tradeAt || 0).getTime() - new Date(b.tradeAt || 0).getTime())
       .slice(0, 8);
     const shadowWallets = shadowWalletRows
       .sort((a, b) => new Date(a.tradeAt || 0).getTime() - new Date(b.tradeAt || 0).getTime())
       .slice(0, 8);
+    const untrustedWallets = untrustedWalletRows
+      .sort((a, b) => new Date(a.tradeAt || 0).getTime() - new Date(b.tradeAt || 0).getTime())
+      .slice(0, 12);
 
     const count = (...selectedLabels) => selectedLabels.reduce((sum, label) => sum + Number(labels[label] || 0), 0);
     return {
       touched: wallets.length > 0,
       shadowTouched: shadowWallets.length > 0,
+      untrustedTouched: untrustedWallets.length > 0,
       observedWalletTradeCount: events.length,
       observedNonShadowWalletTradeCount: walletRows.length,
       observedShadowWalletTradeCount: shadowWalletRows.length,
+      observedUntrustedWalletTradeCount: untrustedEvents.length,
       labelCounts: labels,
       earlySniperCount: count('EARLY_SNIPER'),
       alphaScalperCount: count('EARLY_ALPHA_SCALPER'),
@@ -3375,7 +3404,10 @@ class TradingEngine {
       wallets,
       shadowWallets,
       earliestShadowTouchAt: shadowWallets[0]?.tradeAt || null,
-      earliestShadowBuyAt: shadowWallets.find((wallet) => String(wallet.side || '').toLowerCase() === 'buy')?.tradeAt || null
+      earliestShadowBuyAt: shadowWallets.find((wallet) => String(wallet.side || '').toLowerCase() === 'buy')?.tradeAt || null,
+      earliestUntrustedTouchAt: untrustedWallets[0]?.tradeAt || null,
+      earliestUntrustedBuyAt: untrustedWallets.find((wallet) => String(wallet.side || '').toLowerCase() === 'buy')?.tradeAt || null,
+      untrustedWallets
     };
   }
 
@@ -5599,7 +5631,8 @@ class TradingEngine {
         kolWalletProfileMatch: details.kolWalletProfileMatch === true,
         shadowWalletProfileMatch: details.shadowWalletProfileMatch === true,
         watchedReason: details.watchedReason || null,
-        ledgerRecord: details.ledgerRecord === true
+        ledgerRecord: details.ledgerRecord === true,
+        untrustedTapeRecord: details.untrustedTapeRecord === true
       });
     } catch {
       // Diagnostics must never affect provider trade intake.
@@ -5621,11 +5654,20 @@ class TradingEngine {
       : [];
     const isTrackedAccount = trackedAccounts.includes(wallet);
     if (!walletProfile && !isTrackedAccount) {
+      const untrustedTapeRecord = this.executionModeManager?.isPaper?.()
+        ? this.walletEventLedger?.recordUntrustedTradeTape?.({
+          event,
+          tokenState,
+          launchIntelSummary,
+          reason: 'UNTRACKED_WALLET'
+        })
+        : null;
       this.recordWalletTradeGateDiagnostic(event, tokenState, {
         wallet,
         dropReason: 'UNTRACKED_WALLET',
         trackedAccountMatch: false,
-        kolWalletProfileMatch: false
+        kolWalletProfileMatch: false,
+        untrustedTapeRecord: Boolean(untrustedTapeRecord)
       });
       return null;
     }

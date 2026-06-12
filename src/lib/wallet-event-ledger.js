@@ -13,6 +13,8 @@ class WalletEventLedger {
     this.maxEventsPerMint = Number(config.walletEventLedgerMaxEventsPerMint || 50);
     this.recentEvents = [];
     this.eventsByMint = new Map();
+    this.recentUntrustedEvents = [];
+    this.untrustedEventsByMint = new Map();
     this.walletStats = new Map();
     this.latestFlushIntervalMs = Number(process.env.WALLET_EVENT_LATEST_FLUSH_INTERVAL_MS || 5000);
     this.lastLatestFlushAt = 0;
@@ -37,7 +39,7 @@ class WalletEventLedger {
       return null;
     }
 
-    const wallet = event.traderPublicKey || event.wallet || event.account || null;
+    const wallet = this.extractWallet(event);
     const mint = event.mint || event.token || event.mintAddress || tokenState.mint || null;
     if (!wallet || !mint) {
       return null;
@@ -118,6 +120,65 @@ class WalletEventLedger {
     this.appendRecord(record);
     this.updateStats(record);
     this.updateLatest(record);
+    return record;
+  }
+
+  recordUntrustedTradeTape({
+    event = {},
+    tokenState = {},
+    launchIntelSummary = null,
+    reason = 'UNTRACKED_WALLET'
+  } = {}) {
+    if (!this.enabled) {
+      return null;
+    }
+
+    const wallet = this.extractWallet(event);
+    const mint = event.mint || event.token || event.mintAddress || tokenState.mint || null;
+    if (!wallet || !mint) {
+      return null;
+    }
+
+    const timestampMs = this.normalizeTimestampMs(event.timestamp || event.blockTime || tokenState.lastTradeAt || Date.now());
+    const createdAtMs = Number(tokenState.createdAt || 0) || null;
+    const preMigration = launchIntelSummary?.preMigration || launchIntelSummary?.preMigrationState || {};
+    const side = event.txType === 'sell' ? 'sell' : 'buy';
+    const phase = this.classifyPhase(tokenState, preMigration);
+    const volumeSol = this.numberOrNull(event.solAmount || event.vSolInBondingCurve || event.sol || 0, 8);
+
+    const record = {
+      schemaVersion: 1,
+      source: 'wallet_event_ledger_untrusted_tape',
+      eventType: 'wallet.trade_untrusted_tape',
+      observedAt: new Date().toISOString(),
+      tradeAt: new Date(timestampMs).toISOString(),
+      wallet,
+      trustedSignal: false,
+      reason,
+      mint,
+      symbol: tokenState.symbol || event.symbol || launchIntelSummary?.symbol || null,
+      name: tokenState.name || event.name || launchIntelSummary?.name || null,
+      side,
+      signature: event.signature || event.txSignature || event.sig || null,
+      slot: this.numberOrNull(event.slot ?? event.blockSlot ?? event.slotNumber, 0),
+      amount: {
+        sol: volumeSol,
+        token: this.numberOrNull(event.tokenAmount || event.tokens || event.amount, 8)
+      },
+      phase,
+      timing: {
+        secondsSinceCreate: createdAtMs ? this.numberOrNull((timestampMs - createdAtMs) / 1000, 3) : null
+      },
+      market: {
+        marketCapSol: this.numberOrNull(event.marketCapSol || tokenState.marketCapSol || tokenState.marketCap, 6),
+        liquiditySol: this.numberOrNull(event.vSolInBondingCurve || tokenState.liquiditySol, 6),
+        bondingStage: tokenState.bondingStage || preMigration.bondingStage || null,
+        curveProgress: this.numberOrNull(preMigration.curveProgress ?? event.bondingCurveProgress ?? event.progress, 4),
+        migrated: Boolean(tokenState.migratedAt || phase === 'post_migration')
+      }
+    };
+
+    this.updateUntrustedLatest(record);
     return record;
   }
 
@@ -366,9 +427,25 @@ class WalletEventLedger {
     this.flushLatest(false);
   }
 
+  updateUntrustedLatest(record) {
+    this.recentUntrustedEvents.unshift(record);
+    this.recentUntrustedEvents = this.recentUntrustedEvents.slice(0, this.maxRecentEvents);
+
+    const mintEvents = this.untrustedEventsByMint.get(record.mint) || [];
+    mintEvents.push(record);
+    mintEvents.sort((a, b) => this.normalizeTimestampMs(a.tradeAt || a.observedAt) - this.normalizeTimestampMs(b.tradeAt || b.observedAt));
+    this.untrustedEventsByMint.set(record.mint, mintEvents.slice(0, Math.max(1, this.maxEventsPerMint)));
+  }
+
   recentEventsForMint(mint, limit = this.maxEventsPerMint) {
     if (!mint) return [];
     const rows = this.eventsByMint.get(mint) || [];
+    return rows.slice(0, Math.max(1, Number(limit || this.maxEventsPerMint)));
+  }
+
+  recentUntrustedEventsForMint(mint, limit = this.maxEventsPerMint) {
+    if (!mint) return [];
+    const rows = this.untrustedEventsByMint.get(mint) || [];
     return rows.slice(0, Math.max(1, Number(limit || this.maxEventsPerMint)));
   }
 
@@ -394,11 +471,14 @@ class WalletEventLedger {
       generatedAt: new Date().toISOString(),
       eventFilePath: this.eventFilePath,
       recentEventCount: this.recentEvents.length,
+      recentUntrustedEventCount: this.recentUntrustedEvents.length,
       mintContextCount: this.eventsByMint.size,
+      untrustedMintContextCount: this.untrustedEventsByMint.size,
       walletCount: this.walletStats.size,
       classificationCounts: this.countClassifications(topWallets),
       topWallets,
-      recentEvents: this.recentEvents
+      recentEvents: this.recentEvents,
+      recentUntrustedEvents: this.recentUntrustedEvents.slice(0, 50)
       }, null, 2);
     } catch (error) {
       this.logger.warn('Failed to serialize wallet event latest snapshot', error.message);
@@ -439,7 +519,9 @@ class WalletEventLedger {
       eventFilePath: this.eventFilePath,
       latestFilePath: this.latestFilePath,
       recentEventCount: this.recentEvents.length,
+      recentUntrustedEventCount: this.recentUntrustedEvents.length,
       mintContextCount: this.eventsByMint.size,
+      untrustedMintContextCount: this.untrustedEventsByMint.size,
       walletCount: this.walletStats.size,
       maxEventsPerMint: this.maxEventsPerMint,
       latestWriteInFlight: this.latestWriteInFlight,
@@ -462,6 +544,21 @@ class WalletEventLedger {
     }
 
     return number < 10_000_000_000 ? number * 1000 : number;
+  }
+
+  extractWallet(event = {}) {
+    return event.traderPublicKey
+      || event.wallet
+      || event.account
+      || event.trader
+      || event.user
+      || event.buyer
+      || event.seller
+      || event.signer
+      || event.maker
+      || event.owner
+      || event.creator
+      || null;
   }
 
   compact(value, decimals = 4) {

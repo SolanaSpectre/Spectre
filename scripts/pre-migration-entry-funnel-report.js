@@ -160,7 +160,29 @@ function hasWalletContext(payload = {}) {
     || Number(payload.requiredWalletContextTouchCount || 0) > 0
     || Number(payload.avoidWalletContextTouchCount || 0) > 0
     || Number(payload.highCurveWalletQualityPositiveTouchCount || 0) > 0
-    || Number(proof?.walletTouchCount || 0) > 0;
+    || Number(proof?.walletTouchCount || 0) > 0
+    || Number(proof?.untrustedWalletTouchCount || 0) > 0;
+}
+
+function walletProofBucket(proof = {}) {
+  if (!proof || typeof proof !== 'object') return 'no_bridge_proof';
+  const touches = Number(proof.walletTouchCount || 0);
+  const buys = Number(proof.walletBuyTouchCount || 0);
+  const pre85Buys = Number(proof.pre85BuyTouchCount || 0);
+  const positive = Number(proof.positiveOrProvenTouchCount || 0);
+  const avoid = Number(proof.avoidTouchCount || 0);
+  const untrustedTouches = Number(proof.untrustedWalletTouchCount || 0);
+  const untrustedBuys = Number(proof.untrustedWalletBuyTouchCount || 0);
+  const untrustedPre85Buys = Number(proof.untrustedPre85BuyTouchCount || 0);
+  if (touches <= 0 && untrustedPre85Buys > 0) return 'untrusted_pre85_buy_no_trusted_touch';
+  if (touches <= 0 && untrustedBuys > 0) return 'untrusted_buy_no_trusted_touch';
+  if (touches <= 0 && untrustedTouches > 0) return 'untrusted_touch_no_trusted_touch';
+  if (touches <= 0) return 'proof_present_zero_touches';
+  if (buys <= 0) return 'touches_no_buys';
+  if (pre85Buys <= 0) return 'buys_no_pre85_buy';
+  if (avoid > 0) return 'pre85_buy_with_avoid_touch';
+  if (positive <= 0) return 'pre85_buy_untrusted';
+  return 'positive_pre85_buy';
 }
 
 function getMintRow(rowsByMint, mint, seed = {}) {
@@ -208,14 +230,29 @@ function getMintRow(rowsByMint, mint, seed = {}) {
       curveNotAdvancingNearThresholdRows: 0,
       curveNotAdvancingNegativeDeltaRows: 0,
       curveNotAdvancingPositive60sRows: 0,
+      curveNotAdvancingPositive60sCandidateRows: 0,
+      curveNotAdvancingPositive60sHighScoreRows: 0,
+      curveNotAdvancingPositive60sHighVolumeRows: 0,
+      curveNotAdvancingPositive60sNoNegativeDeltaRows: 0,
       curveNotAdvancingMaxReadinessPct: null,
+      curveNotAdvancingMaxDelta60s: null,
       curveNotAdvancingMinDeltaGap: null,
       curveNotAdvancingSamples: [],
+      curveNotAdvancingPositive60sSamples: [],
       staleCurveRows: 0,
       firstCurveStaleRows: 0,
       highCurveStaleRows: 0,
       curveSnapshotAgeBuckets: {},
       noTrackedFirstTouchRows: 0,
+      noTrackedFirstTouchProofRows: 0,
+      noTrackedFirstTouchZeroTouchRows: 0,
+      noTrackedFirstTouchAnyTouchRows: 0,
+      noTrackedFirstTouchBuyRows: 0,
+      noTrackedFirstTouchPre85BuyRows: 0,
+      noTrackedFirstTouchUntrustedTouchRows: 0,
+      noTrackedFirstTouchUntrustedBuyRows: 0,
+      noTrackedFirstTouchUntrustedPre85BuyRows: 0,
+      noTrackedFirstTouchProofBuckets: {},
       noTrackedFirstTouchWithWalletContextRows: 0,
       noTrackedFirstTouchWithPositiveTouchRows: 0,
       noTrackedFirstTouchWithAvoidTouchRows: 0,
@@ -254,10 +291,30 @@ function recordCurveNotAdvancing(row, payload = {}) {
   if (Number.isFinite(readinessPct) && readinessPct >= 80) row.curveNotAdvancingNearThresholdRows += 1;
   if (Number.isFinite(delta) && delta < 0) row.curveNotAdvancingNegativeDeltaRows += 1;
   if (Number.isFinite(delta60s) && Number.isFinite(threshold) && delta60s >= threshold) row.curveNotAdvancingPositive60sRows += 1;
+  if (Number.isFinite(delta60s)) {
+    row.curveNotAdvancingMaxDelta60s = row.curveNotAdvancingMaxDelta60s === null
+      ? delta60s
+      : Math.max(row.curveNotAdvancingMaxDelta60s, delta60s);
+  }
+  const score = num(payload.score, 2);
+  const recentVolumeSol = num(payload.recentVolumeSol, 4);
+  const tradeVelocityPerMin = num(payload.tradeVelocityPerMin, 2);
+  const positive60s = Number.isFinite(delta60s) && Number.isFinite(threshold) && delta60s >= threshold;
+  const candidate60s = positive60s
+    && Number.isFinite(score)
+    && score >= 55
+    && Number.isFinite(recentVolumeSol)
+    && recentVolumeSol >= 5
+    && Number.isFinite(tradeVelocityPerMin)
+    && tradeVelocityPerMin >= 10;
+  if (candidate60s) row.curveNotAdvancingPositive60sCandidateRows += 1;
+  if (positive60s && Number.isFinite(score) && score >= 70) row.curveNotAdvancingPositive60sHighScoreRows += 1;
+  if (positive60s && Number.isFinite(recentVolumeSol) && recentVolumeSol >= 25) row.curveNotAdvancingPositive60sHighVolumeRows += 1;
+  if (positive60s && Number.isFinite(delta) && delta >= 0) row.curveNotAdvancingPositive60sNoNegativeDeltaRows += 1;
 
   addSample(row.curveNotAdvancingSamples, {
     reason: payload.reason || payload.guardReason || null,
-    score: num(payload.score, 2),
+    score,
     curveProgress: num(payload.curveProgress, 6),
     curveProgressDelta: num(delta, 6),
     curveProgressDelta60s: num(delta60s, 6),
@@ -265,6 +322,19 @@ function recordCurveNotAdvancing(row, payload = {}) {
     readinessPct,
     deltaGap
   });
+  if (positive60s) {
+    addSample(row.curveNotAdvancingPositive60sSamples, {
+      reason: payload.reason || payload.guardReason || null,
+      score,
+      curveProgress: num(payload.curveProgress, 6),
+      curveProgressDelta: num(delta, 6),
+      curveProgressDelta60s: num(delta60s, 6),
+      threshold: num(threshold, 6),
+      recentVolumeSol,
+      tradeVelocityPerMin,
+      candidate60s
+    });
+  }
 }
 
 function recordStaleCurve(row, payload = {}) {
@@ -292,6 +362,7 @@ function recordWalletCoverage(row, payload = {}) {
   const context = payload.walletClassificationContext || {};
   const proof = payload.walletBridgeProof || {};
   const hasContext = hasWalletContext(payload);
+  const proofBucket = walletProofBucket(proof);
   const positiveTouches = Math.max(
     Number(payload.highCurveWalletQualityPositiveTouchCount || 0),
     positiveWalletTouchCount(context) || 0,
@@ -313,6 +384,15 @@ function recordWalletCoverage(row, payload = {}) {
   if (!noTrackedFirstTouch) return;
 
   row.noTrackedFirstTouchRows += 1;
+  if (proof && typeof proof === 'object' && Object.keys(proof).length) row.noTrackedFirstTouchProofRows += 1;
+  bump(row.noTrackedFirstTouchProofBuckets, proofBucket);
+  if (Number(proof.walletTouchCount || 0) <= 0) row.noTrackedFirstTouchZeroTouchRows += 1;
+  if (Number(proof.walletTouchCount || 0) > 0) row.noTrackedFirstTouchAnyTouchRows += 1;
+  if (Number(proof.walletBuyTouchCount || 0) > 0) row.noTrackedFirstTouchBuyRows += 1;
+  if (Number(proof.pre85BuyTouchCount || 0) > 0) row.noTrackedFirstTouchPre85BuyRows += 1;
+  if (Number(proof.untrustedWalletTouchCount || 0) > 0) row.noTrackedFirstTouchUntrustedTouchRows += 1;
+  if (Number(proof.untrustedWalletBuyTouchCount || 0) > 0) row.noTrackedFirstTouchUntrustedBuyRows += 1;
+  if (Number(proof.untrustedPre85BuyTouchCount || 0) > 0) row.noTrackedFirstTouchUntrustedPre85BuyRows += 1;
   if (hasContext) row.noTrackedFirstTouchWithWalletContextRows += 1;
   if (positiveTouches > 0 || payload.highCurveWalletQualityFirstPositiveTouch || proof.positiveFirstTouchBuy) {
     row.noTrackedFirstTouchWithPositiveTouchRows += 1;
@@ -540,6 +620,7 @@ async function readTelemetry(filePath) {
       maxCurveProgressDelta: num(row.maxCurveProgressDelta, 6),
       maxCurveProgressDelta60s: num(row.maxCurveProgressDelta60s, 6),
       curveNotAdvancingMaxReadinessPct: num(row.curveNotAdvancingMaxReadinessPct, 2),
+      curveNotAdvancingMaxDelta60s: num(row.curveNotAdvancingMaxDelta60s, 6),
       curveNotAdvancingMinDeltaGap: num(row.curveNotAdvancingMinDeltaGap, 6)
     }))
   };
@@ -572,6 +653,7 @@ function summarize(rows, telemetry, parityReport = null) {
   const curveReadinessBuckets = {};
   const curveAgeBuckets = {};
   const parityDiagnosisCounts = {};
+  const noTrackedFirstTouchProofBuckets = {};
   for (const row of rows) {
     Object.entries(row.guardReasons).forEach(([key, value]) => bump(allGuardReasons, key, value));
     Object.entries(row.shadowGuardReasons).forEach(([key, value]) => bump(allShadowGuardReasons, key, value));
@@ -582,6 +664,7 @@ function summarize(rows, telemetry, parityReport = null) {
     Object.entries(row.flagReasons).forEach(([key, value]) => bump(allFlagReasons, key, value));
     Object.entries(row.curveNotAdvancingReadinessBuckets || {}).forEach(([key, value]) => bump(curveReadinessBuckets, key, value));
     Object.entries(row.curveSnapshotAgeBuckets || {}).forEach(([key, value]) => bump(curveAgeBuckets, key, value));
+    Object.entries(row.noTrackedFirstTouchProofBuckets || {}).forEach(([key, value]) => bump(noTrackedFirstTouchProofBuckets, key, value));
     if (row.targetedParity?.semanticDiagnosis) bump(parityDiagnosisCounts, row.targetedParity.semanticDiagnosis);
   }
   const curveRows = rows.filter((row) => row.curveNotAdvancingRows > 0);
@@ -642,6 +725,10 @@ function summarize(rows, telemetry, parityReport = null) {
       nearThresholdRows: curveRows.reduce((sum, row) => sum + row.curveNotAdvancingNearThresholdRows, 0),
       negativeDeltaRows: curveRows.reduce((sum, row) => sum + row.curveNotAdvancingNegativeDeltaRows, 0),
       positive60sRows: curveRows.reduce((sum, row) => sum + row.curveNotAdvancingPositive60sRows, 0),
+      positive60sCandidateRows: curveRows.reduce((sum, row) => sum + row.curveNotAdvancingPositive60sCandidateRows, 0),
+      positive60sHighScoreRows: curveRows.reduce((sum, row) => sum + row.curveNotAdvancingPositive60sHighScoreRows, 0),
+      positive60sHighVolumeRows: curveRows.reduce((sum, row) => sum + row.curveNotAdvancingPositive60sHighVolumeRows, 0),
+      positive60sNoNegativeDeltaRows: curveRows.reduce((sum, row) => sum + row.curveNotAdvancingPositive60sNoNegativeDeltaRows, 0),
       readinessBuckets: topObject(curveReadinessBuckets),
       topNearThresholdMints: topRows(
         curveRows.filter((row) => Number.isFinite(Number(row.curveNotAdvancingMaxReadinessPct))),
@@ -652,10 +739,32 @@ function summarize(rows, telemetry, parityReport = null) {
         symbol: row.symbol,
         rows: row.curveNotAdvancingRows,
         maxReadinessPct: num(row.curveNotAdvancingMaxReadinessPct, 2),
+        maxDelta60s: num(row.curveNotAdvancingMaxDelta60s, 6),
         minDeltaGap: num(row.curveNotAdvancingMinDeltaGap, 6),
         maxScore: num(row.maxScore, 2),
         maxCurveProgress: num(row.maxCurveProgress, 6),
         samples: row.curveNotAdvancingSamples
+      })),
+      topPositive60sMints: topRows(
+        curveRows.filter((row) => row.curveNotAdvancingPositive60sRows > 0),
+        (a, b) => (
+          Number(b.curveNotAdvancingPositive60sCandidateRows || 0) - Number(a.curveNotAdvancingPositive60sCandidateRows || 0)
+          || Number(b.curveNotAdvancingMaxDelta60s || -Infinity) - Number(a.curveNotAdvancingMaxDelta60s || -Infinity)
+          || Number(b.maxScore || -Infinity) - Number(a.maxScore || -Infinity)
+        ),
+        10
+      ).map((row) => ({
+        mint: row.mint,
+        symbol: row.symbol,
+        positive60sRows: row.curveNotAdvancingPositive60sRows,
+        candidate60sRows: row.curveNotAdvancingPositive60sCandidateRows,
+        highScoreRows: row.curveNotAdvancingPositive60sHighScoreRows,
+        highVolumeRows: row.curveNotAdvancingPositive60sHighVolumeRows,
+        noNegativeDeltaRows: row.curveNotAdvancingPositive60sNoNegativeDeltaRows,
+        maxDelta60s: num(row.curveNotAdvancingMaxDelta60s, 6),
+        maxScore: num(row.maxScore, 2),
+        maxCurveProgress: num(row.maxCurveProgress, 6),
+        samples: row.curveNotAdvancingPositive60sSamples
       }))
     },
     staleCurveDiagnostics: {
@@ -668,6 +777,15 @@ function summarize(rows, telemetry, parityReport = null) {
     firstTouchDiagnostics: {
       mints: firstTouchRows.length,
       rows: firstTouchRows.reduce((sum, row) => sum + row.noTrackedFirstTouchRows, 0),
+      proofRows: firstTouchRows.reduce((sum, row) => sum + row.noTrackedFirstTouchProofRows, 0),
+      zeroTouchRows: firstTouchRows.reduce((sum, row) => sum + row.noTrackedFirstTouchZeroTouchRows, 0),
+      anyTouchRows: firstTouchRows.reduce((sum, row) => sum + row.noTrackedFirstTouchAnyTouchRows, 0),
+      buyTouchRows: firstTouchRows.reduce((sum, row) => sum + row.noTrackedFirstTouchBuyRows, 0),
+      pre85BuyTouchRows: firstTouchRows.reduce((sum, row) => sum + row.noTrackedFirstTouchPre85BuyRows, 0),
+      untrustedTouchRows: firstTouchRows.reduce((sum, row) => sum + row.noTrackedFirstTouchUntrustedTouchRows, 0),
+      untrustedBuyTouchRows: firstTouchRows.reduce((sum, row) => sum + row.noTrackedFirstTouchUntrustedBuyRows, 0),
+      untrustedPre85BuyTouchRows: firstTouchRows.reduce((sum, row) => sum + row.noTrackedFirstTouchUntrustedPre85BuyRows, 0),
+      proofBuckets: topObject(noTrackedFirstTouchProofBuckets),
       withWalletContextRows: firstTouchRows.reduce((sum, row) => sum + row.noTrackedFirstTouchWithWalletContextRows, 0),
       withPositiveTouchRows: firstTouchRows.reduce((sum, row) => sum + row.noTrackedFirstTouchWithPositiveTouchRows, 0),
       withAvoidTouchRows: firstTouchRows.reduce((sum, row) => sum + row.noTrackedFirstTouchWithAvoidTouchRows, 0),
@@ -682,6 +800,14 @@ function summarize(rows, telemetry, parityReport = null) {
         mint: row.mint,
         symbol: row.symbol,
         noTrackedFirstTouchRows: row.noTrackedFirstTouchRows,
+        proofBuckets: topObject(row.noTrackedFirstTouchProofBuckets, 6),
+        zeroTouchRows: row.noTrackedFirstTouchZeroTouchRows,
+        anyTouchRows: row.noTrackedFirstTouchAnyTouchRows,
+        buyTouchRows: row.noTrackedFirstTouchBuyRows,
+        pre85BuyTouchRows: row.noTrackedFirstTouchPre85BuyRows,
+        untrustedTouchRows: row.noTrackedFirstTouchUntrustedTouchRows,
+        untrustedBuyTouchRows: row.noTrackedFirstTouchUntrustedBuyRows,
+        untrustedPre85BuyTouchRows: row.noTrackedFirstTouchUntrustedPre85BuyRows,
         withWalletContextRows: row.noTrackedFirstTouchWithWalletContextRows,
         withPositiveTouchRows: row.noTrackedFirstTouchWithPositiveTouchRows,
         withAvoidTouchRows: row.noTrackedFirstTouchWithAvoidTouchRows,
@@ -759,11 +885,13 @@ function printReport(report) {
   console.log('Top skip reasons:');
   Object.entries(s.topSkipReasons).slice(0, 8).forEach(([key, value]) => console.log(`  - ${key}: ${value}`));
   const curve = s.curveNotAdvancingDiagnostics || {};
-  console.log(`CURVE_NOT_ADVANCING diagnostics: rows=${curve.rows || 0}, mints=${curve.mints || 0}, nearThreshold=${curve.nearThresholdRows || 0}, positive60s=${curve.positive60sRows || 0}, negativeDelta=${curve.negativeDeltaRows || 0}`);
+  console.log(`CURVE_NOT_ADVANCING diagnostics: rows=${curve.rows || 0}, mints=${curve.mints || 0}, nearThreshold=${curve.nearThresholdRows || 0}, positive60s=${curve.positive60sRows || 0}, candidate60s=${curve.positive60sCandidateRows || 0}, negativeDelta=${curve.negativeDeltaRows || 0}`);
   console.log('CURVE_NOT_ADVANCING readiness buckets:');
   Object.entries(curve.readinessBuckets || {}).slice(0, 8).forEach(([key, value]) => console.log(`  - ${key}: ${value}`));
   const touch = s.firstTouchDiagnostics || {};
-  console.log(`First-touch proof diagnostics: rows=${touch.rows || 0}, mints=${touch.mints || 0}, withWalletContext=${touch.withWalletContextRows || 0}, withPositiveTouch=${touch.withPositiveTouchRows || 0}, withAvoidTouch=${touch.withAvoidTouchRows || 0}`);
+  console.log(`First-touch proof diagnostics: rows=${touch.rows || 0}, mints=${touch.mints || 0}, proofRows=${touch.proofRows || 0}, zeroTouch=${touch.zeroTouchRows || 0}, anyTouch=${touch.anyTouchRows || 0}, buyTouch=${touch.buyTouchRows || 0}, pre85Buy=${touch.pre85BuyTouchRows || 0}, untrustedPre85=${touch.untrustedPre85BuyTouchRows || 0}, positive=${touch.withPositiveTouchRows || 0}`);
+  console.log('First-touch proof buckets:');
+  Object.entries(touch.proofBuckets || {}).slice(0, 8).forEach(([key, value]) => console.log(`  - ${key}: ${value}`));
   const stale = s.staleCurveDiagnostics || {};
   console.log(`Stale curve diagnostics: rows=${stale.rows || 0}, firstCurve=${stale.firstCurveStaleRows || 0}, highCurve=${stale.highCurveStaleRows || 0}`);
   const parity = s.targetedParityDiagnostics || {};

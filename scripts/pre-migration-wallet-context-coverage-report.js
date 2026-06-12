@@ -864,6 +864,7 @@ async function summarizeTelemetry(filePath, promotionIndex) {
     recorded: 0,
     ledgerFailures: 0,
     ledgerSkipped: 0,
+    untrustedTapeRecords: 0,
     trackedAccountMatch: 0,
     kolWalletProfileMatch: 0,
     shadowWalletProfileMatch: 0,
@@ -964,6 +965,7 @@ async function summarizeTelemetry(filePath, promotionIndex) {
         }
       }
       if (reason === 'RECORDED' || payload.ledgerRecord === true) walletGateDiagnostics.recorded += 1;
+      if (payload.untrustedTapeRecord === true) walletGateDiagnostics.untrustedTapeRecords += 1;
       if (reason === 'RECORDED' || payload.ledgerRecord === true) {
         const wallet = walletOf(payload);
         const mint = mintOf(payload);
@@ -1109,6 +1111,7 @@ async function summarizeTelemetry(filePath, promotionIndex) {
     recorded: walletGateDiagnostics.recorded,
     ledgerFailures: walletGateDiagnostics.ledgerFailures,
     ledgerSkipped: walletGateDiagnostics.ledgerSkipped,
+    untrustedTapeRecords: walletGateDiagnostics.untrustedTapeRecords,
     trackedAccountMatch: walletGateDiagnostics.trackedAccountMatch,
     kolWalletProfileMatch: walletGateDiagnostics.kolWalletProfileMatch,
     shadowWalletProfileMatch: walletGateDiagnostics.shadowWalletProfileMatch,
