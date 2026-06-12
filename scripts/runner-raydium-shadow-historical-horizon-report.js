@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { readJsonlSync } = require('./lib/jsonl');
 const { buildRows, summarizeHorizon } = require('./runner-raydium-shadow-fixed-horizon-report');
 
 const ROOT = path.join(__dirname, '..');
@@ -11,18 +12,7 @@ const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'runner-raydium-shadow-hi
 const HORIZON_KEYS = ['t5m', 't15m', 't30m'];
 
 function readJsonl(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  return fs.readFileSync(filePath, 'utf8')
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line.replace(/^\uFEFF/, ''));
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
+  return readJsonlSync(filePath);
 }
 
 function eventType(event) {

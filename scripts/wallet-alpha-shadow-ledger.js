@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { readJsonlSync } = require('./lib/jsonl');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_WALLET_ALPHA_PATH = path.join(REPO_ROOT, 'data', 'reports', 'wallet-alpha-replay-latest.json');
@@ -82,19 +83,7 @@ function listRecentTelemetryFiles(logDir, limit) {
 }
 
 function readJsonl(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  return fs.readFileSync(filePath, 'utf8')
-    .replace(/^\uFEFF/, '')
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
+  return readJsonlSync(filePath);
 }
 
 function getPrice(payload = {}) {

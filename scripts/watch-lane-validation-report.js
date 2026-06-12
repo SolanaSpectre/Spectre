@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { readJsonlSync } = require('./lib/jsonl');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_LOG_DIR = path.join(REPO_ROOT, 'run-logs');
@@ -70,17 +71,7 @@ function resolveLatestTelemetry(logDir) {
 }
 
 function parseJsonl(filePath) {
-  return fs.readFileSync(filePath, 'utf8')
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line.replace(/^\uFEFF/, ''));
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
+  return readJsonlSync(filePath);
 }
 
 function normalizeName(value) {

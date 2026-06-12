@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { readJsonlSync } = require('./lib/jsonl');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
@@ -10,18 +11,7 @@ const LIVE_ISSUES_PATH = path.join(LOG_DIR, 'live-terminal-issues.jsonl');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'simple-runtime-ai-evidence-latest.json');
 
 function readJsonl(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  return fs.readFileSync(filePath, 'utf8')
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line.replace(/^\uFEFF/, ''));
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
+  return readJsonlSync(filePath);
 }
 
 function telemetryFiles() {

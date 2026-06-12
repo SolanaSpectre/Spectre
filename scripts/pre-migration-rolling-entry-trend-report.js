@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { readJsonlSync } = require('./lib/jsonl');
 
 const ROOT = path.join(__dirname, '..');
 const RUN_LOGS_DIR = path.join(ROOT, 'run-logs');
@@ -113,18 +114,7 @@ function curveFreshnessBucket(curveUpdateAgeSeconds) {
 }
 
 function readJsonl(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  return fs.readFileSync(filePath, 'utf8')
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line.replace(/^\uFEFF/, ''));
-      } catch (_) {
-        return null;
-      }
-    })
-    .filter(Boolean);
+  return readJsonlSync(filePath);
 }
 
 function latestTelemetryFiles(limit) {

@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { forEachJsonlSync } = require('./lib/jsonl');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
@@ -99,21 +100,11 @@ function analyzeTelemetry(filePath) {
   let startMs = Infinity;
   let endMs = -Infinity;
 
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    let event;
-    try {
-      event = JSON.parse(line.replace(/^\uFEFF/, ''));
-    } catch {
-      malformedLines += 1;
-      continue;
-    }
+  const parseStats = forEachJsonlSync(filePath, (event) => {
     const type = event.type || event.event || 'unknown';
     const payload = event.payload || event.data || {};
     const atMs = new Date(event.timestamp || payload.timestamp || 0).getTime();
-    if (!Number.isFinite(atMs)) continue;
+    if (!Number.isFinite(atMs)) return;
 
     startMs = Math.min(startMs, atMs);
     endMs = Math.max(endMs, atMs);
@@ -153,7 +144,8 @@ function analyzeTelemetry(filePath) {
     }
 
     recentEvents.push({ atMs, type });
-  }
+  });
+  malformedLines += parseStats.malformedLines;
 
   const lagGapsMs = [];
   for (let index = 1; index < lagRows.length; index += 1) {

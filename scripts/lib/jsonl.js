@@ -2,47 +2,72 @@
 
 const fs = require('fs');
 
-function parseJsonlLine(line) {
-  const text = String(line || '').trim();
-  if (!text) return null;
+function parseJsonLine(line) {
+  if (!line) return null;
   try {
-    return JSON.parse(text.replace(/^\uFEFF/, ''));
+    return JSON.parse(line.replace(/^\uFEFF/, ''));
   } catch {
     return null;
   }
 }
 
-function readJsonl(filePath, options = {}) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  const encoding = options.encoding || 'utf8';
-  const chunkSize = Number(options.chunkSize || 4 * 1024 * 1024);
+function forEachJsonlSync(filePath, onRow, options = {}) {
+  if (!filePath || !fs.existsSync(filePath)) return { rows: 0, malformedLines: 0 };
+
+  const bufferSize = Number(options.bufferSize || 1024 * 1024);
+  const buffer = Buffer.allocUnsafe(bufferSize);
   const fd = fs.openSync(filePath, 'r');
-  const buffer = Buffer.alloc(Math.max(64 * 1024, chunkSize));
-  const rows = [];
+  let position = 0;
   let carry = '';
+  let rows = 0;
+  let malformedLines = 0;
 
   try {
     while (true) {
-      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, null);
-      if (bytesRead <= 0) break;
-      const chunk = carry + buffer.toString(encoding, 0, bytesRead);
-      const lines = chunk.split(/\r?\n/);
+      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, position);
+      if (bytesRead === 0) break;
+      position += bytesRead;
+
+      carry += buffer.toString('utf8', 0, bytesRead);
+      const lines = carry.split(/\r?\n/);
       carry = lines.pop() || '';
-      for (const line of lines) {
-        const row = parseJsonlLine(line);
-        if (row) rows.push(row);
+
+      for (const rawLine of lines) {
+        if (!rawLine) continue;
+        const row = parseJsonLine(rawLine);
+        if (!row) {
+          malformedLines += 1;
+          continue;
+        }
+        rows += 1;
+        onRow(row, rawLine);
       }
     }
-    const tail = parseJsonlLine(carry);
-    if (tail) rows.push(tail);
+
+    if (carry.trim()) {
+      const row = parseJsonLine(carry);
+      if (row) {
+        rows += 1;
+        onRow(row, carry);
+      } else {
+        malformedLines += 1;
+      }
+    }
   } finally {
     fs.closeSync(fd);
   }
 
+  return { rows, malformedLines };
+}
+
+function readJsonlSync(filePath, options = {}) {
+  const rows = [];
+  const stats = forEachJsonlSync(filePath, (row) => rows.push(row), options);
+  if (options.withStats) return { rows, ...stats };
   return rows;
 }
 
 module.exports = {
-  parseJsonlLine,
-  readJsonl
+  forEachJsonlSync,
+  readJsonlSync
 };

@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { forEachJsonlSync } = require('./lib/jsonl');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_OUTPUT = path.join(REPO_ROOT, 'data', 'reports', 'latest-run-summary.txt');
@@ -781,11 +782,7 @@ function readPumpPortalStatsFromTelemetry(battlefield = {}) {
     target.lastCloseReason = payload.reason || target.lastCloseReason;
   };
   try {
-    const lines = fs.readFileSync(resolvedPath, 'utf8').split(/\r?\n/);
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const event = JSON.parse(line);
+    forEachJsonlSync(resolvedPath, (event) => {
         if (event.type === 'provider.pumpportal.connected') {
           lifecycle.connected += 1;
           const payload = event.payload || event.data || {};
@@ -810,10 +807,7 @@ function readPumpPortalStatsFromTelemetry(battlefield = {}) {
           'data.pumpPortal'
         ], null);
         if (pumpPortal) stats = pumpPortal;
-      } catch (_) {
-        // Ignore malformed telemetry rows; the report should stay best-effort.
-      }
-    }
+    });
   } catch (error) {
     return {
       ok: false,
@@ -847,20 +841,13 @@ function readRuntimeStatsFromTelemetry(battlefield = {}) {
 
   let stats = null;
   try {
-    const lines = fs.readFileSync(resolvedPath, 'utf8').split(/\r?\n/);
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const event = JSON.parse(line);
+    forEachJsonlSync(resolvedPath, (event) => {
         const candidate = get(event, [
           'payload.stats',
           'data.stats'
         ], null);
         if (candidate) stats = candidate;
-      } catch (_) {
-        // Ignore malformed telemetry rows; this is best-effort report context.
-      }
-    }
+    });
   } catch (error) {
     return {
       ok: false,
@@ -1230,15 +1217,7 @@ function readPumpDevStatsFromTelemetry(battlefield = {}) {
 
   if (telemetryPath && fs.existsSync(telemetryPath)) {
     try {
-      const lines = fs.readFileSync(telemetryPath, 'utf8').split(/\r?\n/);
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        let event;
-        try {
-          event = JSON.parse(line);
-        } catch {
-          continue;
-        }
+      forEachJsonlSync(telemetryPath, (event) => {
         const payload = event.payload || event.data || {};
         if (event.type === 'provider.pumpdev.connected') {
           lifecycle.connected += 1;
@@ -1334,7 +1313,7 @@ function readPumpDevStatsFromTelemetry(battlefield = {}) {
           'data.pumpDev'
         ]);
         if (pumpDev) stats = pumpDev;
-      }
+      });
     } catch {}
   }
 
@@ -1650,18 +1629,9 @@ function readSolanaRpcCallTelemetry(battlefield = {}) {
   };
 
   try {
-    const lines = fs.readFileSync(resolvedPath, 'utf8').split(/\r?\n/);
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      let event;
-      try {
-        event = JSON.parse(line);
-      } catch (_) {
-        continue;
-      }
-
+    forEachJsonlSync(resolvedPath, (event) => {
       if (!String(event.type || '').startsWith('solana_rpc.call_')) {
-        continue;
+        return;
       }
 
       const payload = event.payload || event.data || {};
@@ -1673,7 +1643,7 @@ function readSolanaRpcCallTelemetry(battlefield = {}) {
         bump(summary.failedByMethod, payload.methodName);
         bump(summary.failedByCommitment, payload.commitment);
       }
-    }
+    });
   } catch (_) {
     return summary;
   }
@@ -1743,22 +1713,13 @@ function readFinalistAccountVerifierTelemetry(battlefield = {}) {
   };
 
   try {
-    const lines = fs.readFileSync(resolvedPath, 'utf8').split(/\r?\n/);
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      let event;
-      try {
-        event = JSON.parse(line);
-      } catch (_) {
-        continue;
-      }
-
+    forEachJsonlSync(resolvedPath, (event) => {
       const type = String(event.type || '');
       if (type === 'session.stopping' || type === 'session.stopped') {
         const stopStats = event.payload?.stats?.finalistAccountVerifier || null;
         if (stopStats) summary.stopStats = stopStats;
       }
-      if (!type.startsWith('finalist_account_verifier.')) continue;
+      if (!type.startsWith('finalist_account_verifier.')) return;
       const payload = event.payload || event.data || {};
       const mint = payload.mint || null;
       const symbol = payload.symbol || null;
@@ -1860,7 +1821,7 @@ function readFinalistAccountVerifierTelemetry(battlefield = {}) {
           maxCurveDelta: payload.maxCurveDelta ?? null
         });
       }
-    }
+    });
   } catch (_) {
     return summary;
   }
@@ -1941,17 +1902,9 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
   };
 
   try {
-    const lines = fs.readFileSync(resolvedPath, 'utf8').split(/\r?\n/);
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      let event;
-      try {
-        event = JSON.parse(line);
-      } catch (_) {
-        continue;
-      }
+    forEachJsonlSync(resolvedPath, (event) => {
       const type = String(event.type || '');
-      if (!type.startsWith('live_dry_run.')) continue;
+      if (!type.startsWith('live_dry_run.')) return;
       const payload = event.payload || event.data || {};
       const mint = payload.mint || null;
       if (mint) mints.add(mint);
@@ -2030,7 +1983,7 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
           txBuildStatus: payload.txBuildStatus || null
         });
       }
-    }
+    });
   } catch (_) {
     return summary;
   }
@@ -2058,16 +2011,7 @@ function readRuntimeHealthTelemetry(battlefield = {}) {
 
   const lagValues = [];
   try {
-    const lines = fs.readFileSync(resolvedPath, 'utf8').split(/\r?\n/);
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      let event;
-      try {
-        event = JSON.parse(line);
-      } catch (_) {
-        continue;
-      }
-
+    forEachJsonlSync(resolvedPath, (event) => {
       const type = String(event.type || '');
       const payload = event.payload || event.data || {};
       if (type === 'runtime.event_loop_lag') {
@@ -2078,7 +2022,7 @@ function readRuntimeHealthTelemetry(battlefield = {}) {
       } else if (type === 'runtime.event_loop_monitor_summary') {
         summary.eventLoopSummary = payload;
       }
-    }
+    });
   } catch (_) {
     return summary;
   }
