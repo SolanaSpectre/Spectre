@@ -695,7 +695,20 @@ async function main() {
   console.log(`Wrote JSON report: ${outputPath}`);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  analyzeDecision,
+  buildReport,
+  compactDecision,
+  latestTelemetryFile,
+  num,
+  readTelemetry,
+  repoPath,
+  stat
+};

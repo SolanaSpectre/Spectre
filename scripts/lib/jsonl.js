@@ -69,5 +69,6 @@ function readJsonlSync(filePath, options = {}) {
 
 module.exports = {
   forEachJsonlSync,
-  readJsonlSync
+  readJsonlSync,
+  readJsonl: readJsonlSync
 };

@@ -7,6 +7,7 @@ const DEFAULT_OUTPUT = path.join(REPO_ROOT, 'data', 'reports', 'latest-run-summa
 
 const FILES = {
   battlefield: 'data/reports/run-battlefield-latest.json',
+  telemetryPathAudit: 'data/reports/report-telemetry-path-audit-latest.json',
   simpleRuntimeAiEvidence: 'data/reports/simple-runtime-ai-evidence-latest.json',
   liveReadiness: 'data/reports/live-readiness-latest.json',
   pumpDevCurveParity: 'data/reports/pumpdev-curve-parity-latest.json',
@@ -30,6 +31,7 @@ const FILES = {
   preMigrationEntryGateMargin: 'data/reports/pre-migration-entry-gate-margin-latest.json',
   preMigrationSingleGateShadow: 'data/reports/pre-migration-single-gate-shadow-latest.json',
   preMigrationCurveAdvanceDiagnostic: 'data/reports/pre-migration-curve-advance-diagnostic-latest.json',
+  preMigrationCurveNotAdvancingSeparability: 'data/reports/pre-migration-curve-not-advancing-separability-latest.json',
   preMigrationGuardAttribution: 'data/reports/pre-migration-guard-attribution-latest.json',
   preMigrationSkipFollowThrough: 'data/reports/pre-migration-skip-follow-through-latest.json',
   preMigrationSkipNear90Watchlist: 'data/reports/pre-migration-skip-near-90-watchlist-latest.json',
@@ -2234,6 +2236,7 @@ function buildLaunchDecisionLines({
 
 function buildSummary(docs) {
   const battlefield = docs.battlefield.data || {};
+  const telemetryPathAudit = docs.telemetryPathAudit.data || {};
   const simpleRuntimeAiEvidence = docs.simpleRuntimeAiEvidence.data || {};
   const liveReadiness = docs.liveReadiness.data || {};
   const pumpDevCurveParity = docs.pumpDevCurveParity.data || {};
@@ -2255,6 +2258,7 @@ function buildSummary(docs) {
   const entryShape = docs.preMigrationEntryShape.data || {};
   const entryFunnel = docs.preMigrationEntryFunnel.data || {};
   const curveAdvanceDiagnostic = docs.preMigrationCurveAdvanceDiagnostic.data || {};
+  const curveNotAdvancingSeparability = docs.preMigrationCurveNotAdvancingSeparability.data || {};
   const skipFollowThrough = docs.preMigrationSkipFollowThrough.data || {};
   const skipNear90Watchlist = docs.preMigrationSkipNear90Watchlist.data || {};
   const highConvictionWatchFollowThrough = docs.preMigrationHighConvictionWatchFollowThrough.data || {};
@@ -2393,6 +2397,23 @@ function buildSummary(docs) {
     runnerRejectEntryReplay: docs.runnerRejectEntryReplay.data || {},
     strategyCandidateScorecard
   }));
+
+  const telemetryAuditSummary = telemetryPathAudit.summary || {};
+  if (Object.keys(telemetryAuditSummary).length) {
+    lines.push('0a. Telemetry Path Audit');
+    lines.push('------------------------');
+    lines.push(`- Newest telemetry: ${telemetryPathAudit.newestTelemetryPath || 'n/a'}.`);
+    lines.push(`- Reports scanned / with issues: ${telemetryAuditSummary.reportsScanned ?? 'n/a'} / ${telemetryAuditSummary.reportsWithIssues ?? 'n/a'}.`);
+    lines.push(`- Issue counts: ${formatTopCounts(telemetryAuditSummary.issueCounts)}.`);
+    const auditRows = topArray(telemetryPathAudit.issueRows, 5);
+    if (auditRows.length) {
+      lines.push('- Top issue rows:');
+      auditRows.forEach((row, index) => {
+        lines.push(`  ${index + 1}. ${row.reportPath || 'unknown'} | issues=${Array.isArray(row.issues) ? row.issues.join(',') : 'n/a'}`);
+      });
+    }
+    lines.push('');
+  }
 
   if (strategyCandidateScorecard.summary) {
     const scorecardSummary = strategyCandidateScorecard.summary;
@@ -3861,6 +3882,31 @@ function buildSummary(docs) {
   if (curveAdvanceClosest.length) {
     lines.push('- Closest threshold misses:');
     curveAdvanceClosest.forEach((item, index) => lines.push(`  ${index + 1}. ${summarizeCurveAdvanceDiagnostic(item)}`));
+  }
+  lines.push('');
+
+  const separabilitySummary = curveNotAdvancingSeparability.summary || {};
+  const topSeparators = topArray(curveNotAdvancingSeparability.topSeparators, 8);
+  const featureRows = topArray(curveNotAdvancingSeparability.features, 8);
+  lines.push('9b3a. CURVE_NOT_ADVANCING Separability');
+  lines.push('--------------------------------------');
+  lines.push('- Mode: report-only; compares decision-time features for strong follow-through vs correctly blocked flat CURVE_NOT_ADVANCING rows.');
+  lines.push(`- Verdict: ${separabilitySummary.verdict || 'n/a'}; strong/useful/flat rows=${separabilitySummary.strongFollowThroughRows ?? 'n/a'} / ${separabilitySummary.usefulFollowThroughRows ?? 'n/a'} / ${separabilitySummary.correctlyBlockedFlatRows ?? 'n/a'}.`);
+  lines.push(`- Strong wallet buckets: ${formatTopCounts(separabilitySummary.strongWalletBuckets)}; flat wallet buckets: ${formatTopCounts(separabilitySummary.flatWalletBuckets)}.`);
+  lines.push(`- Curve delta 120s strong median/p90/max: ${fmt(separabilitySummary.strongCurveDelta120s?.median, 4)} / ${fmt(separabilitySummary.strongCurveDelta120s?.p90, 4)} / ${fmt(separabilitySummary.strongCurveDelta120s?.max, 4)}; flat median/p90/max: ${fmt(separabilitySummary.flatCurveDelta120s?.median, 4)} / ${fmt(separabilitySummary.flatCurveDelta120s?.p90, 4)} / ${fmt(separabilitySummary.flatCurveDelta120s?.max, 4)}.`);
+  if (topSeparators.length) {
+    lines.push('- Potential separators:');
+    topSeparators.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.key || item.label || 'unknown'} | score=${fmt(item.separationScore, 4)} | dir=${item.bestDirection || 'n/a'} | strongMed=${fmt(item.strong?.median, 4)} | flatMed=${fmt(item.flat?.median, 4)} | iqrOverlap=${fmt(item.iqrOverlap, 4)}`);
+    });
+  } else {
+    lines.push('- Potential separators: none above threshold.');
+  }
+  if (featureRows.length) {
+    lines.push('- Top feature scores:');
+    featureRows.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.key || item.label || 'unknown'} | score=${fmt(item.separationScore, 4)} | dir=${item.bestDirection || 'n/a'} | strongMed=${fmt(item.strong?.median, 4)} | flatMed=${fmt(item.flat?.median, 4)}`);
+    });
   }
   lines.push('');
 

@@ -184,7 +184,10 @@ function replaySet(candidates, snapshotsByMint, sizeSol, feeSol) {
 }
 
 async function buildReport(options = {}) {
-  const telemetryPath = repoPath(options.telemetry || telemetryFromBattlefield() || latestTelemetryFile());
+  const telemetryPath = require('./lib/report-telemetry').resolveTelemetryPath(ROOT, {
+    telemetry: options.telemetry,
+    reportTelemetry: telemetryFromBattlefield()
+  }) || latestTelemetryFile();
   if (!telemetryPath || !fs.existsSync(telemetryPath)) {
     throw new Error(`Telemetry file not found: ${telemetryPath || 'none'}`);
   }

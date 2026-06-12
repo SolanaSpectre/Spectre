@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { readJsonlSync } = require('./lib/jsonl');
+const { resolveTelemetryPath } = require('./lib/report-telemetry');
 
 const ROOT = path.join(__dirname, '..');
 const BATTLEFIELD_PATH = path.join(ROOT, 'data', 'reports', 'run-battlefield-latest.json');
@@ -177,7 +178,9 @@ function compactEntry(payload = {}, exitPayload = {}, priorBadExitCount = 0) {
 
 function buildReport() {
   const battlefield = readJson(BATTLEFIELD_PATH);
-  const telemetryPath = battlefield.files?.telemetryPath || null;
+  const telemetryPath = resolveTelemetryPath(ROOT, {
+    reportTelemetry: battlefield.files?.telemetryPath || battlefield.telemetryPath
+  });
   const events = readJsonl(telemetryPath);
   const entries = events.filter((event) => eventType(event) === 'pre_migration_paper.entry');
   const exits = events.filter((event) => eventType(event) === 'pre_migration_paper.exit');

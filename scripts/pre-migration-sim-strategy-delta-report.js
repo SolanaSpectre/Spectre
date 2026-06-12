@@ -3,6 +3,7 @@ const path = require('path');
 const { readJsonlSync } = require('./lib/jsonl');
 
 const ROOT = path.join(__dirname, '..');
+const RUN_LOGS_DIR = path.join(ROOT, 'run-logs');
 const SIGNAL_QUALITY_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-signal-quality-latest.json');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-sim-strategy-delta-latest.json');
 // Wider than exact entry matching so nearby guard decisions on rechecks still classify the sim trade.
@@ -23,6 +24,14 @@ function readJsonl(filePath) {
 
 function rel(filePath) {
   return filePath ? path.relative(ROOT, filePath).replace(/\\/g, '/') : null;
+}
+
+function normalizeTelemetryPath(filePath) {
+  if (!filePath) return null;
+  const direct = path.isAbsolute(filePath) ? filePath : path.join(ROOT, filePath);
+  if (fs.existsSync(direct)) return direct;
+  const localByName = path.join(RUN_LOGS_DIR, path.basename(filePath));
+  return fs.existsSync(localByName) ? localByName : direct;
 }
 
 function eventType(event) {
@@ -162,7 +171,10 @@ function compactTrade(trade, decisions) {
 
 function buildReport() {
   const signalQuality = readJson(SIGNAL_QUALITY_PATH);
-  const trades = Array.isArray(signalQuality.trades) ? signalQuality.trades : [];
+  const trades = (Array.isArray(signalQuality.trades) ? signalQuality.trades : []).map((trade) => ({
+    ...trade,
+    telemetryPath: normalizeTelemetryPath(trade.telemetryPath)
+  }));
   const telemetryPaths = [...new Set(trades.map((trade) => trade.telemetryPath).filter(Boolean))];
   const decisionMaps = loadDecisionMaps(telemetryPaths);
   const rows = trades.map((trade) => {

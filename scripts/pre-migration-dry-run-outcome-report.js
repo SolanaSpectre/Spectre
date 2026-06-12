@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const { resolveTelemetryPath, telemetryFromReport } = require('./lib/report-telemetry');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
@@ -45,12 +46,7 @@ function latestTelemetryFile() {
 }
 
 function telemetryFromBattlefield() {
-  try {
-    const report = JSON.parse(fs.readFileSync(BATTLEFIELD_PATH, 'utf8').replace(/^\uFEFF/, ''));
-    return report.files?.telemetryPath || report.telemetryPath || null;
-  } catch {
-    return null;
-  }
+  return telemetryFromReport(ROOT, BATTLEFIELD_PATH);
 }
 
 function timestampMs(value) {
@@ -360,7 +356,10 @@ function topRows(outcomes, limit = 12) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const telemetryPath = repoPath(args.telemetry || telemetryFromBattlefield() || latestTelemetryFile());
+  const telemetryPath = resolveTelemetryPath(ROOT, {
+    telemetry: args.telemetry,
+    reportTelemetry: telemetryFromBattlefield()
+  }) || latestTelemetryFile();
   if (!telemetryPath || !fs.existsSync(telemetryPath)) {
     throw new Error(`Telemetry file not found: ${telemetryPath || 'none'}`);
   }
