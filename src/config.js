@@ -1128,6 +1128,66 @@ class Config {
     return parseInt(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_MAX_HOLD_SECONDS || '180', 10);
   }
 
+  static get preMigrationPaperDelayedCurveConfirmationEnabled() {
+    return process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_ENABLED === 'true';
+  }
+
+  static get preMigrationPaperDelayedCurveConfirmationMinScore() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MIN_SCORE || '75');
+  }
+
+  static get preMigrationPaperDelayedCurveConfirmationMinSourceCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MIN_SOURCE_CURVE_PROGRESS || '0.50');
+  }
+
+  static get preMigrationPaperDelayedCurveConfirmationMaxSourceCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MAX_SOURCE_CURVE_PROGRESS || '0.95');
+  }
+
+  static get preMigrationPaperDelayedCurveConfirmationMinRecentVolumeSol() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MIN_RECENT_VOLUME_SOL || '12');
+  }
+
+  static get preMigrationPaperDelayedCurveConfirmationMinTradeVelocityPerMin() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MIN_TRADE_VELOCITY_PER_MIN || '12');
+  }
+
+  static get preMigrationPaperDelayedCurveConfirmationMinCurveDelta() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MIN_CURVE_DELTA || '0.03');
+  }
+
+  static get preMigrationPaperDelayedCurveConfirmationMinConfirmCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MIN_CONFIRM_CURVE_PROGRESS || '0.75');
+  }
+
+  static get preMigrationPaperDelayedCurveConfirmationLookaheadMs() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_LOOKAHEAD_MS || '120000', 10);
+  }
+
+  static get preMigrationPaperDelayedCurveConfirmationMaxEntriesPerRun() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MAX_ENTRIES_PER_RUN || '2', 10);
+  }
+
+  static get preMigrationPaperDelayedCurveConfirmationAmountSol() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_AMOUNT_SOL || '0.05');
+  }
+
+  static get preMigrationPaperDelayedCurveConfirmationTakeProfitPct() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_TAKE_PROFIT_PCT || '0.50');
+  }
+
+  static get preMigrationPaperDelayedCurveConfirmationStopLossPct() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_STOP_LOSS_PCT || '0.25');
+  }
+
+  static get preMigrationPaperDelayedCurveConfirmationMaxHoldSeconds() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MAX_HOLD_SECONDS || '120', 10);
+  }
+
+  static get preMigrationPaperDelayedCurveConfirmationRequireNoAvoidWallet() {
+    return process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_REQUIRE_NO_AVOID_WALLET !== 'false';
+  }
+
   static get birdeyeApiBaseUrl() {
     return process.env.BIRDEYE_API_BASE_URL || 'https://public-api.birdeye.so';
   }

@@ -76,6 +76,7 @@ const POST_RUN_REPORTS = [
   { title: 'Pre-Migration Wallet-Relaxed Shadow Outcome', script: 'pre-migration-wallet-relaxed-shadow-outcome-report.js' },
   { title: 'Pre-Migration Wallet Context Coverage', script: 'pre-migration-wallet-context-coverage-report.js' },
   { title: 'Pre-Migration Wallet Context Follow-through', script: 'pre-migration-wallet-context-follow-through-report.js' },
+  { title: 'Pre-Migration Wallet Channel Health', script: 'pre-migration-wallet-channel-health-report.js' },
   { title: 'Pre-Migration Entry Candidate Review', script: 'pre-migration-entry-candidate-review-report.js' },
   { title: 'Pre-Migration Wallet-Supported Near-Miss Replay', script: 'pre-migration-wallet-supported-near-miss-replay-report.js' },
   { title: 'Pre-Migration Same-Mint Reentry Impact', script: 'pre-migration-same-mint-reentry-impact-report.js' },

@@ -101,6 +101,17 @@ class PreMigrationPaperLane {
     this.curveFalseNegativeBridgeRecoveryLookbackMs = Math.max(1000, Number(config.preMigrationPaperCurveFalseNegativeBridgeRecoveryLookbackMs ?? 30_000));
     this.curveFalseNegativeBridgeRecoveryMinAdvance = Number(config.preMigrationPaperCurveFalseNegativeBridgeRecoveryMinAdvance ?? 0.003);
     this.curveFalseNegativeBridgeParityMaxDelta = Number(config.preMigrationPaperCurveFalseNegativeBridgeParityMaxDelta ?? 0.03);
+    this.delayedCurveConfirmationEnabled = config.preMigrationPaperDelayedCurveConfirmationEnabled === true;
+    this.delayedCurveConfirmationMinScore = Number(config.preMigrationPaperDelayedCurveConfirmationMinScore ?? 75);
+    this.delayedCurveConfirmationMinSourceCurveProgress = Number(config.preMigrationPaperDelayedCurveConfirmationMinSourceCurveProgress ?? 0.5);
+    this.delayedCurveConfirmationMaxSourceCurveProgress = Number(config.preMigrationPaperDelayedCurveConfirmationMaxSourceCurveProgress ?? 0.95);
+    this.delayedCurveConfirmationMinRecentVolumeSol = Number(config.preMigrationPaperDelayedCurveConfirmationMinRecentVolumeSol ?? 12);
+    this.delayedCurveConfirmationMinTradeVelocityPerMin = Number(config.preMigrationPaperDelayedCurveConfirmationMinTradeVelocityPerMin ?? 12);
+    this.delayedCurveConfirmationMinCurveDelta = Number(config.preMigrationPaperDelayedCurveConfirmationMinCurveDelta ?? 0.03);
+    this.delayedCurveConfirmationMinConfirmCurveProgress = Number(config.preMigrationPaperDelayedCurveConfirmationMinConfirmCurveProgress ?? 0.75);
+    this.delayedCurveConfirmationLookaheadMs = Math.max(1000, Number(config.preMigrationPaperDelayedCurveConfirmationLookaheadMs ?? 120_000));
+    this.delayedCurveConfirmationMaxEntriesPerRun = Math.max(0, Number(config.preMigrationPaperDelayedCurveConfirmationMaxEntriesPerRun ?? 2));
+    this.delayedCurveConfirmationRequireNoAvoidWallet = config.preMigrationPaperDelayedCurveConfirmationRequireNoAvoidWallet !== false;
     this.unflaggedEntryShadowEnabled = config.preMigrationPaperUnflaggedEntryShadowEnabled !== false;
     this.unflaggedEntryShadowMinScore = Number(config.preMigrationPaperUnflaggedEntryShadowMinScore ?? 70);
     this.unflaggedEntryShadowMinCurveProgress = Number(config.preMigrationPaperUnflaggedEntryShadowMinCurveProgress ?? 0.7);
@@ -145,6 +156,8 @@ class PreMigrationPaperLane {
     this.symbolEntryHistory = new Map();
     this.badExitCooldowns = new Map();
     this.sameMintExitCooldowns = new Map();
+    this.delayedCurveConfirmationPending = new Map();
+    this.delayedCurveConfirmationSeen = new Set();
 
     for (const preset of this.presets) {
       this.stats.presets[preset.name] = this.createPresetStats(preset.strategy);
@@ -201,6 +214,9 @@ class PreMigrationPaperLane {
         && !this.openPositions.has(key)
         && flagged
       ) {
+        if (preset.delayedConfirmationOnly === true) {
+          continue;
+        }
         const cooldown = this.getBadExitCooldown(mint, timestamp);
         if (cooldown.active) {
           events.push(this.guardAttributionEvent(observedState, timestamp, preset, {
@@ -294,7 +310,200 @@ class PreMigrationPaperLane {
       }
     }
 
+    events.push(...this.updateDelayedCurveConfirmationPaper(observedState, timestamp, price, entryGuards, flagged));
+
     return events;
+  }
+
+  delayedCurveConfirmationPreset() {
+    return this.presets.find((preset) => preset.name === 'delayedCurveConfirmation') || null;
+  }
+
+  updateDelayedCurveConfirmationPaper(state = {}, timestamp, price, entryGuards = {}, flagged = false) {
+    if (!this.delayedCurveConfirmationEnabled) {
+      return [];
+    }
+
+    const events = [];
+    const nowMs = new Date(timestamp || Date.now()).getTime();
+    if (!Number.isFinite(nowMs)) return events;
+    events.push(...this.expireDelayedCurveConfirmationPaper(nowMs));
+    const preset = this.delayedCurveConfirmationPreset();
+    if (!preset) return events;
+
+    const mint = state.mint;
+    const pending = mint ? this.delayedCurveConfirmationPending.get(mint) : null;
+    if (pending && !this.getActivePositionForMint(mint)) {
+      const curveProgress = Number(state.curveProgress);
+      const delta = curveProgress - Number(pending.sourceCurveProgress);
+      const hasPrice = Number.isFinite(price) && price > 0;
+      if (
+        hasPrice
+        && Number.isFinite(curveProgress)
+        && Number.isFinite(delta)
+        && delta >= this.delayedCurveConfirmationMinCurveDelta
+        && curveProgress >= this.delayedCurveConfirmationMinConfirmCurveProgress
+      ) {
+        this.delayedCurveConfirmationPending.delete(mint);
+        this.delayedCurveConfirmationSeen.add(mint);
+        const details = this.delayedCurveConfirmationDetails(pending, state, {
+          passed: true,
+          reason: null,
+          guardOverride: 'DELAYED_CURVE_CONFIRMATION',
+          curveProgressDeltaFromSource: this.compact(delta, 6),
+          confirmedAt: timestamp,
+          secondsToConfirm: this.compact((nowMs - pending.sourceAtMs) / 1000, 3),
+          effectiveStrategy: preset.strategy
+        });
+        events.push(this.decisionEvent('PAPER_ELIGIBLE', state, timestamp, preset, details));
+        events.push(this.enter(state, timestamp, preset, details));
+        return events;
+      }
+    }
+
+    const queue = this.queueDelayedCurveConfirmationPaper(state, timestamp, entryGuards, flagged, preset);
+    if (queue) events.push(queue);
+    return events;
+  }
+
+  queueDelayedCurveConfirmationPaper(state = {}, timestamp, entryGuards = {}, flagged = false, preset = null) {
+    if (!preset || !flagged || entryGuards?.reason !== 'CURVE_NOT_ADVANCING') {
+      return null;
+    }
+    const mint = state.mint;
+    if (!mint || this.delayedCurveConfirmationPending.has(mint) || this.delayedCurveConfirmationSeen.has(mint)) {
+      return null;
+    }
+    if (this.getActivePositionForMint(mint)) {
+      return null;
+    }
+    const cap = this.evaluatePresetEntryCap(preset);
+    if (!cap.passed) {
+      return null;
+    }
+
+    const score = Number(state.score);
+    const curveProgress = Number(state.curveProgress);
+    const recentVolumeSol = Number(state.recentVolumeSol);
+    const tradeVelocityPerMin = Number(state.tradeVelocityPerMin);
+    const avoidWalletTouchCount = this.avoidWalletTouchCount(state.walletClassificationContext || {});
+    const eligible = Number.isFinite(score)
+      && score >= this.delayedCurveConfirmationMinScore
+      && Number.isFinite(curveProgress)
+      && curveProgress >= this.delayedCurveConfirmationMinSourceCurveProgress
+      && curveProgress <= this.delayedCurveConfirmationMaxSourceCurveProgress
+      && Number.isFinite(recentVolumeSol)
+      && recentVolumeSol >= this.delayedCurveConfirmationMinRecentVolumeSol
+      && Number.isFinite(tradeVelocityPerMin)
+      && tradeVelocityPerMin >= this.delayedCurveConfirmationMinTradeVelocityPerMin
+      && (!this.delayedCurveConfirmationRequireNoAvoidWallet || avoidWalletTouchCount <= 0);
+    if (!eligible) {
+      return null;
+    }
+
+    const sourceAtMs = new Date(timestamp || Date.now()).getTime();
+    if (!Number.isFinite(sourceAtMs)) return null;
+    const pending = {
+      mint,
+      symbol: state.symbol || null,
+      sourceAt: timestamp,
+      sourceAtMs,
+      expiresAtMs: sourceAtMs + this.delayedCurveConfirmationLookaheadMs,
+      sourceReason: entryGuards.reason,
+      sourceCurveProgress: curveProgress,
+      sourceScore: score,
+      sourceRecentVolumeSol: recentVolumeSol,
+      sourceTradeVelocityPerMin: tradeVelocityPerMin,
+      sourceCurveProgressDelta: entryGuards.curveProgressDelta ?? null,
+      avoidWalletTouchCount
+    };
+    this.delayedCurveConfirmationPending.set(mint, pending);
+    return {
+      type: 'diagnostic',
+      telemetryType: 'pre_migration_delayed_curve_confirmation.paper_pending',
+      payload: {
+        ...this.delayedCurveConfirmationDetails(pending, state, {
+          passed: false,
+          reason: 'PENDING_DELAYED_CURVE_CONFIRMATION',
+          guardOverride: 'DELAYED_CURVE_CONFIRMATION'
+        }),
+        decision: 'PAPER_PENDING',
+        preset: preset.name,
+        lane: preset.lane,
+        profileName: preset.profileName,
+        expiresAt: new Date(pending.expiresAtMs).toISOString(),
+        minCurveDelta: this.compact(this.delayedCurveConfirmationMinCurveDelta, 6),
+        minConfirmCurveProgress: this.compact(this.delayedCurveConfirmationMinConfirmCurveProgress, 6),
+        lookaheadMs: this.delayedCurveConfirmationLookaheadMs
+      }
+    };
+  }
+
+  expireDelayedCurveConfirmationPaper(nowMs) {
+    const events = [];
+    const preset = this.delayedCurveConfirmationPreset();
+    if (!preset || this.delayedCurveConfirmationPending.size === 0) {
+      return events;
+    }
+    for (const [mint, pending] of Array.from(this.delayedCurveConfirmationPending.entries())) {
+      if (nowMs <= pending.expiresAtMs) continue;
+      this.delayedCurveConfirmationPending.delete(mint);
+      this.delayedCurveConfirmationSeen.add(mint);
+      events.push({
+        type: 'diagnostic',
+        telemetryType: 'pre_migration_delayed_curve_confirmation.paper_expired',
+        payload: {
+          ...this.delayedCurveConfirmationDetails(pending, { mint, symbol: pending.symbol }, {
+            passed: false,
+            reason: 'NO_DELAYED_CURVE_CONFIRMATION_WITHIN_WINDOW',
+            guardOverride: 'DELAYED_CURVE_CONFIRMATION'
+          }),
+          decision: 'PAPER_EXPIRED',
+          preset: preset.name,
+          lane: preset.lane,
+          profileName: preset.profileName,
+          expiredAt: new Date(nowMs).toISOString()
+        }
+      });
+    }
+    return events;
+  }
+
+  delayedCurveConfirmationDetails(pending = {}, state = {}, extra = {}) {
+    const sourceAtMs = Number(pending.sourceAtMs);
+    const nowMs = new Date(extra.confirmedAt || state.timestamp || Date.now()).getTime();
+    return {
+      ...extra,
+      delayedCurveConfirmationPaper: true,
+      sourceReason: pending.sourceReason || null,
+      sourceAt: pending.sourceAt || null,
+      sourceScore: this.compact(pending.sourceScore, 2),
+      sourceCurveProgress: this.compact(pending.sourceCurveProgress, 6),
+      sourceRecentVolumeSol: this.compact(pending.sourceRecentVolumeSol, 4),
+      sourceTradeVelocityPerMin: this.compact(pending.sourceTradeVelocityPerMin, 2),
+      sourceCurveProgressDelta: this.compact(pending.sourceCurveProgressDelta, 6),
+      avoidWalletTouchCount: Number.isFinite(Number(pending.avoidWalletTouchCount)) ? Number(pending.avoidWalletTouchCount) : null,
+      minScore: this.delayedCurveConfirmationMinScore,
+      minSourceCurveProgress: this.delayedCurveConfirmationMinSourceCurveProgress,
+      maxSourceCurveProgress: this.delayedCurveConfirmationMaxSourceCurveProgress,
+      minRecentVolumeSol: this.delayedCurveConfirmationMinRecentVolumeSol,
+      minTradeVelocityPerMin: this.delayedCurveConfirmationMinTradeVelocityPerMin,
+      minCurveDelta: this.delayedCurveConfirmationMinCurveDelta,
+      minConfirmCurveProgress: this.delayedCurveConfirmationMinConfirmCurveProgress,
+      secondsSinceSource: Number.isFinite(sourceAtMs) && Number.isFinite(nowMs)
+        ? this.compact((nowMs - sourceAtMs) / 1000, 3)
+        : null
+    };
+  }
+
+  avoidWalletTouchCount(context = {}) {
+    const wallets = [
+      ...(Array.isArray(context.wallets) ? context.wallets : []),
+      ...(Array.isArray(context.shadowWallets) ? context.shadowWallets : [])
+    ];
+    return wallets.filter((wallet) =>
+      wallet.reviewTier === 'AVOID_REVIEW' || wallet.evidenceTier === 'NEGATIVE_EVIDENCE'
+    ).length;
   }
 
   shouldShadowUnflaggedEntry(state = {}) {
@@ -397,13 +606,34 @@ class PreMigrationPaperLane {
         amountSol: config.preMigrationPaperAmountSol
       }
     };
+    const delayedCurveConfirmation = {
+      name: 'delayedCurveConfirmation',
+      lane: 'PRE_MIGRATION_DELAYED_CURVE_CONFIRMATION',
+      profileName: 'pre_migration_delayed_curve_confirmation',
+      maxEntriesPerRun: config.preMigrationPaperDelayedCurveConfirmationMaxEntriesPerRun,
+      delayedConfirmationOnly: true,
+      strategy: {
+        minScore: config.preMigrationPaperDelayedCurveConfirmationMinScore,
+        minCurveProgress: config.preMigrationPaperDelayedCurveConfirmationMinConfirmCurveProgress,
+        minRecentVolumeSol: config.preMigrationPaperDelayedCurveConfirmationMinRecentVolumeSol,
+        minTradeVelocityPerMin: config.preMigrationPaperDelayedCurveConfirmationMinTradeVelocityPerMin,
+        takeProfitPct: config.preMigrationPaperDelayedCurveConfirmationTakeProfitPct,
+        stopLossPct: config.preMigrationPaperDelayedCurveConfirmationStopLossPct,
+        maxHoldSeconds: config.preMigrationPaperDelayedCurveConfirmationMaxHoldSeconds,
+        amountSol: config.preMigrationPaperDelayedCurveConfirmationAmountSol
+      }
+    };
 
     const enabled = String(config.preMigrationPaperEnabledPresets || 'strictMigration,highConfidenceRunner,earlyAccelerationRunner,highConvictionFirstSight,curveFalseNegativeWalletBridge')
       .split(',')
       .map((name) => name.trim())
       .filter(Boolean);
-    const presets = [strictMigration, highConfidenceRunner, earlyAccelerationRunner, highConvictionFirstSight, curveFalseNegativeWalletBridge]
-      .filter((preset) => enabled.includes(preset.name))
+    const presetCandidates = [strictMigration, highConfidenceRunner, earlyAccelerationRunner, highConvictionFirstSight, curveFalseNegativeWalletBridge];
+    if (config.preMigrationPaperDelayedCurveConfirmationEnabled === true) {
+      presetCandidates.push(delayedCurveConfirmation);
+    }
+    const presets = presetCandidates
+      .filter((preset) => enabled.includes(preset.name) || (preset.name === 'delayedCurveConfirmation' && config.preMigrationPaperDelayedCurveConfirmationEnabled === true))
       .map((preset) => ({
         ...preset,
         exitProfile: this.buildExitProfile(preset.profileName, preset.strategy)

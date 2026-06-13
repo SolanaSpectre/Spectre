@@ -52,6 +52,7 @@ const FILES = {
   preMigrationWalletRelaxedShadowOutcome: 'data/reports/pre-migration-wallet-relaxed-shadow-outcome-latest.json',
   preMigrationWalletContextCoverage: 'data/reports/pre-migration-wallet-context-coverage-latest.json',
   preMigrationWalletContextFollowThrough: 'data/reports/pre-migration-wallet-context-follow-through-latest.json',
+  preMigrationWalletChannelHealth: 'data/reports/pre-migration-wallet-channel-health-latest.json',
   preMigrationEntryCandidateReview: 'data/reports/pre-migration-entry-candidate-review-latest.json',
   preMigrationWalletSupportedNearMissReplay: 'data/reports/pre-migration-wallet-supported-near-miss-replay-latest.json',
   preMigrationSameMintReentryImpact: 'data/reports/pre-migration-same-mint-reentry-impact-latest.json',
@@ -2285,6 +2286,7 @@ function buildSummary(docs) {
   const walletRelaxedShadowOutcome = docs.preMigrationWalletRelaxedShadowOutcome.data || {};
   const walletContextCoverage = docs.preMigrationWalletContextCoverage.data || {};
   const walletContextFollowThrough = docs.preMigrationWalletContextFollowThrough.data || {};
+  const walletChannelHealth = docs.preMigrationWalletChannelHealth.data || {};
   const entryCandidateReview = docs.preMigrationEntryCandidateReview.data || {};
   const walletSupportedNearMissReplay = docs.preMigrationWalletSupportedNearMissReplay.data || {};
   const sameMintReentryImpact = docs.preMigrationSameMintReentryImpact.data || {};
@@ -4492,6 +4494,35 @@ function buildSummary(docs) {
   }
   lines.push('- Runtime wallet promotion tiers:');
   objectLines(walletContextRuntimeEvents.promotionCoverage?.reviewTierCounts, 5).forEach((line) => lines.push(`  - ${line}`));
+  lines.push('');
+
+  const walletChannelSummary = walletChannelHealth.summary || {};
+  const walletChannelProvider = walletChannelSummary.provider || {};
+  const walletChannelTopProspective = topArray(walletChannelHealth.topProspectiveWallets, 5);
+  const walletChannelTopMints = topArray(walletChannelHealth.topMintsByProspectivePre85, 5);
+  lines.push('9c5a. Wallet Channel Health');
+  lines.push('----------------------------');
+  lines.push('- Mode: report-only; splits paper-decision wallet evidence into trusted, prospective promotion/manual-substrate, and raw untrusted channels. Does not alter gates or trust tiers.');
+  lines.push(`- Verdict: ${walletChannelSummary.channelVerdict || 'n/a'}`);
+  lines.push(`- Provider trades / gate rows / recorded trusted / untracked: ${walletChannelProvider.providerTradeEvents ?? 'n/a'} / ${walletChannelProvider.walletGateDiagnosticRows ?? 'n/a'} / ${walletChannelProvider.recordedTrustedRows ?? 'n/a'} / ${walletChannelProvider.untrackedRows ?? 'n/a'}; untrustedTape=${walletChannelProvider.untrustedTapeRecords ?? 'n/a'}`);
+  lines.push(`- Paper decisions / NO_TRACKED_FIRST_TOUCH_BUY: ${walletChannelSummary.paperDecisionRows ?? 'n/a'} / ${walletChannelSummary.noTrackedFirstTouchBuyDecisionRows ?? 'n/a'}`);
+  lines.push(`- Decisions with trusted/prospective/raw-untrusted pre85 buys: ${walletChannelSummary.decisionsWithTrustedPre85Buy ?? 'n/a'} / ${walletChannelSummary.decisionsWithProspectivePre85Buy ?? 'n/a'} / ${walletChannelSummary.decisionsWithRawUntrustedPre85Buy ?? 'n/a'}`);
+  lines.push(`- NO_TRACKED_FIRST_TOUCH_BUY with prospective/raw-untrusted pre85: ${walletChannelSummary.noTrackedFirstTouchWithProspectivePre85Buy ?? 'n/a'} / ${walletChannelSummary.noTrackedFirstTouchWithRawUntrustedPre85Buy ?? 'n/a'}; prospective coverage if accepted=${pct(walletChannelSummary.projectedNoTrackedCoverageRateIfProspectiveAccepted, 1)}`);
+  if (walletChannelTopProspective.length) {
+    lines.push('- Top prospective wallet-channel rows:');
+    walletChannelTopProspective.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.wallet || 'unknown'} | tier=${item.reviewTier || item.evidenceTier || 'n/a'} | decisions=${item.decisionRows ?? 'n/a'} | noTracked=${item.noTrackedFirstTouchBuyRows ?? 'n/a'} | pre85=${item.pre85BuyRows ?? 'n/a'} | mints=${item.uniqueMints ?? 'n/a'}`);
+    });
+  } else {
+    lines.push('- Top prospective wallet-channel rows: none');
+  }
+  if (walletChannelTopMints.length) {
+    lines.push('- Top mints by prospective pre85 decision coverage:');
+    walletChannelTopMints.forEach((item, index) => {
+      const topReason = Object.entries(item.skipReasons || {}).sort((a, b) => b[1] - a[1])[0];
+      lines.push(`  ${index + 1}. ${item.symbol || 'UNKNOWN'} ${item.mint || ''} | prospectivePre85=${item.prospectivePre85BuyDecisions ?? 'n/a'} | noTracked=${item.noTrackedFirstTouchBuyDecisions ?? 'n/a'} | topReason=${topReason ? `${topReason[0]}:${topReason[1]}` : 'n/a'}`);
+    });
+  }
   lines.push('');
 
   const walletFollowSummary = walletContextFollowThrough.summary || {};
