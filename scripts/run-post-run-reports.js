@@ -6,7 +6,7 @@ const { POST_RUN_REPORTS } = require('./post-run-report-plan');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const NODE = process.execPath;
-const REPORT_TIMEOUT_MS = Number(process.env.POST_RUN_REPORT_TIMEOUT_MS || 120000);
+const DEFAULT_REPORT_TIMEOUT_MS = Number(process.env.POST_RUN_REPORT_TIMEOUT_MS || 120000);
 const REPORT_NODE_OPTIONS = String(process.env.POST_RUN_NODE_OPTIONS || '--max-old-space-size=8192').trim();
 const SKIPPED_REPORTS = new Set(
   String(process.env.POST_RUN_SKIP_REPORTS || '')
@@ -24,11 +24,18 @@ function buildReportEnv() {
   return { ...process.env, NODE_OPTIONS: nodeOptions };
 }
 
-function runReport({ title, script }) {
+function reportTimeoutMs(report) {
+  const timeout = Number(report.timeoutMs ?? DEFAULT_REPORT_TIMEOUT_MS);
+  return Number.isFinite(timeout) ? timeout : DEFAULT_REPORT_TIMEOUT_MS;
+}
+
+function runReport(report) {
+  const { title, script } = report;
   return new Promise((resolve) => {
     console.log(`\n=== ${title} ===`);
     let settled = false;
     let timeoutTimer = null;
+    const timeoutMs = reportTimeoutMs(report);
     const child = spawn(NODE, [path.join('scripts', script)], {
       cwd: REPO_ROOT,
       env: buildReportEnv(),
@@ -43,9 +50,9 @@ function runReport({ title, script }) {
       resolve(code || 0);
     };
 
-    if (Number.isFinite(REPORT_TIMEOUT_MS) && REPORT_TIMEOUT_MS > 0) {
+    if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
       timeoutTimer = setTimeout(() => {
-        console.warn(`[WARN] ${title} exceeded report timeout (${Math.round(REPORT_TIMEOUT_MS / 1000)}s); terminating and continuing.`);
+        console.warn(`[WARN] ${title} exceeded report timeout (${Math.round(timeoutMs / 1000)}s); terminating and continuing.`);
         try {
           if (process.platform === 'win32') {
             spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
@@ -57,7 +64,7 @@ function runReport({ title, script }) {
           }
         } catch {}
         finish(1);
-      }, REPORT_TIMEOUT_MS);
+      }, timeoutMs);
       if (typeof timeoutTimer.unref === 'function') timeoutTimer.unref();
     }
 

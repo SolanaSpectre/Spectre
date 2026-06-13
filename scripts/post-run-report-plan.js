@@ -12,7 +12,7 @@ const POST_RUN_REPORTS = [
   { title: 'Runner Raydium Shadow Fixed Horizon', script: 'runner-raydium-shadow-fixed-horizon-report.js' },
   { title: 'Runner Raydium Shadow Historical Horizon', script: 'runner-raydium-shadow-historical-horizon-report.js' },
   { title: 'Runner Raydium Shadow Outcome Join', script: 'runner-raydium-shadow-outcome-join-report.js' },
-  { title: 'Outcome Ledger Report', script: 'outcome-ledger-report.js' },
+  { title: 'Outcome Ledger Report', script: 'outcome-ledger-report.js', timeoutMs: 300000 },
   { title: 'Rick Sighting Follow-through', script: 'rick-sighting-follow-through-report.js' },
   { title: 'Early Organic Interest Report', script: 'early-organic-interest-report.js' },
   { title: 'Wallet Battlefield Report', script: 'wallet-battlefield-report.js' },
