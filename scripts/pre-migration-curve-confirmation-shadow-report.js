@@ -119,6 +119,11 @@ function shadowFromEvent(event) {
     score: num(payload.score, 2),
     curveProgress: num(payload.curveProgress, 6),
     minCurveDelta: num(payload.minCurveDelta, 6),
+    minSourceCurveProgress: num(payload.minSourceCurveProgress, 6),
+    maxSourceCurveProgress: num(payload.maxSourceCurveProgress, 6),
+    minConfirmCurveProgress: num(payload.minConfirmCurveProgress, 6),
+    minRecentVolumeSol: num(payload.minRecentVolumeSol, 4),
+    minTradeVelocityPerMin: num(payload.minTradeVelocityPerMin, 2),
     lookaheadMs: num(payload.lookaheadMs, 0),
     confirmCurveProgress: num(payload.confirmCurveProgress, 6),
     curveProgressDeltaFromSource: num(payload.curveProgressDeltaFromSource, 6),
@@ -130,9 +135,15 @@ function shadowFromEvent(event) {
     priceSol: num(payload.priceSol, 12),
     confirmPriceSol: num(payload.confirmPriceSol, 12),
     walletTouchCount: num(payload.walletTouchCount, 0),
+    shadowWalletTouchCount: num(payload.shadowWalletTouchCount, 0),
     positiveWalletTouchCount: num(payload.positiveWalletTouchCount, 0),
     avoidWalletTouchCount: num(payload.avoidWalletTouchCount, 0),
+    riskWalletCount: num(payload.riskWalletCount, 0),
+    sniperWalletCount: num(payload.sniperWalletCount, 0),
+    maxSniperWallets: num(payload.maxSniperWallets, 0),
     noAvoidWalletTouch: payload.noAvoidWalletTouch === true,
+    requireNoAvoidWallet: payload.requireNoAvoidWallet === true,
+    requireNoRiskWallet: payload.requireNoRiskWallet === true,
     confirmationTelemetryType: payload.confirmationTelemetryType || null
   };
 }

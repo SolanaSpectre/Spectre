@@ -112,6 +112,8 @@ class PreMigrationPaperLane {
     this.delayedCurveConfirmationLookaheadMs = Math.max(1000, Number(config.preMigrationPaperDelayedCurveConfirmationLookaheadMs ?? 120_000));
     this.delayedCurveConfirmationMaxEntriesPerRun = Math.max(0, Number(config.preMigrationPaperDelayedCurveConfirmationMaxEntriesPerRun ?? 2));
     this.delayedCurveConfirmationRequireNoAvoidWallet = config.preMigrationPaperDelayedCurveConfirmationRequireNoAvoidWallet !== false;
+    this.delayedCurveConfirmationMaxSniperWallets = Number(config.preMigrationPaperDelayedCurveConfirmationMaxSniperWallets ?? 8);
+    this.delayedCurveConfirmationRequireNoRiskWallet = config.preMigrationPaperDelayedCurveConfirmationRequireNoRiskWallet === true;
     this.unflaggedEntryShadowEnabled = config.preMigrationPaperUnflaggedEntryShadowEnabled !== false;
     this.unflaggedEntryShadowMinScore = Number(config.preMigrationPaperUnflaggedEntryShadowMinScore ?? 70);
     this.unflaggedEntryShadowMinCurveProgress = Number(config.preMigrationPaperUnflaggedEntryShadowMinCurveProgress ?? 0.7);
@@ -387,7 +389,13 @@ class PreMigrationPaperLane {
     const recentVolumeSol = Number(state.recentVolumeSol);
     const tradeVelocityPerMin = Number(state.tradeVelocityPerMin);
     const avoidWalletTouchCount = this.avoidWalletTouchCount(state.walletClassificationContext || {});
-    const eligible = Number.isFinite(score)
+    const riskWalletCount = Number(state.riskWalletCount || 0);
+    const sniperWalletCount = Number(state.sniperWalletCount);
+    const maxSniperWallets = Number(this.delayedCurveConfirmationMaxSniperWallets);
+    const sourceAtMs = new Date(timestamp || Date.now()).getTime();
+    if (!Number.isFinite(sourceAtMs)) return null;
+
+    const sourceThresholdsPassed = Number.isFinite(score)
       && score >= this.delayedCurveConfirmationMinScore
       && Number.isFinite(curveProgress)
       && curveProgress >= this.delayedCurveConfirmationMinSourceCurveProgress
@@ -395,14 +403,13 @@ class PreMigrationPaperLane {
       && Number.isFinite(recentVolumeSol)
       && recentVolumeSol >= this.delayedCurveConfirmationMinRecentVolumeSol
       && Number.isFinite(tradeVelocityPerMin)
-      && tradeVelocityPerMin >= this.delayedCurveConfirmationMinTradeVelocityPerMin
-      && (!this.delayedCurveConfirmationRequireNoAvoidWallet || avoidWalletTouchCount <= 0);
-    if (!eligible) {
-      return null;
-    }
-
-    const sourceAtMs = new Date(timestamp || Date.now()).getTime();
-    if (!Number.isFinite(sourceAtMs)) return null;
+      && tradeVelocityPerMin >= this.delayedCurveConfirmationMinTradeVelocityPerMin;
+    const avoidWalletGuardPassed = !this.delayedCurveConfirmationRequireNoAvoidWallet || avoidWalletTouchCount <= 0;
+    const riskWalletGuardPassed = !this.delayedCurveConfirmationRequireNoRiskWallet || riskWalletCount <= 0;
+    const sniperWalletGuardPassed = !Number.isFinite(maxSniperWallets)
+      || maxSniperWallets < 0
+      || !Number.isFinite(sniperWalletCount)
+      || sniperWalletCount <= maxSniperWallets;
     const pending = {
       mint,
       symbol: state.symbol || null,
@@ -415,8 +422,37 @@ class PreMigrationPaperLane {
       sourceRecentVolumeSol: recentVolumeSol,
       sourceTradeVelocityPerMin: tradeVelocityPerMin,
       sourceCurveProgressDelta: entryGuards.curveProgressDelta ?? null,
-      avoidWalletTouchCount
+      avoidWalletTouchCount,
+      riskWalletCount,
+      sniperWalletCount: Number.isFinite(sniperWalletCount) ? sniperWalletCount : null
     };
+    const eligible = sourceThresholdsPassed
+      && avoidWalletGuardPassed
+      && riskWalletGuardPassed
+      && sniperWalletGuardPassed;
+    if (!eligible) {
+      const guardFailures = [];
+      if (sourceThresholdsPassed && !avoidWalletGuardPassed) guardFailures.push('AVOID_WALLET_TOUCH');
+      if (sourceThresholdsPassed && !riskWalletGuardPassed) guardFailures.push('RISK_WALLET_TOUCH');
+      if (sourceThresholdsPassed && !sniperWalletGuardPassed) guardFailures.push('SNIPER_WALLET_CROWDING');
+      if (guardFailures.length === 0) return null;
+      return {
+        type: 'diagnostic',
+        telemetryType: 'pre_migration_delayed_curve_confirmation.paper_rejected',
+        payload: {
+          ...this.delayedCurveConfirmationDetails(pending, state, {
+            passed: false,
+            reason: 'DELAYED_CURVE_CONFIRMATION_GUARD_REJECTED',
+            guardOverride: 'DELAYED_CURVE_CONFIRMATION',
+            guardFailures
+          }),
+          decision: 'PAPER_REJECTED',
+          preset: preset.name,
+          lane: preset.lane,
+          profileName: preset.profileName
+        }
+      };
+    }
     this.delayedCurveConfirmationPending.set(mint, pending);
     return {
       type: 'diagnostic',
@@ -434,7 +470,9 @@ class PreMigrationPaperLane {
         expiresAt: new Date(pending.expiresAtMs).toISOString(),
         minCurveDelta: this.compact(this.delayedCurveConfirmationMinCurveDelta, 6),
         minConfirmCurveProgress: this.compact(this.delayedCurveConfirmationMinConfirmCurveProgress, 6),
-        lookaheadMs: this.delayedCurveConfirmationLookaheadMs
+        lookaheadMs: this.delayedCurveConfirmationLookaheadMs,
+        maxSniperWallets: Number.isFinite(maxSniperWallets) ? maxSniperWallets : null,
+        requireNoRiskWallet: this.delayedCurveConfirmationRequireNoRiskWallet
       }
     };
   }
@@ -483,6 +521,8 @@ class PreMigrationPaperLane {
       sourceTradeVelocityPerMin: this.compact(pending.sourceTradeVelocityPerMin, 2),
       sourceCurveProgressDelta: this.compact(pending.sourceCurveProgressDelta, 6),
       avoidWalletTouchCount: Number.isFinite(Number(pending.avoidWalletTouchCount)) ? Number(pending.avoidWalletTouchCount) : null,
+      riskWalletCount: Number.isFinite(Number(pending.riskWalletCount)) ? Number(pending.riskWalletCount) : null,
+      sniperWalletCount: Number.isFinite(Number(pending.sniperWalletCount)) ? Number(pending.sniperWalletCount) : null,
       minScore: this.delayedCurveConfirmationMinScore,
       minSourceCurveProgress: this.delayedCurveConfirmationMinSourceCurveProgress,
       maxSourceCurveProgress: this.delayedCurveConfirmationMaxSourceCurveProgress,
@@ -490,6 +530,8 @@ class PreMigrationPaperLane {
       minTradeVelocityPerMin: this.delayedCurveConfirmationMinTradeVelocityPerMin,
       minCurveDelta: this.delayedCurveConfirmationMinCurveDelta,
       minConfirmCurveProgress: this.delayedCurveConfirmationMinConfirmCurveProgress,
+      maxSniperWallets: Number.isFinite(Number(this.delayedCurveConfirmationMaxSniperWallets)) ? Number(this.delayedCurveConfirmationMaxSniperWallets) : null,
+      requireNoRiskWallet: this.delayedCurveConfirmationRequireNoRiskWallet,
       secondsSinceSource: Number.isFinite(sourceAtMs) && Number.isFinite(nowMs)
         ? this.compact((nowMs - sourceAtMs) / 1000, 3)
         : null

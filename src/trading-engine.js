@@ -4079,25 +4079,60 @@ class TradingEngine {
 
     const minScore = Number(this.config.preMigrationCurveConfirmationShadowMinScore ?? 75);
     const lookaheadMs = Math.max(1000, Number(this.config.preMigrationCurveConfirmationShadowLookaheadMs ?? 120000));
-    const minCurveDelta = Number(this.config.preMigrationCurveConfirmationShadowMinCurveDelta ?? 0.05);
+    const minCurveDelta = Number(this.config.preMigrationCurveConfirmationShadowMinCurveDelta ?? 0.03);
+    const minSourceCurveProgress = Number(this.config.preMigrationCurveConfirmationShadowMinSourceCurveProgress ?? 0.5);
+    const maxSourceCurveProgress = Number(this.config.preMigrationCurveConfirmationShadowMaxSourceCurveProgress ?? 0.95);
+    const minConfirmCurveProgress = Number(this.config.preMigrationCurveConfirmationShadowMinConfirmCurveProgress ?? 0.75);
+    const minRecentVolumeSol = Number(this.config.preMigrationCurveConfirmationShadowMinRecentVolumeSol ?? 12);
+    const minTradeVelocityPerMin = Number(this.config.preMigrationCurveConfirmationShadowMinTradeVelocityPerMin ?? 12);
+    const requireNoAvoidWallet = this.config.preMigrationCurveConfirmationShadowRequireNoAvoidWallet !== false;
+    const requireNoRiskWallet = this.config.preMigrationCurveConfirmationShadowRequireNoRiskWallet === true;
+    const maxSniperWallets = Number(this.config.preMigrationCurveConfirmationShadowMaxSniperWallets ?? 8);
     const maxTracked = Math.max(1, Number(this.config.preMigrationCurveConfirmationShadowMaxTrackedMints ?? 500));
     const score = Number(payload.score);
     const curveProgress = Number(payload.curveProgress);
-    if (!Number.isFinite(score) || score < minScore || !Number.isFinite(curveProgress)) {
+    const recentVolumeSol = Number(payload.recentVolumeSol);
+    const tradeVelocityPerMin = Number(payload.tradeVelocityPerMin);
+    if (
+      !Number.isFinite(score)
+      || score < minScore
+      || !Number.isFinite(curveProgress)
+      || curveProgress < minSourceCurveProgress
+      || curveProgress > maxSourceCurveProgress
+      || !Number.isFinite(recentVolumeSol)
+      || recentVolumeSol < minRecentVolumeSol
+      || !Number.isFinite(tradeVelocityPerMin)
+      || tradeVelocityPerMin < minTradeVelocityPerMin
+    ) {
       return;
     }
 
     const context = payload.walletClassificationContext || {};
     const wallets = Array.isArray(context.wallets) ? context.wallets : [];
+    const shadowWallets = Array.isArray(context.shadowWallets) ? context.shadowWallets : [];
+    const avoidWalletContext = [...wallets, ...shadowWallets];
     const positiveWalletTouches = wallets.filter((wallet) => (
       ['PROVEN_POSITIVE', 'PROMISING_POSITIVE'].includes(wallet.evidenceTier)
       || ['TRUST_REVIEW', 'PROFITABLE_NEEDS_FIRST_TOUCH_EVIDENCE'].includes(wallet.reviewTier)
     ));
-    const avoidWalletTouches = wallets.filter((wallet) => (
+    const avoidWalletTouches = avoidWalletContext.filter((wallet) => (
       wallet.reviewTier === 'AVOID_REVIEW' || wallet.evidenceTier === 'NEGATIVE_EVIDENCE'
     ));
+    const riskWalletCount = Number(payload.riskWalletCount || 0);
+    const sniperWalletCount = Number(payload.sniperWalletCount);
+    const sniperWalletGuardPassed = !Number.isFinite(maxSniperWallets)
+      || maxSniperWallets < 0
+      || !Number.isFinite(sniperWalletCount)
+      || sniperWalletCount <= maxSniperWallets;
+    if (
+      (requireNoAvoidWallet && avoidWalletTouches.length > 0)
+      || (requireNoRiskWallet && riskWalletCount > 0)
+      || !sniperWalletGuardPassed
+    ) {
+      return;
+    }
 
-    const shadowProfile = `delta${String(minCurveDelta).replace(/^0\./, '').replace('.', '')}_${Math.round(lookaheadMs / 1000)}_score${Math.round(minScore)}`;
+    const shadowProfile = `delayed_paper_equivalent_delta${String(minCurveDelta).replace(/^0\./, '').replace('.', '')}_${Math.round(lookaheadMs / 1000)}_score${Math.round(minScore)}_curve${Math.round(minConfirmCurveProgress * 100)}`;
     const key = `${shadowProfile}:${mint}`;
     if (this.curveConfirmationShadowPending.has(key)
       || this.curveConfirmationShadowEnterSeen.has(key)
@@ -4123,6 +4158,14 @@ class TradingEngine {
       lookaheadMs,
       minScore,
       minCurveDelta,
+      minSourceCurveProgress,
+      maxSourceCurveProgress,
+      minConfirmCurveProgress,
+      minRecentVolumeSol,
+      minTradeVelocityPerMin,
+      requireNoAvoidWallet,
+      requireNoRiskWallet,
+      maxSniperWallets,
       sourceDecision: payload.decision,
       sourceReason: payload.reason,
       sourcePreset: payload.preset || null,
@@ -4131,12 +4174,15 @@ class TradingEngine {
       curveProgress,
       curveProgressDelta: Number(payload.curveProgressDelta),
       threshold: Number(payload.threshold),
-      recentVolumeSol: Number(payload.recentVolumeSol),
-      tradeVelocityPerMin: Number(payload.tradeVelocityPerMin),
+      recentVolumeSol,
+      tradeVelocityPerMin,
       buyRatio: Number(payload.buyRatio),
       uniqueBuyerCount: Number(payload.uniqueBuyerCount),
+      riskWalletCount,
+      sniperWalletCount,
       priceSol: payload.priceSol ?? payload.bondingCurvePriceSol ?? payload.curvePriceSol ?? null,
       walletTouchCount: wallets.length,
+      shadowWalletTouchCount: shadowWallets.length,
       positiveWalletTouchCount: positiveWalletTouches.length,
       avoidWalletTouchCount: avoidWalletTouches.length,
       noAvoidWalletTouch: avoidWalletTouches.length === 0,
@@ -4171,6 +4217,9 @@ class TradingEngine {
       }
       const delta = curveProgress - pending.curveProgress;
       if (!Number.isFinite(delta) || delta < pending.minCurveDelta) {
+        continue;
+      }
+      if (Number.isFinite(Number(pending.minConfirmCurveProgress)) && curveProgress < Number(pending.minConfirmCurveProgress)) {
         continue;
       }
       this.recordCurveConfirmationShadowEnter(pending, {
@@ -4249,6 +4298,11 @@ class TradingEngine {
       lookaheadMs: pending.lookaheadMs,
       minScore: pending.minScore,
       minCurveDelta: this.roundNumber(pending.minCurveDelta, 6),
+      minSourceCurveProgress: this.roundNumber(pending.minSourceCurveProgress, 6),
+      maxSourceCurveProgress: this.roundNumber(pending.maxSourceCurveProgress, 6),
+      minConfirmCurveProgress: this.roundNumber(pending.minConfirmCurveProgress, 6),
+      minRecentVolumeSol: this.roundNumber(pending.minRecentVolumeSol, 4),
+      minTradeVelocityPerMin: this.roundNumber(pending.minTradeVelocityPerMin, 2),
       score: this.roundNumber(pending.score, 2),
       curveProgress: this.roundNumber(pending.curveProgress, 6),
       curveProgressDelta: this.roundNumber(pending.curveProgressDelta, 6),
@@ -4257,8 +4311,14 @@ class TradingEngine {
       tradeVelocityPerMin: this.roundNumber(pending.tradeVelocityPerMin, 2),
       buyRatio: this.roundNumber(pending.buyRatio, 4),
       uniqueBuyerCount: Number.isFinite(pending.uniqueBuyerCount) ? pending.uniqueBuyerCount : null,
+      riskWalletCount: Number.isFinite(pending.riskWalletCount) ? pending.riskWalletCount : null,
+      sniperWalletCount: Number.isFinite(pending.sniperWalletCount) ? pending.sniperWalletCount : null,
+      maxSniperWallets: Number.isFinite(pending.maxSniperWallets) ? pending.maxSniperWallets : null,
+      requireNoAvoidWallet: pending.requireNoAvoidWallet,
+      requireNoRiskWallet: pending.requireNoRiskWallet,
       priceSol: this.roundNumber(pending.priceSol, 12),
       walletTouchCount: pending.walletTouchCount,
+      shadowWalletTouchCount: pending.shadowWalletTouchCount,
       positiveWalletTouchCount: pending.positiveWalletTouchCount,
       avoidWalletTouchCount: pending.avoidWalletTouchCount,
       noAvoidWalletTouch: pending.noAvoidWalletTouch,

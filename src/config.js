@@ -1188,6 +1188,14 @@ class Config {
     return process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_REQUIRE_NO_AVOID_WALLET !== 'false';
   }
 
+  static get preMigrationPaperDelayedCurveConfirmationMaxSniperWallets() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MAX_SNIPER_WALLETS || '8', 10);
+  }
+
+  static get preMigrationPaperDelayedCurveConfirmationRequireNoRiskWallet() {
+    return process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_REQUIRE_NO_RISK_WALLET === 'true';
+  }
+
   static get birdeyeApiBaseUrl() {
     return process.env.BIRDEYE_API_BASE_URL || 'https://public-api.birdeye.so';
   }
@@ -1492,19 +1500,91 @@ class Config {
   }
 
   static get preMigrationCurveConfirmationShadowMinScore() {
-    return parseFloat(process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_MIN_SCORE || '75');
+    return parseFloat(
+      process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_MIN_SCORE
+      || process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MIN_SCORE
+      || '75'
+    );
   }
 
   static get preMigrationCurveConfirmationShadowMinCurveDelta() {
-    return parseFloat(process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_MIN_CURVE_DELTA || '0.05');
+    return parseFloat(
+      process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_MIN_CURVE_DELTA
+      || process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MIN_CURVE_DELTA
+      || '0.03'
+    );
   }
 
   static get preMigrationCurveConfirmationShadowLookaheadMs() {
-    return parseInt(process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_LOOKAHEAD_MS || '120000', 10);
+    return parseInt(
+      process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_LOOKAHEAD_MS
+      || process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_LOOKAHEAD_MS
+      || '120000',
+      10
+    );
   }
 
   static get preMigrationCurveConfirmationShadowMaxTrackedMints() {
     return parseInt(process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_MAX_TRACKED_MINTS || '500', 10);
+  }
+
+  static get preMigrationCurveConfirmationShadowMinSourceCurveProgress() {
+    return parseFloat(
+      process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_MIN_SOURCE_CURVE_PROGRESS
+      || process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MIN_SOURCE_CURVE_PROGRESS
+      || '0.50'
+    );
+  }
+
+  static get preMigrationCurveConfirmationShadowMaxSourceCurveProgress() {
+    return parseFloat(
+      process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_MAX_SOURCE_CURVE_PROGRESS
+      || process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MAX_SOURCE_CURVE_PROGRESS
+      || '0.95'
+    );
+  }
+
+  static get preMigrationCurveConfirmationShadowMinConfirmCurveProgress() {
+    return parseFloat(
+      process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_MIN_CONFIRM_CURVE_PROGRESS
+      || process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MIN_CONFIRM_CURVE_PROGRESS
+      || '0.75'
+    );
+  }
+
+  static get preMigrationCurveConfirmationShadowMinRecentVolumeSol() {
+    return parseFloat(
+      process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_MIN_RECENT_VOLUME_SOL
+      || process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MIN_RECENT_VOLUME_SOL
+      || '12'
+    );
+  }
+
+  static get preMigrationCurveConfirmationShadowMinTradeVelocityPerMin() {
+    return parseFloat(
+      process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_MIN_TRADE_VELOCITY_PER_MIN
+      || process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MIN_TRADE_VELOCITY_PER_MIN
+      || '12'
+    );
+  }
+
+  static get preMigrationCurveConfirmationShadowRequireNoAvoidWallet() {
+    const fallback = process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_REQUIRE_NO_AVOID_WALLET;
+    return (process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_REQUIRE_NO_AVOID_WALLET ?? fallback ?? 'true') !== 'false';
+  }
+
+  static get preMigrationCurveConfirmationShadowRequireNoRiskWallet() {
+    const fallback = process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_REQUIRE_NO_RISK_WALLET;
+    return (process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_REQUIRE_NO_RISK_WALLET ?? fallback) === 'true';
+  }
+
+  static get preMigrationCurveConfirmationShadowMaxSniperWallets() {
+    return parseInt(
+      process.env.PRE_MIGRATION_CURVE_CONFIRMATION_SHADOW_MAX_SNIPER_WALLETS
+      || process.env.PRE_MIGRATION_PAPER_DELAYED_CURVE_CONFIRMATION_MAX_SNIPER_WALLETS
+      || '8',
+      10
+    );
   }
 
   static get kolscanLeaderboardFilePath() {

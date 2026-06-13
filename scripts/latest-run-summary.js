@@ -2165,6 +2165,7 @@ function buildLaunchDecisionLines({
   preMigrationCurveStallRelaxedReplay,
   preMigrationCurveAdvanceDiagnostic,
   preMigrationCurveConfirmationReplay,
+  preMigrationCurveConfirmationShadow,
   preMigrationEntryFunnel,
   runnerRejectEntryReplay,
   strategyCandidateScorecard
@@ -2181,6 +2182,8 @@ function buildLaunchDecisionLines({
   const runnerRejectBest = bestProfileFromSummary(runnerRejectEntryReplay.summaryByProfile);
   const scorecardSummary = strategyCandidateScorecard.summary || {};
   const scorecardBest = topArray(strategyCandidateScorecard.bestCandidates, 1)[0] || null;
+  const curveConfirmationShadowSummary = preMigrationCurveConfirmationShadow.summary || {};
+  const curveConfirmationShadowAll = curveConfirmationShadowSummary.all || {};
   const guardSummary = preMigrationGuardAttribution.summary || {};
   const funnelSummary = preMigrationEntryFunnel.summary || {};
   const paperDecisionCounts = battlefield?.preMigrationPaper?.decisionCounts || {};
@@ -2220,6 +2223,9 @@ function buildLaunchDecisionLines({
   lines.push(`- Current entry gate bottleneck: ${paperBottleneckLine}.`);
   if (scorecardSummary.candidateCount !== undefined) {
     lines.push(`- Strategy scorecard: candidates=${scorecardSummary.candidateCount}, promotionEligible=${scorecardSummary.promotionEligibleCount ?? 'n/a'}, best=${summarizeStrategyCandidate(scorecardBest)}.`);
+  }
+  if (curveConfirmationShadowSummary.shadowRows !== undefined) {
+    lines.push(`- Delayed-confirmation shadow: rows/wouldEnter/unique=${curveConfirmationShadowSummary.shadowRows ?? 'n/a'}/${curveConfirmationShadowSummary.wouldEnter ?? 'n/a'}/${curveConfirmationShadowSummary.uniqueWouldEnterMints ?? 'n/a'}; entryRate=${pct(curveConfirmationShadowSummary.entryRate, 1)}; delta median=${fmt(curveConfirmationShadowAll.confirmedDelta?.median, 4)}.`);
   }
   lines.push(`- Rolling tightest gates: decisions=${marginSummary.decisions ?? 'n/a'}, readiness median/p90/max=${fmt(marginSummary.readinessPct?.median, 2)}%/${fmt(marginSummary.readinessPct?.p90, 2)}%/${fmt(marginSummary.readinessPct?.max, 2)}%; gates=${formatTopCounts(marginSummary.tightestGateCounts)}.`);
   if (nearMissSummary.decisions !== undefined) {
@@ -2405,6 +2411,7 @@ function buildSummary(docs) {
     preMigrationCurveStallRelaxedReplay: docs.preMigrationCurveStallRelaxedReplay.data || {},
     preMigrationCurveAdvanceDiagnostic: docs.preMigrationCurveAdvanceDiagnostic.data || {},
     preMigrationCurveConfirmationReplay: docs.preMigrationCurveConfirmationReplay?.data || {},
+    preMigrationCurveConfirmationShadow: docs.preMigrationCurveConfirmationShadow?.data || {},
     preMigrationEntryFunnel: docs.preMigrationEntryFunnel?.data || {},
     runnerRejectEntryReplay: docs.runnerRejectEntryReplay.data || {},
     strategyCandidateScorecard
