@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { readJsonl } = require('./lib/jsonl');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_DOSSIER_DIR = path.join(REPO_ROOT, 'run-logs');
@@ -51,22 +52,6 @@ function listRecentFiles(dir, prefix, limit) {
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
     .slice(0, limit)
     .map((item) => item.filePath);
-}
-
-function readJsonl(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  return fs.readFileSync(filePath, 'utf8')
-    .replace(/^\uFEFF/, '')
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
 }
 
 function writeJson(filePath, payload) {

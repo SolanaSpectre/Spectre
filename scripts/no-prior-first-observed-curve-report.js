@@ -7,9 +7,9 @@ const path = require('path');
 const {
   list,
   readJson,
-  readJsonl,
   snapshotFromEvent
 } = require('./no-prior-replay-diagnostic');
+const { forEachJsonlSync } = require('./lib/jsonl');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
@@ -50,23 +50,33 @@ function telemetryFiles() {
     .sort();
 }
 
-function telemetryWindow(filePath) {
-  const events = readJsonl(filePath);
+function telemetryWindow(filePath, candidateMints = new Set()) {
   let startMs = Infinity;
   let endMs = -Infinity;
-  for (const event of events) {
+  const firstObservedByMint = new Map();
+
+  forEachJsonlSync(filePath, (event) => {
     const timestamp = timestampMs(eventTimestamp(event));
-    if (!Number.isFinite(timestamp)) continue;
-    startMs = Math.min(startMs, timestamp);
-    endMs = Math.max(endMs, timestamp);
-  }
+    if (Number.isFinite(timestamp)) {
+      startMs = Math.min(startMs, timestamp);
+      endMs = Math.max(endMs, timestamp);
+    }
+
+    const snapshot = snapshotFromEvent(event);
+    if (!snapshot?.mint || !candidateMints.has(snapshot.mint)) return;
+    if (!Number.isFinite(snapshot.curveProgress)) return;
+    if (!firstObservedByMint.has(snapshot.mint)) {
+      firstObservedByMint.set(snapshot.mint, snapshot);
+    }
+  });
+
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
   return {
     path: filePath,
     relativePath: rel(filePath),
     startMs,
     endMs,
-    events
+    firstObservedByMint
   };
 }
 
@@ -98,10 +108,7 @@ function countBy(rows, keyFn) {
 
 function firstObservedSnapshot(window, mint) {
   if (!window) return null;
-  return window.events
-    .map(snapshotFromEvent)
-    .filter((snapshot) => snapshot?.mint === mint && Number.isFinite(snapshot.curveProgress))
-    .sort((a, b) => timestampMs(a.timestamp) - timestampMs(b.timestamp))[0] || null;
+  return window.firstObservedByMint?.get(mint) || null;
 }
 
 function sampleFallback(candidate) {
@@ -150,7 +157,8 @@ function buildReport() {
   const falseNegatives = list(readJson(FALSE_NEGATIVE_PATH, []));
   const historicalReplay = readJson(HISTORICAL_REPLAY_PATH, {});
   const diagnosisByMint = new Map((historicalReplay.rows || []).map((row) => [row.mint, row.diagnosis]));
-  const windows = telemetryFiles().map(telemetryWindow).filter(Boolean);
+  const candidateMints = new Set(falseNegatives.map((candidate) => candidate.mint).filter(Boolean));
+  const windows = telemetryFiles().map((filePath) => telemetryWindow(filePath, candidateMints)).filter(Boolean);
 
   const rows = falseNegatives.map((candidate) => {
     const window = pickTelemetryWindow(windows, candidate);

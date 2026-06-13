@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { readJsonl } = require('./lib/jsonl');
 
 const ROOT = path.join(__dirname, '..');
 const SHADOW_PATH = path.join(ROOT, 'data', 'reports', 'runner-raydium-shadow-latest.json');
@@ -16,21 +17,6 @@ function readJson(filePath, fallback = {}) {
   } catch (error) {
     return { error: error.message };
   }
-}
-
-function readJsonl(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  return fs.readFileSync(filePath, 'utf8')
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line.replace(/^\uFEFF/, ''));
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
 }
 
 function rel(filePath) {

@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { readJsonl } = require('./lib/jsonl');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_WALLET_INTEL_PATH = path.join(REPO_ROOT, 'data', 'wallet-intel', 'latest.json');
@@ -65,22 +66,6 @@ function listRecentFiles(dir, prefix, limit) {
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
     .slice(0, limit)
     .map((item) => item.filePath);
-}
-
-function readJsonl(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  return fs.readFileSync(filePath, 'utf8')
-    .replace(/^\uFEFF/, '')
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
 }
 
 function increment(map, key, amount = 1) {

@@ -148,10 +148,18 @@ function aggregateRuns(runs) {
 
 function buildReplayReport(telemetryFiles, presets) {
   const presetReports = {};
+  const telemetryRowsByPath = new Map();
+
+  function rowsForTelemetry(telemetryPath) {
+    if (!telemetryRowsByPath.has(telemetryPath)) {
+      telemetryRowsByPath.set(telemetryPath, readJsonl(telemetryPath));
+    }
+    return telemetryRowsByPath.get(telemetryPath);
+  }
 
   for (const [presetName, strategy] of Object.entries(presets)) {
     const runs = telemetryFiles.map((telemetryPath) => {
-      const report = buildReport(readJsonl(telemetryPath), telemetryPath, strategy);
+      const report = buildReport(rowsForTelemetry(telemetryPath), telemetryPath, strategy);
       return summarizeRun(report);
     });
 

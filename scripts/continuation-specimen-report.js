@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const { readJsonl } = require('./lib/jsonl');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_RICK_CONTEXT = path.join(REPO_ROOT, 'data', 'rick-context', 'latest.json');
@@ -46,21 +47,6 @@ function resolveRepoPath(filePath) {
 function readJson(filePath, fallback = null) {
   if (!filePath || !fs.existsSync(filePath)) return fallback;
   return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
-}
-
-function readJsonl(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  return fs.readFileSync(filePath, 'utf8')
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line.replace(/^\uFEFF/, ''));
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
 }
 
 function writeJson(filePath, payload) {

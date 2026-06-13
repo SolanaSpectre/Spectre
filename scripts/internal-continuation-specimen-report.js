@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { readJsonl } = require('./lib/jsonl');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_BATTLEFIELD_PATH = path.join(REPO_ROOT, 'data', 'reports', 'run-battlefield-latest.json');
@@ -34,21 +35,6 @@ function resolveRepoPath(filePath, fallback) {
 function readJson(filePath, fallback = null) {
   if (!filePath || !fs.existsSync(filePath)) return fallback;
   return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
-}
-
-function readJsonl(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) return [];
-  return fs.readFileSync(filePath, 'utf8')
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line.replace(/^\uFEFF/, ''));
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
 }
 
 function writeJson(filePath, payload) {

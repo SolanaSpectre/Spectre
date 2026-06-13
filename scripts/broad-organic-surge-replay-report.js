@@ -343,9 +343,18 @@ function summarizeTrades(trades) {
 }
 
 function buildReport(telemetryFiles, variants = VARIANTS) {
+  const telemetryRowsByPath = new Map();
+
+  function rowsForTelemetry(telemetryPath) {
+    if (!telemetryRowsByPath.has(telemetryPath)) {
+      telemetryRowsByPath.set(telemetryPath, readJsonl(telemetryPath));
+    }
+    return telemetryRowsByPath.get(telemetryPath);
+  }
+
   const variantReports = variants.map((variant) => {
     const runs = telemetryFiles.map((telemetryPath) => {
-      const trades = simulateVariantRun(readJsonl(telemetryPath), telemetryPath, variant);
+      const trades = simulateVariantRun(rowsForTelemetry(telemetryPath), telemetryPath, variant);
       return {
         telemetryPath,
         summary: summarizeTrades(trades),
