@@ -148,12 +148,40 @@ class Telemetry {
 
     return new Map([
       ['pump_bonding_curve.provider_snapshot', {
-        perSecond: readLimit('TELEMETRY_PROVIDER_SNAPSHOT_MAX_PER_SECOND', 8),
-        perMinute: readLimit('TELEMETRY_PROVIDER_SNAPSHOT_MAX_PER_MINUTE', 120)
+        perSecond: readLimit('TELEMETRY_PROVIDER_SNAPSHOT_MAX_PER_SECOND', 4),
+        perMinute: readLimit('TELEMETRY_PROVIDER_SNAPSHOT_MAX_PER_MINUTE', 30)
       }],
       ['pre_migration_paper.first_curve_snapshot_near_miss', {
-        perSecond: readLimit('TELEMETRY_FIRST_CURVE_NEAR_MISS_MAX_PER_SECOND', 8),
-        perMinute: readLimit('TELEMETRY_FIRST_CURVE_NEAR_MISS_MAX_PER_MINUTE', 120)
+        perSecond: readLimit('TELEMETRY_FIRST_CURVE_NEAR_MISS_MAX_PER_SECOND', 4),
+        perMinute: readLimit('TELEMETRY_FIRST_CURVE_NEAR_MISS_MAX_PER_MINUTE', 30)
+      }],
+      ['provider.pumpdev.runtime_new_token', {
+        perSecond: readLimit('TELEMETRY_PUMPDEV_RUNTIME_NEW_TOKEN_MAX_PER_SECOND', 4),
+        perMinute: readLimit('TELEMETRY_PUMPDEV_RUNTIME_NEW_TOKEN_MAX_PER_MINUTE', 60)
+      }],
+      ['provider.pumpdev.shadow_new_token', {
+        perSecond: readLimit('TELEMETRY_PUMPDEV_SHADOW_NEW_TOKEN_MAX_PER_SECOND', 4),
+        perMinute: readLimit('TELEMETRY_PUMPDEV_SHADOW_NEW_TOKEN_MAX_PER_MINUTE', 60)
+      }],
+      ['optional_http_enrichment.suppressed', {
+        perSecond: readLimit('TELEMETRY_OPTIONAL_HTTP_SUPPRESSED_MAX_PER_SECOND', 1),
+        perMinute: readLimit('TELEMETRY_OPTIONAL_HTTP_SUPPRESSED_MAX_PER_MINUTE', 6)
+      }],
+      ['cycle.completed', {
+        perSecond: readLimit('TELEMETRY_CYCLE_COMPLETED_MAX_PER_SECOND', 1),
+        perMinute: readLimit('TELEMETRY_CYCLE_COMPLETED_MAX_PER_MINUTE', 6)
+      }],
+      ['finalist_account_verifier.shadow_live_gate', {
+        perSecond: readLimit('TELEMETRY_SHADOW_LIVE_GATE_MAX_PER_SECOND', 6),
+        perMinute: readLimit('TELEMETRY_SHADOW_LIVE_GATE_MAX_PER_MINUTE', 60)
+      }],
+      ['pre_migration_paper.guard_attribution', {
+        perSecond: readLimit('TELEMETRY_GUARD_ATTRIBUTION_MAX_PER_SECOND', 6),
+        perMinute: readLimit('TELEMETRY_GUARD_ATTRIBUTION_MAX_PER_MINUTE', 90)
+      }],
+      ['candidate.quarantine_skipped', {
+        perSecond: readLimit('TELEMETRY_CANDIDATE_QUARANTINE_SKIPPED_MAX_PER_SECOND', 2),
+        perMinute: readLimit('TELEMETRY_CANDIDATE_QUARANTINE_SKIPPED_MAX_PER_MINUTE', 20)
       }]
     ]);
   }

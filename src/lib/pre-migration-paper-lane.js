@@ -347,7 +347,7 @@ class PreMigrationPaperLane {
     if (payload.shadowOnly !== true) {
       return true;
     }
-    if (payload.outcome === 'PAPER_WOULD_ENTER' || payload.guardPassed === true || payload.guardOverride) {
+    if (payload.outcome === 'PAPER_WOULD_ENTER' || payload.guardOverride) {
       return true;
     }
 
