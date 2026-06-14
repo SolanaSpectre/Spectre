@@ -4459,6 +4459,19 @@ function buildSummary(docs) {
       lines.push(`- Wallet trade gate diagnostics: rows=${walletGateDiagnostics.rows}, noTrader=${walletGateDiagnostics.noTraderField ?? 'n/a'}, untracked=${walletGateDiagnostics.untrackedWallet ?? 'n/a'}, untrustedTape=${walletGateDiagnostics.untrustedTapeRecords ?? 'n/a'}, recorded=${walletGateDiagnostics.recorded ?? 'n/a'}, shadowRecorded=${walletGateDiagnostics.shadowWalletProfileMatch ?? 'n/a'}, uniqueTraderWallets=${walletGateDiagnostics.uniqueWalletsWithTrader ?? 'n/a'}`);
       lines.push(`- Wallet observation channel: ${walletContextTrackingOpportunity.walletObservationChannel || 'n/a'}; bridge validation=${walletContextTrackingOpportunity.bridgeValidationStatus || 'n/a'}`);
     }
+    const walletChannelPartition = walletContextTrackingOpportunity.walletChannelPartition || {};
+    const trustedRecorded = walletChannelPartition.trustedRecorded || {};
+    const shadowRecorded = walletChannelPartition.shadowRecorded || {};
+    const untrackedDropped = walletChannelPartition.untrackedDropped || {};
+    if (walletChannelPartition.totals) {
+      lines.push(`- Wallet channel partition: trusted rows/pre85 buys=${trustedRecorded.rows ?? 'n/a'}/${trustedRecorded.pre85BuyRows ?? 'n/a'}, shadow rows/pre85 buys=${shadowRecorded.rows ?? 'n/a'}/${shadowRecorded.pre85BuyRows ?? 'n/a'}, raw-untracked rows/pre85 buys=${untrackedDropped.rows ?? 'n/a'}/${untrackedDropped.pre85BuyRows ?? 'n/a'}.`);
+      lines.push(`- Wallet channel unique wallets: trusted=${trustedRecorded.uniqueWallets ?? 'n/a'}, shadow=${shadowRecorded.uniqueWallets ?? 'n/a'}, raw-untracked=${untrackedDropped.uniqueWallets ?? 'n/a'}; pre85 buy wallets trusted/shadow/raw=${trustedRecorded.uniquePre85BuyWallets ?? 'n/a'} / ${shadowRecorded.uniquePre85BuyWallets ?? 'n/a'} / ${untrackedDropped.uniquePre85BuyWallets ?? 'n/a'}.`);
+    }
+    const untrackedOverlap = walletContextTrackingOpportunity.untrackedSubstrateOverlap || {};
+    if (untrackedOverlap.uniqueUntrackedWallets !== undefined) {
+      lines.push(`- Untracked substrate overlap: unique=${untrackedOverlap.uniqueUntrackedWallets ?? 'n/a'}, anyKnown=${untrackedOverlap.inAnySubstrateSource ?? 'n/a'} (${pct(untrackedOverlap.inAnySubstrateSourceRate, 2)}), trulyNovel=${untrackedOverlap.trulyNovelAnonymous ?? 'n/a'} (${pct(untrackedOverlap.trulyNovelAnonymousRate, 2)}), substrateLeaks=${untrackedOverlap.substrateLeakUntrackedCount ?? 'n/a'}.`);
+      lines.push(`- Untracked overlap sources: manual=${untrackedOverlap.inManualKol ?? 'n/a'}, promotion=${untrackedOverlap.inPromotionReview ?? 'n/a'}, launchIntel=${untrackedOverlap.inLaunchIntelWalletIndex ?? 'n/a'}, historicalLedger=${untrackedOverlap.inHistoricalWalletEventsLedger ?? 'n/a'}, pnlEvidence=${untrackedOverlap.inWalletIntelOrRealizedPnl ?? 'n/a'}.`);
+    }
     const untrackedOpportunity = walletContextTrackingOpportunity.untrackedWalletOpportunity || {};
     if (untrackedOpportunity.rows !== undefined) {
       lines.push(`- Untracked wallet opportunity: buys=${untrackedOpportunity.buyRows ?? 'n/a'} wallets=${untrackedOpportunity.uniqueWallets ?? 'n/a'} mints=${untrackedOpportunity.uniqueBuyMints ?? 'n/a'} decisionOverlapRows=${untrackedOpportunity.buyRowsWithDecisionOverlap ?? 'n/a'} cross90_300 rows/mints=${untrackedOpportunity.buyRowsCrossed90Within300s ?? 'n/a'} / ${untrackedOpportunity.uniqueBuyMintsCrossed90Within300s ?? 'n/a'}`);

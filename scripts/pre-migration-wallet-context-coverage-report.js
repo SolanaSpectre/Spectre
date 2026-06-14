@@ -12,6 +12,7 @@ const PROMOTION_PATH = path.join(ROOT, 'data', 'reports', 'wallet-promotion-revi
 const WALLET_EVENTS_PATH = path.join(ROOT, 'data', 'wallet-events', 'events.jsonl');
 const LAUNCH_INTEL_WALLET_INDEX_PATH = path.join(ROOT, 'data', 'launch-intel', 'wallet-index.json');
 const MANUAL_KOL_WALLET_PATH = path.join(ROOT, 'data', 'wallet-watchlists', 'manual-kol-wallets.json');
+const WALLET_PNL_EVIDENCE_PATH = path.join(ROOT, 'data', 'reports', 'wallet-pnl-evidence-latest.json');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-wallet-context-coverage-latest.json');
 
 function parseArgs(argv) {
@@ -112,7 +113,7 @@ function mintOf(payload) {
 }
 
 function walletOf(payload) {
-  return payload.wallet || payload.traderPublicKey || payload.account || null;
+  return payload.wallet || payload.walletAddress || payload.traderPublicKey || payload.account || payload.address || null;
 }
 
 function countBy(rows, keyFn) {
@@ -122,6 +123,97 @@ function countBy(rows, keyFn) {
     counts[key] = (counts[key] || 0) + 1;
   }
   return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]))));
+}
+
+function isBuySide(row = {}) {
+  return String(row.side || row.txType || row.tradeType || '').toLowerCase() === 'buy';
+}
+
+function isPre85(row = {}) {
+  const curve = Number(row.curveProgress ?? row.providerCurveProgress ?? row.bondingCurveProgress ?? row.paperCurveProgress);
+  return !Number.isFinite(curve) || curve < 0.85;
+}
+
+function addWalletToSet(target, value) {
+  const wallet = typeof value === 'string' ? value.trim() : '';
+  if (wallet) target.add(wallet);
+}
+
+function addWalletRowsToSet(target, rows = []) {
+  for (const row of Array.isArray(rows) ? rows : []) {
+    addWalletToSet(target, walletOf(row));
+  }
+}
+
+function walletSetFromManualKol(filePath = MANUAL_KOL_WALLET_PATH) {
+  const parsed = readJson(filePath, null);
+  const wallets = new Set();
+  if (Array.isArray(parsed)) addWalletRowsToSet(wallets, parsed);
+  else if (Array.isArray(parsed?.wallets)) addWalletRowsToSet(wallets, parsed.wallets);
+  else if (Array.isArray(parsed?.trackedWallets)) addWalletRowsToSet(wallets, parsed.trackedWallets);
+  return wallets;
+}
+
+function walletSetFromPromotionReview(filePath = PROMOTION_PATH) {
+  const parsed = readJson(filePath, {});
+  const wallets = new Set();
+  for (const key of ['trustReview', 'profitableNeedsFirstTouchEvidence', 'watchReview', 'avoidReview', 'hold', 'wallets']) {
+    addWalletRowsToSet(wallets, parsed[key]);
+  }
+  return wallets;
+}
+
+function walletSetFromLaunchIntel(filePath = LAUNCH_INTEL_WALLET_INDEX_PATH) {
+  const parsed = readJson(filePath, {});
+  const wallets = new Set();
+  addWalletRowsToSet(wallets, parsed.items);
+  return wallets;
+}
+
+function walletSetFromPnlEvidence(filePath = WALLET_PNL_EVIDENCE_PATH) {
+  const parsed = readJson(filePath, {});
+  const wallets = new Set();
+  for (const key of ['wallets', 'topPositiveWallets', 'topNegativeWallets']) {
+    addWalletRowsToSet(wallets, parsed[key]);
+  }
+  return wallets;
+}
+
+async function walletSetFromHistoricalLedger(filePath = WALLET_EVENTS_PATH) {
+  const wallets = new Set();
+  await readJsonl(filePath, (row) => addWalletToSet(wallets, walletOf(row)));
+  return wallets;
+}
+
+async function buildWalletSubstrateIndex() {
+  const manualKol = walletSetFromManualKol(MANUAL_KOL_WALLET_PATH);
+  const promotionReview = walletSetFromPromotionReview(PROMOTION_PATH);
+  const launchIntelWalletIndex = walletSetFromLaunchIntel(LAUNCH_INTEL_WALLET_INDEX_PATH);
+  const walletIntelOrRealizedPnl = walletSetFromPnlEvidence(WALLET_PNL_EVIDENCE_PATH);
+  const historicalWalletEventsLedger = await walletSetFromHistoricalLedger(WALLET_EVENTS_PATH);
+  return {
+    sets: {
+      manualKol,
+      promotionReview,
+      launchIntelWalletIndex,
+      historicalWalletEventsLedger,
+      walletIntelOrRealizedPnl
+    },
+    counts: {
+      manualKol: manualKol.size,
+      promotionReview: promotionReview.size,
+      launchIntelWalletIndex: launchIntelWalletIndex.size,
+      historicalWalletEventsLedger: historicalWalletEventsLedger.size,
+      walletIntelOrRealizedPnl: walletIntelOrRealizedPnl.size
+    },
+    sources: {
+      manualKolWalletPath: fileSummary(MANUAL_KOL_WALLET_PATH),
+      walletPromotionReviewPath: fileSummary(PROMOTION_PATH),
+      launchIntelWalletIndexPath: fileSummary(LAUNCH_INTEL_WALLET_INDEX_PATH),
+      walletEventLedgerPath: fileSummary(WALLET_EVENTS_PATH),
+      walletPnlEvidencePath: fileSummary(WALLET_PNL_EVIDENCE_PATH)
+    }
+  };
 }
 
 function topCounts(rows, keyFn, limit = 12) {
@@ -514,6 +606,100 @@ function summarizeUntrackedDecisionJoin(rows = [], decisions = [], windowSeconds
   };
 }
 
+function summarizeWalletChannelPartition({ walletEvents = [], recordedWalletGateRows = [], untrackedWalletRows = [] }) {
+  const recordedRows = [
+    ...walletEvents.map((row) => ({
+      ...row,
+      side: row.side || row.txType || null,
+      channel: row.shadowWalletProfileMatch === true ? 'shadow_recorded' : 'trusted_recorded'
+    })),
+    ...recordedWalletGateRows.map((row) => ({
+      ...row,
+      channel: row.shadowWalletProfileMatch === true ? 'shadow_recorded' : 'trusted_recorded'
+    }))
+  ];
+  const rowsByChannel = {
+    trustedRecorded: recordedRows.filter((row) => row.channel === 'trusted_recorded'),
+    shadowRecorded: recordedRows.filter((row) => row.channel === 'shadow_recorded'),
+    untrackedDropped: untrackedWalletRows
+  };
+  const summarize = (rows) => {
+    const buyRows = rows.filter(isBuySide);
+    const pre85BuyRows = buyRows.filter(isPre85);
+    return {
+      rows: rows.length,
+      buyRows: buyRows.length,
+      pre85BuyRows: pre85BuyRows.length,
+      uniqueWallets: uniqueCount(rows, (row) => row.wallet || walletOf(row)),
+      uniqueMints: uniqueCount(rows, (row) => row.mint),
+      uniquePre85BuyWallets: uniqueCount(pre85BuyRows, (row) => row.wallet || walletOf(row)),
+      uniquePre85BuyMints: uniqueCount(pre85BuyRows, (row) => row.mint),
+      sourceCounts: countBy(rows, (row) => row.sourceKind || row.source || 'unknown'),
+      reviewTierCounts: countBy(rows, (row) => row.reviewTier || row.promotion?.reviewTier || 'none'),
+      evidenceTierCounts: countBy(rows, (row) => row.evidenceTier || row.promotion?.evidenceTier || 'none')
+    };
+  };
+  return {
+    trustedRecorded: summarize(rowsByChannel.trustedRecorded),
+    shadowRecorded: summarize(rowsByChannel.shadowRecorded),
+    untrackedDropped: summarize(rowsByChannel.untrackedDropped),
+    totals: {
+      rows: recordedRows.length + untrackedWalletRows.length,
+      recordedRows: recordedRows.length,
+      untrackedRows: untrackedWalletRows.length,
+      pre85BuyRows: recordedRows.filter((row) => isBuySide(row) && isPre85(row)).length
+        + untrackedWalletRows.filter((row) => isBuySide(row) && isPre85(row)).length
+    }
+  };
+}
+
+function summarizeUntrackedSubstrateOverlap(untrackedWalletRows = [], substrateIndex) {
+  const uniqueWallets = Array.from(new Set(untrackedWalletRows.map((row) => row.wallet).filter(Boolean)));
+  const sets = substrateIndex?.sets || {};
+  const sourceKeys = [
+    ['manualKol', sets.manualKol || new Set()],
+    ['promotionReview', sets.promotionReview || new Set()],
+    ['launchIntelWalletIndex', sets.launchIntelWalletIndex || new Set()],
+    ['historicalWalletEventsLedger', sets.historicalWalletEventsLedger || new Set()],
+    ['walletIntelOrRealizedPnl', sets.walletIntelOrRealizedPnl || new Set()]
+  ];
+  const sourceHits = Object.fromEntries(sourceKeys.map(([key]) => [key, 0]));
+  const sourceHitSamples = Object.fromEntries(sourceKeys.map(([key]) => [key, []]));
+  const inAny = [];
+  const trulyNovel = [];
+
+  for (const wallet of uniqueWallets) {
+    const hitSources = sourceKeys.filter(([, set]) => set.has(wallet)).map(([key]) => key);
+    for (const key of hitSources) {
+      sourceHits[key] += 1;
+      if (sourceHitSamples[key].length < 8) sourceHitSamples[key].push(wallet);
+    }
+    if (hitSources.length) inAny.push({ wallet, hitSources });
+    else trulyNovel.push(wallet);
+  }
+
+  const substrateLeakUntrackedRows = inAny
+    .filter((row) => row.hitSources.includes('manualKol') || row.hitSources.includes('promotionReview'));
+  const substrateLeakUntracked = substrateLeakUntrackedRows.slice(0, 24);
+  const knownButNotManual = inAny
+    .filter((row) => !row.hitSources.includes('manualKol') && !row.hitSources.includes('promotionReview'))
+    .slice(0, 24);
+
+  return {
+    uniqueUntrackedWallets: uniqueWallets.length,
+    ...Object.fromEntries(Object.entries(sourceHits).map(([key, count]) => [`in${key[0].toUpperCase()}${key.slice(1)}`, count])),
+    inAnySubstrateSource: inAny.length,
+    trulyNovelAnonymous: trulyNovel.length,
+    inAnySubstrateSourceRate: uniqueWallets.length ? compact(inAny.length / uniqueWallets.length, 6) : null,
+    trulyNovelAnonymousRate: uniqueWallets.length ? compact(trulyNovel.length / uniqueWallets.length, 6) : null,
+    substrateLeakUntrackedCount: substrateLeakUntrackedRows.length,
+    sourceHitSamples,
+    substrateLeakUntracked,
+    knownButNotManualSamples: knownButNotManual,
+    trulyNovelAnonymousSamples: trulyNovel.slice(0, 24)
+  };
+}
+
 function dedupeJoinRows(rows = []) {
   const seen = new Set();
   const output = [];
@@ -803,7 +989,7 @@ function finalizeDecisionCoverage(coverage) {
   };
 }
 
-async function summarizeTelemetry(filePath, promotionIndex) {
+async function summarizeTelemetry(filePath, promotionIndex, substrateIndex) {
   const walletEvents = [];
   const decisionCoverage = {
     total: 0,
@@ -1084,6 +1270,12 @@ async function summarizeTelemetry(filePath, promotionIndex) {
     window120s: followThroughWindow(row, curveSnapshotsByMint, 120),
     window300s: followThroughWindow(row, curveSnapshotsByMint, 300)
   }));
+  const walletChannelPartition = summarizeWalletChannelPartition({
+    walletEvents,
+    recordedWalletGateRows,
+    untrackedWalletRows
+  });
+  const untrackedSubstrateOverlap = summarizeUntrackedSubstrateOverlap(untrackedWalletRows, substrateIndex);
   const walletDecisionJoin = summarizeWalletDecisionJoin([
     ...walletEvents.map((event) => ({
       atMs: event.atMs,
@@ -1202,6 +1394,8 @@ async function summarizeTelemetry(filePath, promotionIndex) {
           : null
       },
       walletGateDiagnostics: finalizedWalletGateDiagnostics,
+      walletChannelPartition,
+      untrackedSubstrateOverlap,
       untrackedWalletOpportunity: summarizeUntrackedWalletOpportunity(untrackedRowsWithFollowThrough, decisionMints),
       untrackedWalletDecisionJoin: summarizeUntrackedDecisionJoin(untrackedRowsWithFollowThrough, paperDecisionRows),
       walletObservationChannel,
@@ -1238,9 +1432,10 @@ async function main() {
   }
 
   const promotionIndex = makePromotionIndex(PROMOTION_PATH);
+  const substrateIndex = await buildWalletSubstrateIndex();
   const [historicalLedger, runtime] = await Promise.all([
     summarizeHistoricalLedger(promotionIndex),
-    summarizeTelemetry(telemetryPath, promotionIndex)
+    summarizeTelemetry(telemetryPath, promotionIndex, substrateIndex)
   ]);
 
   const verdict = runtime.walletRelaxedShadowCoverage.withPositiveOrProvenTouch > 0
@@ -1260,7 +1455,8 @@ async function main() {
       walletEventLedgerPath: WALLET_EVENTS_PATH,
       walletPromotionReviewPath: PROMOTION_PATH,
       launchIntelWalletIndexPath: LAUNCH_INTEL_WALLET_INDEX_PATH,
-      manualKolWalletPath: MANUAL_KOL_WALLET_PATH
+      manualKolWalletPath: MANUAL_KOL_WALLET_PATH,
+      walletPnlEvidencePath: WALLET_PNL_EVIDENCE_PATH
     },
     trackingSubstrate: {
       launchIntelWalletIndex: fileSummary(LAUNCH_INTEL_WALLET_INDEX_PATH),
@@ -1269,6 +1465,10 @@ async function main() {
         configuredWalletCount: countManualKolWallets(MANUAL_KOL_WALLET_PATH)
       },
       walletEventLedger: fileSummary(WALLET_EVENTS_PATH)
+    },
+    walletSubstrateIndex: {
+      counts: substrateIndex.counts,
+      sources: substrateIndex.sources
     },
     promotionReview: {
       groupCounts: promotionIndex.groupCounts,
