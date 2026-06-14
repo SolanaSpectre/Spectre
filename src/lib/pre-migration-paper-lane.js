@@ -101,6 +101,10 @@ class PreMigrationPaperLane {
     this.curveFalseNegativeBridgeRecoveryLookbackMs = Math.max(1000, Number(config.preMigrationPaperCurveFalseNegativeBridgeRecoveryLookbackMs ?? 30_000));
     this.curveFalseNegativeBridgeRecoveryMinAdvance = Number(config.preMigrationPaperCurveFalseNegativeBridgeRecoveryMinAdvance ?? 0.003);
     this.curveFalseNegativeBridgeParityMaxDelta = Number(config.preMigrationPaperCurveFalseNegativeBridgeParityMaxDelta ?? 0.03);
+    this.curveNotAdvancingSeparatorShadowEnabled = config.preMigrationPaperCurveNotAdvancingSeparatorShadowEnabled !== false;
+    this.curveNotAdvancingSeparatorShadowMaxBaselineAgeMs = Number(config.preMigrationPaperCurveNotAdvancingSeparatorShadowMaxBaselineAgeMs ?? 1500);
+    this.curveNotAdvancingSeparatorShadowMinCurveDelta = Number(config.preMigrationPaperCurveNotAdvancingSeparatorShadowMinCurveDelta ?? 0);
+    this.curveNotAdvancingSeparatorShadowMaxRecentVolumeSol = Number(config.preMigrationPaperCurveNotAdvancingSeparatorShadowMaxRecentVolumeSol ?? 1);
     this.delayedCurveConfirmationEnabled = config.preMigrationPaperDelayedCurveConfirmationEnabled === true;
     this.delayedCurveConfirmationMinScore = Number(config.preMigrationPaperDelayedCurveConfirmationMinScore ?? 75);
     this.delayedCurveConfirmationMinSourceCurveProgress = Number(config.preMigrationPaperDelayedCurveConfirmationMinSourceCurveProgress ?? 0.5);
@@ -290,6 +294,10 @@ class PreMigrationPaperLane {
           : null;
         if (recoveryShadow) {
           events.push(recoveryShadow);
+        }
+        const separatorShadow = this.curveNotAdvancingSeparatorShadowEvent(observedState, preset, entryGuards, timestamp);
+        if (separatorShadow) {
+          events.push(separatorShadow);
         }
         this.pushGuardAttributionEvent(events, observedState, timestamp, preset, decision, entryGuards, {
           flagged: true,
@@ -1263,6 +1271,95 @@ class PreMigrationPaperLane {
         highCurveStaleSnapshotCurveSnapshotAgeSeconds: this.compact(staleGuard.highCurveStaleSnapshotCurveSnapshotAgeSeconds, 2),
         highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds: this.compact(staleGuard.highCurveStaleSnapshotMaxCurveSnapshotAgeSeconds, 2),
         thresholdDecision,
+        walletClassificationContext: state.walletClassificationContext || null
+      }
+    };
+  }
+
+  curveNotAdvancingSeparatorShadowEvent(state, preset, entryGuards, timestamp = new Date().toISOString()) {
+    if (!this.curveNotAdvancingSeparatorShadowEnabled) {
+      return null;
+    }
+    if (entryGuards?.reason !== 'CURVE_NOT_ADVANCING') {
+      return null;
+    }
+
+    const timestampMs = new Date(timestamp || Date.now()).getTime();
+    const baselineMs = new Date(entryGuards.baselineAt || 0).getTime();
+    const baselineAgeMs = Number.isFinite(timestampMs) && Number.isFinite(baselineMs)
+      ? timestampMs - baselineMs
+      : null;
+    const curveProgressDelta = Number(entryGuards.curveProgressDelta);
+    const recentVolumeSol = Number(state.recentVolumeSol);
+    const priceSol = this.compact(this.getPrice(state), 15);
+    const failedChecks = [];
+
+    if (!Number.isFinite(baselineAgeMs) || baselineAgeMs < 0) {
+      failedChecks.push('MISSING_BASELINE_AGE');
+    } else if (baselineAgeMs > this.curveNotAdvancingSeparatorShadowMaxBaselineAgeMs) {
+      failedChecks.push('BASELINE_AGE_TOO_HIGH');
+    }
+
+    if (!Number.isFinite(curveProgressDelta)) {
+      failedChecks.push('MISSING_CURVE_DELTA');
+    } else if (curveProgressDelta < this.curveNotAdvancingSeparatorShadowMinCurveDelta) {
+      failedChecks.push('CURVE_DELTA_NEGATIVE');
+    }
+
+    if (!Number.isFinite(recentVolumeSol)) {
+      failedChecks.push('MISSING_RECENT_VOLUME');
+    } else if (recentVolumeSol > this.curveNotAdvancingSeparatorShadowMaxRecentVolumeSol) {
+      failedChecks.push('RECENT_VOLUME_TOO_HIGH');
+    }
+
+    if (!Number.isFinite(Number(priceSol)) || Number(priceSol) <= 0) {
+      failedChecks.push('MISSING_PRICE');
+    }
+
+    const wouldEnter = failedChecks.length === 0;
+    const telemetryType = wouldEnter
+      ? 'pre_migration_curve_not_advancing_separator_shadow.would_enter'
+      : 'pre_migration_curve_not_advancing_separator_shadow.would_skip';
+
+    return {
+      type: 'diagnostic',
+      telemetryType,
+      payload: {
+        decision: wouldEnter ? 'SEPARATOR_SHADOW_WOULD_ENTER' : 'SEPARATOR_SHADOW_WOULD_SKIP',
+        preset: preset.name,
+        lane: preset.lane || null,
+        profileName: preset.profileName || null,
+        mint: state.mint,
+        symbol: state.symbol || null,
+        timestamp,
+        sourceReason: entryGuards.reason,
+        sourceGuardPassed: entryGuards.passed === true,
+        reason: wouldEnter ? null : (failedChecks[0] || 'SEPARATOR_SHADOW_FILTER_FAILED'),
+        failedChecks,
+        rule: 'age_lt_1500_delta_ge_0_low_volume',
+        ruleDescription: 'Report-only CURVE_NOT_ADVANCING separator: baselineAgeMs <= 1500, instant curve delta >= 0, recentVolumeSol <= 1, price present.',
+        thresholds: {
+          maxBaselineAgeMs: this.curveNotAdvancingSeparatorShadowMaxBaselineAgeMs,
+          minCurveProgressDelta: this.curveNotAdvancingSeparatorShadowMinCurveDelta,
+          maxRecentVolumeSol: this.curveNotAdvancingSeparatorShadowMaxRecentVolumeSol
+        },
+        baselineAgeMs: Number.isFinite(baselineAgeMs) ? Math.round(baselineAgeMs) : null,
+        baselineAt: entryGuards.baselineAt || null,
+        baselineCurveProgress: this.compact(entryGuards.baselineCurveProgress, 6),
+        score: this.compact(state.score, 2),
+        curveProgress: this.compact(state.curveProgress, 6),
+        curveProgressDelta: this.compact(curveProgressDelta, 6),
+        curveProgressDelta60s: this.compact(entryGuards.curveProgressDelta60s, 6),
+        threshold: this.compact(entryGuards.threshold ?? this.minCurveProgressDelta, 6),
+        recentVolumeSol: this.compact(recentVolumeSol, 4),
+        tradeVelocityPerMin: this.compact(state.tradeVelocityPerMin, 2),
+        buyRatio: this.compact(this.computeBuyRatio(state), 4),
+        uniqueBuyerCount: Number.isFinite(Number(state.uniqueBuyerCount)) ? Number(state.uniqueBuyerCount) : null,
+        sniperWalletCount: Number.isFinite(Number(state.sniperWalletCount)) ? Number(state.sniperWalletCount) : null,
+        priceSol,
+        bondingCurvePriceSol: priceSol,
+        curvePriceSol: priceSol,
+        ...this.reservesPayload(state),
         walletClassificationContext: state.walletClassificationContext || null
       }
     };

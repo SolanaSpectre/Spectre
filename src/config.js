@@ -1112,6 +1112,22 @@ class Config {
     return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_PARITY_MAX_DELTA || '0.03');
   }
 
+  static get preMigrationPaperCurveNotAdvancingSeparatorShadowEnabled() {
+    return process.env.PRE_MIGRATION_PAPER_CURVE_NOT_ADVANCING_SEPARATOR_SHADOW_ENABLED !== 'false';
+  }
+
+  static get preMigrationPaperCurveNotAdvancingSeparatorShadowMaxBaselineAgeMs() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_CURVE_NOT_ADVANCING_SEPARATOR_SHADOW_MAX_BASELINE_AGE_MS || '1500', 10);
+  }
+
+  static get preMigrationPaperCurveNotAdvancingSeparatorShadowMinCurveDelta() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_NOT_ADVANCING_SEPARATOR_SHADOW_MIN_CURVE_DELTA || '0');
+  }
+
+  static get preMigrationPaperCurveNotAdvancingSeparatorShadowMaxRecentVolumeSol() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_NOT_ADVANCING_SEPARATOR_SHADOW_MAX_RECENT_VOLUME_SOL || '1');
+  }
+
   static get preMigrationPaperCurveFalseNegativeBridgeMaxEntriesPerRun() {
     return parseInt(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_MAX_ENTRIES_PER_RUN || '3', 10);
   }

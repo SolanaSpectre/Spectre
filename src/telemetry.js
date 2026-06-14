@@ -179,6 +179,14 @@ class Telemetry {
         perSecond: readLimit('TELEMETRY_GUARD_ATTRIBUTION_MAX_PER_SECOND', 6),
         perMinute: readLimit('TELEMETRY_GUARD_ATTRIBUTION_MAX_PER_MINUTE', 90)
       }],
+      ['pre_migration_curve_not_advancing_separator_shadow.would_enter', {
+        perSecond: readLimit('TELEMETRY_CURVE_NOT_ADVANCING_SEPARATOR_SHADOW_MAX_PER_SECOND', 4),
+        perMinute: readLimit('TELEMETRY_CURVE_NOT_ADVANCING_SEPARATOR_SHADOW_MAX_PER_MINUTE', 60)
+      }],
+      ['pre_migration_curve_not_advancing_separator_shadow.would_skip', {
+        perSecond: readLimit('TELEMETRY_CURVE_NOT_ADVANCING_SEPARATOR_SHADOW_MAX_PER_SECOND', 4),
+        perMinute: readLimit('TELEMETRY_CURVE_NOT_ADVANCING_SEPARATOR_SHADOW_MAX_PER_MINUTE', 60)
+      }],
       ['candidate.quarantine_skipped', {
         perSecond: readLimit('TELEMETRY_CANDIDATE_QUARANTINE_SKIPPED_MAX_PER_SECOND', 2),
         perMinute: readLimit('TELEMETRY_CANDIDATE_QUARANTINE_SKIPPED_MAX_PER_MINUTE', 20)

@@ -2164,9 +2164,12 @@ function buildLaunchDecisionLines({
   preMigrationRelaxedGateReplay,
   preMigrationCurveStallRelaxedReplay,
   preMigrationCurveAdvanceDiagnostic,
+  preMigrationCurveNotAdvancingSeparability,
+  preMigrationCurveNotAdvancingSeparatorShadow,
   preMigrationCurveConfirmationReplay,
   preMigrationCurveConfirmationShadow,
   preMigrationEntryFunnel,
+  preMigrationWalletChannelHealth,
   runnerRejectEntryReplay,
   strategyCandidateScorecard
 }) {
@@ -2178,6 +2181,10 @@ function buildLaunchDecisionLines({
   const relaxedBest = topArray(preMigrationRelaxedGateReplay.ranking, 1)[0] || null;
   const curveStallBest = topArray(preMigrationCurveStallRelaxedReplay.ranking, 1)[0] || null;
   const curveAdvanceLikelyBest = bestProfileFromSummary(preMigrationCurveAdvanceDiagnostic.replay?.likelyFalseNegativeUniqueByProfile);
+  const separatorSummary = preMigrationCurveNotAdvancingSeparatorShadow.summary || {};
+  const separatorBest = separatorSummary.bestRun || null;
+  const separabilitySummary = preMigrationCurveNotAdvancingSeparability.summary || {};
+  const walletChannelSummary = preMigrationWalletChannelHealth.summary || {};
   const curveConfirmationBest = topArray(preMigrationCurveConfirmationReplay.ranking, 1)[0] || null;
   const runnerRejectBest = bestProfileFromSummary(runnerRejectEntryReplay.summaryByProfile);
   const scorecardSummary = strategyCandidateScorecard.summary || {};
@@ -2227,6 +2234,17 @@ function buildLaunchDecisionLines({
   if (curveConfirmationShadowSummary.shadowRows !== undefined) {
     lines.push(`- Delayed-confirmation shadow: rows/wouldEnter/unique=${curveConfirmationShadowSummary.shadowRows ?? 'n/a'}/${curveConfirmationShadowSummary.wouldEnter ?? 'n/a'}/${curveConfirmationShadowSummary.uniqueWouldEnterMints ?? 'n/a'}; entryRate=${pct(curveConfirmationShadowSummary.entryRate, 1)}; delta median=${fmt(curveConfirmationShadowAll.confirmedDelta?.median, 4)}.`);
   }
+  if (separatorBest) {
+    lines.push(`- CURVE_NOT_ADVANCING separator shadow: ${separatorSummary.verdict || 'n/a'}; best=${separatorBest.rule || 'n/a'} / ${separatorBest.exitProfile || 'n/a'} | trades=${separatorBest.replayedTrades ?? 'n/a'} | pnl=${sol(separatorBest.totalPnlSol, 6)} | median=${sol(separatorBest.medianPnlSol, 6)} | exTop3=${sol(separatorBest.pnlAfterRemovingTop3WinnersSol, 6)}.`);
+  } else if (separatorSummary.verdict) {
+    lines.push(`- CURVE_NOT_ADVANCING separator shadow: ${separatorSummary.verdict}; no best run available.`);
+  }
+  if (separabilitySummary.verdict) {
+    lines.push(`- CURVE_NOT_ADVANCING separability: ${separabilitySummary.verdict}; strong/useful/flat=${separabilitySummary.strongFollowThroughRows ?? 'n/a'}/${separabilitySummary.usefulFollowThroughRows ?? 'n/a'}/${separabilitySummary.correctlyBlockedFlatRows ?? 'n/a'}.`);
+  }
+  if (walletChannelSummary.channelVerdict) {
+    lines.push(`- Wallet proof coverage: ${walletChannelSummary.channelVerdict}; decisions/prospectivePre85/rawUntrustedPre85=${walletChannelSummary.paperDecisionRows ?? 'n/a'}/${walletChannelSummary.noTrackedFirstTouchWithProspectivePre85Buy ?? 'n/a'}/${walletChannelSummary.noTrackedFirstTouchWithRawUntrustedPre85Buy ?? 'n/a'}.`);
+  }
   lines.push(`- Rolling tightest gates: decisions=${marginSummary.decisions ?? 'n/a'}, readiness median/p90/max=${fmt(marginSummary.readinessPct?.median, 2)}%/${fmt(marginSummary.readinessPct?.p90, 2)}%/${fmt(marginSummary.readinessPct?.max, 2)}%; gates=${formatTopCounts(marginSummary.tightestGateCounts)}.`);
   if (nearMissSummary.decisions !== undefined) {
     lines.push(`- Near-miss follow-through: >=${preMigrationEntryGateMargin.nearMissFollowThrough?.minReadinessPct ?? 'n/a'}% readiness decisions=${nearMissSummary.decisions}, unique=${nearMissSummary.uniqueMints}, reached90 unique=${nearMissSummary.uniqueMintsReached90Within120s ?? 'n/a'}, crossed95 unique=${nearMissSummary.uniqueMintsCrossed95Within120s ?? 'n/a'}, delta120 median/p90=${fmt(nearMissSummary.curveDelta120s?.median, 4)}/${fmt(nearMissSummary.curveDelta120s?.p90, 4)}.`);
@@ -2243,8 +2261,8 @@ function buildLaunchDecisionLines({
   lines.push(`  - CURVE_NOT_ADVANCING diagnostic replay best: ${formatReplayProfile(curveAdvanceLikelyBest)}`);
   lines.push(`  - curve-confirmation best: ${formatReplayProfile(curveConfirmationBest, 'confirmed')}`);
   lines.push(`  - runner-reject replay best: ${formatReplayProfile(runnerRejectBest)} (report-only; not a live-entry proof)`);
-  lines.push(`- Tuning posture: ${relaxedWarning ? 'do not loosen runtime gates from this evidence; the broad relaxed lanes are negative and the positive slices are tiny/median-weak' : 'candidate for deeper review, not automatic live tuning'}.`);
-  lines.push('- Next engineering target: improve candidate-generation/near-miss instrumentation so the next paper run can explain exactly which condition prevents real entries.');
+  lines.push(`- Tuning posture: ${separatorSummary.verdict === 'PROMISING_SEPARATOR_SHADOW_FOUND' ? 'promote the separator rule to a runtime shadow lane only; keep live and actual paper-entry gates unchanged until it repeats' : relaxedWarning ? 'do not loosen runtime gates from this evidence; the broad relaxed lanes are negative and the positive slices are tiny/median-weak' : 'candidate for deeper review, not automatic live tuning'}.`);
+  lines.push(`- Next engineering target: ${separatorSummary.verdict === 'PROMISING_SEPARATOR_SHADOW_FOUND' ? 'add a runtime shadow-only lane for the best CURVE_NOT_ADVANCING separator and collect fresh would-enter evidence on the next paper run' : 'improve candidate-generation/near-miss instrumentation so the next paper run can explain exactly which condition prevents real entries'}.`);
   lines.push('');
   return lines;
 }
@@ -2410,9 +2428,12 @@ function buildSummary(docs) {
     preMigrationRelaxedGateReplay: docs.preMigrationRelaxedGateReplay.data || {},
     preMigrationCurveStallRelaxedReplay: docs.preMigrationCurveStallRelaxedReplay.data || {},
     preMigrationCurveAdvanceDiagnostic: docs.preMigrationCurveAdvanceDiagnostic.data || {},
+    preMigrationCurveNotAdvancingSeparability: docs.preMigrationCurveNotAdvancingSeparability?.data || {},
+    preMigrationCurveNotAdvancingSeparatorShadow: docs.preMigrationCurveNotAdvancingSeparatorShadow?.data || {},
     preMigrationCurveConfirmationReplay: docs.preMigrationCurveConfirmationReplay?.data || {},
     preMigrationCurveConfirmationShadow: docs.preMigrationCurveConfirmationShadow?.data || {},
     preMigrationEntryFunnel: docs.preMigrationEntryFunnel?.data || {},
+    preMigrationWalletChannelHealth: docs.preMigrationWalletChannelHealth?.data || {},
     runnerRejectEntryReplay: docs.runnerRejectEntryReplay.data || {},
     strategyCandidateScorecard
   }));
@@ -3946,6 +3967,7 @@ function buildSummary(docs) {
   lines.push('');
 
   const separatorShadowSummary = curveNotAdvancingSeparatorShadow.summary || {};
+  const separatorRuntimeShadow = curveNotAdvancingSeparatorShadow.runtimeShadow || {};
   const separatorShadowRanked = topArray(curveNotAdvancingSeparatorShadow.rankedRuns, 8);
   const separatorShadowRobust = topArray(curveNotAdvancingSeparatorShadow.robustPositiveRuns, 8);
   const separatorShadowSamples = curveNotAdvancingSeparatorShadow.bestRunSamples || {};
@@ -3954,6 +3976,9 @@ function buildSummary(docs) {
   lines.push('------------------------------------------');
   lines.push('- Mode: report-only; replays candidate separator rules against observed price paths. No runtime gates are changed.');
   lines.push(`- Verdict: ${separatorShadowSummary.verdict || 'n/a'}; analyzed rows=${separatorShadowSummary.analyzedRows ?? 'n/a'}; rules/profile tests=${separatorShadowSummary.evaluatedRuleProfileCount ?? 'n/a'}; robust positive=${separatorShadowSummary.robustPositiveCount ?? 'n/a'}.`);
+  if (separatorRuntimeShadow.rows !== undefined) {
+    lines.push(`- Runtime shadow telemetry: rows=${separatorRuntimeShadow.rows ?? 'n/a'}; wouldEnter/wouldSkip=${separatorRuntimeShadow.wouldEnterRows ?? 'n/a'} / ${separatorRuntimeShadow.wouldSkipRows ?? 'n/a'}; unique would-enter mints=${separatorRuntimeShadow.uniqueWouldEnterMints ?? 'n/a'}; top skip reasons=${formatTopCounts(separatorRuntimeShadow.topSkipReasons)}.`);
+  }
   if (separatorShadowSummary.bestRun) {
     const best = separatorShadowSummary.bestRun;
     lines.push(`- Best run: ${best.rule || 'n/a'} / ${best.exitProfile || 'n/a'} | trades=${best.replayedTrades ?? 'n/a'} | pnl=${sol(best.totalPnlSol, 4)} | median=${sol(best.medianPnlSol, 4)} | exTop3=${sol(best.pnlAfterRemovingTop3WinnersSol, 4)} | outlierDominated=${best.outlierDominated === true ? 'yes' : 'no'}.`);

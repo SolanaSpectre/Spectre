@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { forEachJsonlSync } = require('./lib/jsonl');
 const {
   analyzeDecision,
   latestTelemetryFile,
@@ -16,6 +17,8 @@ const ROOT = path.join(__dirname, '..');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-curve-not-advancing-separator-shadow-latest.json');
 const SIZE_SOL = 0.05;
 const FEE_SOL = 0.0005;
+const RUNTIME_SHADOW_ENTER = 'pre_migration_curve_not_advancing_separator_shadow.would_enter';
+const RUNTIME_SHADOW_SKIP = 'pre_migration_curve_not_advancing_separator_shadow.would_skip';
 
 const EXIT_PROFILES = [
   { name: 'shadow_120s_tp50_sl25_slip3', holdSeconds: 120, takeProfitPct: 50, stopLossPct: -25, entrySlippagePct: 3, exitSlippagePct: 3 },
@@ -75,6 +78,14 @@ function countBy(rows, keyFn) {
     counts[key] = (counts[key] || 0) + 1;
   }
   return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]))));
+}
+
+function payloadOf(event) {
+  return event.payload || event.data || {};
+}
+
+function eventType(event) {
+  return event.telemetryType || event.type || event.event || event.name || 'unknown';
 }
 
 function quantile(values, q) {
@@ -239,6 +250,51 @@ function compactCandidate(row) {
   };
 }
 
+function compactRuntimeShadow(row) {
+  return {
+    mint: row.mint,
+    symbol: row.symbol || null,
+    timestamp: row.timestamp || null,
+    preset: row.preset || null,
+    reason: row.reason || null,
+    score: row.score ?? null,
+    curveProgress: row.curveProgress ?? null,
+    baselineAgeMs: row.baselineAgeMs ?? null,
+    curveProgressDelta: row.curveProgressDelta ?? null,
+    curveProgressDelta60s: row.curveProgressDelta60s ?? null,
+    recentVolumeSol: row.recentVolumeSol ?? null,
+    priceSol: row.priceSol ?? null,
+    failedChecks: Array.isArray(row.failedChecks) ? row.failedChecks : []
+  };
+}
+
+function readRuntimeShadowSummary(telemetryPath) {
+  const rows = [];
+  const stats = forEachJsonlSync(telemetryPath, (event) => {
+    const type = eventType(event);
+    if (type !== RUNTIME_SHADOW_ENTER && type !== RUNTIME_SHADOW_SKIP) return;
+    rows.push({
+      ...payloadOf(event),
+      type,
+      wouldEnter: type === RUNTIME_SHADOW_ENTER
+    });
+  });
+  const enterRows = rows.filter((row) => row.wouldEnter);
+  const skipRows = rows.filter((row) => !row.wouldEnter);
+  return {
+    rows: rows.length,
+    malformedLines: stats.malformedLines,
+    wouldEnterRows: enterRows.length,
+    wouldSkipRows: skipRows.length,
+    uniqueMints: new Set(rows.map((row) => row.mint).filter(Boolean)).size,
+    uniqueWouldEnterMints: new Set(enterRows.map((row) => row.mint).filter(Boolean)).size,
+    topSkipReasons: countBy(skipRows, (row) => row.reason || (Array.isArray(row.failedChecks) ? row.failedChecks[0] : null)),
+    topFailedChecks: countBy(skipRows.flatMap((row) => Array.isArray(row.failedChecks) ? row.failedChecks : []), (item) => item),
+    wouldEnterSamples: enterRows.slice(0, 20).map(compactRuntimeShadow),
+    wouldSkipSamples: skipRows.slice(0, 20).map(compactRuntimeShadow)
+  };
+}
+
 function buildReport(telemetryPath, telemetry) {
   const analyzed = telemetry.decisions.map((decision) => analyzeDecision(
     decision,
@@ -329,6 +385,7 @@ function buildReport(telemetryPath, telemetry) {
         outlierDominated: best.outlierDominated
       } : null
     },
+    runtimeShadow: readRuntimeShadowSummary(telemetryPath),
     rankedRuns: ranked,
     robustPositiveRuns: robustPositive,
     bestRunSamples: bestKey ? replaySamples[bestKey] : null,
