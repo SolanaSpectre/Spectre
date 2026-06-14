@@ -30,6 +30,9 @@ class Telemetry {
     this.writeInFlight = false;
     this.flushPending = false;
     this.writePromise = Promise.resolve();
+    this.rateLimitConfigs = this.buildRateLimitConfigs();
+    this.rateLimitState = new Map();
+    this.rateLimitedCounts = new Map();
 
     if (this.enabled) {
       const logDir = config.telemetryLogDir;
@@ -40,9 +43,14 @@ class Telemetry {
   }
 
   record(type, payload = {}) {
+    const now = Date.now();
+    if (this.shouldRateLimit(type, now)) {
+      return null;
+    }
+
     const event = {
       type,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(now).toISOString(),
       payload
     };
 
@@ -132,6 +140,126 @@ class Telemetry {
     return event;
   }
 
+  buildRateLimitConfigs() {
+    const readLimit = (name, fallback) => {
+      const value = Number(process.env[name]);
+      return Number.isFinite(value) && value >= 0 ? value : fallback;
+    };
+
+    return new Map([
+      ['pump_bonding_curve.provider_snapshot', {
+        perSecond: readLimit('TELEMETRY_PROVIDER_SNAPSHOT_MAX_PER_SECOND', 8),
+        perMinute: readLimit('TELEMETRY_PROVIDER_SNAPSHOT_MAX_PER_MINUTE', 120)
+      }],
+      ['pre_migration_paper.first_curve_snapshot_near_miss', {
+        perSecond: readLimit('TELEMETRY_FIRST_CURVE_NEAR_MISS_MAX_PER_SECOND', 8),
+        perMinute: readLimit('TELEMETRY_FIRST_CURVE_NEAR_MISS_MAX_PER_MINUTE', 120)
+      }]
+    ]);
+  }
+
+  shouldRateLimit(type, now = Date.now()) {
+    const config = this.rateLimitConfigs.get(type);
+    if (!config) return false;
+    if (config.perSecond === 0 || config.perMinute === 0) {
+      this.recordTelemetryRateLimitDrop(type, now);
+      return true;
+    }
+
+    const secondKey = Math.floor(now / 1000);
+    const minuteKey = Math.floor(now / 60000);
+    const state = this.rateLimitState.get(type) || {
+      secondKey,
+      secondCount: 0,
+      minuteKey,
+      minuteCount: 0,
+      dropped: 0,
+      firstDroppedAt: null,
+      lastDroppedAt: null
+    };
+
+    if (state.secondKey !== secondKey) {
+      state.secondKey = secondKey;
+      state.secondCount = 0;
+    }
+    if (state.minuteKey !== minuteKey) {
+      this.flushTelemetryRateLimitSummary(type, now, state);
+      state.minuteKey = minuteKey;
+      state.minuteCount = 0;
+    }
+
+    const overSecond = Number.isFinite(config.perSecond) && state.secondCount >= config.perSecond;
+    const overMinute = Number.isFinite(config.perMinute) && state.minuteCount >= config.perMinute;
+    if (overSecond || overMinute) {
+      this.rateLimitState.set(type, state);
+      this.recordTelemetryRateLimitDrop(type, now, state);
+      return true;
+    }
+
+    state.secondCount += 1;
+    state.minuteCount += 1;
+    this.rateLimitState.set(type, state);
+    return false;
+  }
+
+  recordTelemetryRateLimitDrop(type, now = Date.now(), existingState = null) {
+    const state = existingState || this.rateLimitState.get(type) || {
+      secondKey: Math.floor(now / 1000),
+      secondCount: 0,
+      minuteKey: Math.floor(now / 60000),
+      minuteCount: 0,
+      dropped: 0,
+      firstDroppedAt: null,
+      lastDroppedAt: null
+    };
+    state.dropped += 1;
+    state.firstDroppedAt = state.firstDroppedAt || now;
+    state.lastDroppedAt = now;
+    this.rateLimitState.set(type, state);
+    this.rateLimitedCounts.set(type, (this.rateLimitedCounts.get(type) || 0) + 1);
+  }
+
+  flushTelemetryRateLimitSummary(type, now = Date.now(), existingState = null) {
+    const state = existingState || this.rateLimitState.get(type);
+    if (!state || !state.dropped) return;
+
+    const config = this.rateLimitConfigs.get(type) || {};
+    const dropped = state.dropped;
+    const firstDroppedAt = state.firstDroppedAt;
+    const lastDroppedAt = state.lastDroppedAt;
+    state.dropped = 0;
+    state.firstDroppedAt = null;
+    state.lastDroppedAt = null;
+
+    this.recordInternal('telemetry.rate_limited_summary', {
+      telemetryType: type,
+      dropped,
+      perSecond: config.perSecond ?? null,
+      perMinute: config.perMinute ?? null,
+      firstDroppedAt: firstDroppedAt ? new Date(firstDroppedAt).toISOString() : null,
+      lastDroppedAt: lastDroppedAt ? new Date(lastDroppedAt).toISOString() : null
+    }, now);
+  }
+
+  recordInternal(type, payload = {}, now = Date.now()) {
+    const event = {
+      type,
+      timestamp: new Date(now).toISOString(),
+      payload
+    };
+
+    this.totalEventsRecorded += 1;
+    if (this.maxRecentEvents !== 0) {
+      this.events.push(event);
+      if (this.events.length > this.maxRecentEvents) {
+        this.events.splice(0, this.events.length - this.maxRecentEvents);
+      }
+    }
+    this.counts.set(type, (this.counts.get(type) || 0) + 1);
+    this.enqueueWrite(event);
+    return event;
+  }
+
   enqueueWrite(event) {
     if (!this.enabled || !this.filePath) return;
 
@@ -177,6 +305,7 @@ class Telemetry {
 
   async flushAsync() {
     if (!this.enabled || !this.filePath) return;
+    this.flushAllTelemetryRateLimitSummaries();
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
@@ -189,6 +318,7 @@ class Telemetry {
   }
 
   getSummary() {
+    this.flushAllTelemetryRateLimitSummaries();
     this.flush();
     return {
       enabled: this.enabled,
@@ -204,6 +334,7 @@ class Telemetry {
       paperExitCounts: Object.fromEntries(this.paperExitCounts),
       liveExitCounts: Object.fromEntries(this.liveExitCounts),
       pumpFailureCounts: Object.fromEntries(this.pumpFailureCounts),
+      rateLimitedTelemetryCounts: Object.fromEntries(this.rateLimitedCounts),
       preMigrationPaperDecisionCounts: Object.fromEntries(this.preMigrationPaperDecisionCounts),
       preMigrationPaperSkipReasonCounts: Object.fromEntries(this.preMigrationPaperSkipReasonCounts),
       strategyEntries: Object.fromEntries(this.strategyEntries),
@@ -236,6 +367,13 @@ class Telemetry {
     if (normalized < 0.6) return '0.4-0.6';
     if (normalized < 0.7) return '0.6-0.7';
     return '0.7+';
+  }
+
+  flushAllTelemetryRateLimitSummaries() {
+    const now = Date.now();
+    for (const [type, state] of this.rateLimitState.entries()) {
+      this.flushTelemetryRateLimitSummary(type, now, state);
+    }
   }
 }
 

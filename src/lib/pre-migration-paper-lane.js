@@ -160,6 +160,23 @@ class PreMigrationPaperLane {
     this.sameMintExitCooldowns = new Map();
     this.delayedCurveConfirmationPending = new Map();
     this.delayedCurveConfirmationSeen = new Set();
+    this.guardAttributionLastByKey = new Map();
+    this.guardAttributionMinIntervalMs = Math.max(
+      0,
+      Number(config.preMigrationPaperGuardAttributionMinIntervalMs ?? 30_000)
+    );
+    this.guardAttributionMinScoreDelta = Math.max(
+      0,
+      Number(config.preMigrationPaperGuardAttributionMinScoreDelta ?? 5)
+    );
+    this.guardAttributionMinCurveDelta = Math.max(
+      0,
+      Number(config.preMigrationPaperGuardAttributionMinCurveDelta ?? 0.03)
+    );
+    this.guardAttributionMaxRecent = Math.max(
+      100,
+      Number(config.preMigrationPaperGuardAttributionMaxRecent ?? 5000)
+    );
 
     for (const preset of this.presets) {
       this.stats.presets[preset.name] = this.createPresetStats(preset.strategy);
@@ -221,7 +238,7 @@ class PreMigrationPaperLane {
         }
         const cooldown = this.getBadExitCooldown(mint, timestamp);
         if (cooldown.active) {
-          events.push(this.guardAttributionEvent(observedState, timestamp, preset, {
+          this.pushGuardAttributionEvent(events, observedState, timestamp, preset, {
             passed: false,
             reason: 'RECENT_BAD_EXIT_COOLDOWN',
             badExitCooldownUntil: cooldown.until,
@@ -231,7 +248,7 @@ class PreMigrationPaperLane {
           }, entryGuards, {
             flagged: true,
             suppressedPresetIneligible: false
-          }));
+          });
           events.push(this.decisionEvent('PAPER_SKIPPED', observedState, timestamp, preset, {
             passed: false,
             reason: 'RECENT_BAD_EXIT_COOLDOWN',
@@ -245,7 +262,7 @@ class PreMigrationPaperLane {
 
         const sameMintCooldown = this.getSameMintExitCooldown(mint, timestamp);
         if (sameMintCooldown.active) {
-          events.push(this.guardAttributionEvent(observedState, timestamp, preset, {
+          this.pushGuardAttributionEvent(events, observedState, timestamp, preset, {
             passed: false,
             reason: 'RECENT_SAME_MINT_EXIT_COOLDOWN',
             sameMintCooldownUntil: sameMintCooldown.until,
@@ -255,7 +272,7 @@ class PreMigrationPaperLane {
           }, entryGuards, {
             flagged: true,
             suppressedPresetIneligible: false
-          }));
+          });
           events.push(this.decisionEvent('PAPER_SKIPPED', observedState, timestamp, preset, {
             passed: false,
             reason: 'RECENT_SAME_MINT_EXIT_COOLDOWN',
@@ -274,10 +291,10 @@ class PreMigrationPaperLane {
         if (recoveryShadow) {
           events.push(recoveryShadow);
         }
-        events.push(this.guardAttributionEvent(observedState, timestamp, preset, decision, entryGuards, {
+        this.pushGuardAttributionEvent(events, observedState, timestamp, preset, decision, entryGuards, {
           flagged: true,
           suppressedPresetIneligible: decision.reason === 'PRESET_NOT_ELIGIBLE_FOR_GUARD_OVERRIDE'
-        }));
+        });
         if (decision.passed) {
           const activePosition = this.getActivePositionForMint(mint);
           if (activePosition) {
@@ -303,18 +320,86 @@ class PreMigrationPaperLane {
         && this.shouldShadowUnflaggedEntry(observedState)
       ) {
         const decision = this.evaluateEntryDecision(observedState, preset, entryGuards, timestamp);
-        events.push(this.guardAttributionEvent(observedState, timestamp, preset, decision, entryGuards, {
+        this.pushGuardAttributionEvent(events, observedState, timestamp, preset, decision, entryGuards, {
           flagged: false,
           shadowOnly: true,
           shadowReason: 'UNFLAGGED_ENTRY_FUNNEL_SHADOW',
           suppressedPresetIneligible: decision.reason === 'PRESET_NOT_ELIGIBLE_FOR_GUARD_OVERRIDE'
-        }));
+        });
       }
     }
 
     events.push(...this.updateDelayedCurveConfirmationPaper(observedState, timestamp, price, entryGuards, flagged));
 
     return events;
+  }
+
+  pushGuardAttributionEvent(events, state, timestamp, preset, decision = {}, entryGuards = {}, meta = {}) {
+    const event = this.guardAttributionEvent(state, timestamp, preset, decision, entryGuards, meta);
+    if (this.shouldEmitGuardAttributionEvent(event)) {
+      events.push(event);
+    }
+    return event;
+  }
+
+  shouldEmitGuardAttributionEvent(event = {}) {
+    const payload = event.payload || {};
+    if (payload.shadowOnly !== true) {
+      return true;
+    }
+    if (payload.outcome === 'PAPER_WOULD_ENTER' || payload.guardPassed === true || payload.guardOverride) {
+      return true;
+    }
+
+    const mint = payload.mint || 'unknown';
+    const failedChecks = Array.isArray(payload.failedChecks) ? payload.failedChecks.join(',') : '';
+    const key = [
+      mint,
+      payload.preset || 'unknown_preset',
+      payload.lane || 'unknown_lane',
+      payload.outcome || 'unknown_outcome',
+      payload.reason || 'unknown_reason',
+      payload.guardReason || 'unknown_guard_reason',
+      failedChecks
+    ].join('|');
+    const nowMs = Date.parse(payload.timestamp) || Date.now();
+    const score = Number(payload.score);
+    const curveProgress = Number(payload.curveProgress);
+    const previous = this.guardAttributionLastByKey.get(key);
+
+    if (!previous) {
+      this.rememberGuardAttribution(key, nowMs, score, curveProgress);
+      return true;
+    }
+
+    const ageMs = nowMs - Number(previous.atMs || 0);
+    const scoreDelta = Number.isFinite(score) && Number.isFinite(previous.score)
+      ? Math.abs(score - previous.score)
+      : 0;
+    const curveDelta = Number.isFinite(curveProgress) && Number.isFinite(previous.curveProgress)
+      ? Math.abs(curveProgress - previous.curveProgress)
+      : 0;
+    const shouldEmit = (
+      ageMs >= this.guardAttributionMinIntervalMs
+      || scoreDelta >= this.guardAttributionMinScoreDelta
+      || curveDelta >= this.guardAttributionMinCurveDelta
+    );
+    if (shouldEmit) {
+      this.rememberGuardAttribution(key, nowMs, score, curveProgress);
+    }
+    return shouldEmit;
+  }
+
+  rememberGuardAttribution(key, atMs, score, curveProgress) {
+    this.guardAttributionLastByKey.set(key, {
+      atMs,
+      score: Number.isFinite(score) ? score : null,
+      curveProgress: Number.isFinite(curveProgress) ? curveProgress : null
+    });
+    while (this.guardAttributionLastByKey.size > this.guardAttributionMaxRecent) {
+      const firstKey = this.guardAttributionLastByKey.keys().next().value;
+      this.guardAttributionLastByKey.delete(firstKey);
+    }
   }
 
   delayedCurveConfirmationPreset() {

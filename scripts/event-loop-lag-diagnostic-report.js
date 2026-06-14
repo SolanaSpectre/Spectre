@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { forEachJsonlSync } = require('./lib/jsonl');
+const { resolveTelemetryPath, telemetryFromReport } = require('./lib/report-telemetry');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
@@ -27,29 +28,8 @@ function parseArgs(argv) {
   return args;
 }
 
-function repoPath(filePath) {
-  if (!filePath) return null;
-  return path.isAbsolute(filePath) ? filePath : path.join(ROOT, filePath);
-}
-
-function latestTelemetryFile() {
-  if (!fs.existsSync(LOG_DIR)) return null;
-  return fs.readdirSync(LOG_DIR)
-    .filter((name) => /^telemetry-.*\.jsonl$/i.test(name))
-    .map((name) => {
-      const filePath = path.join(LOG_DIR, name);
-      return { filePath, mtimeMs: fs.statSync(filePath).mtimeMs };
-    })
-    .sort((a, b) => b.mtimeMs - a.mtimeMs)[0]?.filePath || null;
-}
-
 function telemetryFromBattlefield() {
-  try {
-    const report = JSON.parse(fs.readFileSync(BATTLEFIELD_PATH, 'utf8').replace(/^\uFEFF/, ''));
-    return report.files?.telemetryPath || report.telemetryPath || null;
-  } catch {
-    return null;
-  }
+  return telemetryFromReport(ROOT, BATTLEFIELD_PATH);
 }
 
 function numberOrNull(value, digits = null) {
@@ -222,7 +202,10 @@ function analyzeTelemetry(filePath) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
-  const telemetryPath = repoPath(args.telemetry || telemetryFromBattlefield() || latestTelemetryFile());
+  const telemetryPath = resolveTelemetryPath(ROOT, {
+    telemetry: args.telemetry,
+    reportTelemetry: telemetryFromBattlefield()
+  });
   if (!telemetryPath || !fs.existsSync(telemetryPath)) {
     throw new Error(`Telemetry file not found: ${telemetryPath || 'none'}`);
   }
