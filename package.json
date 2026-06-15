@@ -50,6 +50,7 @@
     "report:pre-migration-entry-shape": "node scripts/pre-migration-entry-shape-report.js",
     "report:pre-migration-entry-funnel": "node scripts/pre-migration-entry-funnel-report.js",
     "report:pre-migration-entry-gate-margin": "node scripts/pre-migration-entry-gate-margin-report.js",
+    "report:pre-migration-high-readiness-reject-replay": "node scripts/pre-migration-high-readiness-reject-replay-report.js",
     "report:pre-migration-single-gate-shadow": "node scripts/pre-migration-single-gate-shadow-report.js",
     "report:pre-migration-curve-advance-diagnostic": "node scripts/pre-migration-curve-advance-diagnostic-report.js",
     "report:pre-migration-curve-not-advancing-separability": "node scripts/pre-migration-curve-not-advancing-separability-report.js",

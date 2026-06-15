@@ -56,6 +56,7 @@ const POST_RUN_REPORTS = [
   { title: 'Pre-Migration Entry Shape', script: 'pre-migration-entry-shape-report.js' },
   { title: 'Pre-Migration Entry Funnel', script: 'pre-migration-entry-funnel-report.js' },
   { title: 'Pre-Migration Entry Gate Margin', script: 'pre-migration-entry-gate-margin-report.js' },
+  { title: 'Pre-Migration High-Readiness Reject Replay', script: 'pre-migration-high-readiness-reject-replay-report.js' },
   { title: 'Pre-Migration Single-Gate Shadow', script: 'pre-migration-single-gate-shadow-report.js' },
   { title: 'Pre-Migration Curve Advance Diagnostic', script: 'pre-migration-curve-advance-diagnostic-report.js' },
   { title: 'Pre-Migration CURVE_NOT_ADVANCING Separability', script: 'pre-migration-curve-not-advancing-separability-report.js' },

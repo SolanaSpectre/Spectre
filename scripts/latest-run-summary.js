@@ -29,6 +29,7 @@ const FILES = {
   preMigrationEntryShape: 'data/reports/pre-migration-entry-shape-latest.json',
   preMigrationEntryFunnel: 'data/reports/pre-migration-entry-funnel-latest.json',
   preMigrationEntryGateMargin: 'data/reports/pre-migration-entry-gate-margin-latest.json',
+  preMigrationHighReadinessRejectReplay: 'data/reports/pre-migration-high-readiness-reject-replay-latest.json',
   preMigrationSingleGateShadow: 'data/reports/pre-migration-single-gate-shadow-latest.json',
   preMigrationCurveAdvanceDiagnostic: 'data/reports/pre-migration-curve-advance-diagnostic-latest.json',
   preMigrationCurveNotAdvancingSeparability: 'data/reports/pre-migration-curve-not-advancing-separability-latest.json',
@@ -2166,6 +2167,7 @@ function buildLaunchDecisionLines({
   preMigrationEntryGateMargin,
   preMigrationDryRunEntryReplay,
   preMigrationRelaxedGateReplay,
+  preMigrationHighReadinessRejectReplay,
   preMigrationCurveStallRelaxedReplay,
   preMigrationCurveAdvanceDiagnostic,
   preMigrationCurveNotAdvancingSeparability,
@@ -2207,6 +2209,8 @@ function buildLaunchDecisionLines({
     ? `paperEntries/skipped=${paperEntered ?? 'n/a'}/${paperSkipped ?? 'n/a'}; top skip reasons=${formatTopCounts(paperSkipReasons)}`
     : `wouldEnter/wouldSkip=${guardSummary.wouldEnter ?? 'n/a'}/${guardSummary.wouldSkip ?? 'n/a'}; top reasons=${formatTopCounts(guardSummary.byReason)}`;
   const marginSummary = preMigrationEntryGateMargin.summary || {};
+  const highReadinessRejectSummary = preMigrationHighReadinessRejectReplay.summary || {};
+  const highReadinessRejectBest = topArray(preMigrationHighReadinessRejectReplay.rankings, 1)[0] || null;
   const nearMissSummary = preMigrationEntryGateMargin.nearMissFollowThrough?.summary || {};
   const closestGateMiss = topArray(preMigrationEntryGateMargin.closestByMint, 1)[0] || {};
   const strategyEvidenceBlocked = Number(paperEntries || 0) === 0 || Number(paperPnl || 0) < 0;
@@ -2253,6 +2257,9 @@ function buildLaunchDecisionLines({
   if (nearMissSummary.decisions !== undefined) {
     lines.push(`- Near-miss follow-through: >=${preMigrationEntryGateMargin.nearMissFollowThrough?.minReadinessPct ?? 'n/a'}% readiness decisions=${nearMissSummary.decisions}, unique=${nearMissSummary.uniqueMints}, reached90 unique=${nearMissSummary.uniqueMintsReached90Within120s ?? 'n/a'}, crossed95 unique=${nearMissSummary.uniqueMintsCrossed95Within120s ?? 'n/a'}, delta120 median/p90=${fmt(nearMissSummary.curveDelta120s?.median, 4)}/${fmt(nearMissSummary.curveDelta120s?.p90, 4)}.`);
   }
+  if (highReadinessRejectBest) {
+    lines.push(`- High-readiness reject replay: best=${highReadinessRejectBest.name || 'n/a'} verdict=${highReadinessRejectBest.verdict || 'n/a'} trades=${highReadinessRejectBest.trades ?? 'n/a'} pnl=${sol(highReadinessRejectBest.totalPnlSol, 6)} median=${sol(highReadinessRejectBest.medianPnlSol, 6)} exTop3=${sol(highReadinessRejectBest.top3RemovedPnlSol, 6)}.`);
+  }
   lines.push(`- Closest gate miss: ${summarizeClosestGateMiss(closestGateMiss)}.`);
   if (launchBlocks.length) {
     lines.push('- Launch blockers:');
@@ -2265,7 +2272,7 @@ function buildLaunchDecisionLines({
   lines.push(`  - CURVE_NOT_ADVANCING diagnostic replay best: ${formatReplayProfile(curveAdvanceLikelyBest)}`);
   lines.push(`  - curve-confirmation best: ${formatReplayProfile(curveConfirmationBest, 'confirmed')}`);
   lines.push(`  - runner-reject replay best: ${formatReplayProfile(runnerRejectBest)} (report-only; not a live-entry proof)`);
-  lines.push(`- Tuning posture: ${separatorSummary.verdict === 'PROMISING_SEPARATOR_SHADOW_FOUND' ? 'promote the separator rule to a runtime shadow lane only; keep live and actual paper-entry gates unchanged until it repeats' : relaxedWarning ? 'do not loosen runtime gates from this evidence; the broad relaxed lanes are negative and the positive slices are tiny/median-weak' : 'candidate for deeper review, not automatic live tuning'}.`);
+  lines.push(`- Tuning posture: ${separatorSummary.verdict === 'PROMISING_SEPARATOR_SHADOW_FOUND' ? 'promote the separator rule to a runtime shadow lane only; keep live and actual paper-entry gates unchanged until it repeats' : relaxedWarning || highReadinessRejectSummary.promisingProfiles?.length === 0 ? 'do not loosen runtime gates from this evidence; the broad relaxed lanes are negative and the positive slices are tiny/median-weak' : 'candidate for deeper review, not automatic live tuning'}.`);
   lines.push(`- Next engineering target: ${separatorSummary.verdict === 'PROMISING_SEPARATOR_SHADOW_FOUND' ? 'add a runtime shadow-only lane for the best CURVE_NOT_ADVANCING separator and collect fresh would-enter evidence on the next paper run' : 'improve candidate-generation/near-miss instrumentation so the next paper run can explain exactly which condition prevents real entries'}.`);
   lines.push('');
   return lines;
@@ -2434,6 +2441,7 @@ function buildSummary(docs) {
     preMigrationEntryGateMargin: docs.preMigrationEntryGateMargin.data || {},
     preMigrationDryRunEntryReplay: docs.preMigrationDryRunEntryReplay.data || {},
     preMigrationRelaxedGateReplay: docs.preMigrationRelaxedGateReplay.data || {},
+    preMigrationHighReadinessRejectReplay: docs.preMigrationHighReadinessRejectReplay.data || {},
     preMigrationCurveStallRelaxedReplay: docs.preMigrationCurveStallRelaxedReplay.data || {},
     preMigrationCurveAdvanceDiagnostic: docs.preMigrationCurveAdvanceDiagnostic.data || {},
     preMigrationCurveNotAdvancingSeparability: docs.preMigrationCurveNotAdvancingSeparability?.data || {},
@@ -3842,6 +3850,7 @@ function buildSummary(docs) {
   const skipReasonSummaries = topArray(skipFollowThrough.reasonSummaries, 8);
   const skipTopWakeups = topArray(skipFollowThrough.topWakeups, 8);
   const entryGateMargin = docs.preMigrationEntryGateMargin.data || {};
+  const highReadinessReject = docs.preMigrationHighReadinessRejectReplay.data || {};
   const singleGateShadow = docs.preMigrationSingleGateShadow.data || {};
   const entryGateMarginSummary = entryGateMargin.summary || {};
   const entryGateClosest = topArray(entryGateMargin.closestByMint, 8);
@@ -3895,6 +3904,24 @@ function buildSummary(docs) {
     lines.push('- Closest skipped mints: none');
   }
   lines.push('');
+
+  if (highReadinessReject.summary) {
+    const rejectSummary = highReadinessReject.summary || {};
+    const topProfiles = topArray(highReadinessReject.rankings, 8);
+    lines.push('9b2b. High-Readiness Reject Replay');
+    lines.push('----------------------------------');
+    lines.push('- Mode: report-only; replays first matching high-readiness rejected decision per mint with observed later curve-price snapshots. Does not alter runtime gates.');
+    lines.push(`- Skipped decisions / unique mints: ${rejectSummary.skippedDecisions ?? 'n/a'} / ${rejectSummary.uniqueSkippedMints ?? 'n/a'}`);
+    lines.push(`- Readiness pct median/p90/max: ${fmt(rejectSummary.readinessPct?.median, 2)}% / ${fmt(rejectSummary.readinessPct?.p90, 2)}% / ${fmt(rejectSummary.readinessPct?.max, 2)}%`);
+    lines.push(`- Promising profiles: ${Array.isArray(rejectSummary.promisingProfiles) && rejectSummary.promisingProfiles.length ? rejectSummary.promisingProfiles.join(', ') : 'none'}`);
+    if (topProfiles.length) {
+      lines.push('- Top replay profiles:');
+      topProfiles.forEach((row) => {
+        lines.push(`  - ${row.name}: verdict=${row.verdict || 'n/a'}, trades=${row.trades ?? 'n/a'}, wins/losses=${row.wins ?? 'n/a'}/${row.losses ?? 'n/a'}, pnl=${sol(row.totalPnlSol, 6)}, stressed=${sol(row.stressedPnlSol, 6)}, median=${sol(row.medianPnlSol, 6)}, top3-removed=${sol(row.top3RemovedPnlSol, 6)}`);
+      });
+    }
+    lines.push('');
+  }
 
   const singleGateSummary = singleGateShadow.summary || {};
   const singleGatePaper = singleGateShadow.bySource?.paperDecision || {};
