@@ -91,6 +91,7 @@ const FILES = {
   walletLaunchIntelBridge: 'data/reports/wallet-launch-intel-bridge-latest.json',
   walletLaunchIntelStability: 'data/reports/wallet-launch-intel-stability-latest.json',
   walletLaunchIntelShortlistEntryReplay: 'data/reports/wallet-launch-intel-shortlist-entry-replay-latest.json',
+  walletLaunchIntelShortlistShadow: 'data/reports/wallet-launch-intel-shortlist-shadow-latest.json',
   walletUntrackedShadowImpact: 'data/reports/wallet-untracked-shadow-impact-latest.json',
   walletReviewOutcomeLift: 'data/reports/wallet-review-outcome-lift-latest.json',
   walletPerWalletLift: 'data/reports/wallet-per-wallet-lift-latest.json',
@@ -2352,6 +2353,7 @@ function buildSummary(docs) {
   const walletLaunchIntelBridge = docs.walletLaunchIntelBridge.data || {};
   const walletLaunchIntelStability = docs.walletLaunchIntelStability.data || {};
   const walletLaunchIntelShortlistEntryReplay = docs.walletLaunchIntelShortlistEntryReplay.data || {};
+  const walletLaunchIntelShortlistShadow = docs.walletLaunchIntelShortlistShadow.data || {};
   const walletUntrackedShadowImpact = docs.walletUntrackedShadowImpact.data || {};
   const walletReviewOutcomeLift = docs.walletReviewOutcomeLift.data || {};
   const walletPerWalletLift = docs.walletPerWalletLift.data || {};
@@ -3138,6 +3140,7 @@ function buildSummary(docs) {
   const walletLaunchIntelSummary = walletLaunchIntelBridge.summary || {};
   const walletLaunchIntelStabilitySummary = walletLaunchIntelStability.summary || {};
   const walletLaunchIntelShortlistReplaySummary = walletLaunchIntelShortlistEntryReplay.summary || {};
+  const walletLaunchIntelShortlistShadowSummary = walletLaunchIntelShortlistShadow.summary || {};
   const walletUntrackedImpactSummary = walletUntrackedShadowImpact.summary || {};
   const walletLiftSummary = walletPerWalletLift.summary || {};
   const daumenSummary = walletDaumenCohort.summary || {};
@@ -3152,6 +3155,7 @@ function buildSummary(docs) {
   const launchIntelRepeatManual = topArray(walletLaunchIntelStability.repeatManualReviewCandidates, 5);
   const launchIntelRepeatObserve = topArray(walletLaunchIntelStability.repeatObserveNextRun, 5);
   const launchIntelShortlistWinners = topArray(walletLaunchIntelShortlistEntryReplay.topWouldWinners, 5);
+  const launchIntelRuntimeShadowWinners = topArray(walletLaunchIntelShortlistShadow.topWinners, 5);
   const untrackedPromotionTests = topArray(walletUntrackedShadowImpact.promotionTestCandidates, 5);
   const untrackedRepeatConfirm = topArray(walletUntrackedShadowImpact.needsRepeatConfirmation, 5);
   const topDaumenWallets = topArray(walletDaumenCohort.topDaumenWallets, 8);
@@ -3241,6 +3245,15 @@ function buildSummary(docs) {
       lines.push('- Top launch-intel shortlist replay winners:');
       launchIntelShortlistWinners.forEach((item, index) => {
         lines.push(`  ${index + 1}. ${item.symbol || 'UNKNOWN'} ${item.mint || ''} | wallet=${item.triggerWallet || 'n/a'} | entryCurve=${fmt(item.entryCurveProgress, 4)} | exit=${item.exitReason || 'n/a'} | pnl=${sol(item.pnlSol)} | stressed=${sol(item.stressedPnlSol)}`);
+      });
+    }
+  }
+  if (walletLaunchIntelShortlistShadowSummary.shadowRows !== undefined) {
+    lines.push(`- Runtime launch-intel shortlist shadow: rows=${walletLaunchIntelShortlistShadowSummary.shadowRows ?? 'n/a'}, wouldEnter=${walletLaunchIntelShortlistShadowSummary.wouldEnter ?? 'n/a'}, replayed=${walletLaunchIntelShortlistShadowSummary.replayed ?? 'n/a'}, winRate=${pct(walletLaunchIntelShortlistShadowSummary.winRate)}, pnl=${sol(walletLaunchIntelShortlistShadowSummary.totalPnlSol)}, stressed=${sol(walletLaunchIntelShortlistShadowSummary.stressedPnlSol)}.`);
+    if (launchIntelRuntimeShadowWinners.length) {
+      lines.push('- Top runtime launch-intel shortlist shadow winners:');
+      launchIntelRuntimeShadowWinners.forEach((item, index) => {
+        lines.push(`  ${index + 1}. ${item.symbol || 'UNKNOWN'} ${item.mint || ''} | wallet=${item.triggerWallet || 'n/a'} | curve=${fmt(item.curveProgress, 4)} | exit=${item.exitReason || 'n/a'} | pnl=${sol(item.pnlSol)} | stressed=${sol(item.stressedPnlSol)}`);
       });
     }
   }

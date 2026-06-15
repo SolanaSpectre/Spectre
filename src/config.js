@@ -1128,6 +1128,30 @@ class Config {
     return parseFloat(process.env.PRE_MIGRATION_PAPER_CURVE_NOT_ADVANCING_SEPARATOR_SHADOW_MAX_RECENT_VOLUME_SOL || '1');
   }
 
+  static get preMigrationPaperLaunchIntelShortlistShadowEnabled() {
+    return process.env.PRE_MIGRATION_PAPER_LAUNCH_INTEL_SHORTLIST_SHADOW_ENABLED !== 'false';
+  }
+
+  static get preMigrationPaperLaunchIntelShortlistShadowMinScore() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_LAUNCH_INTEL_SHORTLIST_SHADOW_MIN_SCORE || '75');
+  }
+
+  static get preMigrationPaperLaunchIntelShortlistShadowMinCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_LAUNCH_INTEL_SHORTLIST_SHADOW_MIN_CURVE_PROGRESS || '0.70');
+  }
+
+  static get preMigrationPaperLaunchIntelShortlistShadowMinRecentVolumeSol() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_LAUNCH_INTEL_SHORTLIST_SHADOW_MIN_RECENT_VOLUME_SOL || '25');
+  }
+
+  static get preMigrationPaperLaunchIntelShortlistShadowMinTradeVelocityPerMin() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_LAUNCH_INTEL_SHORTLIST_SHADOW_MIN_TRADE_VELOCITY_PER_MIN || '25');
+  }
+
+  static get preMigrationPaperLaunchIntelShortlistShadowTouchLookbackMs() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_LAUNCH_INTEL_SHORTLIST_SHADOW_TOUCH_LOOKBACK_MS || '120000', 10);
+  }
+
   static get preMigrationPaperCurveFalseNegativeBridgeMaxEntriesPerRun() {
     return parseInt(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_MAX_ENTRIES_PER_RUN || '3', 10);
   }
@@ -1497,6 +1521,10 @@ class Config {
 
   static get walletPromotionReviewFilePath() {
     return process.env.WALLET_PROMOTION_REVIEW_FILE_PATH || path.join(process.cwd(), 'data', 'reports', 'wallet-promotion-review-latest.json');
+  }
+
+  static get walletLaunchIntelStabilityReportFilePath() {
+    return process.env.WALLET_LAUNCH_INTEL_STABILITY_REPORT_FILE_PATH || path.join(process.cwd(), 'data', 'reports', 'wallet-launch-intel-stability-latest.json');
   }
 
   static get walletPromotionReviewRefreshIntervalMs() {

@@ -1,5 +1,6 @@
 const { LAMPORTS_PER_SOL, PublicKey } = require('@solana/web3.js');
 const fs = require('fs');
+const path = require('path');
 const MarketData = require('./market-data');
 const AIAgent = require('./ai-agent');
 const CapitalAllocation = require('./capital-allocation');
@@ -117,6 +118,7 @@ class TradingEngine {
     this.telegramContext = new TelegramContext(config, logger);
     this.rickContext = new RickContext(config, logger);
     this.launchIntelStore = new LaunchIntelStore(config, logger);
+    this.launchIntelShortlistWallets = this.loadLaunchIntelShortlistWallets();
     this.positionStore = new PositionStore(config, logger);
     this.eventFlow = new TradingEventFlow();
     this.poolStateLane = new PoolStateLane(config, logger);
@@ -219,6 +221,41 @@ class TradingEngine {
     this.lastCapitalBalanceLookupAt = 0;
     this.sessionTimeout = null;
     this.stopInProgress = false;
+  }
+
+  loadLaunchIntelShortlistWallets() {
+    const fallbackPath = path.join(process.cwd(), 'data', 'reports', 'wallet-launch-intel-stability-latest.json');
+    const filePath = this.config.walletLaunchIntelStabilityReportFilePath || fallbackPath;
+    try {
+      if (!filePath || !fs.existsSync(filePath)) {
+        return null;
+      }
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
+      const rows = Array.isArray(parsed.repeatShortlistCandidates) ? parsed.repeatShortlistCandidates : [];
+      const wallets = new Map();
+      for (const row of rows) {
+        if (!row?.wallet) continue;
+        wallets.set(row.wallet, {
+          wallet: row.wallet,
+          classification: row.classification || 'REPEAT_SHORTLIST_CANDIDATE',
+          score: Number.isFinite(Number(row.score)) ? Number(row.score) : null,
+          runCount: Number.isFinite(Number(row.runCount)) ? Number(row.runCount) : null,
+          decisionRunCount: Number.isFinite(Number(row.decisionRunCount)) ? Number(row.decisionRunCount) : null,
+          noTrackedFirstTouchLinks: Number.isFinite(Number(row.noTrackedFirstTouchLinks)) ? Number(row.noTrackedFirstTouchLinks) : null
+        });
+      }
+      this.logger.info('Loaded launch-intel shortlist wallets for runtime shadow', {
+        filePath,
+        wallets: wallets.size
+      });
+      return wallets;
+    } catch (error) {
+      this.logger.warn('Failed to load launch-intel shortlist wallet report', {
+        filePath,
+        errorMessage: error.message
+      });
+      return null;
+    }
   }
 
   applySignalCooldown(mintAddress, cooldownMs) {
@@ -3370,7 +3407,10 @@ class TradingEngine {
         shadowOnly: false,
         trustedSignal: false,
         untrustedRuntimeTape: true,
-        untrustedReason: event.reason || null
+        untrustedReason: event.reason || null,
+        launchIntelWallet: event.launchIntelWallet || null,
+        launchIntelShortlistCandidate: event.launchIntelWallet?.shortlistCandidate === true,
+        launchIntelClassification: event.launchIntelWallet?.classification || null
       });
     }
     const wallets = walletRows
@@ -5692,11 +5732,60 @@ class TradingEngine {
         shadowWalletProfileMatch: details.shadowWalletProfileMatch === true,
         watchedReason: details.watchedReason || null,
         ledgerRecord: details.ledgerRecord === true,
-        untrustedTapeRecord: details.untrustedTapeRecord === true
+        untrustedTapeRecord: details.untrustedTapeRecord === true,
+        launchIntelWallet: details.launchIntelWallet || null
       });
     } catch {
       // Diagnostics must never affect provider trade intake.
     }
+  }
+
+  classifyLaunchIntelWalletShadow(wallet) {
+    const summary = this.launchIntelStore?.getWalletSummary?.(wallet);
+    if (!summary) {
+      return null;
+    }
+    const stabilityShortlist = this.launchIntelShortlistWallets instanceof Map
+      ? this.launchIntelShortlistWallets.get(wallet)
+      : null;
+
+    const totalLaunches = Number(summary.totalLaunches || 0);
+    const totalBuyCount = Number(summary.totalBuyCount || 0);
+    const totalVolumeSol = Number(summary.totalVolumeSol || 0);
+    const avgBuysPerLaunch = totalLaunches > 0 ? totalBuyCount / totalLaunches : null;
+    const busyFlowRisk = totalLaunches >= 1000
+      || totalBuyCount >= 5000
+      || Number(avgBuysPerLaunch || 0) >= 8;
+    const fallbackShortlistCandidate = !busyFlowRisk
+      && totalLaunches >= 5
+      && totalLaunches <= 500
+      && Number(avgBuysPerLaunch || 0) >= 1
+      && Number(avgBuysPerLaunch || 0) <= 3;
+    const shortlistCandidate = stabilityShortlist
+      ? !busyFlowRisk
+      : (this.launchIntelShortlistWallets === null && fallbackShortlistCandidate);
+    const observeCandidate = !busyFlowRisk && totalLaunches >= 2;
+
+    return {
+      wallet,
+      classification: busyFlowRisk
+        ? 'BUSY_FLOW_RISK'
+        : (shortlistCandidate ? 'LAUNCH_INTEL_SHORTLIST_CANDIDATE' : (observeCandidate ? 'LAUNCH_INTEL_OBSERVE_CANDIDATE' : 'LOW_PRIORITY')),
+      shortlistCandidate,
+      observeCandidate,
+      busyFlowRisk,
+      shortlistSource: stabilityShortlist ? 'stability_report' : (shortlistCandidate ? 'launch_shape_fallback' : null),
+      stabilityScore: stabilityShortlist?.score ?? null,
+      stabilityRunCount: stabilityShortlist?.runCount ?? null,
+      stabilityDecisionRunCount: stabilityShortlist?.decisionRunCount ?? null,
+      stabilityNoTrackedFirstTouchLinks: stabilityShortlist?.noTrackedFirstTouchLinks ?? null,
+      totalLaunches: Number.isFinite(totalLaunches) ? totalLaunches : null,
+      totalBuyCount: Number.isFinite(totalBuyCount) ? totalBuyCount : null,
+      totalVolumeSol: Number.isFinite(totalVolumeSol) ? Number(totalVolumeSol.toFixed(6)) : null,
+      avgBuysPerLaunch: Number.isFinite(avgBuysPerLaunch) ? Number(avgBuysPerLaunch.toFixed(4)) : null,
+      firstSeen: summary.firstSeen || null,
+      lastSeen: summary.lastSeen || null
+    };
   }
 
   recordWatchedWalletTrade(event, tokenState, launchIntelSummary) {
@@ -5709,6 +5798,7 @@ class TradingEngine {
     }
 
     const walletProfile = this.launchIntelStore.buildKolWalletSummary(wallet);
+    const launchIntelWallet = this.classifyLaunchIntelWalletShadow(wallet);
     const trackedAccounts = Array.isArray(this.config.pumpPortalTrackedAccounts)
       ? this.config.pumpPortalTrackedAccounts
       : [];
@@ -5719,7 +5809,8 @@ class TradingEngine {
           event,
           tokenState,
           launchIntelSummary,
-          reason: 'UNTRACKED_WALLET'
+          reason: 'UNTRACKED_WALLET',
+          launchIntelWallet
         })
         : null;
       this.recordWalletTradeGateDiagnostic(event, tokenState, {
@@ -5727,7 +5818,8 @@ class TradingEngine {
         dropReason: 'UNTRACKED_WALLET',
         trackedAccountMatch: false,
         kolWalletProfileMatch: false,
-        untrustedTapeRecord: Boolean(untrustedTapeRecord)
+        untrustedTapeRecord: Boolean(untrustedTapeRecord),
+        launchIntelWallet
       });
       return null;
     }

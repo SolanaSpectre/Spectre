@@ -105,6 +105,12 @@ class PreMigrationPaperLane {
     this.curveNotAdvancingSeparatorShadowMaxBaselineAgeMs = Number(config.preMigrationPaperCurveNotAdvancingSeparatorShadowMaxBaselineAgeMs ?? 1500);
     this.curveNotAdvancingSeparatorShadowMinCurveDelta = Number(config.preMigrationPaperCurveNotAdvancingSeparatorShadowMinCurveDelta ?? 0);
     this.curveNotAdvancingSeparatorShadowMaxRecentVolumeSol = Number(config.preMigrationPaperCurveNotAdvancingSeparatorShadowMaxRecentVolumeSol ?? 1);
+    this.launchIntelShortlistShadowEnabled = config.preMigrationPaperLaunchIntelShortlistShadowEnabled !== false;
+    this.launchIntelShortlistShadowMinScore = Number(config.preMigrationPaperLaunchIntelShortlistShadowMinScore ?? 75);
+    this.launchIntelShortlistShadowMinCurveProgress = Number(config.preMigrationPaperLaunchIntelShortlistShadowMinCurveProgress ?? 0.7);
+    this.launchIntelShortlistShadowMinRecentVolumeSol = Number(config.preMigrationPaperLaunchIntelShortlistShadowMinRecentVolumeSol ?? 25);
+    this.launchIntelShortlistShadowMinTradeVelocityPerMin = Number(config.preMigrationPaperLaunchIntelShortlistShadowMinTradeVelocityPerMin ?? 25);
+    this.launchIntelShortlistShadowTouchLookbackMs = Math.max(1000, Number(config.preMigrationPaperLaunchIntelShortlistShadowTouchLookbackMs ?? 120_000));
     this.delayedCurveConfirmationEnabled = config.preMigrationPaperDelayedCurveConfirmationEnabled === true;
     this.delayedCurveConfirmationMinScore = Number(config.preMigrationPaperDelayedCurveConfirmationMinScore ?? 75);
     this.delayedCurveConfirmationMinSourceCurveProgress = Number(config.preMigrationPaperDelayedCurveConfirmationMinSourceCurveProgress ?? 0.5);
@@ -294,6 +300,12 @@ class PreMigrationPaperLane {
           : null;
         if (recoveryShadow) {
           events.push(recoveryShadow);
+        }
+        const launchIntelShortlistShadow = preset.name === 'curveFalseNegativeWalletBridge'
+          ? this.launchIntelShortlistShadowEvent(observedState, preset, entryGuards, timestamp)
+          : null;
+        if (launchIntelShortlistShadow) {
+          events.push(launchIntelShortlistShadow);
         }
         const separatorShadow = this.curveNotAdvancingSeparatorShadowEvent(observedState, preset, entryGuards, timestamp);
         if (separatorShadow) {
@@ -1276,6 +1288,102 @@ class PreMigrationPaperLane {
     };
   }
 
+  launchIntelShortlistShadowEvent(state, preset, entryGuards, timestamp = new Date().toISOString()) {
+    if (!this.launchIntelShortlistShadowEnabled) {
+      return null;
+    }
+
+    const sourceEligible = entryGuards?.reason === 'CURVE_NOT_ADVANCING';
+    const bridge = this.evaluateCurveFalseNegativeWalletBridgeSupport(state);
+    if (bridge.reason !== 'CURVE_FALSE_NEGATIVE_BRIDGE_NO_TRACKED_FIRST_TOUCH_BUY') {
+      return null;
+    }
+
+    const context = state.walletClassificationContext || {};
+    const untrustedWallets = Array.isArray(context.untrustedWallets) ? context.untrustedWallets : [];
+    const nowMs = new Date(timestamp || Date.now()).getTime();
+    const shortlistTouches = untrustedWallets
+      .filter((wallet) => {
+        if (wallet.launchIntelShortlistCandidate !== true && wallet.launchIntelWallet?.shortlistCandidate !== true) {
+          return false;
+        }
+        if (String(wallet.side || '').toLowerCase() !== 'buy') {
+          return false;
+        }
+        const touchMs = new Date(wallet.tradeAt || 0).getTime();
+        return Number.isFinite(touchMs)
+          && Number.isFinite(nowMs)
+          && touchMs <= nowMs
+          && nowMs - touchMs <= this.launchIntelShortlistShadowTouchLookbackMs;
+      })
+      .sort((a, b) => new Date(a.tradeAt || 0).getTime() - new Date(b.tradeAt || 0).getTime());
+
+    const firstTouch = shortlistTouches[0] || null;
+    const score = Number(state.score);
+    const curveProgress = Number(state.curveProgress);
+    const recentVolumeSol = Number(state.recentVolumeSol);
+    const tradeVelocityPerMin = Number(state.tradeVelocityPerMin);
+    const failedChecks = [];
+
+    if (!sourceEligible) failedChecks.push(entryGuards?.reason || 'SOURCE_NOT_CURVE_NOT_ADVANCING');
+    if (!firstTouch) failedChecks.push('NO_LAUNCH_INTEL_SHORTLIST_TOUCH');
+    if (!Number.isFinite(score) || score < this.launchIntelShortlistShadowMinScore) failedChecks.push('SCORE_BELOW_SHORTLIST_SHADOW_MIN');
+    if (!Number.isFinite(curveProgress) || curveProgress < this.launchIntelShortlistShadowMinCurveProgress) failedChecks.push('CURVE_BELOW_SHORTLIST_SHADOW_MIN');
+    if (!Number.isFinite(recentVolumeSol) || recentVolumeSol < this.launchIntelShortlistShadowMinRecentVolumeSol) failedChecks.push('RECENT_VOLUME_BELOW_SHORTLIST_SHADOW_MIN');
+    if (!Number.isFinite(tradeVelocityPerMin) || tradeVelocityPerMin < this.launchIntelShortlistShadowMinTradeVelocityPerMin) failedChecks.push('VELOCITY_BELOW_SHORTLIST_SHADOW_MIN');
+
+    const wouldEnter = failedChecks.length === 0;
+    const telemetryType = wouldEnter
+      ? 'pre_migration_launch_intel_shortlist_shadow.would_enter'
+      : 'pre_migration_launch_intel_shortlist_shadow.would_skip';
+    const priceSol = this.compact(this.getPrice(state), 15);
+    const touchMs = firstTouch ? new Date(firstTouch.tradeAt || 0).getTime() : null;
+    const secondsTouchToDecision = Number.isFinite(touchMs) && Number.isFinite(nowMs)
+      ? this.compact((nowMs - touchMs) / 1000, 3)
+      : null;
+
+    return {
+      type: 'diagnostic',
+      telemetryType,
+      payload: {
+        decision: wouldEnter ? 'LAUNCH_INTEL_SHORTLIST_SHADOW_WOULD_ENTER' : 'LAUNCH_INTEL_SHORTLIST_SHADOW_WOULD_SKIP',
+        preset: preset.name,
+        lane: preset.lane || null,
+        profileName: preset.profileName || null,
+        mint: state.mint,
+        symbol: state.symbol || null,
+        timestamp,
+        sourceReason: bridge.reason,
+        sourceGuardReason: entryGuards?.reason || null,
+        sourceGuardPassed: entryGuards?.passed === true,
+        reason: wouldEnter ? null : (failedChecks[0] || 'LAUNCH_INTEL_SHORTLIST_SHADOW_FILTER_FAILED'),
+        failedChecks: [...new Set(failedChecks)],
+        score: this.compact(score, 2),
+        curveProgress: this.compact(curveProgress, 6),
+        recentVolumeSol: this.compact(recentVolumeSol, 4),
+        tradeVelocityPerMin: this.compact(tradeVelocityPerMin, 2),
+        buyRatio: this.compact(this.computeBuyRatio(state), 4),
+        priceSol,
+        bondingCurvePriceSol: priceSol,
+        curvePriceSol: priceSol,
+        ...this.reservesPayload(state),
+        thresholds: {
+          minScore: this.launchIntelShortlistShadowMinScore,
+          minCurveProgress: this.launchIntelShortlistShadowMinCurveProgress,
+          minRecentVolumeSol: this.launchIntelShortlistShadowMinRecentVolumeSol,
+          minTradeVelocityPerMin: this.launchIntelShortlistShadowMinTradeVelocityPerMin,
+          touchLookbackMs: this.launchIntelShortlistShadowTouchLookbackMs
+        },
+        launchIntelShortlistTouchCount: shortlistTouches.length,
+        launchIntelShortlistFirstTouch: firstTouch ? this.walletTouchPayload(firstTouch) : null,
+        launchIntelWallet: firstTouch?.launchIntelWallet || null,
+        secondsTouchToDecision,
+        walletBridgeProof: this.walletBridgeProofPayload(bridge),
+        walletClassificationContext: state.walletClassificationContext || null
+      }
+    };
+  }
+
   curveNotAdvancingSeparatorShadowEvent(state, preset, entryGuards, timestamp = new Date().toISOString()) {
     if (!this.curveNotAdvancingSeparatorShadowEnabled) {
       return null;
@@ -1508,7 +1616,10 @@ class PreMigrationPaperLane {
       curveProgress: wallet.curveProgress ?? null,
       solAmount: wallet.solAmount ?? null,
       trustedSignal: wallet.trustedSignal === false ? false : null,
-      untrustedRuntimeTape: wallet.untrustedRuntimeTape === true
+      untrustedRuntimeTape: wallet.untrustedRuntimeTape === true,
+      launchIntelShortlistCandidate: wallet.launchIntelShortlistCandidate === true || wallet.launchIntelWallet?.shortlistCandidate === true,
+      launchIntelClassification: wallet.launchIntelClassification || wallet.launchIntelWallet?.classification || null,
+      launchIntelWallet: wallet.launchIntelWallet || null
     };
   }
 

@@ -127,7 +127,8 @@ class WalletEventLedger {
     event = {},
     tokenState = {},
     launchIntelSummary = null,
-    reason = 'UNTRACKED_WALLET'
+    reason = 'UNTRACKED_WALLET',
+    launchIntelWallet = null
   } = {}) {
     if (!this.enabled) {
       return null;
@@ -155,6 +156,23 @@ class WalletEventLedger {
       wallet,
       trustedSignal: false,
       reason,
+      launchIntelWallet: launchIntelWallet ? {
+        classification: launchIntelWallet.classification || null,
+        shortlistCandidate: launchIntelWallet.shortlistCandidate === true,
+        shortlistSource: launchIntelWallet.shortlistSource || null,
+        stabilityScore: this.numberOrNull(launchIntelWallet.stabilityScore, 2),
+        stabilityRunCount: this.numberOrNull(launchIntelWallet.stabilityRunCount, 0),
+        stabilityDecisionRunCount: this.numberOrNull(launchIntelWallet.stabilityDecisionRunCount, 0),
+        stabilityNoTrackedFirstTouchLinks: this.numberOrNull(launchIntelWallet.stabilityNoTrackedFirstTouchLinks, 0),
+        observeCandidate: launchIntelWallet.observeCandidate === true,
+        busyFlowRisk: launchIntelWallet.busyFlowRisk === true,
+        totalLaunches: this.numberOrNull(launchIntelWallet.totalLaunches, 0),
+        totalBuyCount: this.numberOrNull(launchIntelWallet.totalBuyCount, 0),
+        totalVolumeSol: this.numberOrNull(launchIntelWallet.totalVolumeSol, 6),
+        avgBuysPerLaunch: this.numberOrNull(launchIntelWallet.avgBuysPerLaunch, 4),
+        firstSeen: launchIntelWallet.firstSeen || null,
+        lastSeen: launchIntelWallet.lastSeen || null
+      } : null,
       mint,
       symbol: tokenState.symbol || event.symbol || launchIntelSummary?.symbol || null,
       name: tokenState.name || event.name || launchIntelSummary?.name || null,
