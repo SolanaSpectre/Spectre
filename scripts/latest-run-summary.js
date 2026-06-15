@@ -90,6 +90,7 @@ const FILES = {
   walletUntrackedReview: 'data/reports/wallet-untracked-review-latest.json',
   walletLaunchIntelBridge: 'data/reports/wallet-launch-intel-bridge-latest.json',
   walletLaunchIntelStability: 'data/reports/wallet-launch-intel-stability-latest.json',
+  walletLaunchIntelShortlistEntryReplay: 'data/reports/wallet-launch-intel-shortlist-entry-replay-latest.json',
   walletUntrackedShadowImpact: 'data/reports/wallet-untracked-shadow-impact-latest.json',
   walletReviewOutcomeLift: 'data/reports/wallet-review-outcome-lift-latest.json',
   walletPerWalletLift: 'data/reports/wallet-per-wallet-lift-latest.json',
@@ -2350,6 +2351,7 @@ function buildSummary(docs) {
   const walletUntrackedReview = docs.walletUntrackedReview.data || {};
   const walletLaunchIntelBridge = docs.walletLaunchIntelBridge.data || {};
   const walletLaunchIntelStability = docs.walletLaunchIntelStability.data || {};
+  const walletLaunchIntelShortlistEntryReplay = docs.walletLaunchIntelShortlistEntryReplay.data || {};
   const walletUntrackedShadowImpact = docs.walletUntrackedShadowImpact.data || {};
   const walletReviewOutcomeLift = docs.walletReviewOutcomeLift.data || {};
   const walletPerWalletLift = docs.walletPerWalletLift.data || {};
@@ -3135,6 +3137,7 @@ function buildSummary(docs) {
   const walletUntrackedSummary = walletUntrackedReview.summary || {};
   const walletLaunchIntelSummary = walletLaunchIntelBridge.summary || {};
   const walletLaunchIntelStabilitySummary = walletLaunchIntelStability.summary || {};
+  const walletLaunchIntelShortlistReplaySummary = walletLaunchIntelShortlistEntryReplay.summary || {};
   const walletUntrackedImpactSummary = walletUntrackedShadowImpact.summary || {};
   const walletLiftSummary = walletPerWalletLift.summary || {};
   const daumenSummary = walletDaumenCohort.summary || {};
@@ -3148,6 +3151,7 @@ function buildSummary(docs) {
   const launchIntelShortlist = topArray(walletLaunchIntelStability.repeatShortlistCandidates, 5);
   const launchIntelRepeatManual = topArray(walletLaunchIntelStability.repeatManualReviewCandidates, 5);
   const launchIntelRepeatObserve = topArray(walletLaunchIntelStability.repeatObserveNextRun, 5);
+  const launchIntelShortlistWinners = topArray(walletLaunchIntelShortlistEntryReplay.topWouldWinners, 5);
   const untrackedPromotionTests = topArray(walletUntrackedShadowImpact.promotionTestCandidates, 5);
   const untrackedRepeatConfirm = topArray(walletUntrackedShadowImpact.needsRepeatConfirmation, 5);
   const topDaumenWallets = topArray(walletDaumenCohort.topDaumenWallets, 8);
@@ -3228,6 +3232,15 @@ function buildSummary(docs) {
       lines.push('- Repeat launch-intel observe-next-run candidates:');
       launchIntelRepeatObserve.forEach((item, index) => {
         lines.push(`  ${index + 1}. ${item.wallet} | score=${fmt(item.score, 1)} | runs=${item.runCount ?? 'n/a'} decisionRuns=${item.decisionRunCount ?? 'n/a'} | noTrackedLinks=${item.noTrackedFirstTouchLinks ?? 'n/a'} | hist launches=${item.launchIntel?.totalLaunches ?? 'n/a'}`);
+      });
+    }
+  }
+  if (walletLaunchIntelShortlistReplaySummary.decisionsWithShortlistTouch !== undefined) {
+    lines.push(`- Launch-intel shortlist entry replay: verdict=${walletLaunchIntelShortlistReplaySummary.verdict || 'n/a'}, decisionsWithTouch=${walletLaunchIntelShortlistReplaySummary.decisionsWithShortlistTouch ?? 'n/a'}, wouldEnter=${walletLaunchIntelShortlistReplaySummary.wouldEnter ?? 'n/a'}, noConfirm=${walletLaunchIntelShortlistReplaySummary.noGateConfirmAfterTouch ?? 'n/a'}, winRate=${pct(walletLaunchIntelShortlistReplaySummary.winRate)}, pnl=${sol(walletLaunchIntelShortlistReplaySummary.totalPnlSol)}, stressed=${sol(walletLaunchIntelShortlistReplaySummary.stressedPnlSol)}, firstHalf=${sol(walletLaunchIntelShortlistReplaySummary.firstHalfPnlSol)}, secondHalf=${sol(walletLaunchIntelShortlistReplaySummary.secondHalfPnlSol)}, top3Removed=${sol(walletLaunchIntelShortlistReplaySummary.top3RemovedPnlSol)}, shadowEligible=${walletLaunchIntelShortlistReplaySummary.shadowLaneEligible === true}.`);
+    if (launchIntelShortlistWinners.length) {
+      lines.push('- Top launch-intel shortlist replay winners:');
+      launchIntelShortlistWinners.forEach((item, index) => {
+        lines.push(`  ${index + 1}. ${item.symbol || 'UNKNOWN'} ${item.mint || ''} | wallet=${item.triggerWallet || 'n/a'} | entryCurve=${fmt(item.entryCurveProgress, 4)} | exit=${item.exitReason || 'n/a'} | pnl=${sol(item.pnlSol)} | stressed=${sol(item.stressedPnlSol)}`);
       });
     }
   }

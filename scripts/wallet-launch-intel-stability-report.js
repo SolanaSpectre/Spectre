@@ -399,7 +399,7 @@ function buildReport(telemetryFiles) {
       repeatManualReviewCandidates: candidates.filter((row) => row.classification === 'REPEAT_MANUAL_REVIEW_CANDIDATE').length,
       recommendation: 'require repeat-run review before any wallet-proof promotion'
     },
-    repeatShortlistCandidates: candidates.filter((row) => row.classification === 'REPEAT_SHORTLIST_CANDIDATE').slice(0, 50),
+    repeatShortlistCandidates: candidates.filter((row) => row.classification === 'REPEAT_SHORTLIST_CANDIDATE'),
     repeatManualReviewCandidates: candidates.filter((row) => row.classification === 'REPEAT_MANUAL_REVIEW_CANDIDATE').slice(0, 100),
     repeatObserveNextRun: candidates.filter((row) => row.classification === 'REPEAT_OBSERVE_NEXT_RUN').slice(0, 100),
     busyFlowRisk: candidates.filter((row) => row.classification === 'BUSY_FLOW_RISK').slice(0, 100),

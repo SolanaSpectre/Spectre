@@ -10,6 +10,7 @@ const RELAXED_REPLAY_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-re
 const WALLET_FALSE_NEGATIVE_BRIDGE_PATH = path.join(ROOT, 'data', 'reports', 'wallet-false-negative-bridge-latest.json');
 const WALLET_PAPER_ENTRY_CONDITIONAL_PATH = path.join(ROOT, 'data', 'reports', 'wallet-paper-entry-conditional-latest.json');
 const WALLET_PROMOTION_REVIEW_PATH = path.join(ROOT, 'data', 'reports', 'wallet-promotion-review-latest.json');
+const WALLET_LAUNCH_INTEL_STABILITY_PATH = path.join(ROOT, 'data', 'reports', 'wallet-launch-intel-stability-latest.json');
 const WALLET_EVENTS_PATH = path.join(ROOT, 'data', 'wallet-events', 'events.jsonl');
 
 const POSITIVE_EVIDENCE_TIERS = new Set(['PROVEN_POSITIVE', 'PROMISING_POSITIVE']);
@@ -75,6 +76,8 @@ function normalizeTouch(touch) {
     side: touch.side || null,
     reviewTier: touch.reviewTierAtRun || touch.reviewTier || null,
     evidenceTier: touch.evidenceTier || null,
+    launchIntelClassification: touch.launchIntelClassification || null,
+    launchIntelScore: numberOrNull(touch.launchIntelScore, 2),
     leadClass: touch.leadClass || null,
     touchAt: touch.touchAt || null,
     touchAtMs,
@@ -82,6 +85,33 @@ function normalizeTouch(touch) {
     secondsTouchTo85: numberOrNull(touch.secondsTouchTo85, 3),
     secondsTouchTo95: numberOrNull(touch.secondsTouchTo95, 3)
   };
+}
+
+function eventType(event) {
+  return event?.type || event?.event || event?.name || 'unknown';
+}
+
+function payloadOf(event) {
+  return event?.payload || event?.data || {};
+}
+
+function mintOf(payload) {
+  return payload.mint || payload.token || payload.mintAddress || payload.address || null;
+}
+
+function walletOf(payload) {
+  return payload.wallet || payload.walletAddress || payload.traderPublicKey || payload.account || payload.address || null;
+}
+
+function curveOf(payload) {
+  const raw = payload.providerCurveProgress
+    ?? payload.curveProgress
+    ?? payload.bondingCurveProgress
+    ?? payload.paperCurveProgress
+    ?? payload.progress;
+  const curve = Number(raw);
+  if (!Number.isFinite(curve)) return null;
+  return curve > 1 && curve <= 100 ? curve / 100 : curve;
 }
 
 function isPre85Touch(touch) {
@@ -194,6 +224,73 @@ function buildWalletEventTouchesByMint(walletEvents, promotionIndex) {
   return byMint;
 }
 
+function buildLaunchIntelShortlistIndex(stability) {
+  const byWallet = new Map();
+  for (const row of stability?.repeatShortlistCandidates || []) {
+    if (!row?.wallet) continue;
+    byWallet.set(row.wallet, {
+      wallet: row.wallet,
+      classification: row.classification || 'REPEAT_SHORTLIST_CANDIDATE',
+      score: numberOrNull(row.score, 2),
+      runCount: row.runCount ?? null,
+      decisionRunCount: row.decisionRunCount ?? null,
+      noTrackedFirstTouchLinks: row.noTrackedFirstTouchLinks ?? null,
+      launchIntel: row.launchIntel || null
+    });
+  }
+  return byWallet;
+}
+
+function buildLaunchIntelTouchesByMint(stability) {
+  const shortlistByWallet = buildLaunchIntelShortlistIndex(stability);
+  const telemetryFiles = Array.isArray(stability?.sources?.telemetryFiles) ? stability.sources.telemetryFiles : [];
+  const firstByWalletMint = new Map();
+  for (const filePath of telemetryFiles) {
+    const events = readJsonl(path.isAbsolute(filePath) ? filePath : path.join(ROOT, filePath));
+    for (const event of events) {
+      if (eventType(event) !== 'wallet.trade_gate_diagnostic') continue;
+      const payload = payloadOf(event);
+      if ((payload.dropReason || 'unknown') !== 'UNTRACKED_WALLET') continue;
+      if (String(payload.txType || '').toLowerCase() !== 'buy') continue;
+      const wallet = walletOf(payload);
+      const mint = mintOf(payload);
+      const meta = shortlistByWallet.get(wallet);
+      if (!meta || !mint) continue;
+      const touchAt = payload.timestamp || event.timestamp || null;
+      const key = `${wallet}:${mint}`;
+      const prior = firstByWalletMint.get(key);
+      if (prior && timestampMs(prior.touchAt) <= timestampMs(touchAt)) continue;
+      firstByWalletMint.set(key, {
+        source: 'launch_intel_stability_shortlist',
+        mint,
+        canonicalWallet: wallet,
+        walletAddress: wallet,
+        touchAt,
+        side: 'buy',
+        reviewTier: 'LAUNCH_INTEL_SHORTLIST',
+        evidenceTier: null,
+        launchIntelClassification: meta.classification,
+        launchIntelScore: meta.score,
+        leadClass: Number(curveOf(payload)) < 0.85 ? 'BEFORE_85' : 'AFTER_85_OR_UNKNOWN',
+        curveProgress: numberOrNull(curveOf(payload)),
+        secondsTouchTo85: null,
+        secondsTouchTo95: null,
+        launchIntel: meta.launchIntel,
+        runCount: meta.runCount,
+        decisionRunCount: meta.decisionRunCount,
+        noTrackedFirstTouchLinks: meta.noTrackedFirstTouchLinks
+      });
+    }
+  }
+
+  const byMint = new Map();
+  for (const touch of firstByWalletMint.values()) {
+    if (!byMint.has(touch.mint)) byMint.set(touch.mint, []);
+    byMint.get(touch.mint).push(normalizeTouch(touch));
+  }
+  return byMint;
+}
+
 function buildPaperConditionalByMint(report) {
   const byMint = new Map();
   const addSample = (sample, source) => {
@@ -239,14 +336,16 @@ function mergeTouches(touches) {
   return [...byWallet.values()].sort((a, b) => (a.touchAtMs || 0) - (b.touchAtMs || 0));
 }
 
-function annotationsForTrade(trade, bridgeByMint, walletEventTouchesByMint, paperConditionalByMint) {
+function annotationsForTrade(trade, bridgeByMint, walletEventTouchesByMint, launchIntelTouchesByMint, paperConditionalByMint) {
   const bridge = bridgeByMint.get(trade.mint) || null;
   const touches = mergeTouches([
     ...(bridge?.touches || []),
-    ...(walletEventTouchesByMint.get(trade.mint) || [])
+    ...(walletEventTouchesByMint.get(trade.mint) || []),
+    ...(launchIntelTouchesByMint.get(trade.mint) || [])
   ]);
   const conditioningTouches = touches.filter((touch) => isConditioningTouch(touch, trade));
   const positiveTouches = conditioningTouches.filter(isPositiveTouch);
+  const launchIntelShortlistTouches = conditioningTouches.filter((touch) => touch.reviewTier === 'LAUNCH_INTEL_SHORTLIST');
   const avoidTouches = conditioningTouches.filter(isAvoidTouch);
   const holdTouches = conditioningTouches.filter((touch) => touch.reviewTier === 'HOLD');
   const provenPositiveTouches = conditioningTouches.filter((touch) => touch.evidenceTier === 'PROVEN_POSITIVE');
@@ -260,6 +359,7 @@ function annotationsForTrade(trade, bridgeByMint, walletEventTouchesByMint, pape
     touches,
     conditioningTouches,
     positiveTouches,
+    launchIntelShortlistTouches,
     avoidTouches,
     holdTouches,
     provenPositiveTouches,
@@ -345,8 +445,8 @@ function summarizeSlice(name, description, trades, baseAmountSol) {
   };
 }
 
-function decorateTrade(trade, bridgeByMint, walletEventTouchesByMint, paperConditionalByMint) {
-  const annotation = annotationsForTrade(trade, bridgeByMint, walletEventTouchesByMint, paperConditionalByMint);
+function decorateTrade(trade, bridgeByMint, walletEventTouchesByMint, launchIntelTouchesByMint, paperConditionalByMint) {
+  const annotation = annotationsForTrade(trade, bridgeByMint, walletEventTouchesByMint, launchIntelTouchesByMint, paperConditionalByMint);
   return {
     ...trade,
     walletConditioning: {
@@ -364,6 +464,7 @@ function decorateTrade(trade, bridgeByMint, walletEventTouchesByMint, paperCondi
         touches: annotation.touches.length,
         conditioningTouches: annotation.conditioningTouches.length,
         positiveTouches: annotation.positiveTouches.length,
+        launchIntelShortlistTouches: annotation.launchIntelShortlistTouches.length,
         avoidTouches: annotation.avoidTouches.length,
         holdTouches: annotation.holdTouches.length,
         provenPositiveTouches: annotation.provenPositiveTouches.length,
@@ -488,6 +589,26 @@ function buildSlices(profileName, trades) {
       })
     },
     {
+      condition: 'launch_intel_shortlist_first_touch_buy',
+      name: `${profileName}__launch_intel_shortlist_first_touch_buy`,
+      profileName,
+      description: `${profileName} requiring earliest pre-entry/pre-85 touch to be a launch-intel shortlist wallet buy.`,
+      trades: trades.filter((trade) => {
+        const first = trade.walletConditioning?.firstTouch;
+        return first && first.side === 'buy' && first.reviewTier === 'LAUNCH_INTEL_SHORTLIST';
+      })
+    },
+    {
+      condition: 'launch_intel_shortlist_touch_exclude_avoid',
+      name: `${profileName}__launch_intel_shortlist_touch_exclude_avoid`,
+      profileName,
+      description: `${profileName} requiring a pre-entry/pre-85 launch-intel shortlist touch and excluding AVOID/NEGATIVE touches.`,
+      trades: trades.filter((trade) => (
+        (trade.walletConditioning?.touchSummary?.launchIntelShortlistTouches || 0) >= 1
+        && (trade.walletConditioning?.touchSummary?.avoidTouches || 0) === 0
+      ))
+    },
+    {
       condition: 'trust_review_positive_control',
       name: `${profileName}__trust_review_positive_control`,
       profileName,
@@ -525,6 +646,7 @@ function main() {
   const bridge = readJson(WALLET_FALSE_NEGATIVE_BRIDGE_PATH, {});
   const paperConditional = readJson(WALLET_PAPER_ENTRY_CONDITIONAL_PATH, {});
   const promotion = readJson(WALLET_PROMOTION_REVIEW_PATH, {});
+  const launchIntelStability = readJson(WALLET_LAUNCH_INTEL_STABILITY_PATH, {});
   const walletEvents = readJsonl(WALLET_EVENTS_PATH);
   const relaxedProfiles = relaxedReplay.profiles || {};
   const profileNames = Object.keys(relaxedProfiles);
@@ -532,6 +654,7 @@ function main() {
   const bridgeByMint = buildBridgeByMint(bridge);
   const promotionIndex = buildPromotionIndex(promotion);
   const walletEventTouchesByMint = buildWalletEventTouchesByMint(walletEvents, promotionIndex);
+  const launchIntelTouchesByMint = buildLaunchIntelTouchesByMint(launchIntelStability);
   const paperConditionalByMint = buildPaperConditionalByMint(paperConditional);
   const decoratedTradesByProfile = {};
   const profileSummaries = {};
@@ -539,11 +662,12 @@ function main() {
   for (const profileName of profileNames) {
     const profile = relaxedProfiles[profileName] || {};
     const trades = Array.isArray(profile.trades) ? profile.trades : [];
-    const decoratedTrades = trades.map((trade) => decorateTrade(trade, bridgeByMint, walletEventTouchesByMint, paperConditionalByMint));
+    const decoratedTrades = trades.map((trade) => decorateTrade(trade, bridgeByMint, walletEventTouchesByMint, launchIntelTouchesByMint, paperConditionalByMint));
     decoratedTradesByProfile[profileName] = decoratedTrades;
     profileSummaries[profileName] = {
       trades: decoratedTrades.length,
       walletEventMintsMatched: uniqueCount(decoratedTrades.filter((trade) => (trade.walletConditioning?.touches || []).some((touch) => touch.source === 'wallet_event_ledger')), (trade) => trade.mint),
+      launchIntelShortlistMintsMatched: uniqueCount(decoratedTrades.filter((trade) => (trade.walletConditioning?.touches || []).some((touch) => touch.source === 'launch_intel_stability_shortlist')), (trade) => trade.mint),
       bridgeMintsMatched: uniqueCount(decoratedTrades.filter((trade) => trade.walletConditioning?.bridge), (trade) => trade.mint)
     };
     slices.push(...buildSlices(profileName, decoratedTrades));
@@ -596,11 +720,14 @@ function main() {
       walletFalseNegativeBridgePath: path.relative(ROOT, WALLET_FALSE_NEGATIVE_BRIDGE_PATH),
       walletPaperEntryConditionalPath: path.relative(ROOT, WALLET_PAPER_ENTRY_CONDITIONAL_PATH),
       walletPromotionReviewPath: path.relative(ROOT, WALLET_PROMOTION_REVIEW_PATH),
+      walletLaunchIntelStabilityPath: path.relative(ROOT, WALLET_LAUNCH_INTEL_STABILITY_PATH),
       walletEventsPath: path.relative(ROOT, WALLET_EVENTS_PATH),
       totalBaseTrades: Object.values(profileSummaries).reduce((total, item) => total + Number(item.trades || 0), 0),
       baseAmountSol,
       stressExtraSlippagePct: STRESS_EXTRA_SLIPPAGE_PCT,
       bridgeRows: Array.isArray(bridge?.rows) ? bridge.rows.length : 0,
+      launchIntelShortlistCandidates: Array.isArray(launchIntelStability?.repeatShortlistCandidates) ? launchIntelStability.repeatShortlistCandidates.length : 0,
+      launchIntelShortlistTouchMints: launchIntelTouchesByMint.size,
       walletEvents: walletEvents.length,
       profileSummaries
     },
