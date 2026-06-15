@@ -89,6 +89,7 @@ const FILES = {
   walletPromotionReview: 'data/reports/wallet-promotion-review-latest.json',
   walletUntrackedReview: 'data/reports/wallet-untracked-review-latest.json',
   walletLaunchIntelBridge: 'data/reports/wallet-launch-intel-bridge-latest.json',
+  walletLaunchIntelStability: 'data/reports/wallet-launch-intel-stability-latest.json',
   walletUntrackedShadowImpact: 'data/reports/wallet-untracked-shadow-impact-latest.json',
   walletReviewOutcomeLift: 'data/reports/wallet-review-outcome-lift-latest.json',
   walletPerWalletLift: 'data/reports/wallet-per-wallet-lift-latest.json',
@@ -2348,6 +2349,7 @@ function buildSummary(docs) {
   const walletPromotionReview = docs.walletPromotionReview.data || {};
   const walletUntrackedReview = docs.walletUntrackedReview.data || {};
   const walletLaunchIntelBridge = docs.walletLaunchIntelBridge.data || {};
+  const walletLaunchIntelStability = docs.walletLaunchIntelStability.data || {};
   const walletUntrackedShadowImpact = docs.walletUntrackedShadowImpact.data || {};
   const walletReviewOutcomeLift = docs.walletReviewOutcomeLift.data || {};
   const walletPerWalletLift = docs.walletPerWalletLift.data || {};
@@ -3132,6 +3134,7 @@ function buildSummary(docs) {
   const walletPromotionSummary = walletPromotionReview.summary || {};
   const walletUntrackedSummary = walletUntrackedReview.summary || {};
   const walletLaunchIntelSummary = walletLaunchIntelBridge.summary || {};
+  const walletLaunchIntelStabilitySummary = walletLaunchIntelStability.summary || {};
   const walletUntrackedImpactSummary = walletUntrackedShadowImpact.summary || {};
   const walletLiftSummary = walletPerWalletLift.summary || {};
   const daumenSummary = walletDaumenCohort.summary || {};
@@ -3142,6 +3145,9 @@ function buildSummary(docs) {
   const launchIntelManualReview = topArray(walletLaunchIntelBridge.manualReviewCandidates, 5);
   const launchIntelObserve = topArray(walletLaunchIntelBridge.observeNextRun, 5);
   const launchIntelBusy = topArray(walletLaunchIntelBridge.busyFlowRisk, 3);
+  const launchIntelShortlist = topArray(walletLaunchIntelStability.repeatShortlistCandidates, 5);
+  const launchIntelRepeatManual = topArray(walletLaunchIntelStability.repeatManualReviewCandidates, 5);
+  const launchIntelRepeatObserve = topArray(walletLaunchIntelStability.repeatObserveNextRun, 5);
   const untrackedPromotionTests = topArray(walletUntrackedShadowImpact.promotionTestCandidates, 5);
   const untrackedRepeatConfirm = topArray(walletUntrackedShadowImpact.needsRepeatConfirmation, 5);
   const topDaumenWallets = topArray(walletDaumenCohort.topDaumenWallets, 8);
@@ -3201,6 +3207,27 @@ function buildSummary(docs) {
       lines.push('- Launch-intel busy-flow examples, do not promote blindly:');
       launchIntelBusy.forEach((item, index) => {
         lines.push(`  ${index + 1}. ${item.wallet} | score=${fmt(item.score, 1)} | runtime rows/mints=${item.runtime?.rows ?? 'n/a'}/${item.runtime?.uniqueMints ?? 'n/a'} | hist launches/buys=${item.launchIntel?.totalLaunches ?? 'n/a'}/${item.launchIntel?.totalBuyCount ?? 'n/a'} | avgBuysLaunch=${fmt(item.launchIntel?.avgBuysPerLaunch, 2)}`);
+      });
+    }
+  }
+  if (walletLaunchIntelStabilitySummary.telemetryFilesRead !== undefined) {
+    lines.push(`- Launch-intel stability: files=${walletLaunchIntelStabilitySummary.telemetryFilesRead ?? 'n/a'}, known=${walletLaunchIntelStabilitySummary.knownInLaunchIntel ?? 'n/a'}, repeat=${walletLaunchIntelStabilitySummary.repeatWallets ?? 'n/a'}, repeatDecisionOverlap=${walletLaunchIntelStabilitySummary.repeatDecisionOverlapWallets ?? 'n/a'}, repeatShortlist=${walletLaunchIntelStabilitySummary.repeatShortlistCandidates ?? 'n/a'}, repeatManual=${walletLaunchIntelStabilitySummary.repeatManualReviewCandidates ?? 'n/a'}; classes=${formatTopCounts(walletLaunchIntelStabilitySummary.classificationCounts)}.`);
+    if (launchIntelShortlist.length) {
+      lines.push('- Repeat launch-intel shortlist candidates:');
+      launchIntelShortlist.forEach((item, index) => {
+        lines.push(`  ${index + 1}. ${item.wallet} | score=${fmt(item.score, 1)} | runs=${item.runCount ?? 'n/a'} decisionRuns=${item.decisionRunCount ?? 'n/a'} | buys=${item.buyRows ?? 'n/a'} | noTrackedLinks=${item.noTrackedFirstTouchLinks ?? 'n/a'} | hist launches/buys=${item.launchIntel?.totalLaunches ?? 'n/a'}/${item.launchIntel?.totalBuyCount ?? 'n/a'} | flags=${Array.isArray(item.flags) ? item.flags.join(',') : 'n/a'}`);
+      });
+    }
+    if (launchIntelRepeatManual.length) {
+      lines.push('- Repeat launch-intel manual-review candidates:');
+      launchIntelRepeatManual.forEach((item, index) => {
+        lines.push(`  ${index + 1}. ${item.wallet} | score=${fmt(item.score, 1)} | runs=${item.runCount ?? 'n/a'} decisionRuns=${item.decisionRunCount ?? 'n/a'} | buys=${item.buyRows ?? 'n/a'} | noTrackedLinks=${item.noTrackedFirstTouchLinks ?? 'n/a'} | hist launches/buys=${item.launchIntel?.totalLaunches ?? 'n/a'}/${item.launchIntel?.totalBuyCount ?? 'n/a'} | flags=${Array.isArray(item.flags) ? item.flags.join(',') : 'n/a'}`);
+      });
+    }
+    if (launchIntelRepeatObserve.length) {
+      lines.push('- Repeat launch-intel observe-next-run candidates:');
+      launchIntelRepeatObserve.forEach((item, index) => {
+        lines.push(`  ${index + 1}. ${item.wallet} | score=${fmt(item.score, 1)} | runs=${item.runCount ?? 'n/a'} decisionRuns=${item.decisionRunCount ?? 'n/a'} | noTrackedLinks=${item.noTrackedFirstTouchLinks ?? 'n/a'} | hist launches=${item.launchIntel?.totalLaunches ?? 'n/a'}`);
       });
     }
   }
