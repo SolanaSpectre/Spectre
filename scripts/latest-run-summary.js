@@ -3156,6 +3156,7 @@ function buildSummary(docs) {
   const launchIntelRepeatObserve = topArray(walletLaunchIntelStability.repeatObserveNextRun, 5);
   const launchIntelShortlistWinners = topArray(walletLaunchIntelShortlistEntryReplay.topWouldWinners, 5);
   const launchIntelRuntimeShadowWinners = topArray(walletLaunchIntelShortlistShadow.topWinners, 5);
+  const launchIntelRuntimeShadowProfiles = topArray(walletLaunchIntelShortlistShadow.thresholdProfiles, 5);
   const untrackedPromotionTests = topArray(walletUntrackedShadowImpact.promotionTestCandidates, 5);
   const untrackedRepeatConfirm = topArray(walletUntrackedShadowImpact.needsRepeatConfirmation, 5);
   const topDaumenWallets = topArray(walletDaumenCohort.topDaumenWallets, 8);
@@ -3250,6 +3251,12 @@ function buildSummary(docs) {
   }
   if (walletLaunchIntelShortlistShadowSummary.shadowRows !== undefined) {
     lines.push(`- Runtime launch-intel shortlist shadow: rows=${walletLaunchIntelShortlistShadowSummary.shadowRows ?? 'n/a'}, wouldEnter=${walletLaunchIntelShortlistShadowSummary.wouldEnter ?? 'n/a'}, replayed=${walletLaunchIntelShortlistShadowSummary.replayed ?? 'n/a'}, winRate=${pct(walletLaunchIntelShortlistShadowSummary.winRate)}, pnl=${sol(walletLaunchIntelShortlistShadowSummary.totalPnlSol)}, stressed=${sol(walletLaunchIntelShortlistShadowSummary.stressedPnlSol)}.`);
+    if (launchIntelRuntimeShadowProfiles.length) {
+      lines.push('- Runtime launch-intel shortlist threshold profiles:');
+      launchIntelRuntimeShadowProfiles.forEach((item, index) => {
+        lines.push(`  ${index + 1}. ${item.name} | candidates=${item.candidates ?? 'n/a'} replayed=${item.replayed ?? 'n/a'} | W/L=${item.wins ?? 'n/a'}/${item.losses ?? 'n/a'} | pnl=${sol(item.totalPnlSol)} | stressed=${sol(item.stressedPnlSol)} | top3Removed=${sol(item.top3RemovedPnlSol)}`);
+      });
+    }
     if (launchIntelRuntimeShadowWinners.length) {
       lines.push('- Top runtime launch-intel shortlist shadow winners:');
       launchIntelRuntimeShadowWinners.forEach((item, index) => {

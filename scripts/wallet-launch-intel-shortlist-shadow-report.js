@@ -18,6 +18,14 @@ const EXIT = {
   stressExtraSlippagePct: 3
 };
 
+const THRESHOLD_PROFILES = [
+  { name: 'current_75_70_25_25', minScore: 75, minCurveProgress: 0.7, minRecentVolumeSol: 25, minTradeVelocityPerMin: 25 },
+  { name: 'mid_60_45_10_10', minScore: 60, minCurveProgress: 0.45, minRecentVolumeSol: 10, minTradeVelocityPerMin: 10 },
+  { name: 'early_55_30_10_10', minScore: 55, minCurveProgress: 0.3, minRecentVolumeSol: 10, minTradeVelocityPerMin: 10 },
+  { name: 'early_50_25_5_5', minScore: 50, minCurveProgress: 0.25, minRecentVolumeSol: 5, minTradeVelocityPerMin: 5 },
+  { name: 'touch_only_positive_control', minScore: 0, minCurveProgress: 0, minRecentVolumeSol: 0, minTradeVelocityPerMin: 0 }
+];
+
 function parseArgs(argv) {
   const args = {};
   for (let index = 0; index < argv.length; index += 1) {
@@ -160,6 +168,52 @@ function replay(row, samplesByMint) {
   return { ...row, replayClass: 'REPLAYED', entryAt: entry.at, entryPriceSol: compact(entry.priceSol, 12), ...buildExit(entry, latest, 'END_OF_RUN') };
 }
 
+function passesProfile(row, profile) {
+  return Number(row.score) >= profile.minScore
+    && Number(row.curveProgress) >= profile.minCurveProgress
+    && Number(row.recentVolumeSol) >= profile.minRecentVolumeSol
+    && Number(row.tradeVelocityPerMin) >= profile.minTradeVelocityPerMin
+    && Number(row.priceSol) > 0;
+}
+
+function replayProfile(profile, shadowRows, samplesByMint) {
+  const seenMints = new Set();
+  const rows = [];
+  for (const row of shadowRows) {
+    if (!row.triggerWallet || !passesProfile(row, profile)) continue;
+    const key = row.mint;
+    if (seenMints.has(key)) continue;
+    seenMints.add(key);
+    rows.push(replay({ ...row, outcome: 'would_enter', profileName: profile.name }, samplesByMint));
+  }
+  const replayed = rows.filter((row) => row.replayClass === 'REPLAYED');
+  const wins = replayed.filter((row) => Number(row.pnlSol) > 0);
+  const totalPnlSol = replayed.reduce((sum, row) => sum + Number(row.pnlSol || 0), 0);
+  const stressedPnlSol = replayed.reduce((sum, row) => sum + Number(row.stressedPnlSol || 0), 0);
+  const top3Pnl = replayed.map((row) => Number(row.pnlSol) || 0)
+    .sort((a, b) => b - a)
+    .slice(0, 3)
+    .reduce((sum, value) => sum + value, 0);
+  const midpoint = Math.ceil(replayed.length / 2);
+  const firstHalfPnlSol = replayed.slice(0, midpoint).reduce((sum, row) => sum + Number(row.pnlSol || 0), 0);
+  const secondHalfPnlSol = replayed.slice(midpoint).reduce((sum, row) => sum + Number(row.pnlSol || 0), 0);
+  return {
+    ...profile,
+    candidates: rows.length,
+    replayed: replayed.length,
+    uniqueMints: new Set(rows.map((row) => row.mint)).size,
+    wins: wins.length,
+    losses: replayed.filter((row) => Number(row.pnlSol) < 0).length,
+    winRate: replayed.length ? compact(wins.length / replayed.length, 4) : null,
+    totalPnlSol: compact(totalPnlSol, 9),
+    stressedPnlSol: compact(stressedPnlSol, 9),
+    firstHalfPnlSol: replayed.length ? compact(firstHalfPnlSol, 9) : null,
+    secondHalfPnlSol: replayed.length > 1 ? compact(secondHalfPnlSol, 9) : null,
+    top3RemovedPnlSol: compact(totalPnlSol - top3Pnl, 9),
+    sampleRows: rows.slice().sort((a, b) => Number(b.pnlSol || 0) - Number(a.pnlSol || 0)).slice(0, 10)
+  };
+}
+
 function summarize(rows, stats) {
   const wouldEnter = rows.filter((row) => row.outcome === 'would_enter');
   const replayed = rows.filter((row) => row.replayClass === 'REPLAYED');
@@ -199,6 +253,9 @@ function main() {
   if (!telemetryPath || !fs.existsSync(telemetryPath)) throw new Error('No telemetry file found for launch-intel shortlist shadow report');
   const scanned = scan(telemetryPath);
   const rows = scanned.shadows.map((row) => replay(row, scanned.samplesByMint));
+  const thresholdProfiles = THRESHOLD_PROFILES
+    .map((profile) => replayProfile(profile, scanned.shadows, scanned.samplesByMint))
+    .sort((a, b) => Number(b.stressedPnlSol || 0) - Number(a.stressedPnlSol || 0));
   const generatedAt = new Date().toISOString();
   const payload = {
     generatedAt,
@@ -207,6 +264,7 @@ function main() {
     assumptions: EXIT,
     note: 'Summarizes runtime launch-intel shortlist shadow telemetry. Report-only; shadow events do not mutate wallet trust, paper entries, or live behavior.',
     summary: summarize(rows, scanned.stats),
+    thresholdProfiles,
     topWinners: rows.filter((row) => row.replayClass === 'REPLAYED').slice().sort((a, b) => Number(b.pnlSol) - Number(a.pnlSol)).slice(0, 12),
     topLosers: rows.filter((row) => row.replayClass === 'REPLAYED').slice().sort((a, b) => Number(a.pnlSol) - Number(b.pnlSol)).slice(0, 12),
     rows
@@ -217,7 +275,7 @@ function main() {
   writeJson(LATEST_PATH, payload);
   console.log(`Wrote launch-intel shortlist shadow report: ${reportPath}`);
   console.log(`Wrote latest launch-intel shortlist shadow report: ${LATEST_PATH}`);
-  console.log(`shadowRows=${payload.summary.shadowRows} wouldEnter=${payload.summary.wouldEnter} replayed=${payload.summary.replayed} pnl=${payload.summary.totalPnlSol}`);
+  console.log(`shadowRows=${payload.summary.shadowRows} wouldEnter=${payload.summary.wouldEnter} replayed=${payload.summary.replayed} pnl=${payload.summary.totalPnlSol} bestProfile=${thresholdProfiles[0]?.name || 'n/a'} bestProfilePnl=${thresholdProfiles[0]?.totalPnlSol ?? 'n/a'}`);
 }
 
 main();
