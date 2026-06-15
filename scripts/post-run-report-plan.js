@@ -24,6 +24,7 @@ const POST_RUN_REPORTS = [
   { title: 'Wallet PnL Evidence Report', script: 'wallet-pnl-evidence-report.js' },
   { title: 'Wallet Promotion Review Report', script: 'wallet-promotion-review-report.js' },
   { title: 'Untracked Wallet Review Report', script: 'wallet-untracked-review-report.js' },
+  { title: 'Wallet Launch-Intel Bridge Report', script: 'wallet-launch-intel-bridge-report.js' },
   { title: 'Untracked Wallet Shadow Impact', script: 'wallet-untracked-shadow-impact-report.js' },
   { title: 'Wallet Review Outcome Lift', script: 'wallet-review-outcome-lift-report.js' },
   { title: 'Wallet Per-Wallet Lift', script: 'wallet-per-wallet-lift-report.js' },
