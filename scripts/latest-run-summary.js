@@ -29,6 +29,7 @@ const FILES = {
   preMigrationEntryShape: 'data/reports/pre-migration-entry-shape-latest.json',
   preMigrationEntryFunnel: 'data/reports/pre-migration-entry-funnel-latest.json',
   preMigrationObservedCoverage: 'data/reports/pre-migration-observed-coverage-latest.json',
+  preMigrationFlaggedCandidateAttribution: 'data/reports/pre-migration-flagged-candidate-attribution-latest.json',
   preMigrationEntryGateMargin: 'data/reports/pre-migration-entry-gate-margin-latest.json',
   preMigrationHighReadinessRejectReplay: 'data/reports/pre-migration-high-readiness-reject-replay-latest.json',
   preMigrationSingleGateShadow: 'data/reports/pre-migration-single-gate-shadow-latest.json',
@@ -2303,6 +2304,7 @@ function buildSummary(docs) {
   const entryShape = docs.preMigrationEntryShape.data || {};
   const entryFunnel = docs.preMigrationEntryFunnel.data || {};
   const observedCoverage = docs.preMigrationObservedCoverage.data || {};
+  const flaggedCandidateAttribution = docs.preMigrationFlaggedCandidateAttribution.data || {};
   const curveAdvanceDiagnostic = docs.preMigrationCurveAdvanceDiagnostic.data || {};
   const curveNotAdvancingSeparability = docs.preMigrationCurveNotAdvancingSeparability.data || {};
   const curveNotAdvancingSeparatorShadow = docs.preMigrationCurveNotAdvancingSeparatorShadow.data || {};
@@ -2542,7 +2544,7 @@ function buildSummary(docs) {
     lines.push('----------------------');
     lines.push('- Mode: report-only; audits watch-lane observed mints that never became flagged candidates.');
     lines.push(`- Observed/flagged/unflagged: ${coverage.observedMints ?? 'n/a'} / ${coverage.flaggedMints ?? 'n/a'} / ${coverage.unflaggedMints ?? 'n/a'}; flagged rate=${pct(coverage.flaggedPerObserved, 1)}.`);
-    lines.push(`- Unflagged strong / crossed90 within 300s: ${coverage.unflaggedStrongMints ?? 'n/a'} / ${coverage.unflaggedCrossed90Within300s ?? 'n/a'}.`);
+    lines.push(`- Unflagged strong-at-observation: ${coverage.unflaggedStrongMints ?? 'n/a'}; unflagged follow-through is under-measured, so crossed90=${coverage.unflaggedCrossed90Within300s ?? 'n/a'} is coverage-limited rather than proof of no runners.`);
     lines.push(`- Unflagged classes: ${formatTopCounts(coverage.unflaggedClassificationCounts)}.`);
     lines.push(`- Unflagged max score median/p90/max: ${fmt(coverage.unflaggedMaxScore?.median, 2)} / ${fmt(coverage.unflaggedMaxScore?.p90, 2)} / ${fmt(coverage.unflaggedMaxScore?.max, 2)}; curve median/p90/max=${fmt(coverage.unflaggedMaxCurveProgress?.median, 4)} / ${fmt(coverage.unflaggedMaxCurveProgress?.p90, 4)} / ${fmt(coverage.unflaggedMaxCurveProgress?.max, 4)}.`);
     const topUnflagged = topArray(observedCoverage.topUnflaggedByScore, 5);
@@ -2550,6 +2552,27 @@ function buildSummary(docs) {
       lines.push('- Top unflagged by score:');
       topUnflagged.forEach((row, index) => {
         lines.push(`  ${index + 1}. ${row.symbol || 'UNKNOWN'} ${row.mint || ''} | class=${row.classification || 'n/a'} | score=${fmt(row.maxScore, 2)} | curve=${fmt(row.maxCurveProgress, 4)} | vol=${fmt(row.maxRecentVolumeSol, 2)} | vel=${fmt(row.maxTradeVelocityPerMin, 2)} | cross90_300=${row.followThrough300s?.crossed90AfterLastObserved === true}`);
+      });
+    }
+    lines.push('');
+  }
+
+  if (flaggedCandidateAttribution.summary) {
+    const flaggedSummary = flaggedCandidateAttribution.summary || {};
+    const replay = flaggedSummary.replay || {};
+    const topStrong = topArray(flaggedCandidateAttribution.topStrongFollowThrough, 5);
+    lines.push('0b4. Flagged Candidate Attribution');
+    lines.push('-----------------------------------');
+    lines.push('- Mode: report-only; joins flagged/evaluated mints to finalist-verifier future snapshots and counterfactual replay.');
+    lines.push(`- Candidates/flagged/evaluated/finalist-measured: ${flaggedSummary.candidates ?? 'n/a'} / ${flaggedSummary.flaggedMints ?? 'n/a'} / ${flaggedSummary.evaluatedMints ?? 'n/a'} / ${flaggedSummary.mintsWithFinalistSnapshots ?? 'n/a'}.`);
+    lines.push(`- Attribution classes: ${formatTopCounts(flaggedSummary.classificationCounts)}.`);
+    lines.push(`- Skip reasons / tightest gates: ${formatTopCounts(flaggedSummary.skipReasonCounts)} / ${formatTopCounts(flaggedSummary.tightestGateCounts)}.`);
+    lines.push(`- Wallet channel trusted/positive/rawUntrusted/pre85/noTrackedFirstTouch: ${flaggedSummary.walletCounts?.anyTrustedTouch ?? 'n/a'} / ${flaggedSummary.walletCounts?.positiveOrProvenTouch ?? 'n/a'} / ${flaggedSummary.walletCounts?.rawUntrustedTouch ?? 'n/a'} / ${flaggedSummary.walletCounts?.rawUntrustedPre85Buy ?? 'n/a'} / ${flaggedSummary.walletCounts?.noTrackedFirstTouch ?? 'n/a'}.`);
+    lines.push(`- Replay: n=${replay.replayed ?? 'n/a'}, wins/losses=${replay.wins ?? 'n/a'}/${replay.losses ?? 'n/a'}, pnl=${sol(replay.totalPnlSol, 6)}, median=${sol(replay.medianPnlSol, 6)}, exTop3=${sol(replay.top3RemovedPnlSol, 6)}, stressed=${sol(replay.stressedPnlSol, 6)}.`);
+    if (topStrong.length) {
+      lines.push('- Strong blocked follow-through examples:');
+      topStrong.forEach((row, index) => {
+        lines.push(`  ${index + 1}. ${row.symbol || 'UNKNOWN'} ${row.mint || ''} | reason=${row.firstDecision?.reason || 'n/a'} | score=${fmt(row.maxScore, 2)} | curve=${fmt(row.maxCurveProgress, 4)} | w120 price=${fmt(row.window120s?.maxPriceDeltaPct, 2)}% | replay=${sol(row.replay?.pnlSol, 6)} | walletPositive=${row.wallet?.positiveOrProvenTouch === true}`);
       });
     }
     lines.push('');
