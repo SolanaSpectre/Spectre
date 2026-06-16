@@ -35,9 +35,11 @@ const FILES = {
   preMigrationFlaggedFollowThroughSliceShadow: 'data/reports/pre-migration-flagged-follow-through-slice-shadow-latest.json',
   preMigrationFlaggedFollowThroughSliceShadowReplay: 'data/reports/pre-migration-flagged-follow-through-slice-shadow-replay-latest.json',
   preMigrationCandidateSupplyFunnel: 'data/reports/pre-migration-candidate-supply-funnel-latest.json',
+  preMigrationPre60SnapshotCoverage: 'data/reports/pre-migration-pre60-snapshot-coverage-latest.json',
   preMigrationPreCurve60RunnerDiscovery: 'data/reports/pre-migration-pre-curve60-runner-discovery-latest.json',
   preMigrationEarlySignalBaseRate: 'data/reports/pre-migration-early-signal-base-rate-latest.json',
   preMigrationEarlySignalFirstHitReplay: 'data/reports/pre-migration-early-signal-first-hit-replay-latest.json',
+  preMigrationEarlySignalEntryTimingReplay: 'data/reports/pre-migration-early-signal-entry-timing-replay-latest.json',
   preMigrationOriginPathAutopsy: 'data/reports/pre-migration-origin-path-autopsy-latest.json',
   preMigrationEntryGateMargin: 'data/reports/pre-migration-entry-gate-margin-latest.json',
   preMigrationHighReadinessRejectReplay: 'data/reports/pre-migration-high-readiness-reject-replay-latest.json',
@@ -2319,9 +2321,11 @@ function buildSummary(docs) {
   const flaggedFollowThroughSliceShadow = docs.preMigrationFlaggedFollowThroughSliceShadow.data || {};
   const flaggedFollowThroughSliceShadowReplay = docs.preMigrationFlaggedFollowThroughSliceShadowReplay.data || {};
   const candidateSupplyFunnel = docs.preMigrationCandidateSupplyFunnel.data || {};
+  const pre60SnapshotCoverage = docs.preMigrationPre60SnapshotCoverage.data || {};
   const preCurve60RunnerDiscovery = docs.preMigrationPreCurve60RunnerDiscovery.data || {};
   const earlySignalBaseRate = docs.preMigrationEarlySignalBaseRate.data || {};
   const earlySignalFirstHitReplay = docs.preMigrationEarlySignalFirstHitReplay.data || {};
+  const earlySignalEntryTimingReplay = docs.preMigrationEarlySignalEntryTimingReplay.data || {};
   const originPathAutopsy = docs.preMigrationOriginPathAutopsy.data || {};
   const curveAdvanceDiagnostic = docs.preMigrationCurveAdvanceDiagnostic.data || {};
   const curveNotAdvancingSeparability = docs.preMigrationCurveNotAdvancingSeparability.data || {};
@@ -2679,6 +2683,34 @@ function buildSummary(docs) {
     lines.push('');
   }
 
+  if (pre60SnapshotCoverage.summary) {
+    const coverage = pre60SnapshotCoverage.summary || {};
+    const field = coverage.pre60FieldCoverage || {};
+    const byType = topArray(coverage.pre60CoverageByType, 6);
+    const timelines = topArray(pre60SnapshotCoverage.rawPre85Cross90Timelines, 5);
+    lines.push('0b9b. Pre60 Snapshot Coverage');
+    lines.push('-----------------------------');
+    lines.push('- Mode: report-only; audits whether pre60 snapshots actually contain the market fields needed for entry timing, and whether observed curve rows lag finalist curve crossings.');
+    lines.push(`- Verdict: ${coverage.verdict || 'n/a'}; mints=${coverage.mints ?? 'n/a'}, crossed60/90=${coverage.crossed60 ?? 'n/a'} / ${coverage.crossed90 ?? 'n/a'}, pre60Snapshots=${coverage.pre60Snapshots ?? 'n/a'}, recommendation=${coverage.recommendation || 'n/a'}.`);
+    lines.push(`- Field rates: buyers=${pct(field.uniqueBuyerCount?.rate, 2)}, velocity=${pct(field.tradeVelocityPerMin?.rate, 2)}, volume=${pct(field.recentVolumeSol?.rate, 2)}, score=${pct(field.score?.rate, 2)}, price=${pct(field.priceSol?.rate, 2)}, curve=${pct(field.curveProgress?.rate, 2)}.`);
+    lines.push(`- Mint coverage: mintsWithBuyerCount=${coverage.mintsWithPre60BuyerCount ?? 'n/a'}, mintsWithVelocity=${coverage.mintsWithPre60Velocity ?? 'n/a'}; staleObservedAfterCross60 mints/rows=${coverage.staleObservedAfterCross60Mints ?? 'n/a'} / ${coverage.staleObservedAfterCross60Rows ?? 'n/a'}.`);
+    lines.push(`- Timing: rawPre85->cross60 median/p90=${fmt(coverage.secondsRawPre85ToCross60?.median, 2)}s / ${fmt(coverage.secondsRawPre85ToCross60?.p90, 2)}s; cross60->observedVel25 median/p90=${fmt(coverage.secondsCross60ToObservedVel25?.median, 2)}s / ${fmt(coverage.secondsCross60ToObservedVel25?.p90, 2)}s.`);
+    if (byType.length) {
+      lines.push('- Pre60 coverage by snapshot type:');
+      byType.forEach((row) => {
+        const c = row.fieldCoverage || {};
+        lines.push(`  - ${row.type}: snapshots=${row.snapshots ?? 'n/a'}, buyers=${pct(c.uniqueBuyerCount?.rate, 2)}, velocity=${pct(c.tradeVelocityPerMin?.rate, 2)}, volume=${pct(c.recentVolumeSol?.rate, 2)}, score=${pct(c.score?.rate, 2)}`);
+      });
+    }
+    if (timelines.length) {
+      lines.push('- Raw-pre85 cross90 timelines:');
+      timelines.forEach((row, index) => {
+        lines.push(`  ${index + 1}. ${row.symbol || 'unknown'} ${row.mint || 'n/a'}: rawPre85=${row.firstRawPre85BuyAt || 'n/a'}, cross60=${row.firstCross60At || 'n/a'} (${row.firstCross60Type || 'n/a'}), vel25Pre60=${row.firstPre60Vel25At || 'none'}, observedVel25AfterCross60=${row.firstObservedVel25AfterCross60At || 'none'}, staleObserved=${row.staleObservedAfterCross60 ?? 'n/a'}`);
+      });
+    }
+    lines.push('');
+  }
+
   if (preCurve60RunnerDiscovery.summary) {
     const discovery = preCurve60RunnerDiscovery.summary || {};
     const topCrossers = topArray(preCurve60RunnerDiscovery.topCross60, 5);
@@ -2757,6 +2789,24 @@ function buildSummary(docs) {
       combos.forEach((row) => {
         const s = row.summary || {};
         lines.push(`  - ${row.combo}: verdict=${s.verdict || 'n/a'}, candidates=${s.candidates ?? 'n/a'}, replayed=${s.replayed ?? 'n/a'}, wins/losses=${s.wins ?? 'n/a'}/${s.losses ?? 'n/a'}, c90=${s.crossed90 ?? 'n/a'}, pnl=${sol(s.pnlSol, 6)}, median=${sol(s.medianPnlSol, 6)}, top3Removed=${sol(s.pnlWithoutTop3Sol, 6)}`);
+      });
+    }
+    lines.push('');
+  }
+
+  if (earlySignalEntryTimingReplay.summary) {
+    const timing = earlySignalEntryTimingReplay.summary || {};
+    const modes = topArray(earlySignalEntryTimingReplay.byMode, 6);
+    lines.push('0b10d. Early-Signal Entry-Timing Replay');
+    lines.push('----------------------------------------');
+    lines.push('- Mode: report-only; tests raw-untrusted pre85 wallet signal timing variants: first hit, confirmation delays, curve-advancing hit, and last pre60 hit.');
+    lines.push(`- Rows=${timing.rows ?? 'n/a'}, modes=${timing.modes ?? 'n/a'}, best=${timing.bestMode || 'n/a'} verdict=${timing.bestModeVerdict || 'n/a'}, pnl=${sol(timing.bestModePnlSol, 6)}.`);
+    lines.push(`- Recommendation: ${timing.recommendation || 'n/a'}; promising=${Array.isArray(timing.promisingModes) && timing.promisingModes.length ? timing.promisingModes.join(', ') : 'none'}.`);
+    if (modes.length) {
+      lines.push('- Timing replay summaries:');
+      modes.forEach((row) => {
+        const s = row.summary || {};
+        lines.push(`  - ${row.mode}: verdict=${s.verdict || 'n/a'}, candidates=${s.candidates ?? 'n/a'}, replayed=${s.replayed ?? 'n/a'}, wins/losses=${s.wins ?? 'n/a'}/${s.losses ?? 'n/a'}, c90=${s.crossed90 ?? 'n/a'}, pnl=${sol(s.pnlSol, 6)}, median=${sol(s.medianPnlSol, 6)}, top3Removed=${sol(s.pnlWithoutTop3Sol, 6)}`);
       });
     }
     lines.push('');
