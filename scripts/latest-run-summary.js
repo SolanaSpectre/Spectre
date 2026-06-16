@@ -31,6 +31,7 @@ const FILES = {
   preMigrationObservedCoverage: 'data/reports/pre-migration-observed-coverage-latest.json',
   preMigrationFlaggedCandidateAttribution: 'data/reports/pre-migration-flagged-candidate-attribution-latest.json',
   preMigrationFlaggedAttributionTrend: 'data/reports/pre-migration-flagged-attribution-trend-latest.json',
+  preMigrationFlaggedFollowThroughSlices: 'data/reports/pre-migration-flagged-follow-through-slices-latest.json',
   preMigrationEntryGateMargin: 'data/reports/pre-migration-entry-gate-margin-latest.json',
   preMigrationHighReadinessRejectReplay: 'data/reports/pre-migration-high-readiness-reject-replay-latest.json',
   preMigrationSingleGateShadow: 'data/reports/pre-migration-single-gate-shadow-latest.json',
@@ -2307,6 +2308,7 @@ function buildSummary(docs) {
   const observedCoverage = docs.preMigrationObservedCoverage.data || {};
   const flaggedCandidateAttribution = docs.preMigrationFlaggedCandidateAttribution.data || {};
   const flaggedAttributionTrend = docs.preMigrationFlaggedAttributionTrend.data || {};
+  const flaggedFollowThroughSlices = docs.preMigrationFlaggedFollowThroughSlices.data || {};
   const curveAdvanceDiagnostic = docs.preMigrationCurveAdvanceDiagnostic.data || {};
   const curveNotAdvancingSeparability = docs.preMigrationCurveNotAdvancingSeparability.data || {};
   const curveNotAdvancingSeparatorShadow = docs.preMigrationCurveNotAdvancingSeparatorShadow.data || {};
@@ -2590,6 +2592,24 @@ function buildSummary(docs) {
     lines.push(`- Replay aggregate: n=${trend.replayed ?? 'n/a'}, wins/losses=${trend.replayWins ?? 'n/a'}/${trend.replayLosses ?? 'n/a'}, total=${sol(trend.replayTotalPnlSol, 6)}, stressed=${sol(trend.replayStressedPnlSol, 6)}, top3-removed-sum=${sol(trend.replayTop3RemovedPnlSolSum, 6)}.`);
     lines.push(`- Replay by run median: total=${sol(trend.replayTotalPnlSolByRun?.median, 6)}, medianTrade=${sol(trend.replayMedianPnlSolByRun?.median, 6)}, top3Removed=${sol(trend.replayTop3RemovedPnlSolByRun?.median, 6)}.`);
     lines.push(`- Classifications: ${formatTopCounts(trend.classificationCounts)}.`);
+    lines.push('');
+  }
+
+  if (flaggedFollowThroughSlices.summary) {
+    const slices = flaggedFollowThroughSlices.summary || {};
+    const topProfiles = topArray(flaggedFollowThroughSlices.profiles, 6);
+    lines.push('0b6. Flagged Follow-Through Slices');
+    lines.push('-----------------------------------');
+    lines.push('- Mode: report-only; searches for repeatable pre-entry patterns among blocked flagged candidates with later follow-through.');
+    lines.push(`- Verdict: ${slices.verdict || 'n/a'}; rows/measured=${slices.rows ?? 'n/a'} / ${slices.measured ?? 'n/a'}; strong/useful/flat=${slices.strong ?? 'n/a'} / ${slices.useful ?? 'n/a'} / ${slices.flat ?? 'n/a'}.`);
+    lines.push(`- Replay all slices: n=${slices.replayed ?? 'n/a'}, wins/losses=${slices.wins ?? 'n/a'}/${slices.losses ?? 'n/a'}, pnl=${sol(slices.totalPnlSol, 6)}, median=${sol(slices.medianPnlSol, 6)}, top3Removed=${sol(slices.top3RemovedPnlSol, 6)}.`);
+    lines.push(`- Promising report-only profiles: ${Array.isArray(slices.promisingProfiles) && slices.promisingProfiles.length ? slices.promisingProfiles.join(', ') : 'none'}.`);
+    if (topProfiles.length) {
+      lines.push('- Profile leaderboard:');
+      topProfiles.forEach((profile) => {
+        lines.push(`  - ${profile.label}: verdict=${profile.verdict || 'n/a'}, measured=${profile.measured ?? 'n/a'}, wins/losses=${profile.wins ?? 'n/a'}/${profile.losses ?? 'n/a'}, pnl=${sol(profile.totalPnlSol, 6)}, median=${sol(profile.medianPnlSol, 6)}, top3Removed=${sol(profile.top3RemovedPnlSol, 6)}`);
+      });
+    }
     lines.push('');
   }
 
