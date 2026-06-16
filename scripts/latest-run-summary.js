@@ -30,6 +30,7 @@ const FILES = {
   preMigrationEntryFunnel: 'data/reports/pre-migration-entry-funnel-latest.json',
   preMigrationObservedCoverage: 'data/reports/pre-migration-observed-coverage-latest.json',
   preMigrationFlaggedCandidateAttribution: 'data/reports/pre-migration-flagged-candidate-attribution-latest.json',
+  preMigrationFlaggedAttributionTrend: 'data/reports/pre-migration-flagged-attribution-trend-latest.json',
   preMigrationEntryGateMargin: 'data/reports/pre-migration-entry-gate-margin-latest.json',
   preMigrationHighReadinessRejectReplay: 'data/reports/pre-migration-high-readiness-reject-replay-latest.json',
   preMigrationSingleGateShadow: 'data/reports/pre-migration-single-gate-shadow-latest.json',
@@ -2305,6 +2306,7 @@ function buildSummary(docs) {
   const entryFunnel = docs.preMigrationEntryFunnel.data || {};
   const observedCoverage = docs.preMigrationObservedCoverage.data || {};
   const flaggedCandidateAttribution = docs.preMigrationFlaggedCandidateAttribution.data || {};
+  const flaggedAttributionTrend = docs.preMigrationFlaggedAttributionTrend.data || {};
   const curveAdvanceDiagnostic = docs.preMigrationCurveAdvanceDiagnostic.data || {};
   const curveNotAdvancingSeparability = docs.preMigrationCurveNotAdvancingSeparability.data || {};
   const curveNotAdvancingSeparatorShadow = docs.preMigrationCurveNotAdvancingSeparatorShadow.data || {};
@@ -2575,6 +2577,19 @@ function buildSummary(docs) {
         lines.push(`  ${index + 1}. ${row.symbol || 'UNKNOWN'} ${row.mint || ''} | reason=${row.firstDecision?.reason || 'n/a'} | score=${fmt(row.maxScore, 2)} | curve=${fmt(row.maxCurveProgress, 4)} | w120 price=${fmt(row.window120s?.maxPriceDeltaPct, 2)}% | replay=${sol(row.replay?.pnlSol, 6)} | walletPositive=${row.wallet?.positiveOrProvenTouch === true}`);
       });
     }
+    lines.push('');
+  }
+
+  if (flaggedAttributionTrend.summary) {
+    const trend = flaggedAttributionTrend.summary || {};
+    lines.push('0b5. Flagged Attribution Trend');
+    lines.push('--------------------------------');
+    lines.push('- Mode: report-only; aggregates flagged-candidate attribution across recent telemetry runs to avoid one-run outlier bias.');
+    lines.push(`- Verdict: ${trend.verdict || 'n/a'}; runs=${trend.runCount ?? 'n/a'}, candidates=${trend.candidates ?? 'n/a'}, measured=${trend.measuredMints ?? 'n/a'} (${pct(trend.measuredRate, 1)}), insufficient=${pct(trend.insufficientRate, 1)}.`);
+    lines.push(`- Strong/useful follow-through: ${trend.strongFollowThrough ?? 'n/a'} / ${trend.usefulFollowThrough ?? 'n/a'}; rate among measured=${pct(trend.strongOrUsefulRateMeasured, 1)}.`);
+    lines.push(`- Replay aggregate: n=${trend.replayed ?? 'n/a'}, wins/losses=${trend.replayWins ?? 'n/a'}/${trend.replayLosses ?? 'n/a'}, total=${sol(trend.replayTotalPnlSol, 6)}, stressed=${sol(trend.replayStressedPnlSol, 6)}, top3-removed-sum=${sol(trend.replayTop3RemovedPnlSolSum, 6)}.`);
+    lines.push(`- Replay by run median: total=${sol(trend.replayTotalPnlSolByRun?.median, 6)}, medianTrade=${sol(trend.replayMedianPnlSolByRun?.median, 6)}, top3Removed=${sol(trend.replayTop3RemovedPnlSolByRun?.median, 6)}.`);
+    lines.push(`- Classifications: ${formatTopCounts(trend.classificationCounts)}.`);
     lines.push('');
   }
 
