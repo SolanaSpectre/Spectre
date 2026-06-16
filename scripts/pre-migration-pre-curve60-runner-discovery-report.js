@@ -552,7 +552,9 @@ function summarizeMint(row, telemetryPath) {
   const pre60 = cross60
     ? curveSnapshots.filter((snapshot) => snapshot.atMs < cross60.atMs && Number(snapshot.curveProgress) < 0.6)
     : curveSnapshots.filter((snapshot) => Number(snapshot.curveProgress) < 0.6);
-  const lastPre60 = cross60 ? lastBefore(curveSnapshots, cross60.atMs, (snapshot) => Number(snapshot.curveProgress) < 0.6) : null;
+  const lastPre60 = cross60
+    ? lastBefore(curveSnapshots, cross60.atMs, (snapshot) => Number(snapshot.curveProgress) < 0.6)
+    : pre60[pre60.length - 1] || null;
   const firstPre60 = pre60[0] || null;
   const curveVelocityTo60 = firstPre60 && lastPre60 && lastPre60.atMs > firstPre60.atMs
     ? (Number(lastPre60.curveProgress) - Number(firstPre60.curveProgress)) / ((lastPre60.atMs - firstPre60.atMs) / 1000)
@@ -749,4 +751,9 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { buildReport, scanFile };
+module.exports = {
+  buildReport,
+  scanFile,
+  makePromotionIndex,
+  attachWalletLedgerEvents
+};

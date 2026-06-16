@@ -37,6 +37,7 @@ const FILES = {
   preMigrationCandidateSupplyFunnel: 'data/reports/pre-migration-candidate-supply-funnel-latest.json',
   preMigrationPreCurve60RunnerDiscovery: 'data/reports/pre-migration-pre-curve60-runner-discovery-latest.json',
   preMigrationEarlySignalBaseRate: 'data/reports/pre-migration-early-signal-base-rate-latest.json',
+  preMigrationEarlySignalFirstHitReplay: 'data/reports/pre-migration-early-signal-first-hit-replay-latest.json',
   preMigrationOriginPathAutopsy: 'data/reports/pre-migration-origin-path-autopsy-latest.json',
   preMigrationEntryGateMargin: 'data/reports/pre-migration-entry-gate-margin-latest.json',
   preMigrationHighReadinessRejectReplay: 'data/reports/pre-migration-high-readiness-reject-replay-latest.json',
@@ -2320,6 +2321,7 @@ function buildSummary(docs) {
   const candidateSupplyFunnel = docs.preMigrationCandidateSupplyFunnel.data || {};
   const preCurve60RunnerDiscovery = docs.preMigrationPreCurve60RunnerDiscovery.data || {};
   const earlySignalBaseRate = docs.preMigrationEarlySignalBaseRate.data || {};
+  const earlySignalFirstHitReplay = docs.preMigrationEarlySignalFirstHitReplay.data || {};
   const originPathAutopsy = docs.preMigrationOriginPathAutopsy.data || {};
   const curveAdvanceDiagnostic = docs.preMigrationCurveAdvanceDiagnostic.data || {};
   const curveNotAdvancingSeparability = docs.preMigrationCurveNotAdvancingSeparability.data || {};
@@ -2702,13 +2704,16 @@ function buildSummary(docs) {
     const base = earlySignalBaseRate.summary || {};
     const baseline = base.baseline || {};
     const walletRows = topArray(earlySignalBaseRate.topWallet, 6);
-    const marketRows = topArray(earlySignalBaseRate.topMarket, 6);
+    const pre60Rows = topArray(earlySignalBaseRate.topPre60, 8);
+    const leakyRows = topArray(earlySignalBaseRate.topMaxOverRunDiagnostics, 4);
+    const overlapRows = topArray(earlySignalBaseRate.featureOverlapMatrix, 5);
     lines.push('0b10b. Early-Signal Base Rate');
     lines.push('-----------------------------');
-    lines.push('- Mode: report-only; compares pre-curve60 wallet/market features against the full denominator of run-mints, including non-crossers.');
+    lines.push('- Mode: report-only; compares wallet and non-leaky pre60 market features against the full denominator of run-mints, including non-crossers.');
     lines.push(`- Baseline: rows=${baseline.total ?? 'n/a'}, uniqueMints=${baseline.uniqueMints ?? 'n/a'}, crossed60/85/90=${baseline.crossed60 ?? 'n/a'} / ${baseline.crossed85 ?? 'n/a'} / ${baseline.crossed90 ?? 'n/a'}, rates=${pct(baseline.cross60Rate, 2)} / ${pct(baseline.cross85Rate, 2)} / ${pct(baseline.cross90Rate, 2)}.`);
-    lines.push(`- Recommendation: ${base.recommendation || 'n/a'}; promising=${Array.isArray(base.promisingFeatures) && base.promisingFeatures.length ? base.promisingFeatures.join(', ') : 'none'}.`);
-    lines.push(`- Best wallet: ${base.bestWalletFeature || 'n/a'} verdict=${base.bestWalletFeatureVerdict || 'n/a'} lift90=${fmt(base.bestWalletFeatureLift90, 2)}; best market: ${base.bestMarketFeature || 'n/a'} verdict=${base.bestMarketFeatureVerdict || 'n/a'} lift90=${fmt(base.bestMarketFeatureLift90, 2)}.`);
+    lines.push(`- Global mint baseline: uniqueMints=${base.globalMintBaseline?.total ?? 'n/a'}, crossed60/85/90=${base.globalMintBaseline?.crossed60 ?? 'n/a'} / ${base.globalMintBaseline?.crossed85 ?? 'n/a'} / ${base.globalMintBaseline?.crossed90 ?? 'n/a'}.`);
+    lines.push(`- Recommendation: ${base.recommendation || 'n/a'}; replayRequired=${Array.isArray(base.replayRequiredFeatures) && base.replayRequiredFeatures.length ? base.replayRequiredFeatures.join(', ') : 'none'}.`);
+    lines.push(`- Best replay candidate: ${base.bestReplayCandidate || 'n/a'} verdict=${base.bestReplayCandidateVerdict || 'n/a'} lift90=${fmt(base.bestReplayCandidateLift90, 2)}; leaky max-over-run diagnostics=${base.leakyDiagnosticsCount ?? 'n/a'}.`);
     if (walletRows.length) {
       lines.push('- Wallet feature lift:');
       walletRows.forEach((row) => {
@@ -2716,11 +2721,42 @@ function buildSummary(docs) {
         lines.push(`  - ${row.name}: verdict=${s.verdict || 'n/a'}, n=${s.total ?? 'n/a'}, c60/85/90=${s.crossed60 ?? 'n/a'} / ${s.crossed85 ?? 'n/a'} / ${s.crossed90 ?? 'n/a'}, rates=${pct(s.cross60Rate, 2)} / ${pct(s.cross85Rate, 2)} / ${pct(s.cross90Rate, 2)}, lift90=${fmt(s.lift90, 2)}`);
       });
     }
-    if (marketRows.length) {
-      lines.push('- Market/combo feature lift:');
-      marketRows.forEach((row) => {
+    if (pre60Rows.length) {
+      lines.push('- Non-leaky pre60 market/combo feature lift:');
+      pre60Rows.forEach((row) => {
         const s = row.summary || {};
         lines.push(`  - ${row.name}: verdict=${s.verdict || 'n/a'}, n=${s.total ?? 'n/a'}, c90=${s.crossed90 ?? 'n/a'}, rate90=${pct(s.cross90Rate, 2)}, lift90=${fmt(s.lift90, 2)}`);
+      });
+    }
+    if (overlapRows.length) {
+      lines.push('- Feature overlap checks:');
+      overlapRows.forEach((row) => {
+        lines.push(`  - ${row.featureA} x ${row.featureB}: overlap=${row.overlapTotal ?? 'n/a'}, c90=${row.overlapCross90 ?? 'n/a'}, rate90=${pct(row.overlapCross90Rate, 2)}, jaccard=${fmt(row.jaccard, 3)}`);
+      });
+    }
+    if (leakyRows.length) {
+      lines.push('- Max-over-run diagnostics only:');
+      leakyRows.forEach((row) => {
+        const s = row.summary || {};
+        lines.push(`  - ${row.name}: verdict=${s.verdict || 'n/a'}, n=${s.total ?? 'n/a'}, c90=${s.crossed90 ?? 'n/a'}, lift90=${fmt(s.lift90, 2)}`);
+      });
+    }
+    lines.push('');
+  }
+
+  if (earlySignalFirstHitReplay.summary) {
+    const replay = earlySignalFirstHitReplay.summary || {};
+    const combos = topArray(earlySignalFirstHitReplay.byCombo, 6);
+    lines.push('0b10c. Early-Signal First-Hit Replay');
+    lines.push('-------------------------------------');
+    lines.push('- Mode: report-only; enters at the first price-bearing pre60 snapshot where a signal combo is true, then applies the same conservative 300s TP/SL/slippage profile.');
+    lines.push(`- Rows=${replay.rows ?? 'n/a'}, combos=${replay.combos ?? 'n/a'}, best=${replay.bestCombo || 'n/a'} verdict=${replay.bestComboVerdict || 'n/a'}, pnl=${sol(replay.bestComboPnlSol, 6)}.`);
+    lines.push(`- Recommendation: ${replay.recommendation || 'n/a'}; promising=${Array.isArray(replay.promisingCombos) && replay.promisingCombos.length ? replay.promisingCombos.join(', ') : 'none'}.`);
+    if (combos.length) {
+      lines.push('- Combo replay summaries:');
+      combos.forEach((row) => {
+        const s = row.summary || {};
+        lines.push(`  - ${row.combo}: verdict=${s.verdict || 'n/a'}, candidates=${s.candidates ?? 'n/a'}, replayed=${s.replayed ?? 'n/a'}, wins/losses=${s.wins ?? 'n/a'}/${s.losses ?? 'n/a'}, c90=${s.crossed90 ?? 'n/a'}, pnl=${sol(s.pnlSol, 6)}, median=${sol(s.medianPnlSol, 6)}, top3Removed=${sol(s.pnlWithoutTop3Sol, 6)}`);
       });
     }
     lines.push('');
