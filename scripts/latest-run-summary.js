@@ -33,6 +33,8 @@ const FILES = {
   preMigrationFlaggedAttributionTrend: 'data/reports/pre-migration-flagged-attribution-trend-latest.json',
   preMigrationFlaggedFollowThroughSlices: 'data/reports/pre-migration-flagged-follow-through-slices-latest.json',
   preMigrationFlaggedFollowThroughSliceShadow: 'data/reports/pre-migration-flagged-follow-through-slice-shadow-latest.json',
+  preMigrationFlaggedFollowThroughSliceShadowReplay: 'data/reports/pre-migration-flagged-follow-through-slice-shadow-replay-latest.json',
+  preMigrationCandidateSupplyFunnel: 'data/reports/pre-migration-candidate-supply-funnel-latest.json',
   preMigrationEntryGateMargin: 'data/reports/pre-migration-entry-gate-margin-latest.json',
   preMigrationHighReadinessRejectReplay: 'data/reports/pre-migration-high-readiness-reject-replay-latest.json',
   preMigrationSingleGateShadow: 'data/reports/pre-migration-single-gate-shadow-latest.json',
@@ -2311,6 +2313,8 @@ function buildSummary(docs) {
   const flaggedAttributionTrend = docs.preMigrationFlaggedAttributionTrend.data || {};
   const flaggedFollowThroughSlices = docs.preMigrationFlaggedFollowThroughSlices.data || {};
   const flaggedFollowThroughSliceShadow = docs.preMigrationFlaggedFollowThroughSliceShadow.data || {};
+  const flaggedFollowThroughSliceShadowReplay = docs.preMigrationFlaggedFollowThroughSliceShadowReplay.data || {};
+  const candidateSupplyFunnel = docs.preMigrationCandidateSupplyFunnel.data || {};
   const curveAdvanceDiagnostic = docs.preMigrationCurveAdvanceDiagnostic.data || {};
   const curveNotAdvancingSeparability = docs.preMigrationCurveNotAdvancingSeparability.data || {};
   const curveNotAdvancingSeparatorShadow = docs.preMigrationCurveNotAdvancingSeparatorShadow.data || {};
@@ -2628,6 +2632,40 @@ function buildSummary(docs) {
       lines.push('- Runtime profile coverage:');
       topProfiles.forEach((profile) => {
         lines.push(`  - ${profile.name}: rows=${profile.rows ?? 'n/a'}, uniqueMints=${profile.uniqueMints ?? 'n/a'}, scoreMedian=${fmt(profile.score?.median, 2)}, curveMedian=${fmt(profile.curveProgress?.median, 3)}, volumeMedian=${fmt(profile.recentVolumeSol?.median, 2)}, velocityMedian=${fmt(profile.tradeVelocityPerMin?.median, 2)}`);
+      });
+    }
+    lines.push('');
+  }
+
+  if (flaggedFollowThroughSliceShadowReplay.summary) {
+    const replay = flaggedFollowThroughSliceShadowReplay.summary || {};
+    const topProfiles = topArray(flaggedFollowThroughSliceShadowReplay.profiles, 6);
+    lines.push('0b8. Flagged Slice Shadow Replay');
+    lines.push('---------------------------------');
+    lines.push('- Mode: report-only; dedupes runtime slice-shadow would-enter rows by mint/profile and replays observed follow-through. Does not change entries.');
+    lines.push(`- Verdict: ${replay.verdict || 'n/a'}; rawEvents=${replay.rawWouldEnterEvents ?? 'n/a'}, profileRows=${replay.rawProfileMatchRows ?? replay.rawWouldEnterRows ?? 'n/a'}, mintProfileRows=${replay.dedupedMintProfileRows ?? 'n/a'}, uniqueMints=${replay.dedupedMintRows ?? replay.uniqueMints ?? 'n/a'}, measured=${replay.measured ?? 'n/a'}, actualPaperEntryMints=${replay.actualPaperEntryMints ?? 'n/a'}.`);
+    lines.push(`- Replay: n=${replay.replayed ?? 'n/a'}, wins/losses=${replay.wins ?? 'n/a'}/${replay.losses ?? 'n/a'}, pnl=${sol(replay.pnlSol, 6)}, stressed=${sol(replay.stressedPnlSol, 6)}, median=${sol(replay.medianPnlSol, 6)}, exTop3=${sol(replay.exTop3PnlSol, 6)}, topMintShare=${pct(replay.topMintRowShare, 1)}.`);
+    if (topProfiles.length) {
+      lines.push('- Runtime replay by profile:');
+      topProfiles.forEach((profile) => {
+        lines.push(`  - ${profile.label || profile.name || 'unknown'}: verdict=${profile.verdict || 'n/a'}, uniqueMints=${profile.uniqueMints ?? 'n/a'}, measured=${profile.measured ?? 'n/a'}, wins/losses=${profile.wins ?? 'n/a'}/${profile.losses ?? 'n/a'}, pnl=${sol(profile.pnlSol, 6)}, median=${sol(profile.medianPnlSol, 6)}, exTop3=${sol(profile.exTop3PnlSol, 6)}, topMintShare=${pct(profile.topMintRowShare, 1)}`);
+      });
+    }
+    lines.push('');
+  }
+
+  if (candidateSupplyFunnel.summary) {
+    const supply = candidateSupplyFunnel.summary || {};
+    const funnelRows = topArray(candidateSupplyFunnel.funnel, 12);
+    lines.push('0b9. Candidate Supply Funnel');
+    lines.push('----------------------------');
+    lines.push('- Mode: distinct-mint supply diagnostic; measures where pre-migration candidate supply is lost before paper entry.');
+    lines.push(`- Verdict: ${supply.verdict || 'n/a'}; observed=${supply.observedMints ?? 'n/a'} (${fmt(supply.observedPerHour, 2)}/hr), curve60+=${supply.curve60PlusMints ?? 'n/a'} (${fmt(supply.curve60PlusPerHour, 2)}/hr), trustedCurve60+=${supply.curve60PlusWithTrustedWalletMints ?? 'n/a'}, positiveCurve60+=${supply.curve60PlusWithPositiveWalletMints ?? 'n/a'}, flagged=${supply.flaggedMints ?? 'n/a'}, shadowWouldEnter=${supply.sliceShadowWouldEnterMints ?? 'n/a'}, paperEntered=${supply.paperEnteredMints ?? 'n/a'}.`);
+    lines.push(`- Top reasons: ${formatTopCounts(supply.topReasons)}.`);
+    if (funnelRows.length) {
+      lines.push('- Funnel stages:');
+      funnelRows.forEach((row) => {
+        lines.push(`  - ${row.stage}: ${row.uniqueMints ?? 'n/a'} mints, ${fmt(row.perHour, 2)}/hr, retain=${pct(row.retentionFromPrevious, 1)}`);
       });
     }
     lines.push('');

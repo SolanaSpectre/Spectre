@@ -54,6 +54,8 @@
     "report:pre-migration-flagged-attribution-trend": "node scripts/pre-migration-flagged-attribution-trend-report.js",
     "report:pre-migration-flagged-follow-through-slices": "node scripts/pre-migration-flagged-follow-through-slice-report.js",
     "report:pre-migration-flagged-follow-through-slice-shadow": "node scripts/pre-migration-flagged-follow-through-slice-shadow-report.js",
+    "report:pre-migration-flagged-follow-through-slice-shadow-replay": "node scripts/pre-migration-flagged-follow-through-slice-shadow-replay-report.js",
+    "report:pre-migration-candidate-supply-funnel": "node scripts/pre-migration-candidate-supply-funnel-report.js",
     "report:pre-migration-entry-gate-margin": "node scripts/pre-migration-entry-gate-margin-report.js",
     "report:pre-migration-high-readiness-reject-replay": "node scripts/pre-migration-high-readiness-reject-replay-report.js",
     "report:pre-migration-single-gate-shadow": "node scripts/pre-migration-single-gate-shadow-report.js",
