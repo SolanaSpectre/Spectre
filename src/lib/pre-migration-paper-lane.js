@@ -111,6 +111,12 @@ class PreMigrationPaperLane {
     this.launchIntelShortlistShadowMinRecentVolumeSol = Number(config.preMigrationPaperLaunchIntelShortlistShadowMinRecentVolumeSol ?? 25);
     this.launchIntelShortlistShadowMinTradeVelocityPerMin = Number(config.preMigrationPaperLaunchIntelShortlistShadowMinTradeVelocityPerMin ?? 25);
     this.launchIntelShortlistShadowTouchLookbackMs = Math.max(1000, Number(config.preMigrationPaperLaunchIntelShortlistShadowTouchLookbackMs ?? 120_000));
+    this.flaggedFollowThroughSliceShadowEnabled = config.preMigrationPaperFlaggedFollowThroughSliceShadowEnabled !== false;
+    this.flaggedFollowThroughSliceShadowHighVolumeMinRecentVolumeSol = Number(config.preMigrationPaperFlaggedFollowThroughSliceShadowHighVolumeMinRecentVolumeSol ?? 50);
+    this.flaggedFollowThroughSliceShadowHighVolumeMinTradeVelocityPerMin = Number(config.preMigrationPaperFlaggedFollowThroughSliceShadowHighVolumeMinTradeVelocityPerMin ?? 50);
+    this.flaggedFollowThroughSliceShadowCurveGateMinScore = Number(config.preMigrationPaperFlaggedFollowThroughSliceShadowCurveGateMinScore ?? 70);
+    this.flaggedFollowThroughSliceShadowCurveGateMinCurveProgress = Number(config.preMigrationPaperFlaggedFollowThroughSliceShadowCurveGateMinCurveProgress ?? 0.6);
+    this.flaggedFollowThroughSliceShadowTrustedWalletMinCurveProgress = Number(config.preMigrationPaperFlaggedFollowThroughSliceShadowTrustedWalletMinCurveProgress ?? 0.6);
     this.delayedCurveConfirmationEnabled = config.preMigrationPaperDelayedCurveConfirmationEnabled === true;
     this.delayedCurveConfirmationMinScore = Number(config.preMigrationPaperDelayedCurveConfirmationMinScore ?? 75);
     this.delayedCurveConfirmationMinSourceCurveProgress = Number(config.preMigrationPaperDelayedCurveConfirmationMinSourceCurveProgress ?? 0.5);
@@ -310,6 +316,10 @@ class PreMigrationPaperLane {
         const separatorShadow = this.curveNotAdvancingSeparatorShadowEvent(observedState, preset, entryGuards, timestamp);
         if (separatorShadow) {
           events.push(separatorShadow);
+        }
+        const flaggedFollowThroughSliceShadow = this.flaggedFollowThroughSliceShadowEvent(observedState, preset, decision, entryGuards, timestamp);
+        if (flaggedFollowThroughSliceShadow) {
+          events.push(flaggedFollowThroughSliceShadow);
         }
         this.pushGuardAttributionEvent(events, observedState, timestamp, preset, decision, entryGuards, {
           flagged: true,
@@ -1469,6 +1479,124 @@ class PreMigrationPaperLane {
         curvePriceSol: priceSol,
         ...this.reservesPayload(state),
         walletClassificationContext: state.walletClassificationContext || null
+      }
+    };
+  }
+
+  flaggedFollowThroughSliceShadowEvent(state, preset, decision = {}, entryGuards = {}, timestamp = new Date().toISOString()) {
+    if (!this.flaggedFollowThroughSliceShadowEnabled) {
+      return null;
+    }
+    if (!state?.mint || decision?.passed === true || decision?.reason === 'PRESET_NOT_ELIGIBLE_FOR_GUARD_OVERRIDE') {
+      return null;
+    }
+
+    const score = Number(state.score);
+    const curveProgress = Number(state.curveProgress);
+    const recentVolumeSol = Number(state.recentVolumeSol);
+    const tradeVelocityPerMin = Number(state.tradeVelocityPerMin);
+    const failedChecks = this.collectAttributionFailedChecks(decision, entryGuards);
+    const sourceReason = decision?.reason || entryGuards?.reason || null;
+    const curveGateBlocked = sourceReason === 'CURVE_NOT_ADVANCING'
+      || entryGuards?.reason === 'CURVE_NOT_ADVANCING'
+      || failedChecks.includes('CURVE_NOT_ADVANCING');
+    const walletProof = this.walletBridgeProofPayload(decision, entryGuards) || {};
+    const walletContext = state.walletClassificationContext || {};
+    const walletSignals = {
+      anyTrustedTouch: Number(walletProof.walletTouchCount || 0) > 0
+        || walletContext.touched === true
+        || walletContext.shadowTouched === true,
+      positiveOrProvenTouch: Number(walletProof.positiveOrProvenTouchCount || 0) > 0
+        || Number(walletContext.positiveTouchCount || walletContext.provenTouchCount || walletContext.provenBuyCount || 0) > 0,
+      rawUntrustedTouch: Number(walletProof.untrustedWalletTouchCount || 0) > 0
+        || walletContext.untrustedTouched === true,
+      rawUntrustedPre85Buy: Number(walletProof.untrustedPre85BuyTouchCount || 0) > 0
+    };
+
+    const profileResults = [
+      {
+        name: 'high_volume_velocity',
+        passed: Number.isFinite(recentVolumeSol)
+          && recentVolumeSol >= this.flaggedFollowThroughSliceShadowHighVolumeMinRecentVolumeSol
+          && Number.isFinite(tradeVelocityPerMin)
+          && tradeVelocityPerMin >= this.flaggedFollowThroughSliceShadowHighVolumeMinTradeVelocityPerMin,
+        thresholds: {
+          minRecentVolumeSol: this.flaggedFollowThroughSliceShadowHighVolumeMinRecentVolumeSol,
+          minTradeVelocityPerMin: this.flaggedFollowThroughSliceShadowHighVolumeMinTradeVelocityPerMin
+        }
+      },
+      {
+        name: 'curve_gate_score70_plus_curve60_plus',
+        passed: curveGateBlocked
+          && Number.isFinite(score)
+          && score >= this.flaggedFollowThroughSliceShadowCurveGateMinScore
+          && Number.isFinite(curveProgress)
+          && curveProgress >= this.flaggedFollowThroughSliceShadowCurveGateMinCurveProgress,
+        thresholds: {
+          minScore: this.flaggedFollowThroughSliceShadowCurveGateMinScore,
+          minCurveProgress: this.flaggedFollowThroughSliceShadowCurveGateMinCurveProgress,
+          requiresCurveGateBlocked: true
+        }
+      },
+      {
+        name: 'trusted_wallet_curve60_plus',
+        passed: walletSignals.anyTrustedTouch === true
+          && Number.isFinite(curveProgress)
+          && curveProgress >= this.flaggedFollowThroughSliceShadowTrustedWalletMinCurveProgress,
+        thresholds: {
+          minCurveProgress: this.flaggedFollowThroughSliceShadowTrustedWalletMinCurveProgress,
+          requiresTrustedWalletTouch: true
+        }
+      }
+    ];
+
+    const wouldEnterProfiles = profileResults.filter((profile) => profile.passed).map((profile) => profile.name);
+    const telemetryType = wouldEnterProfiles.length
+      ? 'pre_migration_flagged_follow_through_slice_shadow.would_enter'
+      : 'pre_migration_flagged_follow_through_slice_shadow.would_skip';
+    const priceSol = this.compact(this.getPrice(state), 15);
+
+    return {
+      type: 'diagnostic',
+      telemetryType,
+      payload: {
+        decision: wouldEnterProfiles.length
+          ? 'FLAGGED_FOLLOW_THROUGH_SLICE_SHADOW_WOULD_ENTER'
+          : 'FLAGGED_FOLLOW_THROUGH_SLICE_SHADOW_WOULD_SKIP',
+        preset: preset.name,
+        lane: preset.lane || null,
+        profileName: preset.profileName || null,
+        mint: state.mint,
+        symbol: state.symbol || null,
+        timestamp,
+        sourceReason,
+        sourceGuardReason: entryGuards?.reason || null,
+        sourceGuardPassed: entryGuards?.passed === true,
+        reason: wouldEnterProfiles.length ? null : 'NO_PROMISING_SLICE_PROFILE_MATCH',
+        failedChecks,
+        wouldEnterProfiles,
+        profileResults,
+        curveGateBlocked,
+        score: this.compact(score, 2),
+        curveProgress: this.compact(curveProgress, 6),
+        curveProgressDelta: this.compact(entryGuards?.curveProgressDelta, 6),
+        curveProgressDelta60s: this.compact(entryGuards?.curveProgressDelta60s, 6),
+        baselineAt: entryGuards?.baselineAt || null,
+        baselineCurveProgress: this.compact(entryGuards?.baselineCurveProgress, 6),
+        threshold: this.compact(entryGuards?.threshold ?? this.minCurveProgressDelta, 6),
+        recentVolumeSol: this.compact(recentVolumeSol, 4),
+        tradeVelocityPerMin: this.compact(tradeVelocityPerMin, 2),
+        buyRatio: this.compact(this.computeBuyRatio(state), 4),
+        uniqueBuyerCount: Number.isFinite(Number(state.uniqueBuyerCount)) ? Number(state.uniqueBuyerCount) : null,
+        sniperWalletCount: Number.isFinite(Number(state.sniperWalletCount)) ? Number(state.sniperWalletCount) : null,
+        priceSol,
+        bondingCurvePriceSol: priceSol,
+        curvePriceSol: priceSol,
+        ...this.reservesPayload(state),
+        walletSignals,
+        walletBridgeProof: Object.keys(walletProof).length ? walletProof : null,
+        walletClassificationContext: walletContext,
+        reasons: Array.isArray(state.reasons) ? state.reasons.slice(0, 10) : []
       }
     };
   }

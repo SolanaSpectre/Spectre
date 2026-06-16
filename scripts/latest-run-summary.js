@@ -32,6 +32,7 @@ const FILES = {
   preMigrationFlaggedCandidateAttribution: 'data/reports/pre-migration-flagged-candidate-attribution-latest.json',
   preMigrationFlaggedAttributionTrend: 'data/reports/pre-migration-flagged-attribution-trend-latest.json',
   preMigrationFlaggedFollowThroughSlices: 'data/reports/pre-migration-flagged-follow-through-slices-latest.json',
+  preMigrationFlaggedFollowThroughSliceShadow: 'data/reports/pre-migration-flagged-follow-through-slice-shadow-latest.json',
   preMigrationEntryGateMargin: 'data/reports/pre-migration-entry-gate-margin-latest.json',
   preMigrationHighReadinessRejectReplay: 'data/reports/pre-migration-high-readiness-reject-replay-latest.json',
   preMigrationSingleGateShadow: 'data/reports/pre-migration-single-gate-shadow-latest.json',
@@ -2309,6 +2310,7 @@ function buildSummary(docs) {
   const flaggedCandidateAttribution = docs.preMigrationFlaggedCandidateAttribution.data || {};
   const flaggedAttributionTrend = docs.preMigrationFlaggedAttributionTrend.data || {};
   const flaggedFollowThroughSlices = docs.preMigrationFlaggedFollowThroughSlices.data || {};
+  const flaggedFollowThroughSliceShadow = docs.preMigrationFlaggedFollowThroughSliceShadow.data || {};
   const curveAdvanceDiagnostic = docs.preMigrationCurveAdvanceDiagnostic.data || {};
   const curveNotAdvancingSeparability = docs.preMigrationCurveNotAdvancingSeparability.data || {};
   const curveNotAdvancingSeparatorShadow = docs.preMigrationCurveNotAdvancingSeparatorShadow.data || {};
@@ -2608,6 +2610,24 @@ function buildSummary(docs) {
       lines.push('- Profile leaderboard:');
       topProfiles.forEach((profile) => {
         lines.push(`  - ${profile.label}: verdict=${profile.verdict || 'n/a'}, measured=${profile.measured ?? 'n/a'}, wins/losses=${profile.wins ?? 'n/a'}/${profile.losses ?? 'n/a'}, pnl=${sol(profile.totalPnlSol, 6)}, median=${sol(profile.medianPnlSol, 6)}, top3Removed=${sol(profile.top3RemovedPnlSol, 6)}`);
+      });
+    }
+    lines.push('');
+  }
+
+  if (flaggedFollowThroughSliceShadow.summary) {
+    const shadow = flaggedFollowThroughSliceShadow.summary || {};
+    const topProfiles = topArray(flaggedFollowThroughSliceShadow.profiles, 6);
+    lines.push('0b7. Flagged Follow-Through Slice Shadow');
+    lines.push('------------------------------------------');
+    lines.push('- Mode: runtime shadow-only; evaluates the promising report-only profiles on blocked flagged paper decisions. Does not change entries.');
+    lines.push(`- Verdict: ${shadow.verdict || 'n/a'}; rows=${shadow.rows ?? 'n/a'}, wouldEnter=${shadow.wouldEnterRows ?? 'n/a'}, wouldSkip=${shadow.wouldSkipRows ?? 'n/a'}, uniqueMints=${shadow.uniqueMints ?? 'n/a'}, wouldEnterUniqueMints=${shadow.wouldEnterUniqueMints ?? 'n/a'}.`);
+    lines.push(`- Profile matches: ${formatTopCounts(shadow.profileMatches)}.`);
+    lines.push(`- Source reasons: ${formatTopCounts(shadow.sourceReasons)}.`);
+    if (topProfiles.length) {
+      lines.push('- Runtime profile coverage:');
+      topProfiles.forEach((profile) => {
+        lines.push(`  - ${profile.name}: rows=${profile.rows ?? 'n/a'}, uniqueMints=${profile.uniqueMints ?? 'n/a'}, scoreMedian=${fmt(profile.score?.median, 2)}, curveMedian=${fmt(profile.curveProgress?.median, 3)}, volumeMedian=${fmt(profile.recentVolumeSol?.median, 2)}, velocityMedian=${fmt(profile.tradeVelocityPerMin?.median, 2)}`);
       });
     }
     lines.push('');

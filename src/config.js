@@ -1152,6 +1152,30 @@ class Config {
     return parseInt(process.env.PRE_MIGRATION_PAPER_LAUNCH_INTEL_SHORTLIST_SHADOW_TOUCH_LOOKBACK_MS || '120000', 10);
   }
 
+  static get preMigrationPaperFlaggedFollowThroughSliceShadowEnabled() {
+    return process.env.PRE_MIGRATION_PAPER_FLAGGED_FOLLOW_THROUGH_SLICE_SHADOW_ENABLED !== 'false';
+  }
+
+  static get preMigrationPaperFlaggedFollowThroughSliceShadowHighVolumeMinRecentVolumeSol() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_FLAGGED_FOLLOW_THROUGH_SLICE_SHADOW_HIGH_VOLUME_MIN_RECENT_VOLUME_SOL || '50');
+  }
+
+  static get preMigrationPaperFlaggedFollowThroughSliceShadowHighVolumeMinTradeVelocityPerMin() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_FLAGGED_FOLLOW_THROUGH_SLICE_SHADOW_HIGH_VOLUME_MIN_TRADE_VELOCITY_PER_MIN || '50');
+  }
+
+  static get preMigrationPaperFlaggedFollowThroughSliceShadowCurveGateMinScore() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_FLAGGED_FOLLOW_THROUGH_SLICE_SHADOW_CURVE_GATE_MIN_SCORE || '70');
+  }
+
+  static get preMigrationPaperFlaggedFollowThroughSliceShadowCurveGateMinCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_FLAGGED_FOLLOW_THROUGH_SLICE_SHADOW_CURVE_GATE_MIN_CURVE_PROGRESS || '0.6');
+  }
+
+  static get preMigrationPaperFlaggedFollowThroughSliceShadowTrustedWalletMinCurveProgress() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_FLAGGED_FOLLOW_THROUGH_SLICE_SHADOW_TRUSTED_WALLET_MIN_CURVE_PROGRESS || '0.6');
+  }
+
   static get preMigrationPaperCurveFalseNegativeBridgeMaxEntriesPerRun() {
     return parseInt(process.env.PRE_MIGRATION_PAPER_CURVE_FALSE_NEGATIVE_BRIDGE_MAX_ENTRIES_PER_RUN || '3', 10);
   }
@@ -2387,6 +2411,11 @@ class Config {
       { key: 'preMigrationPaperUnflaggedEntryShadowMinCurveProgress', value: this.preMigrationPaperUnflaggedEntryShadowMinCurveProgress, min: 0, max: 1 },
       { key: 'preMigrationPaperUnflaggedEntryShadowMinRecentVolumeSol', value: this.preMigrationPaperUnflaggedEntryShadowMinRecentVolumeSol, min: 0 },
       { key: 'preMigrationPaperUnflaggedEntryShadowMinTradeVelocityPerMin', value: this.preMigrationPaperUnflaggedEntryShadowMinTradeVelocityPerMin, min: 0 },
+      { key: 'preMigrationPaperFlaggedFollowThroughSliceShadowHighVolumeMinRecentVolumeSol', value: this.preMigrationPaperFlaggedFollowThroughSliceShadowHighVolumeMinRecentVolumeSol, min: 0 },
+      { key: 'preMigrationPaperFlaggedFollowThroughSliceShadowHighVolumeMinTradeVelocityPerMin', value: this.preMigrationPaperFlaggedFollowThroughSliceShadowHighVolumeMinTradeVelocityPerMin, min: 0 },
+      { key: 'preMigrationPaperFlaggedFollowThroughSliceShadowCurveGateMinScore', value: this.preMigrationPaperFlaggedFollowThroughSliceShadowCurveGateMinScore, min: 0, max: 100 },
+      { key: 'preMigrationPaperFlaggedFollowThroughSliceShadowCurveGateMinCurveProgress', value: this.preMigrationPaperFlaggedFollowThroughSliceShadowCurveGateMinCurveProgress, min: 0, max: 1 },
+      { key: 'preMigrationPaperFlaggedFollowThroughSliceShadowTrustedWalletMinCurveProgress', value: this.preMigrationPaperFlaggedFollowThroughSliceShadowTrustedWalletMinCurveProgress, min: 0, max: 1 },
       { key: 'preMigrationPaperLateFastTrackMinScore', value: this.preMigrationPaperLateFastTrackMinScore, min: 0, max: 100 },
       { key: 'preMigrationPaperLateFastTrackMinCurveProgress', value: this.preMigrationPaperLateFastTrackMinCurveProgress, min: 0, max: 1 },
       { key: 'preMigrationPaperLateFastTrackMinRecentVolumeSol', value: this.preMigrationPaperLateFastTrackMinRecentVolumeSol, min: 0 },
