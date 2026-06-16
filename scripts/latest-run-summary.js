@@ -35,6 +35,8 @@ const FILES = {
   preMigrationFlaggedFollowThroughSliceShadow: 'data/reports/pre-migration-flagged-follow-through-slice-shadow-latest.json',
   preMigrationFlaggedFollowThroughSliceShadowReplay: 'data/reports/pre-migration-flagged-follow-through-slice-shadow-replay-latest.json',
   preMigrationCandidateSupplyFunnel: 'data/reports/pre-migration-candidate-supply-funnel-latest.json',
+  preMigrationPreCurve60RunnerDiscovery: 'data/reports/pre-migration-pre-curve60-runner-discovery-latest.json',
+  preMigrationOriginPathAutopsy: 'data/reports/pre-migration-origin-path-autopsy-latest.json',
   preMigrationEntryGateMargin: 'data/reports/pre-migration-entry-gate-margin-latest.json',
   preMigrationHighReadinessRejectReplay: 'data/reports/pre-migration-high-readiness-reject-replay-latest.json',
   preMigrationSingleGateShadow: 'data/reports/pre-migration-single-gate-shadow-latest.json',
@@ -2315,6 +2317,8 @@ function buildSummary(docs) {
   const flaggedFollowThroughSliceShadow = docs.preMigrationFlaggedFollowThroughSliceShadow.data || {};
   const flaggedFollowThroughSliceShadowReplay = docs.preMigrationFlaggedFollowThroughSliceShadowReplay.data || {};
   const candidateSupplyFunnel = docs.preMigrationCandidateSupplyFunnel.data || {};
+  const preCurve60RunnerDiscovery = docs.preMigrationPreCurve60RunnerDiscovery.data || {};
+  const originPathAutopsy = docs.preMigrationOriginPathAutopsy.data || {};
   const curveAdvanceDiagnostic = docs.preMigrationCurveAdvanceDiagnostic.data || {};
   const curveNotAdvancingSeparability = docs.preMigrationCurveNotAdvancingSeparability.data || {};
   const curveNotAdvancingSeparatorShadow = docs.preMigrationCurveNotAdvancingSeparatorShadow.data || {};
@@ -2666,6 +2670,47 @@ function buildSummary(docs) {
       lines.push('- Funnel stages:');
       funnelRows.forEach((row) => {
         lines.push(`  - ${row.stage}: ${row.uniqueMints ?? 'n/a'} mints, ${fmt(row.perHour, 2)}/hr, retain=${pct(row.retentionFromPrevious, 1)}`);
+      });
+    }
+    lines.push('');
+  }
+
+  if (preCurve60RunnerDiscovery.summary) {
+    const discovery = preCurve60RunnerDiscovery.summary || {};
+    const topCrossers = topArray(preCurve60RunnerDiscovery.topCross60, 5);
+    lines.push('0b10. Pre-Curve60 Runner Discovery');
+    lines.push('-----------------------------------');
+    lines.push('- Mode: report-only, multi-run; asks whether future runners were visible before curve60 or whether the feed only sees them after the move.');
+    lines.push(`- Verdict: ${discovery.verdict || 'n/a'}; mints=${discovery.mints ?? 'n/a'}, observedBelow60=${discovery.observedBelow60 ?? 'n/a'}, crossed60/85/90=${discovery.crossed60 ?? 'n/a'} / ${discovery.crossed85 ?? 'n/a'} / ${discovery.crossed90 ?? 'n/a'}, actionableMissedCross85=${discovery.actionableMissedCross85 ?? 'n/a'}, feedBlindCross60=${discovery.feedBlindCross60 ?? 'n/a'}.`);
+    lines.push(`- Pre-60 visibility: observationsBeforeCross60 median/p90=${fmt(discovery.observationsBeforeCross60?.median, 2)} / ${fmt(discovery.observationsBeforeCross60?.p90, 2)}, priceBearingBeforeCross60 median/p90=${fmt(discovery.priceBearingBeforeCross60?.median, 2)} / ${fmt(discovery.priceBearingBeforeCross60?.p90, 2)}.`);
+    lines.push(`- Timing to curve60: median/p90=${fmt(discovery.secondsFirstSeenToCross60?.median, 2)}s / ${fmt(discovery.secondsFirstSeenToCross60?.p90, 2)}s; velocity median/p90=${fmt(discovery.curveVelocityTo60PerSec?.median, 5)} / ${fmt(discovery.curveVelocityTo60PerSec?.p90, 5)} curve/sec.`);
+    lines.push(`- Wallet before60 on crossers: any/positive/proven=${discovery.cross60WithAnyWalletBefore60 ?? 'n/a'} / ${discovery.cross60WithPositiveWalletBefore60 ?? 'n/a'} / ${discovery.cross60WithProvenWalletBefore60 ?? 'n/a'}.`);
+    lines.push(`- Terminal stages: ${formatTopCounts(discovery.terminalStages)}.`);
+    if (topCrossers.length) {
+      lines.push('- Top curve60 crossers:');
+      topCrossers.forEach((row, index) => {
+        lines.push(`  ${index + 1}. ${row.symbol || 'unknown'} ${row.mint || 'n/a'}: firstCurve=${fmt(row.firstSeenCurve, 3)}, cross60=${fmt(row.secondsFirstSeenToCross60, 2)}s, obsBefore60=${row.observationsBeforeCross60 ?? 'n/a'}, maxCurve=${fmt(row.maxCurveReached, 3)}, maxPriceDelta=${pct(row.maxPriceDeltaFromFirstPricePct, 1)}, stage=${row.terminalStage || 'n/a'}`);
+      });
+    }
+    lines.push('');
+  }
+
+  if (originPathAutopsy.summary) {
+    const origin = originPathAutopsy.summary || {};
+    const comparable = originPathAutopsy.replayComparableSummary || {};
+    const rows = topArray(originPathAutopsy.rows, 5);
+    lines.push('0b11. Origin Path Autopsy');
+    lines.push('-------------------------');
+    lines.push('- Mode: report-only; isolates the highConvictionFirstSight / positive-wallet path that produced the latest real paper winner and audits near misses.');
+    lines.push(`- Verdict: ${origin.verdict || 'n/a'}; rows=${origin.rows ?? 'n/a'}, uniqueMints=${origin.uniqueMints ?? 'n/a'}, paperEntries=${origin.paperEntries ?? 'n/a'}, nearMisses=${origin.nearMisses ?? 'n/a'}, replayed=${origin.replayed ?? 'n/a'}, wins/losses=${origin.wins ?? 'n/a'}/${origin.losses ?? 'n/a'}, pnl=${sol(origin.pnlSol, 6)}, median=${sol(origin.medianPnlSol, 6)}.`);
+    lines.push(`- Replay-comparable all rows: replayed=${comparable.replayed ?? 'n/a'}, wins/losses=${comparable.wins ?? 'n/a'}/${comparable.losses ?? 'n/a'}, pnl=${sol(comparable.pnlSol, 6)}, median=${sol(comparable.medianPnlSol, 6)}, top3Removed=${sol(comparable.top3RemovedPnlSol, 6)}.`);
+    lines.push(`- Shape: highConviction=${origin.highConvictionRows ?? 'n/a'}, positiveWallet=${origin.positiveWalletRows ?? 'n/a'}, provenWallet=${origin.provenWalletRows ?? 'n/a'}, readiness median/p90=${fmt(origin.readinessPct?.median, 2)} / ${fmt(origin.readinessPct?.p90, 2)}, curve median/p90=${fmt(origin.curveProgress?.median, 3)} / ${fmt(origin.curveProgress?.p90, 3)}.`);
+    lines.push(`- Reasons: ${formatTopCounts(origin.reasons)}.`);
+    if (rows.length) {
+      lines.push('- Origin-path rows:');
+      rows.forEach((row, index) => {
+        const walletLabel = row.wallet?.positiveOrProvenTouch ? 'positive/proven' : row.wallet?.anyTrustedTouch ? 'trusted/any' : 'none';
+        lines.push(`  ${index + 1}. ${row.symbol || 'unknown'} ${row.mint || 'n/a'}: kind=${row.kind || 'n/a'}, reason=${row.reason || 'n/a'}, curve=${fmt(row.curveProgress, 3)}, readiness=${fmt(row.readinessPct, 2)}%, wallet=${walletLabel}, replay=${row.replay?.replayClass || 'n/a'}, pnl=${sol(row.replay?.pnlSol, 6)}`);
       });
     }
     lines.push('');
