@@ -8,6 +8,9 @@ const { forEachJsonlSync } = require('./lib/jsonl');
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-pre-curve60-runner-discovery-latest.json');
+const WALLET_EVENTS_PATH = path.join(ROOT, 'data', 'wallet-events', 'events.jsonl');
+const PROMOTION_PATH = path.join(ROOT, 'data', 'reports', 'wallet-promotion-review-latest.json');
+const MANUAL_KOL_PATH = path.join(ROOT, 'data', 'wallet-watchlists', 'manual-kol-wallets.json');
 const DEFAULT_LIMIT = 8;
 const THRESHOLDS = [0.6, 0.85, 0.9];
 
@@ -67,6 +70,81 @@ function payloadOf(event = {}) {
 
 function mintOf(payload = {}) {
   return payload.mint || payload.token || payload.tokenMint || payload.mintAddress || payload.address || null;
+}
+
+function walletOf(payload = {}) {
+  return payload.wallet || payload.traderPublicKey || payload.account || null;
+}
+
+function readJson(filePath, fallback = {}) {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) return fallback;
+    return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
+  } catch {
+    return fallback;
+  }
+}
+
+function walletSetFromManualKol(parsed = {}) {
+  const rows = Array.isArray(parsed) ? parsed : (parsed.wallets || parsed.trackedWallets || []);
+  return new Set(rows
+    .map((row) => typeof row === 'string' ? row : row?.walletAddress || row?.wallet || row?.address)
+    .filter(Boolean));
+}
+
+function makePromotionIndex(promotionPath = PROMOTION_PATH, manualPath = MANUAL_KOL_PATH) {
+  const promotion = readJson(promotionPath, {});
+  const manualWallets = walletSetFromManualKol(readJson(manualPath, {}));
+  const byAddress = new Map();
+  const groups = [
+    ['trustReview', promotion.trustReview],
+    ['profitableNeedsFirstTouchEvidence', promotion.profitableNeedsFirstTouchEvidence],
+    ['watchReview', promotion.watchReview],
+    ['avoidReview', promotion.avoidReview],
+    ['hold', promotion.hold]
+  ];
+
+  for (const [group, rows] of groups) {
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const wallet = row.walletAddress || row.wallet || row.address || null;
+      if (!wallet) continue;
+      byAddress.set(wallet, {
+        wallet,
+        group,
+        name: row.name || null,
+        reviewTier: row.reviewTier || null,
+        evidenceTier: row.evidenceTier || null,
+        source: 'promotion_review'
+      });
+    }
+  }
+
+  for (const wallet of manualWallets) {
+    if (byAddress.has(wallet)) continue;
+    byAddress.set(wallet, {
+      wallet,
+      group: 'manualKolWallets',
+      name: null,
+      reviewTier: 'MANUAL_KOL_WATCHLIST',
+      evidenceTier: null,
+      source: 'manual_kol_watchlist'
+    });
+  }
+
+  return { byAddress };
+}
+
+function isBuy(row = {}) {
+  return String(row.side || row.txType || '').toLowerCase() === 'buy';
+}
+
+function isPositiveOrProven(row = {}) {
+  return ['PROVEN_POSITIVE', 'PROMISING_POSITIVE'].includes(row.evidenceTier)
+    || ['TRUST_REVIEW', 'PROFITABLE_NEEDS_FIRST_TOUCH_EVIDENCE'].includes(row.reviewTier);
+}
+
+function isAvoid(row = {}) {
+  return row.evidenceTier === 'NEGATIVE_EVIDENCE' || row.reviewTier === 'AVOID_REVIEW';
 }
 
 function curveOf(payload = {}) {
@@ -155,24 +233,199 @@ function updateMax(row, key, value) {
   if (Number.isFinite(number)) row[key] = row[key] === null ? number : Math.max(row[key], number);
 }
 
-function walletSignals(payload = {}) {
-  const proof = payload.walletBridgeProof || {};
-  const context = payload.walletClassificationContext || {};
-  const signals = payload.walletSignals || {};
+function emptyWalletSignal() {
   return {
-    anyTrustedTouch: signals.anyTrustedTouch === true
-      || Number(proof.walletTouchCount || 0) > 0
-      || context.touched === true
-      || context.shadowTouched === true,
-    positiveOrProvenTouch: signals.positiveOrProvenTouch === true
-      || Number(proof.positiveOrProvenTouchCount || 0) > 0
-      || Number(context.positiveTouchCount || context.provenTouchCount || context.provenBuyCount || 0) > 0,
-    rawUntrustedPre85Buy: signals.rawUntrustedPre85Buy === true
-      || Number(proof.untrustedPre85BuyTouchCount || 0) > 0
+    anyWalletTouch: false,
+    trustedTouch: false,
+    trustedPre85Buy: false,
+    positiveOrProvenTouch: false,
+    positiveOrProvenPre85Buy: false,
+    prospectiveTouch: false,
+    prospectivePre85Buy: false,
+    rawUntrustedTouch: false,
+    rawUntrustedPre85Buy: false,
+    avoidTouch: false,
+    uniqueWallets: new Set(),
+    sampleWallets: []
   };
 }
 
-function scanFile(filePath) {
+function addWalletSample(signal, row = {}, meta = null) {
+  const wallet = row.wallet || meta?.wallet || null;
+  if (wallet) signal.uniqueWallets.add(wallet);
+  if (wallet && signal.sampleWallets.length < 5) {
+    signal.sampleWallets.push({
+      wallet,
+      name: row.name || meta?.name || row.walletProfile?.name || null,
+      side: row.side || row.txType || null,
+      reviewTier: row.reviewTier || meta?.reviewTier || null,
+      evidenceTier: row.evidenceTier || meta?.evidenceTier || null,
+      curveProgress: compact(row.curveProgress ?? row.market?.curveProgress, 6),
+      tradeAt: row.tradeAt || row.observedAt || null,
+      source: row.source || meta?.source || null
+    });
+  }
+}
+
+function mergeWalletSignal(target, source = {}) {
+  for (const key of [
+    'anyWalletTouch',
+    'trustedTouch',
+    'trustedPre85Buy',
+    'positiveOrProvenTouch',
+    'positiveOrProvenPre85Buy',
+    'prospectiveTouch',
+    'prospectivePre85Buy',
+    'rawUntrustedTouch',
+    'rawUntrustedPre85Buy',
+    'avoidTouch'
+  ]) {
+    target[key] = Boolean(target[key] || source[key]);
+  }
+  for (const wallet of source.uniqueWallets || []) target.uniqueWallets.add(wallet);
+  for (const sample of source.sampleWallets || []) {
+    if (target.sampleWallets.length >= 5) break;
+    target.sampleWallets.push(sample);
+  }
+  return target;
+}
+
+function finalizeWalletSignal(signal = emptyWalletSignal()) {
+  return {
+    anyWalletTouch: Boolean(signal.anyWalletTouch),
+    trustedTouch: Boolean(signal.trustedTouch),
+    trustedPre85Buy: Boolean(signal.trustedPre85Buy),
+    positiveOrProvenTouch: Boolean(signal.positiveOrProvenTouch),
+    positiveOrProvenPre85Buy: Boolean(signal.positiveOrProvenPre85Buy),
+    prospectiveTouch: Boolean(signal.prospectiveTouch),
+    prospectivePre85Buy: Boolean(signal.prospectivePre85Buy),
+    rawUntrustedTouch: Boolean(signal.rawUntrustedTouch),
+    rawUntrustedPre85Buy: Boolean(signal.rawUntrustedPre85Buy),
+    avoidTouch: Boolean(signal.avoidTouch),
+    uniqueWalletCount: signal.uniqueWallets?.size || 0,
+    sampleWallets: signal.sampleWallets || []
+  };
+}
+
+function walletSignals(payload = {}, promotionIndex = makePromotionIndex()) {
+  const proof = payload.walletBridgeProof || {};
+  const context = payload.walletClassificationContext || {};
+  const signals = payload.walletSignals || {};
+  const signal = emptyWalletSignal();
+
+  if (signals.anyTrustedTouch === true || Number(proof.walletTouchCount || 0) > 0 || context.touched === true || context.shadowTouched === true) {
+    signal.anyWalletTouch = true;
+    signal.trustedTouch = true;
+  }
+  if (signals.positiveOrProvenTouch === true || Number(proof.positiveOrProvenTouchCount || 0) > 0 || Number(context.positiveTouchCount || context.provenTouchCount || context.provenBuyCount || 0) > 0) {
+    signal.anyWalletTouch = true;
+    signal.trustedTouch = true;
+    signal.positiveOrProvenTouch = true;
+  }
+  if (signals.rawUntrustedPre85Buy === true || Number(proof.untrustedPre85BuyTouchCount || 0) > 0) {
+    signal.anyWalletTouch = true;
+    signal.rawUntrustedTouch = true;
+    signal.rawUntrustedPre85Buy = true;
+  }
+
+  for (const row of Array.isArray(context.wallets) ? context.wallets : []) {
+    signal.anyWalletTouch = true;
+    signal.trustedTouch = true;
+    const positive = isPositiveOrProven(row);
+    const buyPre85 = isBuy(row) && (!Number.isFinite(Number(row.curveProgress)) || Number(row.curveProgress) < 0.85);
+    if (buyPre85) signal.trustedPre85Buy = true;
+    if (positive) signal.positiveOrProvenTouch = true;
+    if (positive && buyPre85) signal.positiveOrProvenPre85Buy = true;
+    if (isAvoid(row)) signal.avoidTouch = true;
+    addWalletSample(signal, row);
+  }
+
+  for (const row of Array.isArray(context.shadowWallets) ? context.shadowWallets : []) {
+    signal.anyWalletTouch = true;
+    signal.trustedTouch = true;
+    if (isBuy(row) && (!Number.isFinite(Number(row.curveProgress)) || Number(row.curveProgress) < 0.85)) {
+      signal.trustedPre85Buy = true;
+    }
+    addWalletSample(signal, row);
+  }
+
+  for (const row of Array.isArray(context.untrustedWallets) ? context.untrustedWallets : []) {
+    const meta = promotionIndex.byAddress.get(row.wallet);
+    const buyPre85 = isBuy(row) && (!Number.isFinite(Number(row.curveProgress)) || Number(row.curveProgress) < 0.85);
+    signal.anyWalletTouch = true;
+    if (meta) {
+      signal.prospectiveTouch = true;
+      if (buyPre85) signal.prospectivePre85Buy = true;
+      if (isPositiveOrProven(meta)) signal.positiveOrProvenTouch = true;
+      if (isPositiveOrProven(meta) && buyPre85) signal.positiveOrProvenPre85Buy = true;
+      if (isAvoid(meta)) signal.avoidTouch = true;
+      addWalletSample(signal, row, meta);
+    } else {
+      signal.rawUntrustedTouch = true;
+      if (buyPre85) signal.rawUntrustedPre85Buy = true;
+      addWalletSample(signal, row);
+    }
+  }
+
+  return finalizeWalletSignal(signal);
+}
+
+function walletSignalFromGateDiagnostic(payload = {}, promotionIndex) {
+  const signal = emptyWalletSignal();
+  const wallet = walletOf(payload);
+  const meta = wallet ? promotionIndex.byAddress.get(wallet) : null;
+  const buyPre85 = isBuy(payload) && (!Number.isFinite(Number(curveOf(payload))) || Number(curveOf(payload)) < 0.85);
+  const recorded = payload.ledgerRecord === true
+    || payload.trackedAccountMatch === true
+    || payload.kolWalletProfileMatch === true
+    || payload.shadowWalletProfileMatch === true
+    || payload.watchedWallet === true;
+  const raw = payload.untrustedTapeRecord === true || payload.dropReason === 'UNTRACKED_WALLET';
+
+  if (recorded || raw || meta) signal.anyWalletTouch = true;
+  if (recorded) {
+    signal.trustedTouch = true;
+    if (buyPre85) signal.trustedPre85Buy = true;
+  }
+  if (meta) {
+    signal.prospectiveTouch = true;
+    if (buyPre85) signal.prospectivePre85Buy = true;
+    if (isPositiveOrProven(meta)) signal.positiveOrProvenTouch = true;
+    if (isPositiveOrProven(meta) && buyPre85) signal.positiveOrProvenPre85Buy = true;
+    if (isAvoid(meta)) signal.avoidTouch = true;
+  } else if (raw) {
+    signal.rawUntrustedTouch = true;
+    if (buyPre85) signal.rawUntrustedPre85Buy = true;
+  }
+  if (wallet) addWalletSample(signal, { ...payload, wallet, source: 'wallet.trade_gate_diagnostic' }, meta);
+  return finalizeWalletSignal(signal);
+}
+
+function walletSignalFromLedgerEvent(event = {}, promotionIndex) {
+  const wallet = event.wallet || null;
+  const meta = wallet ? promotionIndex.byAddress.get(wallet) : null;
+  const signal = emptyWalletSignal();
+  const buyPre85 = isBuy(event) && (!Number.isFinite(Number(event.market?.curveProgress)) || Number(event.market.curveProgress) < 0.85);
+  signal.anyWalletTouch = true;
+  signal.trustedTouch = true;
+  if (buyPre85) signal.trustedPre85Buy = true;
+  if (meta && isPositiveOrProven(meta)) signal.positiveOrProvenTouch = true;
+  if (meta && isPositiveOrProven(meta) && buyPre85) signal.positiveOrProvenPre85Buy = true;
+  if (meta && isAvoid(meta)) signal.avoidTouch = true;
+  addWalletSample(signal, {
+    ...event,
+    curveProgress: event.market?.curveProgress,
+    source: 'wallet_event_ledger'
+  }, meta);
+  return finalizeWalletSignal(signal);
+}
+
+function addWalletEvent(row, atMs, type, wallet) {
+  if (!wallet || !wallet.anyWalletTouch || !Number.isFinite(atMs)) return;
+  row.walletEvents.push({ atMs, at: new Date(atMs).toISOString(), type, ...wallet });
+}
+
+function scanFile(filePath, promotionIndex = makePromotionIndex()) {
   const rowsByMint = new Map();
   const eventCounts = {};
   let firstMs = null;
@@ -234,9 +487,10 @@ function scanFile(filePath) {
     if (type === 'pre_migration_paper.entry' && Number.isFinite(atMs)) row.paperEntryAt.push(atMs);
     if (type === 'pre_migration_paper.first_curve_snapshot_near_miss' && Number.isFinite(atMs)) row.nearMissAt.push(atMs);
 
-    const wallet = walletSignals(payload);
-    if ((wallet.anyTrustedTouch || wallet.positiveOrProvenTouch || wallet.rawUntrustedPre85Buy) && Number.isFinite(atMs)) {
-      row.walletEvents.push({ atMs, at: new Date(atMs).toISOString(), type, ...wallet });
+    if (type === 'wallet.trade_gate_diagnostic') {
+      addWalletEvent(row, atMs, type, walletSignalFromGateDiagnostic(payload, promotionIndex));
+    } else {
+      addWalletEvent(row, atMs, type, walletSignals(payload, promotionIndex));
     }
   }, { bufferSize: 1024 * 1024 });
 
@@ -247,6 +501,22 @@ function scanFile(filePath) {
     lastMs,
     stats
   };
+}
+
+function attachWalletLedgerEvents(rows, firstMs, lastMs, promotionIndex = makePromotionIndex(), walletEventsPath = WALLET_EVENTS_PATH) {
+  if (!fs.existsSync(walletEventsPath) || !Number.isFinite(firstMs) || !Number.isFinite(lastMs)) return 0;
+  const byMint = new Map(rows.map((row) => [row.mint, row]));
+  let attached = 0;
+  forEachJsonlSync(walletEventsPath, (event) => {
+    const mint = event.mint || event.payload?.mint || null;
+    if (!mint || !byMint.has(mint)) return;
+    const atMs = timestampMs(event.tradeAt || event.observedAt || event.timestamp);
+    if (!Number.isFinite(atMs) || atMs < firstMs || atMs > lastMs) return;
+    const row = byMint.get(mint);
+    addWalletEvent(row, atMs, 'wallet_event_ledger.trade_observed', walletSignalFromLedgerEvent(event, promotionIndex));
+    attached += 1;
+  }, { bufferSize: 1024 * 1024 });
+  return attached;
 }
 
 function firstCross(snapshots, threshold) {
@@ -287,7 +557,7 @@ function summarizeMint(row, telemetryPath) {
   const curveVelocityTo60 = firstPre60 && lastPre60 && lastPre60.atMs > firstPre60.atMs
     ? (Number(lastPre60.curveProgress) - Number(firstPre60.curveProgress)) / ((lastPre60.atMs - firstPre60.atMs) / 1000)
     : null;
-  const walletBefore60 = row.walletEvents.filter((event) => cross60 && event.atMs < cross60.atMs);
+  const walletBefore60 = row.walletEvents.filter((event) => cross60 ? event.atMs < cross60.atMs : true);
   const maxCurve = curveSnapshots.reduce((max, snapshot) => Math.max(max, Number(snapshot.curveProgress)), 0);
   const maxPrice = priceBearing.reduce((max, snapshot) => Math.max(max, Number(snapshot.priceSol)), 0);
   const basePrice = firstPrice ? Number(firstPrice.priceSol) : null;
@@ -332,10 +602,19 @@ function summarizeMint(row, telemetryPath) {
     crossed85: Boolean(cross85),
     crossed90: Boolean(cross90),
     walletBefore60: {
-      anyTrustedTouch: walletBefore60.some((event) => event.anyTrustedTouch),
+      anyWalletTouch: walletBefore60.some((event) => event.anyWalletTouch),
+      trustedTouch: walletBefore60.some((event) => event.trustedTouch),
+      trustedPre85Buy: walletBefore60.some((event) => event.trustedPre85Buy),
       positiveOrProvenTouch: walletBefore60.some((event) => event.positiveOrProvenTouch),
+      positiveOrProvenPre85Buy: walletBefore60.some((event) => event.positiveOrProvenPre85Buy),
+      prospectiveTouch: walletBefore60.some((event) => event.prospectiveTouch),
+      prospectivePre85Buy: walletBefore60.some((event) => event.prospectivePre85Buy),
+      rawUntrustedTouch: walletBefore60.some((event) => event.rawUntrustedTouch),
       rawUntrustedPre85Buy: walletBefore60.some((event) => event.rawUntrustedPre85Buy),
-      rows: walletBefore60.length
+      avoidTouch: walletBefore60.some((event) => event.avoidTouch),
+      uniqueWalletCount: new Set(walletBefore60.flatMap((event) => (event.sampleWallets || []).map((wallet) => wallet.wallet).filter(Boolean))).size,
+      rows: walletBefore60.length,
+      sampleWallets: walletBefore60.flatMap((event) => event.sampleWallets || []).slice(0, 5)
     },
     maxScore: compact(row.maxScore, 2),
     maxRecentVolumeSol: compact(row.maxRecentVolumeSol, 4),
@@ -347,13 +626,16 @@ function summarizeMint(row, telemetryPath) {
   };
 }
 
-function buildReport(filePaths) {
+function buildReport(filePaths, options = {}) {
+  const promotionIndex = makePromotionIndex();
   const runs = [];
   const rows = [];
   const errors = [];
+  let walletLedgerEventsAttached = 0;
   for (const filePath of filePaths) {
     try {
-      const scanned = scanFile(filePath);
+      const scanned = scanFile(filePath, promotionIndex);
+      walletLedgerEventsAttached += attachWalletLedgerEvents(scanned.rows, scanned.firstMs, scanned.lastMs, promotionIndex);
       const telemetryPath = path.relative(ROOT, filePath);
       const runRows = scanned.rows.map((row) => summarizeMint(row, telemetryPath)).filter(Boolean);
       rows.push(...runRows);
@@ -385,6 +667,7 @@ function buildReport(filePaths) {
 
   const summary = {
     telemetryFiles: filePaths.length,
+    walletLedgerEventsAttached,
     mints: rows.length,
     rows: rows.length,
     observedBelow60: observedBelow60.length,
@@ -407,11 +690,17 @@ function buildReport(filePaths) {
       return counts;
     }, {}), 12),
     walletBefore60Crossers: {
-      trusted: crossed60.filter((row) => row.walletBefore60.anyTrustedTouch).length,
+      any: crossed60.filter((row) => row.walletBefore60.anyWalletTouch).length,
+      trusted: crossed60.filter((row) => row.walletBefore60.trustedTouch).length,
+      trustedPre85Buy: crossed60.filter((row) => row.walletBefore60.trustedPre85Buy).length,
       positive: crossed60.filter((row) => row.walletBefore60.positiveOrProvenTouch).length,
+      positivePre85Buy: crossed60.filter((row) => row.walletBefore60.positiveOrProvenPre85Buy).length,
+      prospective: crossed60.filter((row) => row.walletBefore60.prospectiveTouch).length,
+      prospectivePre85Buy: crossed60.filter((row) => row.walletBefore60.prospectivePre85Buy).length,
+      rawUntrusted: crossed60.filter((row) => row.walletBefore60.rawUntrustedTouch).length,
       rawUntrustedPre85: crossed60.filter((row) => row.walletBefore60.rawUntrustedPre85Buy).length
     },
-    cross60WithAnyWalletBefore60: crossed60.filter((row) => row.walletBefore60.anyTrustedTouch || row.walletBefore60.rawUntrustedPre85Buy).length,
+    cross60WithAnyWalletBefore60: crossed60.filter((row) => row.walletBefore60.anyWalletTouch).length,
     cross60WithPositiveWalletBefore60: crossed60.filter((row) => row.walletBefore60.positiveOrProvenTouch).length,
     cross60WithProvenWalletBefore60: crossed60.filter((row) => row.walletBefore60.positiveOrProvenTouch).length,
     verdict: crossed60.length === 0
@@ -436,7 +725,7 @@ function buildReport(filePaths) {
       .slice(0, 50),
     actionableMissedCross85: actionableMissed.slice(0, 50),
     feedBlindCross60: feedBlind.slice(0, 50),
-    rows: rows.slice(0, 2000)
+    rows: options.includeAllRows ? rows : rows.slice(0, 2000)
   };
 }
 

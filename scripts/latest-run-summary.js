@@ -36,6 +36,7 @@ const FILES = {
   preMigrationFlaggedFollowThroughSliceShadowReplay: 'data/reports/pre-migration-flagged-follow-through-slice-shadow-replay-latest.json',
   preMigrationCandidateSupplyFunnel: 'data/reports/pre-migration-candidate-supply-funnel-latest.json',
   preMigrationPreCurve60RunnerDiscovery: 'data/reports/pre-migration-pre-curve60-runner-discovery-latest.json',
+  preMigrationEarlySignalBaseRate: 'data/reports/pre-migration-early-signal-base-rate-latest.json',
   preMigrationOriginPathAutopsy: 'data/reports/pre-migration-origin-path-autopsy-latest.json',
   preMigrationEntryGateMargin: 'data/reports/pre-migration-entry-gate-margin-latest.json',
   preMigrationHighReadinessRejectReplay: 'data/reports/pre-migration-high-readiness-reject-replay-latest.json',
@@ -2318,6 +2319,7 @@ function buildSummary(docs) {
   const flaggedFollowThroughSliceShadowReplay = docs.preMigrationFlaggedFollowThroughSliceShadowReplay.data || {};
   const candidateSupplyFunnel = docs.preMigrationCandidateSupplyFunnel.data || {};
   const preCurve60RunnerDiscovery = docs.preMigrationPreCurve60RunnerDiscovery.data || {};
+  const earlySignalBaseRate = docs.preMigrationEarlySignalBaseRate.data || {};
   const originPathAutopsy = docs.preMigrationOriginPathAutopsy.data || {};
   const curveAdvanceDiagnostic = docs.preMigrationCurveAdvanceDiagnostic.data || {};
   const curveNotAdvancingSeparability = docs.preMigrationCurveNotAdvancingSeparability.data || {};
@@ -2684,12 +2686,41 @@ function buildSummary(docs) {
     lines.push(`- Verdict: ${discovery.verdict || 'n/a'}; mints=${discovery.mints ?? 'n/a'}, observedBelow60=${discovery.observedBelow60 ?? 'n/a'}, crossed60/85/90=${discovery.crossed60 ?? 'n/a'} / ${discovery.crossed85 ?? 'n/a'} / ${discovery.crossed90 ?? 'n/a'}, actionableMissedCross85=${discovery.actionableMissedCross85 ?? 'n/a'}, feedBlindCross60=${discovery.feedBlindCross60 ?? 'n/a'}.`);
     lines.push(`- Pre-60 visibility: observationsBeforeCross60 median/p90=${fmt(discovery.observationsBeforeCross60?.median, 2)} / ${fmt(discovery.observationsBeforeCross60?.p90, 2)}, priceBearingBeforeCross60 median/p90=${fmt(discovery.priceBearingBeforeCross60?.median, 2)} / ${fmt(discovery.priceBearingBeforeCross60?.p90, 2)}.`);
     lines.push(`- Timing to curve60: median/p90=${fmt(discovery.secondsFirstSeenToCross60?.median, 2)}s / ${fmt(discovery.secondsFirstSeenToCross60?.p90, 2)}s; velocity median/p90=${fmt(discovery.curveVelocityTo60PerSec?.median, 5)} / ${fmt(discovery.curveVelocityTo60PerSec?.p90, 5)} curve/sec.`);
-    lines.push(`- Wallet before60 on crossers: any/positive/proven=${discovery.cross60WithAnyWalletBefore60 ?? 'n/a'} / ${discovery.cross60WithPositiveWalletBefore60 ?? 'n/a'} / ${discovery.cross60WithProvenWalletBefore60 ?? 'n/a'}.`);
+    const wallet = discovery.walletBefore60Crossers || {};
+    lines.push(`- Wallet before60 on crossers: any/trusted/positive/prospective/raw=${wallet.any ?? discovery.cross60WithAnyWalletBefore60 ?? 'n/a'} / ${wallet.trusted ?? 'n/a'} / ${wallet.positive ?? discovery.cross60WithPositiveWalletBefore60 ?? 'n/a'} / ${wallet.prospective ?? 'n/a'} / ${wallet.rawUntrusted ?? 'n/a'}; ledgerEventsAttached=${discovery.walletLedgerEventsAttached ?? 'n/a'}.`);
     lines.push(`- Terminal stages: ${formatTopCounts(discovery.terminalStages)}.`);
     if (topCrossers.length) {
       lines.push('- Top curve60 crossers:');
       topCrossers.forEach((row, index) => {
         lines.push(`  ${index + 1}. ${row.symbol || 'unknown'} ${row.mint || 'n/a'}: firstCurve=${fmt(row.firstSeenCurve, 3)}, cross60=${fmt(row.secondsFirstSeenToCross60, 2)}s, obsBefore60=${row.observationsBeforeCross60 ?? 'n/a'}, maxCurve=${fmt(row.maxCurveReached, 3)}, maxPriceDelta=${pct(row.maxPriceDeltaFromFirstPricePct, 1)}, stage=${row.terminalStage || 'n/a'}`);
+      });
+    }
+    lines.push('');
+  }
+
+  if (earlySignalBaseRate.summary) {
+    const base = earlySignalBaseRate.summary || {};
+    const baseline = base.baseline || {};
+    const walletRows = topArray(earlySignalBaseRate.topWallet, 6);
+    const marketRows = topArray(earlySignalBaseRate.topMarket, 6);
+    lines.push('0b10b. Early-Signal Base Rate');
+    lines.push('-----------------------------');
+    lines.push('- Mode: report-only; compares pre-curve60 wallet/market features against the full denominator of run-mints, including non-crossers.');
+    lines.push(`- Baseline: rows=${baseline.total ?? 'n/a'}, uniqueMints=${baseline.uniqueMints ?? 'n/a'}, crossed60/85/90=${baseline.crossed60 ?? 'n/a'} / ${baseline.crossed85 ?? 'n/a'} / ${baseline.crossed90 ?? 'n/a'}, rates=${pct(baseline.cross60Rate, 2)} / ${pct(baseline.cross85Rate, 2)} / ${pct(baseline.cross90Rate, 2)}.`);
+    lines.push(`- Recommendation: ${base.recommendation || 'n/a'}; promising=${Array.isArray(base.promisingFeatures) && base.promisingFeatures.length ? base.promisingFeatures.join(', ') : 'none'}.`);
+    lines.push(`- Best wallet: ${base.bestWalletFeature || 'n/a'} verdict=${base.bestWalletFeatureVerdict || 'n/a'} lift90=${fmt(base.bestWalletFeatureLift90, 2)}; best market: ${base.bestMarketFeature || 'n/a'} verdict=${base.bestMarketFeatureVerdict || 'n/a'} lift90=${fmt(base.bestMarketFeatureLift90, 2)}.`);
+    if (walletRows.length) {
+      lines.push('- Wallet feature lift:');
+      walletRows.forEach((row) => {
+        const s = row.summary || {};
+        lines.push(`  - ${row.name}: verdict=${s.verdict || 'n/a'}, n=${s.total ?? 'n/a'}, c60/85/90=${s.crossed60 ?? 'n/a'} / ${s.crossed85 ?? 'n/a'} / ${s.crossed90 ?? 'n/a'}, rates=${pct(s.cross60Rate, 2)} / ${pct(s.cross85Rate, 2)} / ${pct(s.cross90Rate, 2)}, lift90=${fmt(s.lift90, 2)}`);
+      });
+    }
+    if (marketRows.length) {
+      lines.push('- Market/combo feature lift:');
+      marketRows.forEach((row) => {
+        const s = row.summary || {};
+        lines.push(`  - ${row.name}: verdict=${s.verdict || 'n/a'}, n=${s.total ?? 'n/a'}, c90=${s.crossed90 ?? 'n/a'}, rate90=${pct(s.cross90Rate, 2)}, lift90=${fmt(s.lift90, 2)}`);
       });
     }
     lines.push('');

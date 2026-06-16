@@ -63,6 +63,7 @@ const POST_RUN_REPORTS = [
   { title: 'Pre-Migration Flagged Follow-through Slice Shadow Replay', script: 'pre-migration-flagged-follow-through-slice-shadow-replay-report.js' },
   { title: 'Pre-Migration Candidate Supply Funnel', script: 'pre-migration-candidate-supply-funnel-report.js' },
   { title: 'Pre-Migration Pre-Curve60 Runner Discovery', script: 'pre-migration-pre-curve60-runner-discovery-report.js', timeoutMs: 300000 },
+  { title: 'Pre-Migration Early-Signal Base Rate', script: 'pre-migration-early-signal-base-rate-report.js', timeoutMs: 300000 },
   { title: 'Pre-Migration Origin Path Autopsy', script: 'pre-migration-origin-path-autopsy-report.js', timeoutMs: 300000 },
   { title: 'Pre-Migration Entry Gate Margin', script: 'pre-migration-entry-gate-margin-report.js' },
   { title: 'Pre-Migration High-Readiness Reject Replay', script: 'pre-migration-high-readiness-reject-replay-report.js' },
