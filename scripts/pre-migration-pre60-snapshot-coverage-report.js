@@ -174,6 +174,22 @@ function sourceCounts(snapshots = []) {
   }, {}), 12);
 }
 
+function divergenceSummary(snapshots = []) {
+  const withProviderAndObserved = snapshots.filter((snapshot) => (
+    hasNumber(snapshot.providerCurveProgress)
+    && hasNumber(snapshot.observedCurveProgress)
+  ));
+  const providerAheadCurve60 = withProviderAndObserved.filter((snapshot) => snapshot.providerAheadOfObservedCurve60 === true);
+  return {
+    snapshots: snapshots.length,
+    withProviderAndObserved: withProviderAndObserved.length,
+    withProviderAndObservedRate: pct(withProviderAndObserved.length, snapshots.length),
+    providerAheadOfObservedCurve60: providerAheadCurve60.length,
+    providerAheadOfObservedCurve60Rate: pct(providerAheadCurve60.length, snapshots.length),
+    providerObservedCurveDelta: numericStats(withProviderAndObserved.map((snapshot) => snapshot.providerObservedCurveDelta), 6)
+  };
+}
+
 function snapshotLine(snapshot) {
   if (!snapshot) return null;
   return {
@@ -185,6 +201,11 @@ function snapshotLine(snapshot) {
     providerCurveSnapshotAgeMs: compact(snapshot.providerCurveSnapshotAgeMs, 0),
     lastCurveUpdateAgeMs: compact(snapshot.lastCurveUpdateAgeMs, 0),
     curveProgress: compact(snapshot.curveProgress, 6),
+    observedCurveProgress: compact(snapshot.observedCurveProgress, 6),
+    providerCurveProgress: compact(snapshot.providerCurveProgress, 6),
+    accountCurveProgress: compact(snapshot.accountCurveProgress, 6),
+    providerObservedCurveDelta: compact(snapshot.providerObservedCurveDelta, 6),
+    providerAheadOfObservedCurve60: snapshot.providerAheadOfObservedCurve60 === true,
     priceSol: compact(snapshot.priceSol, 15),
     score: compact(snapshot.score, 2),
     recentVolumeSol: compact(snapshot.recentVolumeSol, 4),
@@ -251,6 +272,7 @@ function summarizeMint(row, telemetryPath) {
     }, {}), 8),
     pre60CurveSources: sourceCounts(pre60),
     staleObservedCurveSources: sourceCounts(staleObservedAfterCross60),
+    staleObservedProviderDivergence: divergenceSummary(staleObservedAfterCross60),
     staleObservedProviderSnapshotAgeMs: numericStats(staleObservedAfterCross60.map((snapshot) => snapshot.providerCurveSnapshotAgeMs), 0),
     staleObservedLastCurveUpdateAgeMs: numericStats(staleObservedAfterCross60.map((snapshot) => snapshot.lastCurveUpdateAgeMs), 0),
     staleObservedAfterCross60: staleObservedAfterCross60.length,
@@ -281,7 +303,9 @@ function summarizeRows(rows) {
     pre60FieldCoverage: fieldCoverage(allPre60),
     pre60CoverageByType: coverageByType(allPre60),
     pre60CurveSources: sourceCounts(allPre60),
+    pre60ProviderDivergence: divergenceSummary(allPre60),
     staleObservedCurveSources: sourceCounts(rows.flatMap((row) => row._staleObservedAfterCross60Snapshots || [])),
+    staleObservedProviderDivergence: divergenceSummary(rows.flatMap((row) => row._staleObservedAfterCross60Snapshots || [])),
     staleObservedProviderSnapshotAgeMs: numericStats(rows.flatMap((row) => row._staleObservedAfterCross60Snapshots || []).map((snapshot) => snapshot.providerCurveSnapshotAgeMs), 0),
     staleObservedLastCurveUpdateAgeMs: numericStats(rows.flatMap((row) => row._staleObservedAfterCross60Snapshots || []).map((snapshot) => snapshot.lastCurveUpdateAgeMs), 0),
     mintsWithPre60BuyerCount: rows.filter((row) => row.pre60FieldCoverage.uniqueBuyerCount.present > 0).length,

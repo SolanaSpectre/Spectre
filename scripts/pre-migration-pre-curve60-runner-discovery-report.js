@@ -55,6 +55,11 @@ function compact(value, digits = 6) {
   return Number.isFinite(number) ? Number(number.toFixed(digits)) : null;
 }
 
+function compactOptional(value, digits = 6) {
+  if (value === undefined || value === null || value === '') return null;
+  return compact(value, digits);
+}
+
 function timestampMs(value) {
   const ms = new Date(value || 0).getTime();
   return Number.isFinite(ms) ? ms : null;
@@ -464,11 +469,24 @@ function scanFile(filePath, promotionIndex = makePromotionIndex()) {
       && (Number.isFinite(curveProgress) || Number.isFinite(priceSol))) {
       const providerCurveSnapshotAtMs = optionalTimestampMs(payload.providerCurveSnapshotAt);
       const lastCurveUpdateAtMs = optionalTimestampMs(payload.lastCurveUpdateAt);
+      const observedCurveProgress = curveOf({ curveProgress: payload.curveProgress });
+      const providerCurveProgress = curveOf({ providerCurveProgress: payload.providerCurveProgress });
+      const accountCurveProgress = curveOf({ accountCurveProgress: payload.accountCurveProgress });
       row.snapshots.push({
         atMs,
         at: new Date(atMs).toISOString(),
         type,
         curveProgress: compact(curveProgress, 6),
+        observedCurveProgress: compactOptional(observedCurveProgress, 6),
+        providerCurveProgress: compactOptional(providerCurveProgress, 6),
+        accountCurveProgress: compactOptional(accountCurveProgress, 6),
+        providerObservedCurveDelta: Number.isFinite(providerCurveProgress) && Number.isFinite(observedCurveProgress)
+          ? compactOptional(providerCurveProgress - observedCurveProgress, 6)
+          : null,
+        providerAheadOfObservedCurve60: Number.isFinite(providerCurveProgress)
+          && Number.isFinite(observedCurveProgress)
+          && observedCurveProgress < 0.6
+          && providerCurveProgress >= 0.6,
         priceSol: compact(priceSol, 15),
         score: compact(payload.score ?? payload.entryScore, 2),
         recentVolumeSol: compact(payload.recentVolumeSol, 4),
