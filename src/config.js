@@ -11,15 +11,14 @@ class Config {
   }
 
   static get solanaRpcFallback() {
-    const publicMainnet = 'https://api.mainnet-beta.solana.com';
-    const primary = String(process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com').trim();
+    const primary = String(this.solanaRpcUrl || '').trim();
     const configuredFallback = String(process.env.SOLANA_RPC_FALLBACK || '').trim();
 
     if (configuredFallback && configuredFallback !== primary) {
       return configuredFallback;
     }
 
-    return primary === publicMainnet ? null : publicMainnet;
+    return null;
   }
 
   static get solanaRpcWebsocketUrl() {
@@ -1843,7 +1842,7 @@ class Config {
   }
 
   static get executionMode() {
-    return (process.env.EXECUTION_MODE || 'DRY_RUN').toUpperCase();
+    return (process.env.EXECUTION_MODE || 'PAPER').toUpperCase();
   }
 
   static get paperSuppressOptionalHttpEnrichment() {
@@ -2304,10 +2303,14 @@ class Config {
 
   // Validation
   static validate() {
-    const required = [
-      'HOT_WALLET_PRIVATE_KEY',
-      'COLD_WALLET_ADDRESS'
-    ];
+    const executionMode = this.executionMode;
+    const requiresWalletSecrets = ['LIVE', 'DRY_RUN'].includes(executionMode);
+    const required = requiresWalletSecrets
+      ? [
+        'HOT_WALLET_PRIVATE_KEY',
+        'COLD_WALLET_ADDRESS'
+      ]
+      : [];
 
     const missing = required.filter(key => !process.env[key]);
     
@@ -2593,8 +2596,9 @@ class Config {
       throw new Error(`Unsupported LIVE_DRY_RUN_SIMULATION_COMMITMENT: ${this.liveDryRunSimulationCommitment}`);
     }
 
-    // Validate wallet addresses
-    if (!this.isValidSolanaAddress(this.coldWalletAddress)) {
+    // Validate wallet addresses when live/dry-run wallet handling is enabled,
+    // or when a PAPER run provides a cold wallet explicitly.
+    if ((requiresWalletSecrets || process.env.COLD_WALLET_ADDRESS) && !this.isValidSolanaAddress(this.coldWalletAddress)) {
       throw new Error('Invalid COLD_WALLET_ADDRESS format');
     }
 

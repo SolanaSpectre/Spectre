@@ -1,5 +1,5 @@
 {
-  "name": "solana-trading-bot",
+  "name": "spectre",
   "version": "1.0.0",
   "description": "Paper-only Solana memecoin research and diagnostics bot",
   "main": "src/index.js",
@@ -161,9 +161,10 @@
     "sync:telegram": "node scripts/sync-telegram-context.js",
     "build:rick-context": "node scripts/build-rick-context.js",
     "send:rick": "node scripts/send-rick-command.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "lint": "eslint src/**/*.js",
-    "lint:fix": "eslint src/**/*.js --fix"
+    "test": "node scripts/smoke-check.js",
+    "smoke": "node scripts/smoke-check.js",
+    "lint": "eslint src/**/*.js scripts/**/*.js",
+    "lint:fix": "eslint src/**/*.js scripts/**/*.js --fix"
   },
   "keywords": [
     "solana",
@@ -174,7 +175,7 @@
     "crypto",
     "defi"
   ],
-  "author": "Cline",
+  "author": "SolanaSpectre",
   "license": "MIT",
   "dependencies": {
     "@solana/spl-token": "^0.4.14",

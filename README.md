@@ -27,7 +27,7 @@ This separation is intentional:
 
 - Node.js >= 16.0.0
 - npm or yarn
-- Solana wallet with SOL
+- Solana wallet only for `DRY_RUN` / `LIVE`; `PAPER` runs do not require wallet secrets
 - Ollama running locally with `llama3.2:3b` available
 
 ## Installation
@@ -69,8 +69,10 @@ Use `npm run start:core -- PAPER 30` only when you intentionally want the raw bo
 Edit the `.env` file with your settings:
 
 ### Required Variables
-- `HOT_WALLET_PRIVATE_KEY`: Solana hot wallet private key (Base58 encoded). For PAPER-only research, use a non-funded burner key if this validation is still enabled.
-- `COLD_WALLET_ADDRESS`: Your Solana cold wallet address
+- `EXECUTION_MODE`: Defaults to `PAPER`. `LIVE` and `DRY_RUN` require explicit wallet configuration.
+- `HOT_WALLET_PRIVATE_KEY`: Solana hot wallet private key (Base58 encoded). Required only for `LIVE` / `DRY_RUN`; leave blank for public PAPER-only research.
+- `COLD_WALLET_ADDRESS`: Solana cold wallet address. Required only for `LIVE` / `DRY_RUN`; optional in `PAPER`.
+- `SOLANA_RPC_FALLBACK`: Optional. Spectre no longer silently falls back to public mainnet; configure a fallback provider explicitly if needed.
 
 ### AI Configuration
 - `AI_MODEL`: Set to `ollama`
