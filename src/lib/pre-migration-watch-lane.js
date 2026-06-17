@@ -131,6 +131,7 @@ class PreMigrationWatchLane {
       recentSells: 0,
       recentVolumeSol: 0,
       tradeVelocityPerMin: 0,
+      buyRatioCaptured: false,
       liquiditySol: 0,
       marketCapSol: 0,
       bondingCurveAddress: null,
@@ -191,6 +192,8 @@ class PreMigrationWatchLane {
     const recentSells = Number(token.recentSells || existing.recentSells || 0);
     const recentVolumeSol = Number(token.recentVolumeSol || existing.recentVolumeSol || 0);
     const tradeVelocityPerMin = Number(token.tradeVelocityPerMin || existing.tradeVelocityPerMin || 0);
+    const recentFlowCount = recentBuys + recentSells;
+    const buyRatioCaptured = recentFlowCount > 0;
     const volumeSol = Number(token.volumeSol || token.volume24h || existing.volumeSol || 0);
     const liquiditySol = Number(token.liquiditySol || token.liquidity || existing.liquiditySol || 0);
     const marketCapSol = Number(token.marketCapSol || token.marketCap || existing.marketCapSol || 0);
@@ -248,6 +251,7 @@ class PreMigrationWatchLane {
       recentSells,
       recentVolumeSol,
       tradeVelocityPerMin,
+      buyRatioCaptured,
       liquiditySol,
       marketCapSol,
       bondingCurveAddress: token.bondingCurveAddress || bondingCurveState.bondingCurveAddress || existing.bondingCurveAddress || null,
@@ -271,7 +275,6 @@ class PreMigrationWatchLane {
         || null,
       providerCurveProgress: token.providerCurveProgress
         ?? bondingCurveState.providerCurveProgress
-        ?? (token.providerCurveSource || token.providerCurveSnapshotAt ? curveProgress : null)
         ?? existing.providerCurveProgress
         ?? null,
       providerCurvePriceSol: token.providerCurvePriceSol
@@ -688,6 +691,7 @@ class PreMigrationWatchLane {
       buyRatio: Number(state.recentBuys || 0) + Number(state.recentSells || 0) > 0
         ? Number(state.recentBuys || 0) / (Number(state.recentBuys || 0) + Number(state.recentSells || 0))
         : null,
+      buyRatioCaptured: Boolean(state.buyRatioCaptured),
       recentVolumeSol: Number(state.recentVolumeSol || 0),
       tradeVelocityPerMin: Number(state.tradeVelocityPerMin || 0),
       holderProxy: Number(state.holderProxy || 0),

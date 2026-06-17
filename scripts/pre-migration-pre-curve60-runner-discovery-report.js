@@ -60,6 +60,12 @@ function timestampMs(value) {
   return Number.isFinite(ms) ? ms : null;
 }
 
+function optionalTimestampMs(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
 function eventType(event = {}) {
   return event.telemetryType || event.type || event.event || event.name || 'unknown';
 }
@@ -456,6 +462,8 @@ function scanFile(filePath, promotionIndex = makePromotionIndex()) {
       || type === 'finalist_account_verifier.update')
       && Number.isFinite(atMs)
       && (Number.isFinite(curveProgress) || Number.isFinite(priceSol))) {
+      const providerCurveSnapshotAtMs = optionalTimestampMs(payload.providerCurveSnapshotAt);
+      const lastCurveUpdateAtMs = optionalTimestampMs(payload.lastCurveUpdateAt);
       row.snapshots.push({
         atMs,
         at: new Date(atMs).toISOString(),
@@ -466,14 +474,19 @@ function scanFile(filePath, promotionIndex = makePromotionIndex()) {
         recentVolumeSol: compact(payload.recentVolumeSol, 4),
         tradeVelocityPerMin: compact(payload.tradeVelocityPerMin, 2),
         buyRatio: compact(payload.buyRatio, 4),
+        buyRatioCaptured: Boolean(payload.buyRatioCaptured),
         uniqueBuyerCount: compact(payload.uniqueBuyerCount, 0),
+        uniqueBuyerCountCaptured: Boolean(payload.uniqueBuyerCountCaptured),
         sniperWalletCount: compact(payload.sniperWalletCount, 0),
+        sniperWalletCountCaptured: Boolean(payload.sniperWalletCountCaptured),
         curveProgressDelta: compact(payload.curveProgressDelta, 6),
         curveProgressDelta60s: compact(payload.curveProgressDelta60s, 6),
         updateSource: payload.updateSource || payload.curveProgressSource || payload.providerCurveSource || null,
         curveProgressSource: payload.curveProgressSource || payload.providerCurveSource || null,
         providerCurveSnapshotAt: payload.providerCurveSnapshotAt || null,
-        lastCurveUpdateAt: payload.lastCurveUpdateAt || null
+        providerCurveSnapshotAgeMs: Number.isFinite(providerCurveSnapshotAtMs) ? Math.max(0, atMs - providerCurveSnapshotAtMs) : null,
+        lastCurveUpdateAt: payload.lastCurveUpdateAt || null,
+        lastCurveUpdateAgeMs: Number.isFinite(lastCurveUpdateAtMs) ? Math.max(0, atMs - lastCurveUpdateAtMs) : null
       });
     }
 

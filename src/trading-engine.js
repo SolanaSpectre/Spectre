@@ -3233,7 +3233,8 @@ class TradingEngine {
         bondingStage: result.state.bondingStage,
         recentBuys: result.state.recentBuys,
         recentSells: result.state.recentSells,
-        buyRatio: result.state.buyRatio,
+        buyRatio: result.state.buyRatioCaptured ? result.state.buyRatio : null,
+        buyRatioCaptured: Boolean(result.state.buyRatioCaptured),
         uniqueBuyerCount: result.state.uniqueBuyerCountCaptured ? result.state.uniqueBuyerCount : null,
         uniqueBuyerCountCaptured: Boolean(result.state.uniqueBuyerCountCaptured),
         uniqueBuyerRatio: result.state.uniqueBuyerRatio,
@@ -5620,6 +5621,7 @@ class TradingEngine {
 
     current.curveProgress = curveProgress;
     current.curveProgressSource = source;
+    current.providerCurveProgress = curveProgress;
     current.providerCurveSnapshotAt = nowIso;
     current.lastCurveUpdateAt = nowIso;
     current.bondingCurveLastFetchAt = nowIso;
@@ -5652,6 +5654,7 @@ class TradingEngine {
 
     if (Number.isFinite(priceSol) && priceSol > 0) {
       current.bondingCurvePriceSol = priceSol;
+      current.providerCurvePriceSol = priceSol;
     }
 
     if (Number.isFinite(Number(event.marketCapQuote))) {
@@ -5665,6 +5668,7 @@ class TradingEngine {
       quoteMint,
       pairBase,
       curveProgress,
+      providerCurveProgress: curveProgress,
       bondingStage: current.bondingStage,
       complete: curveProgress >= 1,
       bondingCurveAddress: retainedBondingCurveAddress,
@@ -5674,6 +5678,7 @@ class TradingEngine {
       providerVirtualQuoteReservesRaw,
       providerVirtualSolReservesRaw,
       priceSol: Number.isFinite(priceSol) && priceSol > 0 ? priceSol : current.bondingCurvePriceSol ?? null,
+      providerCurvePriceSol: Number.isFinite(priceSol) && priceSol > 0 ? priceSol : current.providerCurvePriceSol ?? null,
       lastFetchAt: nowIso,
       lastFetchAtIso: nowIso,
       refreshed: true,

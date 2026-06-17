@@ -91,6 +91,13 @@ function hasNumber(value) {
   return Number.isFinite(Number(value));
 }
 
+function hasFieldCoverage(row = {}, field) {
+  if (field === 'buyRatio') return row.buyRatioCaptured === true;
+  if (field === 'uniqueBuyerCount') return row.uniqueBuyerCountCaptured === true;
+  if (field === 'sniperWalletCount') return row.sniperWalletCountCaptured === true;
+  return hasNumber(row[field]);
+}
+
 function bump(counts, key, amount = 1) {
   const label = key || 'unknown';
   counts[label] = (counts[label] || 0) + amount;
@@ -120,7 +127,7 @@ function fieldCoverage(rows) {
   }]));
   for (const row of rows) {
     for (const field of FIELDS) {
-      if (hasNumber(row[field])) coverage[field].present += 1;
+      if (hasFieldCoverage(row, field)) coverage[field].present += 1;
     }
   }
   for (const field of FIELDS) coverage[field].rate = pct(coverage[field].present, coverage[field].total);
@@ -175,13 +182,18 @@ function snapshotLine(snapshot) {
     source: snapshotSource(snapshot),
     providerCurveSnapshotAt: snapshot.providerCurveSnapshotAt || null,
     lastCurveUpdateAt: snapshot.lastCurveUpdateAt || null,
+    providerCurveSnapshotAgeMs: compact(snapshot.providerCurveSnapshotAgeMs, 0),
+    lastCurveUpdateAgeMs: compact(snapshot.lastCurveUpdateAgeMs, 0),
     curveProgress: compact(snapshot.curveProgress, 6),
     priceSol: compact(snapshot.priceSol, 15),
     score: compact(snapshot.score, 2),
     recentVolumeSol: compact(snapshot.recentVolumeSol, 4),
     tradeVelocityPerMin: compact(snapshot.tradeVelocityPerMin, 2),
     buyRatio: compact(snapshot.buyRatio, 4),
+    buyRatioCaptured: snapshot.buyRatioCaptured === true,
     uniqueBuyerCount: compact(snapshot.uniqueBuyerCount, 0),
+    uniqueBuyerCountCaptured: snapshot.uniqueBuyerCountCaptured === true,
+    sniperWalletCountCaptured: snapshot.sniperWalletCountCaptured === true,
     sniperWalletCount: compact(snapshot.sniperWalletCount, 0)
   };
 }
@@ -239,6 +251,8 @@ function summarizeMint(row, telemetryPath) {
     }, {}), 8),
     pre60CurveSources: sourceCounts(pre60),
     staleObservedCurveSources: sourceCounts(staleObservedAfterCross60),
+    staleObservedProviderSnapshotAgeMs: numericStats(staleObservedAfterCross60.map((snapshot) => snapshot.providerCurveSnapshotAgeMs), 0),
+    staleObservedLastCurveUpdateAgeMs: numericStats(staleObservedAfterCross60.map((snapshot) => snapshot.lastCurveUpdateAgeMs), 0),
     staleObservedAfterCross60: staleObservedAfterCross60.length,
     firstRawPre85BuyAt: firstRawPre85?.at || null,
     firstPre60Vel25At: firstPre60Vel25?.at || null,
@@ -257,6 +271,7 @@ function summarizeRows(rows) {
   const crossed90 = rows.filter((row) => row.crossed90);
   const staleRows = rows.filter((row) => row.staleObservedAfterCross60 > 0);
   const buyerCoverage = allPre60.filter((snapshot) => hasNumber(snapshot.uniqueBuyerCount)).length;
+  const buyerCapturedCoverage = allPre60.filter((snapshot) => hasFieldCoverage(snapshot, 'uniqueBuyerCount')).length;
   const velocityCoverage = allPre60.filter((snapshot) => hasNumber(snapshot.tradeVelocityPerMin)).length;
   return {
     mints: rows.length,
@@ -267,9 +282,12 @@ function summarizeRows(rows) {
     pre60CoverageByType: coverageByType(allPre60),
     pre60CurveSources: sourceCounts(allPre60),
     staleObservedCurveSources: sourceCounts(rows.flatMap((row) => row._staleObservedAfterCross60Snapshots || [])),
+    staleObservedProviderSnapshotAgeMs: numericStats(rows.flatMap((row) => row._staleObservedAfterCross60Snapshots || []).map((snapshot) => snapshot.providerCurveSnapshotAgeMs), 0),
+    staleObservedLastCurveUpdateAgeMs: numericStats(rows.flatMap((row) => row._staleObservedAfterCross60Snapshots || []).map((snapshot) => snapshot.lastCurveUpdateAgeMs), 0),
     mintsWithPre60BuyerCount: rows.filter((row) => row.pre60FieldCoverage.uniqueBuyerCount.present > 0).length,
     mintsWithPre60Velocity: rows.filter((row) => row.pre60FieldCoverage.tradeVelocityPerMin.present > 0).length,
-    pre60BuyerCountSnapshotRate: pct(buyerCoverage, allPre60.length),
+    pre60BuyerCountSnapshotRate: pct(buyerCapturedCoverage, allPre60.length),
+    pre60BuyerCountNumericSnapshotRate: pct(buyerCoverage, allPre60.length),
     pre60VelocitySnapshotRate: pct(velocityCoverage, allPre60.length),
     staleObservedAfterCross60Mints: staleRows.length,
     staleObservedAfterCross60Rows: staleRows.reduce((sum, row) => sum + row.staleObservedAfterCross60, 0),
