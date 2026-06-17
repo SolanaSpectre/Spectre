@@ -156,16 +156,31 @@ function walletBefore(events, atMs) {
   };
 }
 
+function snapshotSource(snapshot = {}) {
+  return snapshot.curveProgressSource || snapshot.updateSource || snapshot.type || 'unknown';
+}
+
+function sourceCounts(snapshots = []) {
+  return topCounts(snapshots.reduce((counts, snapshot) => {
+    bump(counts, snapshotSource(snapshot));
+    return counts;
+  }, {}), 12);
+}
+
 function snapshotLine(snapshot) {
   if (!snapshot) return null;
   return {
     at: snapshot.at,
     type: snapshot.type,
+    source: snapshotSource(snapshot),
+    providerCurveSnapshotAt: snapshot.providerCurveSnapshotAt || null,
+    lastCurveUpdateAt: snapshot.lastCurveUpdateAt || null,
     curveProgress: compact(snapshot.curveProgress, 6),
     priceSol: compact(snapshot.priceSol, 15),
     score: compact(snapshot.score, 2),
     recentVolumeSol: compact(snapshot.recentVolumeSol, 4),
     tradeVelocityPerMin: compact(snapshot.tradeVelocityPerMin, 2),
+    buyRatio: compact(snapshot.buyRatio, 4),
     uniqueBuyerCount: compact(snapshot.uniqueBuyerCount, 0),
     sniperWalletCount: compact(snapshot.sniperWalletCount, 0)
   };
@@ -222,6 +237,8 @@ function summarizeMint(row, telemetryPath) {
       bump(counts, snapshot.type);
       return counts;
     }, {}), 8),
+    pre60CurveSources: sourceCounts(pre60),
+    staleObservedCurveSources: sourceCounts(staleObservedAfterCross60),
     staleObservedAfterCross60: staleObservedAfterCross60.length,
     firstRawPre85BuyAt: firstRawPre85?.at || null,
     firstPre60Vel25At: firstPre60Vel25?.at || null,
@@ -248,6 +265,8 @@ function summarizeRows(rows) {
     pre60Snapshots: allPre60.length,
     pre60FieldCoverage: fieldCoverage(allPre60),
     pre60CoverageByType: coverageByType(allPre60),
+    pre60CurveSources: sourceCounts(allPre60),
+    staleObservedCurveSources: sourceCounts(rows.flatMap((row) => row._staleObservedAfterCross60Snapshots || [])),
     mintsWithPre60BuyerCount: rows.filter((row) => row.pre60FieldCoverage.uniqueBuyerCount.present > 0).length,
     mintsWithPre60Velocity: rows.filter((row) => row.pre60FieldCoverage.tradeVelocityPerMin.present > 0).length,
     pre60BuyerCountSnapshotRate: pct(buyerCoverage, allPre60.length),
@@ -272,6 +291,13 @@ function buildRun(filePath, promotionIndex) {
     summarized._pre60Snapshots = cross60
       ? snapshots.filter((snapshot) => Number(snapshot.atMs) < Number(cross60.atMs) && Number(snapshot.curveProgress) < 0.6)
       : snapshots.filter((snapshot) => Number(snapshot.curveProgress) < 0.6);
+    const finalistCross60 = firstCross(snapshots.filter((snapshot) => hasNumber(snapshot.curveProgress) && snapshot.type === 'finalist_account_verifier.update'), 0.6);
+    const staleReferenceCross60 = finalistCross60 || cross60;
+    summarized._staleObservedAfterCross60Snapshots = staleReferenceCross60
+      ? snapshots.filter((snapshot) => snapshot.type === 'pre_migration.observed'
+        && Number(snapshot.atMs) >= Number(staleReferenceCross60.atMs)
+        && Number(snapshot.curveProgress) < 0.6)
+      : [];
     return summarized;
   }).filter(Boolean);
   return {
@@ -315,7 +341,7 @@ function buildReport(filePaths) {
     }
   }
   const summaryRows = rows.map((row) => {
-    const { _pre60Snapshots, ...publicRow } = row;
+    const { _pre60Snapshots, _staleObservedAfterCross60Snapshots, ...publicRow } = row;
     return publicRow;
   });
   const summary = summarizeRows(rows);

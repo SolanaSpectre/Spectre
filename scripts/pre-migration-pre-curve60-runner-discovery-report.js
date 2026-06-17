@@ -470,7 +470,10 @@ function scanFile(filePath, promotionIndex = makePromotionIndex()) {
         sniperWalletCount: compact(payload.sniperWalletCount, 0),
         curveProgressDelta: compact(payload.curveProgressDelta, 6),
         curveProgressDelta60s: compact(payload.curveProgressDelta60s, 6),
-        updateSource: payload.updateSource || null
+        updateSource: payload.updateSource || payload.curveProgressSource || payload.providerCurveSource || null,
+        curveProgressSource: payload.curveProgressSource || payload.providerCurveSource || null,
+        providerCurveSnapshotAt: payload.providerCurveSnapshotAt || null,
+        lastCurveUpdateAt: payload.lastCurveUpdateAt || null
       });
     }
 

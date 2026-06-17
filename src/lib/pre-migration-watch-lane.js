@@ -141,8 +141,13 @@ class PreMigrationWatchLane {
       bondingCurvePriceSol: null,
       bondingStage: null,
       curveProgress: null,
+      curveProgressSource: null,
+      providerCurveProgress: null,
+      providerCurvePriceSol: null,
+      providerCurveSnapshotAt: null,
       holderProxy: 0,
       uniqueBuyerCount: 0,
+      uniqueBuyerCountCaptured: false,
       uniqueBuyerRatio: null,
       externalMentionCount: 0,
       externalChatCount: 0,
@@ -155,6 +160,7 @@ class PreMigrationWatchLane {
       riskWalletCount: 0,
       lateChaserCount: 0,
       sniperWalletCount: 0,
+      sniperWalletCountCaptured: false,
       bundlerCandidate: false,
       score: 0,
       reasons: [],
@@ -192,11 +198,34 @@ class PreMigrationWatchLane {
     const externalVisibility = launchIntelSummary?.heuristics?.externalVisibility || {};
     const kolOverlap = launchIntelSummary?.heuristics?.kolOverlap || {};
     const walletContext = walletClassificationContext || {};
+    const launchUniqueBuyerCountRaw = launchIntelSummary?.uniqueBuyerCount;
+    const tokenUniqueBuyerCountRaw = token.uniqueBuyerCount;
+    const hasLaunchUniqueBuyerCount = launchUniqueBuyerCountRaw !== undefined
+      && launchUniqueBuyerCountRaw !== null
+      && launchUniqueBuyerCountRaw !== ''
+      && Number.isFinite(Number(launchUniqueBuyerCountRaw));
+    const hasTokenUniqueBuyerCount = tokenUniqueBuyerCountRaw !== undefined
+      && tokenUniqueBuyerCountRaw !== null
+      && tokenUniqueBuyerCountRaw !== ''
+      && Number.isFinite(Number(tokenUniqueBuyerCountRaw));
+    const launchUniqueBuyerCount = hasLaunchUniqueBuyerCount ? Number(launchUniqueBuyerCountRaw) : null;
+    const tokenUniqueBuyerCount = hasTokenUniqueBuyerCount ? Number(tokenUniqueBuyerCountRaw) : null;
+    const uniqueBuyerCountCaptured = Boolean(existing.uniqueBuyerCountCaptured)
+      || hasLaunchUniqueBuyerCount
+      || hasTokenUniqueBuyerCount;
     const uniqueBuyerCount = Math.max(
       Number(existing.uniqueBuyerCount || 0),
-      Number(launchIntelSummary?.uniqueBuyerCount || 0),
-      Number(token.uniqueBuyerCount || 0)
+      hasLaunchUniqueBuyerCount ? launchUniqueBuyerCount : 0,
+      hasTokenUniqueBuyerCount ? tokenUniqueBuyerCount : 0
     );
+    const launchSniperWalletCountRaw = launchIntelSummary?.heuristics?.sniperWalletCount;
+    const hasLaunchSniperWalletCount = launchSniperWalletCountRaw !== undefined
+      && launchSniperWalletCountRaw !== null
+      && launchSniperWalletCountRaw !== ''
+      && Number.isFinite(Number(launchSniperWalletCountRaw));
+    const launchSniperWalletCount = hasLaunchSniperWalletCount ? Number(launchSniperWalletCountRaw) : null;
+    const sniperWalletCountCaptured = Boolean(existing.sniperWalletCountCaptured)
+      || hasLaunchSniperWalletCount;
     const uniqueBuyerRatio = this.computeUniqueBuyerRatio(uniqueBuyerCount, recentBuys, buys, existing.uniqueBuyerRatio);
 
     const next = {
@@ -235,12 +264,31 @@ class PreMigrationWatchLane {
         || null,
       bondingStage: token.bondingStage || existing.bondingStage || null,
       curveProgress: curveProgress ?? existing.curveProgress ?? null,
+      curveProgressSource: token.curveProgressSource
+        || token.providerCurveSource
+        || bondingCurveState.curveProgressSource
+        || existing.curveProgressSource
+        || null,
+      providerCurveProgress: token.providerCurveProgress
+        ?? bondingCurveState.providerCurveProgress
+        ?? (token.providerCurveSource || token.providerCurveSnapshotAt ? curveProgress : null)
+        ?? existing.providerCurveProgress
+        ?? null,
+      providerCurvePriceSol: token.providerCurvePriceSol
+        ?? bondingCurveState.providerCurvePriceSol
+        ?? existing.providerCurvePriceSol
+        ?? null,
+      providerCurveSnapshotAt: token.providerCurveSnapshotAt
+        || bondingCurveState.providerCurveSnapshotAt
+        || existing.providerCurveSnapshotAt
+        || null,
       holderProxy: Math.max(
         Number(existing.holderProxy || 0),
         uniqueBuyerCount,
         Number(token.uniqueBuyerCount || 0)
       ),
       uniqueBuyerCount,
+      uniqueBuyerCountCaptured,
       uniqueBuyerRatio,
       externalMentionCount: Number(externalVisibility.mentionCount || launchIntelSummary?.externalSightings?.mentionCount || existing.externalMentionCount || 0),
       externalChatCount: Number(externalVisibility.uniqueChatCount || launchIntelSummary?.externalSightings?.uniqueChatCount || existing.externalChatCount || 0),
@@ -252,7 +300,10 @@ class PreMigrationWatchLane {
       convictionWhaleCount: Math.max(Number(existing.convictionWhaleCount || 0), Number(walletContext.convictionWhaleCount || 0)),
       riskWalletCount: Math.max(Number(existing.riskWalletCount || 0), Number(walletContext.riskWalletCount || 0)),
       lateChaserCount: Math.max(Number(existing.lateChaserCount || 0), Number(walletContext.lateChaserCount || 0)),
-      sniperWalletCount: Number(launchIntelSummary?.heuristics?.sniperWalletCount || existing.sniperWalletCount || 0),
+      sniperWalletCount: hasLaunchSniperWalletCount
+        ? launchSniperWalletCount
+        : Number(existing.sniperWalletCount || 0),
+      sniperWalletCountCaptured,
       bundlerCandidate: Boolean(launchIntelSummary?.heuristics?.bundlerCandidate || existing.bundlerCandidate)
     };
 
@@ -625,15 +676,23 @@ class PreMigrationWatchLane {
       lastFlaggedAt: state.lastFlaggedAt,
       lastFlagType: state.lastFlagType,
       curveProgress: state.curveProgress,
+      curveProgressSource: state.curveProgressSource || null,
+      providerCurveProgress: state.providerCurveProgress ?? null,
+      providerCurvePriceSol: state.providerCurvePriceSol ?? null,
+      providerCurveSnapshotAt: state.providerCurveSnapshotAt || null,
       bondingStage: state.bondingStage,
       tradeCount: state.tradeCount,
       recentTradeCount: state.recentTradeCount,
       recentBuys: state.recentBuys,
       recentSells: state.recentSells,
+      buyRatio: Number(state.recentBuys || 0) + Number(state.recentSells || 0) > 0
+        ? Number(state.recentBuys || 0) / (Number(state.recentBuys || 0) + Number(state.recentSells || 0))
+        : null,
       recentVolumeSol: Number(state.recentVolumeSol || 0),
       tradeVelocityPerMin: Number(state.tradeVelocityPerMin || 0),
       holderProxy: Number(state.holderProxy || 0),
       uniqueBuyerCount: Number(state.uniqueBuyerCount || 0),
+      uniqueBuyerCountCaptured: Boolean(state.uniqueBuyerCountCaptured),
       uniqueBuyerRatio: state.uniqueBuyerRatio !== null && state.uniqueBuyerRatio !== undefined
         ? Number(state.uniqueBuyerRatio)
         : null,
@@ -657,6 +716,7 @@ class PreMigrationWatchLane {
       riskWalletCount: Number(state.riskWalletCount || 0),
       lateChaserCount: Number(state.lateChaserCount || 0),
       sniperWalletCount: Number(state.sniperWalletCount || 0),
+      sniperWalletCountCaptured: Boolean(state.sniperWalletCountCaptured),
       bundlerCandidate: Boolean(state.bundlerCandidate)
     };
   }
