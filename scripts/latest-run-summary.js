@@ -2694,6 +2694,16 @@ function buildSummary(docs) {
     lines.push(`- Verdict: ${coverage.verdict || 'n/a'}; mints=${coverage.mints ?? 'n/a'}, crossed60/90=${coverage.crossed60 ?? 'n/a'} / ${coverage.crossed90 ?? 'n/a'}, pre60Snapshots=${coverage.pre60Snapshots ?? 'n/a'}, recommendation=${coverage.recommendation || 'n/a'}.`);
     lines.push(`- Field rates: buyers=${pct(field.uniqueBuyerCount?.rate, 2)}, velocity=${pct(field.tradeVelocityPerMin?.rate, 2)}, volume=${pct(field.recentVolumeSol?.rate, 2)}, score=${pct(field.score?.rate, 2)}, price=${pct(field.priceSol?.rate, 2)}, curve=${pct(field.curveProgress?.rate, 2)}.`);
     lines.push(`- Mint coverage: mintsWithBuyerCount=${coverage.mintsWithPre60BuyerCount ?? 'n/a'}, mintsWithVelocity=${coverage.mintsWithPre60Velocity ?? 'n/a'}; staleObservedAfterCross60 mints/rows=${coverage.staleObservedAfterCross60Mints ?? 'n/a'} / ${coverage.staleObservedAfterCross60Rows ?? 'n/a'}.`);
+    if (coverage.pre60MarketContextSources) {
+      lines.push(`- Market context sources: ${formatTopCounts(coverage.pre60MarketContextSources)}.`);
+    }
+    if (coverage.staleObservedBuckets) {
+      lines.push(`- Stale observed buckets: ${formatTopCounts(coverage.staleObservedBuckets)}.`);
+    }
+    if (coverage.pre60ProviderDivergence) {
+      const div = coverage.pre60ProviderDivergence;
+      lines.push(`- Provider/observed pairs: ${div.withProviderAndObserved ?? 'n/a'} / ${div.snapshots ?? 'n/a'} (${pct(div.withProviderAndObservedRate, 2)}); providerAheadCurve60=${div.providerAheadOfObservedCurve60 ?? 'n/a'} (${pct(div.providerAheadOfObservedCurve60Rate, 2)}).`);
+    }
     lines.push(`- Timing: rawPre85->cross60 median/p90=${fmt(coverage.secondsRawPre85ToCross60?.median, 2)}s / ${fmt(coverage.secondsRawPre85ToCross60?.p90, 2)}s; cross60->observedVel25 median/p90=${fmt(coverage.secondsCross60ToObservedVel25?.median, 2)}s / ${fmt(coverage.secondsCross60ToObservedVel25?.p90, 2)}s.`);
     if (byType.length) {
       lines.push('- Pre60 coverage by snapshot type:');

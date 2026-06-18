@@ -12,6 +12,7 @@ const WALLET_EVENTS_PATH = path.join(ROOT, 'data', 'wallet-events', 'events.json
 const PROMOTION_PATH = path.join(ROOT, 'data', 'reports', 'wallet-promotion-review-latest.json');
 const MANUAL_KOL_PATH = path.join(ROOT, 'data', 'wallet-watchlists', 'manual-kol-wallets.json');
 const DEFAULT_LIMIT = 8;
+const MAX_MARKET_CONTEXT_JOIN_AGE_MS = 15000;
 const THRESHOLDS = [0.6, 0.85, 0.9];
 
 function parseArgs(argv) {
@@ -224,6 +225,7 @@ function getMint(rowsByMint, mint, payload = {}) {
       evaluatedAt: [],
       paperEntryAt: [],
       nearMissAt: [],
+      latestMarketContext: null,
       reasons: {},
       failedChecks: {},
       walletEvents: [],
@@ -237,6 +239,50 @@ function getMint(rowsByMint, mint, payload = {}) {
   }
   if (!row.symbol && payload.symbol) row.symbol = payload.symbol;
   return row;
+}
+
+function hasCapturedMarketContext(payload = {}) {
+  return payload.buyRatioCaptured === true
+    || payload.uniqueBuyerCountCaptured === true
+    || payload.sniperWalletCountCaptured === true
+    || Number.isFinite(Number(payload.score ?? payload.entryScore))
+    || Number.isFinite(Number(payload.recentVolumeSol))
+    || Number.isFinite(Number(payload.tradeVelocityPerMin));
+}
+
+function marketContextFromPayload(payload = {}, type, atMs) {
+  if (!hasCapturedMarketContext(payload) || !Number.isFinite(atMs)) return null;
+  return {
+    atMs,
+    at: new Date(atMs).toISOString(),
+    type,
+    score: compact(payload.score ?? payload.entryScore, 2),
+    recentVolumeSol: compact(payload.recentVolumeSol, 4),
+    tradeVelocityPerMin: compact(payload.tradeVelocityPerMin, 2),
+    buyRatio: compact(payload.buyRatio, 4),
+    buyRatioCaptured: Boolean(payload.buyRatioCaptured),
+    uniqueBuyerCount: compact(payload.uniqueBuyerCount, 0),
+    uniqueBuyerCountCaptured: Boolean(payload.uniqueBuyerCountCaptured),
+    sniperWalletCount: compact(payload.sniperWalletCount, 0),
+    sniperWalletCountCaptured: Boolean(payload.sniperWalletCountCaptured)
+  };
+}
+
+function marketContextForSnapshot(row, payload = {}, type, atMs) {
+  const direct = marketContextFromPayload(payload, type, atMs);
+  if (direct) return { ...direct, source: 'direct', ageMs: 0 };
+
+  const latest = row.latestMarketContext;
+  const ageMs = latest && Number.isFinite(atMs) ? atMs - Number(latest.atMs) : null;
+  if (!latest || !Number.isFinite(ageMs) || ageMs < 0 || ageMs > MAX_MARKET_CONTEXT_JOIN_AGE_MS) {
+    return null;
+  }
+
+  return {
+    ...latest,
+    source: 'latest_market_context',
+    ageMs
+  };
 }
 
 function updateMax(row, key, value) {
@@ -460,6 +506,8 @@ function scanFile(filePath, promotionIndex = makePromotionIndex()) {
     updateMax(row, 'maxTradeVelocityPerMin', payload.tradeVelocityPerMin);
     updateMax(row, 'maxUniqueBuyerCount', payload.uniqueBuyerCount);
     updateMax(row, 'maxSniperWalletCount', payload.sniperWalletCount);
+    const directMarketContext = marketContextFromPayload(payload, type, atMs);
+    if (directMarketContext) row.latestMarketContext = directMarketContext;
 
     if ((type === 'pre_migration.observed'
       || type === 'pre_migration.flagged'
@@ -472,6 +520,7 @@ function scanFile(filePath, promotionIndex = makePromotionIndex()) {
       const observedCurveProgress = curveOf({ curveProgress: payload.curveProgress });
       const providerCurveProgress = curveOf({ providerCurveProgress: payload.providerCurveProgress });
       const accountCurveProgress = curveOf({ accountCurveProgress: payload.accountCurveProgress });
+      const marketContext = marketContextForSnapshot(row, payload, type, atMs);
       row.snapshots.push({
         atMs,
         at: new Date(atMs).toISOString(),
@@ -488,15 +537,19 @@ function scanFile(filePath, promotionIndex = makePromotionIndex()) {
           && observedCurveProgress < 0.6
           && providerCurveProgress >= 0.6,
         priceSol: compact(priceSol, 15),
-        score: compact(payload.score ?? payload.entryScore, 2),
-        recentVolumeSol: compact(payload.recentVolumeSol, 4),
-        tradeVelocityPerMin: compact(payload.tradeVelocityPerMin, 2),
-        buyRatio: compact(payload.buyRatio, 4),
-        buyRatioCaptured: Boolean(payload.buyRatioCaptured),
-        uniqueBuyerCount: compact(payload.uniqueBuyerCount, 0),
-        uniqueBuyerCountCaptured: Boolean(payload.uniqueBuyerCountCaptured),
-        sniperWalletCount: compact(payload.sniperWalletCount, 0),
-        sniperWalletCountCaptured: Boolean(payload.sniperWalletCountCaptured),
+        score: marketContext?.score ?? null,
+        recentVolumeSol: marketContext?.recentVolumeSol ?? null,
+        tradeVelocityPerMin: marketContext?.tradeVelocityPerMin ?? null,
+        buyRatio: marketContext?.buyRatio ?? null,
+        buyRatioCaptured: Boolean(marketContext?.buyRatioCaptured),
+        uniqueBuyerCount: marketContext?.uniqueBuyerCount ?? null,
+        uniqueBuyerCountCaptured: Boolean(marketContext?.uniqueBuyerCountCaptured),
+        sniperWalletCount: marketContext?.sniperWalletCount ?? null,
+        sniperWalletCountCaptured: Boolean(marketContext?.sniperWalletCountCaptured),
+        marketContextSource: marketContext?.source || null,
+        marketContextEventType: marketContext?.type || null,
+        marketContextAt: marketContext?.at || null,
+        marketContextAgeMs: Number.isFinite(Number(marketContext?.ageMs)) ? Number(marketContext.ageMs) : null,
         curveProgressDelta: compact(payload.curveProgressDelta, 6),
         curveProgressDelta60s: compact(payload.curveProgressDelta60s, 6),
         updateSource: payload.updateSource || payload.curveProgressSource || payload.providerCurveSource || null,

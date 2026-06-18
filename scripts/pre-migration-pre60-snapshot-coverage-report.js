@@ -190,6 +190,36 @@ function divergenceSummary(snapshots = []) {
   };
 }
 
+function marketContextSourceCounts(snapshots = []) {
+  return topCounts(snapshots.reduce((counts, snapshot) => {
+    bump(counts, snapshot.marketContextSource || 'none');
+    return counts;
+  }, {}), 12);
+}
+
+function staleObservedBucket(snapshot = {}, reference = null) {
+  const curve = Number(snapshot.curveProgress);
+  const provider = Number(snapshot.providerCurveProgress);
+  const account = Number(snapshot.accountCurveProgress);
+  if (Number.isFinite(provider) && provider >= 0.6 && Number.isFinite(curve) && curve < 0.6) {
+    return 'provider_ahead_same_row';
+  }
+  if (Number.isFinite(account) && account >= 0.6 && Number.isFinite(curve) && curve < 0.6) {
+    return 'account_ahead_same_row';
+  }
+  if (reference && reference.type !== 'pre_migration.observed') {
+    return `cross_source_after_${reference.type}`;
+  }
+  return 'same_source_retrace_or_lower_observed';
+}
+
+function staleObservedBucketCounts(snapshots = [], reference = null) {
+  return topCounts(snapshots.reduce((counts, snapshot) => {
+    bump(counts, staleObservedBucket(snapshot, reference));
+    return counts;
+  }, {}), 12);
+}
+
 function snapshotLine(snapshot) {
   if (!snapshot) return null;
   return {
@@ -215,7 +245,10 @@ function snapshotLine(snapshot) {
     uniqueBuyerCount: compact(snapshot.uniqueBuyerCount, 0),
     uniqueBuyerCountCaptured: snapshot.uniqueBuyerCountCaptured === true,
     sniperWalletCountCaptured: snapshot.sniperWalletCountCaptured === true,
-    sniperWalletCount: compact(snapshot.sniperWalletCount, 0)
+    sniperWalletCount: compact(snapshot.sniperWalletCount, 0),
+    marketContextSource: snapshot.marketContextSource || null,
+    marketContextEventType: snapshot.marketContextEventType || null,
+    marketContextAgeMs: compact(snapshot.marketContextAgeMs, 0)
   };
 }
 
@@ -271,7 +304,10 @@ function summarizeMint(row, telemetryPath) {
       return counts;
     }, {}), 8),
     pre60CurveSources: sourceCounts(pre60),
+    pre60MarketContextSources: marketContextSourceCounts(pre60),
     staleObservedCurveSources: sourceCounts(staleObservedAfterCross60),
+    staleObservedBuckets: staleObservedBucketCounts(staleObservedAfterCross60, staleReferenceCross60),
+    staleReferenceCross60Type: staleReferenceCross60?.type || null,
     staleObservedProviderDivergence: divergenceSummary(staleObservedAfterCross60),
     staleObservedProviderSnapshotAgeMs: numericStats(staleObservedAfterCross60.map((snapshot) => snapshot.providerCurveSnapshotAgeMs), 0),
     staleObservedLastCurveUpdateAgeMs: numericStats(staleObservedAfterCross60.map((snapshot) => snapshot.lastCurveUpdateAgeMs), 0),
@@ -303,8 +339,15 @@ function summarizeRows(rows) {
     pre60FieldCoverage: fieldCoverage(allPre60),
     pre60CoverageByType: coverageByType(allPre60),
     pre60CurveSources: sourceCounts(allPre60),
+    pre60MarketContextSources: marketContextSourceCounts(allPre60),
     pre60ProviderDivergence: divergenceSummary(allPre60),
     staleObservedCurveSources: sourceCounts(rows.flatMap((row) => row._staleObservedAfterCross60Snapshots || [])),
+    staleObservedBuckets: topCounts(rows.reduce((counts, row) => {
+      for (const [bucket, count] of Object.entries(row.staleObservedBuckets || {})) {
+        bump(counts, bucket, count);
+      }
+      return counts;
+    }, {}), 12),
     staleObservedProviderDivergence: divergenceSummary(rows.flatMap((row) => row._staleObservedAfterCross60Snapshots || [])),
     staleObservedProviderSnapshotAgeMs: numericStats(rows.flatMap((row) => row._staleObservedAfterCross60Snapshots || []).map((snapshot) => snapshot.providerCurveSnapshotAgeMs), 0),
     staleObservedLastCurveUpdateAgeMs: numericStats(rows.flatMap((row) => row._staleObservedAfterCross60Snapshots || []).map((snapshot) => snapshot.lastCurveUpdateAgeMs), 0),
