@@ -4365,12 +4365,18 @@ function buildSummary(docs) {
   lines.push('');
 
   const separabilitySummary = curveNotAdvancingSeparability.summary || {};
+  const separabilityConcentration = curveNotAdvancingSeparability.concentration || {};
+  const mintFirstHit = curveNotAdvancingSeparability.mintFirstHit || {};
+  const mintFirstHitTopSeparators = topArray(mintFirstHit.topSeparators, 5);
+  const ageBandSeparabilityRows = topArray(curveNotAdvancingSeparability.ageBandSeparability, 8);
   const topSeparators = topArray(curveNotAdvancingSeparability.topSeparators, 8);
   const featureRows = topArray(curveNotAdvancingSeparability.features, 8);
   lines.push('9b3a. CURVE_NOT_ADVANCING Separability');
   lines.push('--------------------------------------');
   lines.push('- Mode: report-only; compares decision-time features for strong follow-through vs correctly blocked flat CURVE_NOT_ADVANCING rows.');
-  lines.push(`- Verdict: ${separabilitySummary.verdict || 'n/a'}; strong/useful/flat rows=${separabilitySummary.strongFollowThroughRows ?? 'n/a'} / ${separabilitySummary.usefulFollowThroughRows ?? 'n/a'} / ${separabilitySummary.correctlyBlockedFlatRows ?? 'n/a'}.`);
+  lines.push(`- Verdict: ${separabilitySummary.verdict || 'n/a'}; strong/useful/flat rows=${separabilitySummary.strongFollowThroughRows ?? 'n/a'} / ${separabilitySummary.usefulFollowThroughRows ?? 'n/a'} / ${separabilitySummary.correctlyBlockedFlatRows ?? 'n/a'}; unique mints=${separabilitySummary.uniqueStrongMints ?? 'n/a'} / ${separabilitySummary.uniqueUsefulMints ?? 'n/a'} / ${separabilitySummary.uniqueFlatMints ?? 'n/a'}.`);
+  lines.push(`- Mint-first-hit view: decisions=${separabilitySummary.mintFirstHitDecisions ?? 'n/a'}, strong/useful/flat=${separabilitySummary.mintFirstHitStrongMints ?? 'n/a'} / ${separabilitySummary.mintFirstHitUsefulMints ?? 'n/a'} / ${separabilitySummary.mintFirstHitFlatMints ?? 'n/a'}; row duplicate collapse=${separabilityConcentration.allRows?.duplicateRowsCollapsed ?? 'n/a'}.`);
+  lines.push(`- Row concentration: all top1/top3=${pct(separabilityConcentration.allRows?.topMintRowShare, 1)} / ${pct(separabilityConcentration.allRows?.top3MintRowShare, 1)}; strong top1/top3=${pct(separabilityConcentration.strongRows?.topMintRowShare, 1)} / ${pct(separabilityConcentration.strongRows?.top3MintRowShare, 1)}.`);
   lines.push(`- Strong wallet buckets: ${formatTopCounts(separabilitySummary.strongWalletBuckets)}; flat wallet buckets: ${formatTopCounts(separabilitySummary.flatWalletBuckets)}.`);
   lines.push(`- Curve delta 120s strong median/p90/max: ${fmt(separabilitySummary.strongCurveDelta120s?.median, 4)} / ${fmt(separabilitySummary.strongCurveDelta120s?.p90, 4)} / ${fmt(separabilitySummary.strongCurveDelta120s?.max, 4)}; flat median/p90/max: ${fmt(separabilitySummary.flatCurveDelta120s?.median, 4)} / ${fmt(separabilitySummary.flatCurveDelta120s?.p90, 4)} / ${fmt(separabilitySummary.flatCurveDelta120s?.max, 4)}.`);
   if (topSeparators.length) {
@@ -4380,6 +4386,21 @@ function buildSummary(docs) {
     });
   } else {
     lines.push('- Potential separators: none above threshold.');
+  }
+  if (mintFirstHitTopSeparators.length) {
+    lines.push('- Mint-first-hit potential separators:');
+    mintFirstHitTopSeparators.forEach((item, index) => {
+      lines.push(`  ${index + 1}. ${item.key || item.label || 'unknown'} | score=${fmt(item.separationScore, 4)} | dir=${item.bestDirection || 'n/a'} | strongMed=${fmt(item.strong?.median, 4)} | flatMed=${fmt(item.flat?.median, 4)} | iqrOverlap=${fmt(item.iqrOverlap, 4)}`);
+    });
+  } else {
+    lines.push('- Mint-first-hit potential separators: none above threshold.');
+  }
+  if (ageBandSeparabilityRows.length) {
+    lines.push('- Age-banded mint-first-hit separability:');
+    ageBandSeparabilityRows.forEach((band) => {
+      const best = Array.isArray(band.topSeparators) ? band.topSeparators[0] : null;
+      lines.push(`  - ${band.band || 'unknown'}: strong/flat rows=${band.strongRows ?? 'n/a'} / ${band.flatRows ?? 'n/a'}, mints=${band.strongUniqueMints ?? 'n/a'} / ${band.flatUniqueMints ?? 'n/a'}, best=${best ? `${best.key || best.label}:${fmt(best.separationScore, 4)} ${best.bestDirection || ''}` : 'none'}`);
+    });
   }
   if (featureRows.length) {
     lines.push('- Top feature scores:');
@@ -4401,10 +4422,11 @@ function buildSummary(docs) {
   lines.push(`- Verdict: ${separatorShadowSummary.verdict || 'n/a'}; analyzed rows=${separatorShadowSummary.analyzedRows ?? 'n/a'}; rules/profile tests=${separatorShadowSummary.evaluatedRuleProfileCount ?? 'n/a'}; robust positive=${separatorShadowSummary.robustPositiveCount ?? 'n/a'}.`);
   if (separatorRuntimeShadow.rows !== undefined) {
     lines.push(`- Runtime shadow telemetry: rows=${separatorRuntimeShadow.rows ?? 'n/a'}; wouldEnter/wouldSkip=${separatorRuntimeShadow.wouldEnterRows ?? 'n/a'} / ${separatorRuntimeShadow.wouldSkipRows ?? 'n/a'}; unique would-enter mints=${separatorRuntimeShadow.uniqueWouldEnterMints ?? 'n/a'}; top skip reasons=${formatTopCounts(separatorRuntimeShadow.topSkipReasons)}.`);
+    lines.push(`- Runtime shadow concentration: would-enter top1/top3=${pct(separatorRuntimeShadow.wouldEnterConcentration?.topMintRowShare, 1)} / ${pct(separatorRuntimeShadow.wouldEnterConcentration?.top3MintRowShare, 1)}; duplicate rows collapsed=${separatorRuntimeShadow.wouldEnterConcentration?.duplicateRowsCollapsed ?? 'n/a'}.`);
   }
   if (separatorShadowSummary.bestRun) {
     const best = separatorShadowSummary.bestRun;
-    lines.push(`- Best run: ${best.rule || 'n/a'} / ${best.exitProfile || 'n/a'} | trades=${best.replayedTrades ?? 'n/a'} | pnl=${sol(best.totalPnlSol, 4)} | median=${sol(best.medianPnlSol, 4)} | exTop3=${sol(best.pnlAfterRemovingTop3WinnersSol, 4)} | outlierDominated=${best.outlierDominated === true ? 'yes' : 'no'}.`);
+    lines.push(`- Best run: ${best.rule || 'n/a'} / ${best.exitProfile || 'n/a'} | matchedRows/mints=${best.matchedRows ?? 'n/a'} / ${best.matchedUniqueMints ?? 'n/a'} | trades=${best.replayedTrades ?? 'n/a'} | pnl=${sol(best.totalPnlSol, 4)} | median=${sol(best.medianPnlSol, 4)} | exTop3=${sol(best.pnlAfterRemovingTop3WinnersSol, 4)} | topMintShare=${pct(best.topMintRowShare, 1)} | eligible=${best.promotionEligible === true ? 'yes' : 'no'}.`);
   } else {
     lines.push('- Best run: n/a');
   }

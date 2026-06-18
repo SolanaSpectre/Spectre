@@ -80,6 +80,22 @@ function countBy(rows, keyFn) {
   return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]))));
 }
 
+function mintRowConcentration(rows) {
+  const counts = countBy(rows, (row) => row.mint);
+  const entries = Object.entries(counts);
+  const totalRows = rows.length;
+  const top1Rows = entries[0]?.[1] || 0;
+  const top3Rows = entries.slice(0, 3).reduce((sum, [, count]) => sum + count, 0);
+  return {
+    rows: totalRows,
+    uniqueMints: entries.length,
+    duplicateRowsCollapsed: Math.max(0, totalRows - entries.length),
+    topMintRowShare: totalRows ? num(top1Rows / totalRows, 4) : null,
+    top3MintRowShare: totalRows ? num(top3Rows / totalRows, 4) : null,
+    topMints: Object.fromEntries(entries.slice(0, 8))
+  };
+}
+
 function payloadOf(event) {
   return event.payload || event.data || {};
 }
@@ -199,6 +215,8 @@ function summarizeReplay(rule, profile, allMatchingRows, selectedRows, replayRow
     description: rule.description,
     exitProfile: profile.name,
     matchedRows: allMatchingRows.length,
+    matchedUniqueMints: new Set(allMatchingRows.map((row) => row.mint).filter(Boolean)).size,
+    matchedConcentration: mintRowConcentration(allMatchingRows),
     selectedUniqueMints: selectedRows.length,
     selectedWithEntryPrice: selectedRows.filter((row) => Number.isFinite(Number(row.priceSol)) && Number(row.priceSol) > 0).length,
     selectedWithFuturePriceSnapshots: selectedRows.filter((row) => {
@@ -217,6 +235,13 @@ function summarizeReplay(rule, profile, allMatchingRows, selectedRows, replayRow
     pnlAfterRemovingTop3WinnersSol: outliers.pnlAfterRemovingTop3WinnersSol,
     topWinnerShareOfGrossProfit: outliers.topWinnerShareOfGrossProfit,
     outlierDominated: outliers.outlierDominated,
+    promotionEligible: replayRows.length >= 20
+      && selectedRows.length >= 20
+      && Number(median || 0) > 0
+      && Number(outliers.totalPnlSol || 0) > 0
+      && Number(outliers.pnlAfterRemovingTop3WinnersSol || 0) > 0
+      && outliers.outlierDominated !== true
+      && Number(mintRowConcentration(allMatchingRows).topMintRowShare || 1) < 0.4,
     robustnessScore: num(robustnessScore, 9),
     exitReasonCounts: countBy(replayRows, (row) => row.exitReason),
     classificationCounts: countBy(selectedRows, (row) => row.classification),
@@ -288,6 +313,9 @@ function readRuntimeShadowSummary(telemetryPath) {
     wouldSkipRows: skipRows.length,
     uniqueMints: new Set(rows.map((row) => row.mint).filter(Boolean)).size,
     uniqueWouldEnterMints: new Set(enterRows.map((row) => row.mint).filter(Boolean)).size,
+    concentration: mintRowConcentration(rows),
+    wouldEnterConcentration: mintRowConcentration(enterRows),
+    wouldSkipConcentration: mintRowConcentration(skipRows),
     topSkipReasons: countBy(skipRows, (row) => row.reason || (Array.isArray(row.failedChecks) ? row.failedChecks[0] : null)),
     topFailedChecks: countBy(skipRows.flatMap((row) => Array.isArray(row.failedChecks) ? row.failedChecks : []), (item) => item),
     wouldEnterSamples: enterRows.slice(0, 20).map(compactRuntimeShadow),
@@ -342,11 +370,7 @@ function buildReport(telemetryPath, telemetry) {
     || Number(b.replayedTrades || 0) - Number(a.replayedTrades || 0)
   ));
   const robustPositive = ranked.filter((row) => (
-    Number(row.replayedTrades) >= 10
-    && Number(row.totalPnlSol) > 0
-    && Number(row.medianPnlSol) > 0
-    && Number(row.pnlAfterRemovingTop3WinnersSol) > 0
-    && row.outlierDominated !== true
+    row.promotionEligible === true
   ));
   const best = ranked[0] || null;
   const bestKey = best ? `${best.rule}:${best.exitProfile}` : null;
@@ -378,11 +402,16 @@ function buildReport(telemetryPath, telemetry) {
       bestRun: best ? {
         rule: best.rule,
         exitProfile: best.exitProfile,
+        matchedRows: best.matchedRows,
+        matchedUniqueMints: best.matchedUniqueMints,
+        selectedUniqueMints: best.selectedUniqueMints,
         replayedTrades: best.replayedTrades,
         totalPnlSol: best.totalPnlSol,
         medianPnlSol: best.medianPnlSol,
         pnlAfterRemovingTop3WinnersSol: best.pnlAfterRemovingTop3WinnersSol,
-        outlierDominated: best.outlierDominated
+        topMintRowShare: best.matchedConcentration?.topMintRowShare ?? null,
+        outlierDominated: best.outlierDominated,
+        promotionEligible: best.promotionEligible === true
       } : null
     },
     runtimeShadow: readRuntimeShadowSummary(telemetryPath),

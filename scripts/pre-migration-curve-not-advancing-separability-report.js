@@ -39,6 +39,13 @@ const FEATURES = [
   { key: 'avoidWalletTouchCount', label: 'Avoid wallet touch count', digits: 0, lowerMayBeBetter: true, source: (row) => row.walletContext?.avoidWalletTouchCount }
 ];
 
+const AGE_BANDS = [
+  { name: 'age_lt_1500ms', maxMs: 1500 },
+  { name: 'age_1500_5000ms', minMs: 1500, maxMs: 5000 },
+  { name: 'age_5000_30000ms', minMs: 5000, maxMs: 30000 },
+  { name: 'age_gte_30000ms', minMs: 30000 }
+];
+
 function parseArgs(argv) {
   const args = {};
   for (let index = 0; index < argv.length; index += 1) {
@@ -140,6 +147,79 @@ function countBy(rows, keyFn) {
   return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]))));
 }
 
+function selectEarliestUniqueMint(rows) {
+  const picked = new Map();
+  for (const row of rows) {
+    if (!row?.mint) continue;
+    const rowMs = Number(row.atMs) || new Date(row.at || 0).getTime();
+    const current = picked.get(row.mint);
+    const currentMs = current ? (Number(current.atMs) || new Date(current.at || 0).getTime()) : Infinity;
+    if (!current || rowMs < currentMs) picked.set(row.mint, row);
+  }
+  return Array.from(picked.values()).sort((a, b) => (
+    (Number(a.atMs) || new Date(a.at || 0).getTime())
+    - (Number(b.atMs) || new Date(b.at || 0).getTime())
+  ));
+}
+
+function mintRowConcentration(rows) {
+  const counts = countBy(rows, (row) => row.mint);
+  const entries = Object.entries(counts);
+  const totalRows = rows.length;
+  const top1Rows = entries[0]?.[1] || 0;
+  const top3Rows = entries.slice(0, 3).reduce((sum, [, count]) => sum + count, 0);
+  const rowsPerMint = entries.map(([, count]) => count);
+  return {
+    rows: totalRows,
+    uniqueMints: entries.length,
+    duplicateRowsCollapsed: Math.max(0, totalRows - entries.length),
+    topMintRowShare: totalRows ? num(top1Rows / totalRows, 4) : null,
+    top3MintRowShare: totalRows ? num(top3Rows / totalRows, 4) : null,
+    rowsPerMint: quantileStats(rowsPerMint, 0),
+    topMints: Object.fromEntries(entries.slice(0, 8))
+  };
+}
+
+function ageBandOf(row) {
+  const age = Number(row.baselineAgeMs);
+  if (!Number.isFinite(age)) return 'age_unknown';
+  const band = AGE_BANDS.find((item) => (
+    (item.minMs === undefined || age >= item.minMs)
+    && (item.maxMs === undefined || age < item.maxMs)
+  ));
+  return band?.name || 'age_unknown';
+}
+
+function rowMatchesAgeBand(row, band) {
+  const age = Number(row.baselineAgeMs);
+  if (!Number.isFinite(age)) return false;
+  return (band.minMs === undefined || age >= band.minMs)
+    && (band.maxMs === undefined || age < band.maxMs);
+}
+
+function featureSummariesFor(strongRows, flatRows, minimumCount = 3) {
+  return FEATURES
+    .map((feature) => featureSummary(feature, strongRows, flatRows))
+    .filter((item) => Number(item.strong?.count || 0) >= minimumCount && Number(item.flat?.count || 0) >= minimumCount)
+    .sort((a, b) => Number(b.separationScore || 0) - Number(a.separationScore || 0));
+}
+
+function ageBandSeparability(strongRows, flatRows) {
+  return AGE_BANDS.map((band) => {
+    const strong = strongRows.filter((row) => rowMatchesAgeBand(row, band));
+    const flat = flatRows.filter((row) => rowMatchesAgeBand(row, band));
+    const features = featureSummariesFor(strong, flat, 3);
+    return {
+      band: band.name,
+      strongRows: strong.length,
+      flatRows: flat.length,
+      strongUniqueMints: new Set(strong.map((row) => row.mint).filter(Boolean)).size,
+      flatUniqueMints: new Set(flat.map((row) => row.mint).filter(Boolean)).size,
+      topSeparators: features.filter((item) => Number(item.separationScore) >= 0.65).slice(0, 8)
+    };
+  });
+}
+
 function compactRow(row) {
   return {
     mint: row.mint,
@@ -173,10 +253,14 @@ function buildReport(telemetryPath, telemetry) {
   const strongRows = analyzed.filter((row) => STRONG_CLASSES.has(row.classification));
   const flatRows = analyzed.filter((row) => FLAT_CLASSES.has(row.classification));
   const usefulRows = analyzed.filter((row) => row.classification === 'BLOCKED_USEFUL_FOLLOW_THROUGH_120S');
-  const featureSummaries = FEATURES
-    .map((feature) => featureSummary(feature, strongRows, flatRows))
-    .sort((a, b) => Number(b.separationScore || 0) - Number(a.separationScore || 0));
+  const mintFirstHitRows = selectEarliestUniqueMint(analyzed);
+  const mintFirstHitStrongRows = mintFirstHitRows.filter((row) => STRONG_CLASSES.has(row.classification));
+  const mintFirstHitFlatRows = mintFirstHitRows.filter((row) => FLAT_CLASSES.has(row.classification));
+  const mintFirstHitUsefulRows = mintFirstHitRows.filter((row) => row.classification === 'BLOCKED_USEFUL_FOLLOW_THROUGH_120S');
+  const featureSummaries = featureSummariesFor(strongRows, flatRows, 1);
+  const mintFirstHitFeatureSummaries = featureSummariesFor(mintFirstHitStrongRows, mintFirstHitFlatRows, 1);
   const topSeparators = featureSummaries.filter((item) => Number(item.separationScore) >= 0.65);
+  const mintFirstHitTopSeparators = mintFirstHitFeatureSummaries.filter((item) => Number(item.separationScore) >= 0.65);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -188,21 +272,57 @@ function buildReport(telemetryPath, telemetry) {
     },
     summary: {
       decisions: analyzed.length,
+      uniqueMints: new Set(analyzed.map((row) => row.mint).filter(Boolean)).size,
       strongFollowThroughRows: strongRows.length,
       usefulFollowThroughRows: usefulRows.length,
       correctlyBlockedFlatRows: flatRows.length,
+      uniqueStrongMints: new Set(strongRows.map((row) => row.mint).filter(Boolean)).size,
+      uniqueUsefulMints: new Set(usefulRows.map((row) => row.mint).filter(Boolean)).size,
+      uniqueFlatMints: new Set(flatRows.map((row) => row.mint).filter(Boolean)).size,
+      mintFirstHitDecisions: mintFirstHitRows.length,
+      mintFirstHitStrongMints: mintFirstHitStrongRows.length,
+      mintFirstHitUsefulMints: mintFirstHitUsefulRows.length,
+      mintFirstHitFlatMints: mintFirstHitFlatRows.length,
       classificationCounts: countBy(analyzed, (row) => row.classification),
+      mintFirstHitClassificationCounts: countBy(mintFirstHitRows, (row) => row.classification),
       strongWalletBuckets: countBy(strongRows, (row) => row.walletContext?.bucket),
       flatWalletBuckets: countBy(flatRows, (row) => row.walletContext?.bucket),
+      mintFirstHitStrongWalletBuckets: countBy(mintFirstHitStrongRows, (row) => row.walletContext?.bucket),
+      mintFirstHitFlatWalletBuckets: countBy(mintFirstHitFlatRows, (row) => row.walletContext?.bucket),
       strongCurveDelta120s: stat(strongRows.map((row) => row.windows?.['120s']?.curveDelta), 6),
       flatCurveDelta120s: stat(flatRows.map((row) => row.windows?.['120s']?.curveDelta), 6),
+      mintFirstHitStrongCurveDelta120s: stat(mintFirstHitStrongRows.map((row) => row.windows?.['120s']?.curveDelta), 6),
+      mintFirstHitFlatCurveDelta120s: stat(mintFirstHitFlatRows.map((row) => row.windows?.['120s']?.curveDelta), 6),
       topSeparatorCount: topSeparators.length,
-      verdict: topSeparators.length
+      mintFirstHitTopSeparatorCount: mintFirstHitTopSeparators.length,
+      verdict: topSeparators.length || mintFirstHitTopSeparators.length
         ? 'POTENTIAL_DECISION_TIME_SEPARATOR_FOUND'
-        : 'NO_CLEAR_DECISION_TIME_SEPARATOR_FOUND'
+        : 'NO_CLEAR_DECISION_TIME_SEPARATOR_FOUND',
+      measurementCaveat: 'Row-level separators may be distorted by repeated decision ticks; prefer mintFirstHit and ageBandSeparability before changing strategy.'
+    },
+    concentration: {
+      allRows: mintRowConcentration(analyzed),
+      strongRows: mintRowConcentration(strongRows),
+      usefulRows: mintRowConcentration(usefulRows),
+      flatRows: mintRowConcentration(flatRows)
     },
     features: featureSummaries,
     topSeparators,
+    mintFirstHit: {
+      features: mintFirstHitFeatureSummaries,
+      topSeparators: mintFirstHitTopSeparators,
+      topStrongRows: mintFirstHitStrongRows
+        .slice()
+        .sort((a, b) => Number(b.windows?.['120s']?.curveDelta || 0) - Number(a.windows?.['120s']?.curveDelta || 0))
+        .slice(0, 20)
+        .map(compactRow),
+      topFlatHighScoreRows: mintFirstHitFlatRows
+        .slice()
+        .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
+        .slice(0, 20)
+        .map(compactRow)
+    },
+    ageBandSeparability: ageBandSeparability(mintFirstHitStrongRows, mintFirstHitFlatRows),
     topStrongRows: strongRows
       .slice()
       .sort((a, b) => Number(b.windows?.['120s']?.curveDelta || 0) - Number(a.windows?.['120s']?.curveDelta || 0))
@@ -231,6 +351,8 @@ async function main() {
   console.log('Pre-Migration CURVE_NOT_ADVANCING Separability');
   console.log(`Telemetry: ${report.telemetryPath}`);
   console.log(`Strong/flat rows: ${report.summary.strongFollowThroughRows}/${report.summary.correctlyBlockedFlatRows}`);
+  console.log(`Strong/flat unique mints: ${report.summary.uniqueStrongMints}/${report.summary.uniqueFlatMints}`);
+  console.log(`Mint-first-hit strong/flat: ${report.summary.mintFirstHitStrongMints}/${report.summary.mintFirstHitFlatMints}`);
   console.log(`Verdict: ${report.summary.verdict}`);
   console.log(`Top separators: ${report.topSeparators.map((item) => `${item.key}=${item.separationScore}`).join(', ') || 'none'}`);
   console.log(`Wrote JSON report: ${outputPath}`);
