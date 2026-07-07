@@ -50,6 +50,7 @@ const FILES = {
   preMigrationCurveAdvanceDiagnostic: 'data/reports/pre-migration-curve-advance-diagnostic-latest.json',
   preMigrationCurveNotAdvancingSeparability: 'data/reports/pre-migration-curve-not-advancing-separability-latest.json',
   preMigrationCurveNotAdvancingSeparatorShadow: 'data/reports/pre-migration-curve-not-advancing-separator-shadow-latest.json',
+  preMigrationCurveNotAdvancingSeparatorShadowLedger: 'data/reports/pre-migration-curve-not-advancing-separator-shadow-ledger-latest.json',
   preMigrationGuardAttribution: 'data/reports/pre-migration-guard-attribution-latest.json',
   preMigrationSkipFollowThrough: 'data/reports/pre-migration-skip-follow-through-latest.json',
   preMigrationSkipNear90Watchlist: 'data/reports/pre-migration-skip-near-90-watchlist-latest.json',
@@ -2336,6 +2337,7 @@ function buildSummary(docs) {
   const curveAdvanceDiagnostic = docs.preMigrationCurveAdvanceDiagnostic.data || {};
   const curveNotAdvancingSeparability = docs.preMigrationCurveNotAdvancingSeparability.data || {};
   const curveNotAdvancingSeparatorShadow = docs.preMigrationCurveNotAdvancingSeparatorShadow.data || {};
+  const curveNotAdvancingSeparatorShadowLedger = docs.preMigrationCurveNotAdvancingSeparatorShadowLedger.data || {};
   const skipFollowThrough = docs.preMigrationSkipFollowThrough.data || {};
   const skipNear90Watchlist = docs.preMigrationSkipNear90Watchlist.data || {};
   const highConvictionWatchFollowThrough = docs.preMigrationHighConvictionWatchFollowThrough.data || {};
@@ -4518,6 +4520,24 @@ function buildSummary(docs) {
   }
   if (Array.isArray(separatorShadowSamples.topWinners) && separatorShadowSamples.topWinners.length) {
     lines.push('- Best-run top winners/losers are captured in the JSON report for mint-level inspection.');
+  }
+  lines.push('');
+
+  const separatorLedgerSummary = curveNotAdvancingSeparatorShadowLedger.summary || {};
+  const separatorLedgerHypothesis = curveNotAdvancingSeparatorShadowLedger.hypothesis || {};
+  const separatorLedgerOut = separatorLedgerSummary.outOfSample || {};
+  const separatorLedgerBackfill = separatorLedgerSummary.backfill || {};
+  const separatorLedgerPromotion = separatorLedgerSummary.promotion || {};
+
+  lines.push('9b3c. Pre-Registered Separator Shadow Ledger');
+  lines.push('---------------------------------------------');
+  lines.push('- Mode: report-only cumulative ledger for the frozen CURVE_NOT_ADVANCING separator hypothesis. Promotion checks use out-of-sample rows only.');
+  lines.push(`- Hypothesis: ${separatorLedgerHypothesis.rule || 'n/a'} / ${separatorLedgerHypothesis.exitProfile || 'n/a'}; preRegisteredAt=${curveNotAdvancingSeparatorShadowLedger.preRegisteredAt || 'n/a'}.`);
+  lines.push(`- Verdict: ${separatorLedgerSummary.verdict || 'n/a'}; eligible=${separatorLedgerPromotion.eligible === true ? 'yes' : 'no'}; next=${separatorLedgerPromotion.next || 'n/a'}`);
+  lines.push(`- Out-of-sample: trades=${separatorLedgerOut.trades ?? 'n/a'}, wins/losses=${separatorLedgerOut.wins ?? 'n/a'} / ${separatorLedgerOut.losses ?? 'n/a'}, winRate=${pct(separatorLedgerOut.winRate, 1)}, pnl=${sol(separatorLedgerOut.totalPnlSol, 6)}, median=${sol(separatorLedgerOut.medianPnlSol, 6)}, exTop3=${sol(separatorLedgerOut.pnlAfterRemovingTop3WinnersSol, 6)}, outlierDominated=${separatorLedgerOut.outlierDominated === undefined ? 'n/a' : separatorLedgerOut.outlierDominated}.`);
+  lines.push(`- Backfill/in-sample orientation only: trades=${separatorLedgerBackfill.trades ?? 'n/a'}, wins/losses=${separatorLedgerBackfill.wins ?? 'n/a'} / ${separatorLedgerBackfill.losses ?? 'n/a'}, pnl=${sol(separatorLedgerBackfill.totalPnlSol, 6)}, median=${sol(separatorLedgerBackfill.medianPnlSol, 6)}, exTop3=${sol(separatorLedgerBackfill.pnlAfterRemovingTop3WinnersSol, 6)}.`);
+  if (separatorLedgerPromotion.checks) {
+    lines.push(`- Promotion checks: minTrades=${separatorLedgerPromotion.checks.minTrades ? 'pass' : 'fail'}, total=${separatorLedgerPromotion.checks.totalPnlPositive ? 'pass' : 'fail'}, median=${separatorLedgerPromotion.checks.medianPnlPositive ? 'pass' : 'fail'}, exTop3=${separatorLedgerPromotion.checks.exTop3NonNegative ? 'pass' : 'fail'}, outlier=${separatorLedgerPromotion.checks.notOutlierDominated ? 'pass' : 'fail'}, runBreadth=${separatorLedgerPromotion.checks.positiveInAtLeastHalfRuns ? 'pass' : 'fail'}.`);
   }
   lines.push('');
 

@@ -19,6 +19,8 @@ const SIZE_SOL = 0.05;
 const FEE_SOL = 0.0005;
 const RUNTIME_SHADOW_ENTER = 'pre_migration_curve_not_advancing_separator_shadow.would_enter';
 const RUNTIME_SHADOW_SKIP = 'pre_migration_curve_not_advancing_separator_shadow.would_skip';
+const PREREGISTERED_SEPARATOR_RULE = 'delta60_ge_02_score55_vol5_vel10';
+const PREREGISTERED_EXIT_PROFILE = 'shadow_300s_tp50_sl25_slip3';
 
 const EXIT_PROFILES = [
   { name: 'shadow_120s_tp50_sl25_slip3', holdSeconds: 120, takeProfitPct: 50, stopLossPct: -25, entrySlippagePct: 3, exitSlippagePct: 3 },
@@ -331,6 +333,9 @@ function buildReport(telemetryPath, telemetry) {
   ));
   const ruleRuns = [];
   const replaySamples = {};
+  const preRegisteredKey = `${PREREGISTERED_SEPARATOR_RULE}:${PREREGISTERED_EXIT_PROFILE}`;
+  let preRegisteredRun = null;
+  let preRegisteredTrades = [];
   for (const row of analyzed) {
     const entryMs = Number(row.atMs) || new Date(row.at || 0).getTime();
     row._hasFuturePriceSnapshots = (telemetry.snapshotsByMint.get(row.mint) || []).some((snapshot) => (
@@ -357,6 +362,10 @@ function buildReport(telemetryPath, telemetry) {
         .filter(Boolean);
       const summary = summarizeReplay(rule, profile, matchingRows, selectedRows, replayRows);
       ruleRuns.push(summary);
+      if (`${rule.name}:${profile.name}` === preRegisteredKey) {
+        preRegisteredRun = summary;
+        preRegisteredTrades = replayRows;
+      }
       replaySamples[`${rule.name}:${profile.name}`] = {
         topWinners: replayRows.slice().sort((a, b) => Number(b.pnlSol) - Number(a.pnlSol)).slice(0, 10),
         topLosers: replayRows.slice().sort((a, b) => Number(a.pnlSol) - Number(b.pnlSol)).slice(0, 10)
@@ -388,6 +397,11 @@ function buildReport(telemetryPath, telemetry) {
       feeSol: FEE_SOL,
       exitProfiles: EXIT_PROFILES,
       candidateRules: CANDIDATE_RULES.map(({ name, description }) => ({ name, description })),
+      preRegisteredHypothesis: {
+        rule: PREREGISTERED_SEPARATOR_RULE,
+        exitProfile: PREREGISTERED_EXIT_PROFILE,
+        promotionBar: 'cumulative n >= 30, total > 0, median > 0, exTop3 >= 0, not outlier dominated, positive in at least half of runs'
+      },
       caveat: 'Report-only observed-path replay over provider price snapshots. It does not model quote availability, MEV, exact liquidity, latency, or transaction landing.'
     },
     summary: {
@@ -415,6 +429,8 @@ function buildReport(telemetryPath, telemetry) {
       } : null
     },
     runtimeShadow: readRuntimeShadowSummary(telemetryPath),
+    preRegisteredRun,
+    preRegisteredTrades,
     rankedRuns: ranked,
     robustPositiveRuns: robustPositive,
     bestRunSamples: bestKey ? replaySamples[bestKey] : null,
@@ -441,7 +457,11 @@ async function main() {
   console.log(`Wrote JSON report: ${outputPath}`);
 }
 
-module.exports = { buildReport };
+module.exports = {
+  buildReport,
+  PREREGISTERED_EXIT_PROFILE,
+  PREREGISTERED_SEPARATOR_RULE
+};
 
 if (require.main === module) {
   main().catch((error) => {

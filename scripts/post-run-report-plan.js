@@ -77,6 +77,7 @@ const POST_RUN_REPORTS = [
   { title: 'Pre-Migration Curve Advance Diagnostic', script: 'pre-migration-curve-advance-diagnostic-report.js' },
   { title: 'Pre-Migration CURVE_NOT_ADVANCING Separability', script: 'pre-migration-curve-not-advancing-separability-report.js' },
   { title: 'Pre-Migration CURVE_NOT_ADVANCING Separator Shadow', script: 'pre-migration-curve-not-advancing-separator-shadow-report.js' },
+  { title: 'Pre-Migration CURVE_NOT_ADVANCING Separator Shadow Ledger', script: 'pre-migration-curve-not-advancing-separator-shadow-ledger-report.js', timeoutMs: 300000 },
   { title: 'Pre-Migration Guard Attribution', script: 'pre-migration-guard-attribution-report.js' },
   { title: 'Pre-Migration Skip Follow-through', script: 'pre-migration-skip-follow-through-report.js' },
   { title: 'Pre-Migration Skip Near-90 Watchlist', script: 'pre-migration-skip-near-90-watchlist-report.js' },
