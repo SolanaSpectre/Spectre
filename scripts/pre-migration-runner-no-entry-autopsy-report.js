@@ -424,6 +424,7 @@ function summarizeRunner(row) {
   const truth = bindingDecision ? nearestTruth(row, bindingDecision.atMs) : null;
   const stale = staleVerdict(bindingDecision, truth);
   const bindingGate = minimalGateHint(bindingDecision);
+  const decisionInputs = bindingDecision?.inputs || {};
   const allChecks = {};
   for (const decision of row.decisions) {
     for (const check of decision.failedChecks || []) bump(allChecks, check);
@@ -455,6 +456,15 @@ function summarizeRunner(row) {
     maxUniqueBuyerCount: compact(row.maxUniqueBuyerCount, 2),
     maxSniperWalletCount: compact(row.maxSniperWalletCount, 2),
     maxBuyerSniperRatio: compact(row.maxBuyerSniperRatio, 4),
+    decisionScore: compact(decisionInputs.score, 2),
+    decisionCurveProgress: compact(decisionInputs.curveProgress, 6),
+    decisionCurveProgressDelta60s: compact(decisionInputs.curveProgressDelta60s, 6),
+    decisionRecentVolumeSol: compact(decisionInputs.recentVolumeSol, 4),
+    decisionTradeVelocityPerMin: compact(decisionInputs.tradeVelocityPerMin, 2),
+    decisionBuyRatio: compact(decisionInputs.buyRatio, 4),
+    decisionUniqueBuyerCount: compact(decisionInputs.uniqueBuyerCount, 2),
+    decisionSniperWalletCount: compact(decisionInputs.sniperWalletCount, 2),
+    decisionBuyerSniperRatio: compact(decisionInputs.buyerSniperRatio, 4),
     decisions: row.decisions.length,
     preRunnerDecisions: preRunnerDecisions.length,
     bindingGate,
@@ -525,7 +535,7 @@ function buildReport(filePath) {
     blockerCoFire.sniperCrowdingRows += autopsy.blockerRows.sniperCrowding;
   }
 
-  const breadthRows = runnerAutopsies.map((row) => row.maxBuyerSniperRatio);
+  const breadthRows = runnerAutopsies.map((row) => row.decisionBuyerSniperRatio);
   const verdict = (() => {
     if (!runners.length) return 'NO_CURVE90_RUNNERS';
     if (!noEntryRunners.length) return 'RUNNERS_ENTERED';
@@ -556,8 +566,8 @@ function buildReport(filePath) {
       staleGateVerdicts: topCounts(staleVerdicts, 12),
       blockerCoFire,
       runnerBuyerSniperRatio: numericStats(breadthRows, 4),
-      runnerScore: numericStats(runnerAutopsies.map((row) => row.maxScore), 2),
-      runnerVelocity: numericStats(runnerAutopsies.map((row) => row.maxTradeVelocityPerMin), 2),
+      runnerScore: numericStats(runnerAutopsies.map((row) => row.decisionScore), 2),
+      runnerVelocity: numericStats(runnerAutopsies.map((row) => row.decisionTradeVelocityPerMin), 2),
       eventCounts: topCounts(scanned.eventCounts, 20)
     },
     runners: runnerAutopsies,

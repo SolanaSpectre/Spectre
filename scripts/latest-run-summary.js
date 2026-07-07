@@ -2724,7 +2724,7 @@ function buildSummary(docs) {
     if (runners.length) {
       lines.push('- Runner no-entry rows:');
       runners.forEach((row, index) => {
-        lines.push(`  ${index + 1}. ${row.symbol || 'UNKNOWN'} ${row.mint || ''} | gate=${row.bindingGate || 'n/a'} | stale=${row.staleGateVerdict || 'n/a'} | curve=${fmt(row.maxCurveProgress, 4)} | score=${fmt(row.maxScore, 2)} | buyers/snipers=${fmt(row.maxUniqueBuyerCount, 0)} / ${fmt(row.maxSniperWalletCount, 0)} | ratio=${fmt(row.maxBuyerSniperRatio, 2)} | obs->90=${fmt(row.secondsObservedToCross90, 2)}s.`);
+        lines.push(`  ${index + 1}. ${row.symbol || 'UNKNOWN'} ${row.mint || ''} | gate=${row.bindingGate || 'n/a'} | stale=${row.staleGateVerdict || 'n/a'} | decisionCurve=${fmt(row.decisionCurveProgress, 4)} | decisionScore=${fmt(row.decisionScore, 2)} | decisionBuyers/snipers=${fmt(row.decisionUniqueBuyerCount, 0)} / ${fmt(row.decisionSniperWalletCount, 0)} | decisionRatio=${fmt(row.decisionBuyerSniperRatio, 2)} | obs->90=${fmt(row.secondsObservedToCross90, 2)}s.`);
       });
     }
     lines.push('');
