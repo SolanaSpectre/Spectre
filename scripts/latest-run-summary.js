@@ -35,6 +35,9 @@ const FILES = {
   preMigrationFlaggedFollowThroughSliceShadow: 'data/reports/pre-migration-flagged-follow-through-slice-shadow-latest.json',
   preMigrationFlaggedFollowThroughSliceShadowReplay: 'data/reports/pre-migration-flagged-follow-through-slice-shadow-replay-latest.json',
   preMigrationCandidateSupplyFunnel: 'data/reports/pre-migration-candidate-supply-funnel-latest.json',
+  preMigrationWatchVsCrosserSupply: 'data/reports/pre-migration-watch-vs-crosser-supply-latest.json',
+  preMigrationRunnerNoEntryAutopsy: 'data/reports/pre-migration-runner-no-entry-autopsy-latest.json',
+  preMigrationAdvancingHighCurveLaneGap: 'data/reports/pre-migration-advancing-high-curve-lane-gap-latest.json',
   preMigrationPre60SnapshotCoverage: 'data/reports/pre-migration-pre60-snapshot-coverage-latest.json',
   preMigrationPreCurve60RunnerDiscovery: 'data/reports/pre-migration-pre-curve60-runner-discovery-latest.json',
   preMigrationEarlySignalBaseRate: 'data/reports/pre-migration-early-signal-base-rate-latest.json',
@@ -2321,6 +2324,9 @@ function buildSummary(docs) {
   const flaggedFollowThroughSliceShadow = docs.preMigrationFlaggedFollowThroughSliceShadow.data || {};
   const flaggedFollowThroughSliceShadowReplay = docs.preMigrationFlaggedFollowThroughSliceShadowReplay.data || {};
   const candidateSupplyFunnel = docs.preMigrationCandidateSupplyFunnel.data || {};
+  const watchVsCrosserSupply = docs.preMigrationWatchVsCrosserSupply.data || {};
+  const runnerNoEntryAutopsy = docs.preMigrationRunnerNoEntryAutopsy.data || {};
+  const advancingHighCurveLaneGap = docs.preMigrationAdvancingHighCurveLaneGap.data || {};
   const pre60SnapshotCoverage = docs.preMigrationPre60SnapshotCoverage.data || {};
   const preCurve60RunnerDiscovery = docs.preMigrationPreCurve60RunnerDiscovery.data || {};
   const earlySignalBaseRate = docs.preMigrationEarlySignalBaseRate.data || {};
@@ -2678,6 +2684,72 @@ function buildSummary(docs) {
       lines.push('- Funnel stages:');
       funnelRows.forEach((row) => {
         lines.push(`  - ${row.stage}: ${row.uniqueMints ?? 'n/a'} mints, ${fmt(row.perHour, 2)}/hr, retain=${pct(row.retentionFromPrevious, 1)}`);
+      });
+    }
+    lines.push('');
+  }
+
+  if (watchVsCrosserSupply.summary) {
+    const supply = watchVsCrosserSupply.summary || {};
+    const cohorts = topArray(watchVsCrosserSupply.cohorts, 8);
+    lines.push('0b9a. Watch-vs-Crosser Supply');
+    lines.push('-----------------------------');
+    lines.push('- Mode: report-only provenance autopsy; classifies cross60/cross90 mints as missed, observed-not-flagged, flagged-but-gated, shadow-enterable, or entered.');
+    lines.push(`- Verdict: ${supply.verdict || 'n/a'}; observed=${supply.observedMints ?? 'n/a'} (${fmt(supply.observedPerHour, 2)}/hr), flagged=${supply.flaggedMints ?? 'n/a'}, evaluated=${supply.evaluatedMints ?? 'n/a'}, curve60/85/90=${supply.curve60PlusMints ?? 'n/a'} / ${supply.curve85PlusMints ?? 'n/a'} / ${supply.curve90PlusMints ?? 'n/a'}, paperEntered=${supply.paperEnteredMints ?? 'n/a'}.`);
+    lines.push(`- Supply side-effects: flaggedNeverCurve60=${supply.flaggedNeverCurve60Mints ?? 'n/a'}, unflaggedNearMiss=${supply.unflaggedNearMissMints ?? 'n/a'}, sliceShadowWouldEnter=${supply.sliceShadowWouldEnterMints ?? 'n/a'}, separatorShadowWouldEnter=${supply.separatorShadowWouldEnterMints ?? 'n/a'}.`);
+    lines.push(`- Crosser provenance: ${formatTopCounts(supply.cross60ProvenanceCounts)}.`);
+    lines.push(`- Runner provenance: ${formatTopCounts(supply.runnerProvenanceCounts)}.`);
+    lines.push(`- Top reasons/checks: reasons=${formatTopCounts(supply.topReasons)}, failed=${formatTopCounts(supply.topFailedChecks)}.`);
+    if (cohorts.length) {
+      lines.push('- Cohorts:');
+      cohorts.forEach((row) => {
+        lines.push(`  - ${row.cohort}: mints=${row.mints ?? 'n/a'}, crossed60/90=${row.crossed60 ?? 'n/a'} / ${row.crossed90 ?? 'n/a'}, flagged=${row.flagged ?? 'n/a'}, wouldEnter=${row.wouldEnter ?? 'n/a'}, scoreMed=${fmt(row.score?.median, 2)}, velMed=${fmt(row.tradeVelocityPerMin?.median, 2)}, maxCurveMed=${fmt(row.curveProgress?.median, 4)}.`);
+      });
+    }
+    lines.push('');
+  }
+
+  if (runnerNoEntryAutopsy.summary) {
+    const autopsy = runnerNoEntryAutopsy.summary || {};
+    const runners = topArray(runnerNoEntryAutopsy.runners, 5);
+    lines.push('0b9aa. Runner No-Entry Autopsy');
+    lines.push('-------------------------------');
+    lines.push('- Mode: report-only; audits why curve90 runners did not become paper entries by joining gate inputs, blocker co-fires, and nearby verifier/parity truth.');
+    lines.push(`- Verdict: ${autopsy.verdict || 'n/a'}; curve60/90=${autopsy.curve60PlusMints ?? 'n/a'} / ${autopsy.curve90PlusMints ?? 'n/a'}, noEntryRunners=${autopsy.noEntryRunnerMints ?? 'n/a'}, enteredRunners=${autopsy.paperEnteredRunnerMints ?? 'n/a'}.`);
+    lines.push(`- Binding gates: ${formatTopCounts(autopsy.bindingGates)}; stale verdicts=${formatTopCounts(autopsy.staleGateVerdicts)}.`);
+    if (autopsy.blockerCoFire) {
+      const co = autopsy.blockerCoFire;
+      lines.push(`- Blocker co-fire rows: stale=${co.staleRows ?? 'n/a'}, sniper=${co.sniperCrowdingRows ?? 'n/a'}, stale+sniper=${co.staleAndSniperCrowdingRows ?? 'n/a'}; runner buyer/sniper ratio median/p90=${fmt(autopsy.runnerBuyerSniperRatio?.median, 2)} / ${fmt(autopsy.runnerBuyerSniperRatio?.p90, 2)}.`);
+    }
+    if (runners.length) {
+      lines.push('- Runner no-entry rows:');
+      runners.forEach((row, index) => {
+        lines.push(`  ${index + 1}. ${row.symbol || 'UNKNOWN'} ${row.mint || ''} | gate=${row.bindingGate || 'n/a'} | stale=${row.staleGateVerdict || 'n/a'} | curve=${fmt(row.maxCurveProgress, 4)} | score=${fmt(row.maxScore, 2)} | buyers/snipers=${fmt(row.maxUniqueBuyerCount, 0)} / ${fmt(row.maxSniperWalletCount, 0)} | ratio=${fmt(row.maxBuyerSniperRatio, 2)} | obs->90=${fmt(row.secondsObservedToCross90, 2)}s.`);
+      });
+    }
+    lines.push('');
+  }
+
+  if (advancingHighCurveLaneGap.summary) {
+    const gap = advancingHighCurveLaneGap.summary || {};
+    const all = gap.all || {};
+    const byReason = gap.byReason || {};
+    const buckets = topArray(gap.byCrowdingBreadth, 5);
+    lines.push('0b9ab. Advancing High-Curve Lane Gap');
+    lines.push('-------------------------------------');
+    lines.push('- Mode: report-only; tests decision-time high-curve advancing candidates blocked by first-sight override or curve-false-negative stalled-curve policy. No future max fields are used for filtering.');
+    lines.push(`- Verdict: ${gap.verdict || 'n/a'}; raw/deduped=${gap.rawCandidateRows ?? 'n/a'} / ${gap.dedupedCandidateRows ?? 'n/a'}, uniqueMints=${gap.uniqueMints ?? 'n/a'}, replayed=${all.replayed ?? 'n/a'}, crossed90_300=${all.crossed90Within300s ?? 'n/a'}.`);
+    lines.push(`- Replay: wins/losses=${all.wins ?? 'n/a'} / ${all.losses ?? 'n/a'}, winRate=${pct(all.winRate, 1)}, pnlSum=${fmt(all.pnl?.sum, 6)} SOL, median=${fmt(all.pnl?.median, 6)} SOL, exTop3=${fmt(all.exTop3PnlSol, 6)} SOL, outlierDominated=${all.outlierDominated === null || all.outlierDominated === undefined ? 'n/a' : all.outlierDominated}.`);
+    if (Object.keys(byReason).length) {
+      lines.push('- By blocker:');
+      Object.entries(byReason).forEach(([reason, row]) => {
+        lines.push(`  - ${reason}: verdict=${row.verdict || 'n/a'}, rows=${row.rows ?? 'n/a'}, replayed=${row.replayed ?? 'n/a'}, crossed90=${row.crossed90Within300s ?? 'n/a'}, median=${fmt(row.pnl?.median, 6)} SOL, exTop3=${fmt(row.exTop3PnlSol, 6)} SOL.`);
+      });
+    }
+    if (buckets.length) {
+      lines.push('- Breadth/crowding buckets:');
+      buckets.forEach((row) => {
+        lines.push(`  - ${row.name}: rows=${row.rows ?? 'n/a'}, replayed=${row.replayed ?? 'n/a'}, crossed90=${row.crossed90Within300s ?? 'n/a'}, median=${fmt(row.pnl?.median, 6)} SOL, exTop3=${fmt(row.exTop3PnlSol, 6)} SOL.`);
       });
     }
     lines.push('');
