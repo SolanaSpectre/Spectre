@@ -1453,6 +1453,20 @@ function buildPumpDevHealth(battlefield = {}) {
     maxSubscribedMints: number(stats.maxSubscribedMints, 0),
     controlFramesSent: number(stats.controlFramesSent, 0),
     tokenTradeSubscribeFrames: number(stats.tokenTradeSubscribeFrames, 0),
+    tokenTradeReconnectResubscribeScheduled: number(stats.tokenTradeReconnectResubscribeScheduled, 0),
+    tokenTradeReconnectResubscribeSent: number(stats.tokenTradeReconnectResubscribeSent, 0),
+    tokenTradeReconnectResubscribeDropped: number(stats.tokenTradeReconnectResubscribeDropped, 0),
+    tokenTradeSubscribesSuppressedDuringCooldown: number(stats.tokenTradeSubscribesSuppressedDuringCooldown, 0),
+    tokenTradeDeferredSubscribeSent: number(stats.tokenTradeDeferredSubscribeSent, 0),
+    tokenTradeDeferredSubscribeDropped: number(stats.tokenTradeDeferredSubscribeDropped, 0),
+    reconnectResubscribeMaxMints: number(stats.reconnectResubscribeMaxMints, 0),
+    reconnectResubscribeBatchSize: number(stats.reconnectResubscribeBatchSize, 0),
+    reconnectResubscribeBatchDelayMs: number(stats.reconnectResubscribeBatchDelayMs, 0),
+    rateLimitCloseEvents: number(stats.rateLimitCloseEvents, 0),
+    rateLimitCooldownMs: number(stats.rateLimitCooldownMs, 0),
+    rateLimitCooldownUntilMs: number(stats.rateLimitCooldownUntilMs, 0),
+    reconnectDelayStableResets: number(stats.reconnectDelayStableResets, 0),
+    reconnectDelayResetAfterStableMs: number(stats.reconnectDelayResetAfterStableMs, 0),
     eventQueueActive: number(stats.eventQueueActive, 0),
     eventQueueDepth: number(stats.eventQueueDepth, 0),
     eventQueueMaxDepth: number(stats.eventQueueMaxDepth, 0),
@@ -3137,6 +3151,9 @@ function buildSummary(docs) {
   lines.push(`  - messages / new tokens / trades / mint events / migrations: ${pumpDevHealth.messages} / ${pumpDevHealth.newTokens} / ${pumpDevHealth.trades} / ${pumpDevHealth.mintEvents} / ${pumpDevHealth.migrations}`);
   lines.push(`  - reconnects / closes / errors: ${pumpDevHealth.reconnectAttempts} / ${pumpDevHealth.closeEvents} / ${pumpDevHealth.errorEvents}`);
   lines.push(`  - token trade subscription load: active=${pumpDevHealth.subscribedMints}, max=${pumpDevHealth.maxSubscribedMints || 'n/a'}, subscribeFrames=${pumpDevHealth.tokenTradeSubscribeFrames || 0}, controlFrames=${pumpDevHealth.controlFramesSent || 0}`);
+  lines.push(`  - reconnect resubscribe throttle: scheduled/sent/dropped=${pumpDevHealth.tokenTradeReconnectResubscribeScheduled || 0} / ${pumpDevHealth.tokenTradeReconnectResubscribeSent || 0} / ${pumpDevHealth.tokenTradeReconnectResubscribeDropped || 0}, cap=${pumpDevHealth.reconnectResubscribeMaxMints || 'n/a'}, batch=${pumpDevHealth.reconnectResubscribeBatchSize || 'n/a'} every ${pumpDevHealth.reconnectResubscribeBatchDelayMs || 0}ms`);
+  lines.push(`  - cooldown fresh-subscribe deferral: suppressed/sent/dropped=${pumpDevHealth.tokenTradeSubscribesSuppressedDuringCooldown || 0} / ${pumpDevHealth.tokenTradeDeferredSubscribeSent || 0} / ${pumpDevHealth.tokenTradeDeferredSubscribeDropped || 0}`);
+  lines.push(`  - rate-limit backoff: 1008 closes=${pumpDevHealth.rateLimitCloseEvents || 0}, cooldown=${pumpDevHealth.rateLimitCooldownMs || 0}ms, cooldownUntilMs=${pumpDevHealth.rateLimitCooldownUntilMs || 0}, stableDelayResets=${pumpDevHealth.reconnectDelayStableResets || 0} after ${pumpDevHealth.reconnectDelayResetAfterStableMs || 0}ms`);
   lines.push(`  - message handler queue: active=${pumpDevHealth.eventQueueActive}, depth/max=${pumpDevHealth.eventQueueDepth} / ${pumpDevHealth.eventQueueMaxDepth}, processed/dropped/coalesced/stop-discarded/errors=${pumpDevHealth.eventQueueProcessed} / ${pumpDevHealth.eventQueueDropped} / ${pumpDevHealth.eventQueueTradeCoalesced || 0} / ${pumpDevHealth.eventQueueDiscardedOnStop} / ${pumpDevHealth.eventQueueErrors}, concurrency=${pumpDevHealth.eventHandlerConcurrency || 'n/a'}, max=${pumpDevHealth.eventQueueMaxSize || 'n/a'}`);
   lines.push(`  - pair-base total SOL/USDC/unknown: ${pumpDevHealth.pairSolEvents || 0} / ${pumpDevHealth.pairUsdcEvents || 0} / ${pumpDevHealth.pairUnknownEvents || 0}`);
   lines.push(`  - pair-base by event newToken SOL/USDC/unknown: ${pumpDevHealth.newTokenPairSolEvents || 0} / ${pumpDevHealth.newTokenPairUsdcEvents || 0} / ${pumpDevHealth.newTokenPairUnknownEvents || 0}`);
@@ -4533,7 +4550,10 @@ function buildSummary(docs) {
   lines.push('---------------------------------------------');
   lines.push('- Mode: report-only cumulative ledger for the frozen CURVE_NOT_ADVANCING separator hypothesis. Promotion checks use out-of-sample rows only.');
   lines.push(`- Hypothesis: ${separatorLedgerHypothesis.rule || 'n/a'} / ${separatorLedgerHypothesis.exitProfile || 'n/a'}; preRegisteredAt=${curveNotAdvancingSeparatorShadowLedger.preRegisteredAt || 'n/a'}.`);
-  lines.push(`- Verdict: ${separatorLedgerSummary.verdict || 'n/a'}; eligible=${separatorLedgerPromotion.eligible === true ? 'yes' : 'no'}; next=${separatorLedgerPromotion.next || 'n/a'}`);
+  lines.push(`- Verdict: ${separatorLedgerSummary.verdict || 'n/a'}; status=${separatorLedgerSummary.hypothesisStatus || 'n/a'}; eligible=${separatorLedgerPromotion.eligible === true ? 'yes' : 'no'}; next=${separatorLedgerPromotion.next || 'n/a'}`);
+  if (separatorLedgerSummary.hypothesisReason) {
+    lines.push(`- Hypothesis reason: ${separatorLedgerSummary.hypothesisReason}`);
+  }
   lines.push(`- Out-of-sample: trades=${separatorLedgerOut.trades ?? 'n/a'}, wins/losses=${separatorLedgerOut.wins ?? 'n/a'} / ${separatorLedgerOut.losses ?? 'n/a'}, winRate=${pct(separatorLedgerOut.winRate, 1)}, pnl=${sol(separatorLedgerOut.totalPnlSol, 6)}, median=${sol(separatorLedgerOut.medianPnlSol, 6)}, exTop3=${sol(separatorLedgerOut.pnlAfterRemovingTop3WinnersSol, 6)}, outlierDominated=${separatorLedgerOut.outlierDominated === undefined ? 'n/a' : separatorLedgerOut.outlierDominated}.`);
   lines.push(`- Backfill/in-sample orientation only: trades=${separatorLedgerBackfill.trades ?? 'n/a'}, wins/losses=${separatorLedgerBackfill.wins ?? 'n/a'} / ${separatorLedgerBackfill.losses ?? 'n/a'}, pnl=${sol(separatorLedgerBackfill.totalPnlSol, 6)}, median=${sol(separatorLedgerBackfill.medianPnlSol, 6)}, exTop3=${sol(separatorLedgerBackfill.pnlAfterRemovingTop3WinnersSol, 6)}.`);
   if (separatorLedgerPromotion.checks) {

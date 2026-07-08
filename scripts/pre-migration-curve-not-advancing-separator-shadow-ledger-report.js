@@ -145,6 +145,48 @@ function promotionStatus(summary, runRows) {
   };
 }
 
+function hypothesisStatus({ outOfSample, backfill }) {
+  const backfillLargeEnough = Number(backfill.trades || 0) >= PROMOTION_BAR.minTrades;
+  const combinedLargeEnough = Number(backfill.trades || 0) + Number(outOfSample.trades || 0) >= PROMOTION_BAR.minTrades;
+  const backfillFailsCore = Number(backfill.totalPnlSol || 0) <= 0
+    || Number(backfill.medianPnlSol || 0) <= 0
+    || Number(backfill.pnlAfterRemovingTop3WinnersSol || 0) < 0;
+  const outOfSampleStarted = Number(outOfSample.trades || 0) > 0;
+  const outOfSampleFailsCore = outOfSampleStarted && (
+    Number(outOfSample.totalPnlSol || 0) <= 0
+    || Number(outOfSample.medianPnlSol || 0) <= 0
+    || Number(outOfSample.pnlAfterRemovingTop3WinnersSol || 0) < 0
+  );
+  const standaloneOutOfSampleCheckFailed = Number(outOfSample.trades || 0) >= 6
+    && Number(outOfSample.wins || 0) === 0
+    && outOfSampleFailsCore;
+
+  if (backfillLargeEnough && backfillFailsCore && (!outOfSampleStarted || outOfSampleFailsCore)) {
+    return {
+      status: 'REJECTED',
+      reason: outOfSampleStarted
+        ? 'Frozen hypothesis failed the promotion-sized backfill sample and the first out-of-sample check.'
+        : 'Frozen hypothesis failed the promotion-sized backfill sample; future rows may be tracked for reference, but this hypothesis is not promotable.'
+    };
+  }
+  if (combinedLargeEnough && backfillFailsCore && outOfSampleFailsCore) {
+    return {
+      status: 'REJECTED',
+      reason: 'Frozen hypothesis failed a promotion-sized combined evidence sample, including the first out-of-sample check.'
+    };
+  }
+  if (standaloneOutOfSampleCheckFailed) {
+    return {
+      status: 'REJECTED',
+      reason: 'Frozen hypothesis failed the standalone out-of-sample check: 6+ trades, zero wins, and negative core metrics.'
+    };
+  }
+  return {
+    status: 'ACTIVE_MEASUREMENT',
+    reason: 'Frozen hypothesis has not met a rejection or promotion condition.'
+  };
+}
+
 function classifyRun(startMs) {
   const runStartMs = Number(startMs);
   const registeredMs = new Date(PREREGISTERED_AT).getTime();
@@ -193,6 +235,7 @@ async function buildLedger(files) {
   const backfill = summarizeTrades(backfillTrades);
   const combined = summarizeTrades(trades);
   const promotion = promotionStatus(outOfSample, outOfSampleRuns);
+  const hypothesis = hypothesisStatus({ outOfSample, backfill });
 
   return {
     generatedAt: new Date().toISOString(),
@@ -207,7 +250,11 @@ async function buildLedger(files) {
     promotionBar: PROMOTION_BAR,
     files: files.map((filePath) => path.relative(ROOT, filePath)),
     summary: {
-      verdict: promotion.eligible ? 'PROMOTION_BAR_MET_FOR_RUNTIME_SHADOW_ONLY' : 'PRE_REGISTERED_SAMPLE_INCOMPLETE',
+      verdict: hypothesis.status === 'REJECTED'
+        ? 'REJECTED_SEPARATOR_HYPOTHESIS'
+        : (promotion.eligible ? 'PROMOTION_BAR_MET_FOR_RUNTIME_SHADOW_ONLY' : 'PRE_REGISTERED_SAMPLE_INCOMPLETE'),
+      hypothesisStatus: hypothesis.status,
+      hypothesisReason: hypothesis.reason,
       outOfSample,
       backfill,
       combined,

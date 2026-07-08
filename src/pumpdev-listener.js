@@ -18,6 +18,11 @@ class PumpDevListener {
     this.feedMode = config.pumpDevFeedMode || 'shadow';
     this.drivesPreMigration = config.pumpDevDrivesPreMigration === true;
     this.maxSubscribedMints = Number(config.pumpDevMaxSubscribedMints || 100);
+    this.reconnectResubscribeMaxMints = Number(config.pumpDevReconnectResubscribeMaxMints || 25);
+    this.reconnectResubscribeBatchSize = Number(config.pumpDevReconnectResubscribeBatchSize || 5);
+    this.reconnectResubscribeBatchDelayMs = Number(config.pumpDevReconnectResubscribeBatchDelayMs || 2000);
+    this.rateLimitCooldownMs = Number(config.pumpDevRateLimitCooldownMs || 60000);
+    this.reconnectDelayResetAfterStableMs = Number(config.pumpDevReconnectDelayResetAfterStableMs || 120000);
     this.pingIntervalMs = Number(config.pumpDevPingIntervalMs || 25000);
     this.reconnectDelayMs = Number(config.pumpDevReconnectDelayMs || 5000);
     this.maxReconnectDelayMs = Number(config.pumpDevMaxReconnectDelayMs || 30000);
@@ -25,6 +30,12 @@ class PumpDevListener {
     this.eventQueueMaxSize = Math.max(1, Number(config.pumpDevEventQueueMaxSize || 10000));
     this.currentReconnectDelayMs = this.reconnectDelayMs;
     this.reconnectTimer = null;
+    this.reconnectDelayResetTimer = null;
+    this.resubscribeTimer = null;
+    this.deferredSubscribeTimer = null;
+    this.pendingResubscribeMints = [];
+    this.deferredSubscribeMints = new Set();
+    this.rateLimitCooldownUntilMs = 0;
     this.pingTimer = null;
     this.eventQueue = [];
     this.activeEventHandlers = 0;
@@ -32,6 +43,7 @@ class PumpDevListener {
     this.pendingTradeQueueByMint = new Map();
     this.tradeCoalesceQueueDepth = Math.max(0, Number(config.pumpDevTradeCoalesceQueueDepth || 500));
     this.subscribedMints = new Set();
+    this.subscribedMintMeta = new Map();
     this.knownMints = new Set();
     this.stats = {
       enabled: Boolean(config.pumpDevShadowEnabled),
@@ -58,6 +70,20 @@ class PumpDevListener {
       reconnectAttempts: 0,
       controlFramesSent: 0,
       tokenTradeSubscribeFrames: 0,
+      tokenTradeReconnectResubscribeScheduled: 0,
+      tokenTradeReconnectResubscribeSent: 0,
+      tokenTradeReconnectResubscribeDropped: 0,
+      tokenTradeSubscribesSuppressedDuringCooldown: 0,
+      tokenTradeDeferredSubscribeSent: 0,
+      tokenTradeDeferredSubscribeDropped: 0,
+      reconnectResubscribeMaxMints: this.reconnectResubscribeMaxMints,
+      reconnectResubscribeBatchSize: this.reconnectResubscribeBatchSize,
+      reconnectResubscribeBatchDelayMs: this.reconnectResubscribeBatchDelayMs,
+      rateLimitCloseEvents: 0,
+      rateLimitCooldownMs: this.rateLimitCooldownMs,
+      rateLimitCooldownUntilMs: 0,
+      reconnectDelayStableResets: 0,
+      reconnectDelayResetAfterStableMs: this.reconnectDelayResetAfterStableMs,
       eventQueueActive: 0,
       eventQueueDepth: 0,
       eventQueueMaxDepth: 0,
@@ -118,6 +144,9 @@ class PumpDevListener {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.clearReconnectDelayResetTimer();
+    this.clearResubscribeTimer();
+    this.clearDeferredSubscribeTimer();
     this.stopHeartbeat();
     if (this.eventQueue.length > 0) {
       this.stats.eventQueueDiscardedOnStop += this.eventQueue.length;
@@ -153,15 +182,18 @@ class PumpDevListener {
       this.stats.lastConnectedAt = now;
       this.stats.lastCloseCode = null;
       this.stats.lastCloseReason = null;
-      this.currentReconnectDelayMs = this.reconnectDelayMs;
-      this.stats.reconnectDelayMs = this.currentReconnectDelayMs;
       this.logger.info('PumpDev shadow websocket connected');
       this.send({ method: 'subscribeNewToken' });
-      this.resubscribeTrackedMints();
+      this.scheduleReconnectDelayReset(socket);
+      this.scheduleResubscribeTrackedMints();
+      this.scheduleDeferredSubscribeFlush();
       this.startHeartbeat(socket);
       this.emitLifecycle('provider.pumpdev.connected', {
         subscribedMints: this.subscribedMints.size,
         maxSubscribedMints: this.maxSubscribedMints,
+        reconnectResubscribeMaxMints: this.reconnectResubscribeMaxMints,
+        reconnectResubscribeBatchSize: this.reconnectResubscribeBatchSize,
+        reconnectResubscribeBatchDelayMs: this.reconnectResubscribeBatchDelayMs,
         pingIntervalMs: this.pingIntervalMs
       });
     });
@@ -197,6 +229,22 @@ class PumpDevListener {
       this.stats.lastCloseCode = Number(code || 0) || 0;
       this.stats.lastCloseReason = reasonBuffer ? reasonBuffer.toString() : '';
       const connectionStats = this.finalizeConnectionStats(socket);
+      const rateLimited = this.isRateLimitClose(this.stats.lastCloseCode, this.stats.lastCloseReason);
+      if (rateLimited) {
+        this.stats.rateLimitCloseEvents += 1;
+        this.rateLimitCooldownUntilMs = Math.max(
+          this.rateLimitCooldownUntilMs,
+          now + Math.max(0, this.rateLimitCooldownMs)
+        );
+        this.stats.rateLimitCooldownUntilMs = this.rateLimitCooldownUntilMs;
+        this.currentReconnectDelayMs = Math.max(
+          this.currentReconnectDelayMs,
+          Math.max(this.reconnectDelayMs, this.rateLimitCooldownMs)
+        );
+        this.stats.reconnectDelayMs = this.currentReconnectDelayMs;
+      }
+      this.clearReconnectDelayResetTimer();
+      this.clearResubscribeTimer();
       this.stopHeartbeat();
       this.logger.warn('PumpDev shadow websocket closed', {
         code: this.stats.lastCloseCode,
@@ -218,7 +266,9 @@ class PumpDevListener {
         connectionMintEvents: connectionStats.mintEvents,
         connectionControlFramesSent: connectionStats.controlFramesSent,
         connectionMessagesPerMinute: connectionStats.messagesPerMinute,
-        lastMessageAgeMsAtClose: connectionStats.lastMessageAgeMsAtClose
+        lastMessageAgeMsAtClose: connectionStats.lastMessageAgeMsAtClose,
+        rateLimited,
+        rateLimitCooldownUntilMs: this.rateLimitCooldownUntilMs || null
       });
       if (this.ws === socket) this.ws = null;
       if (this.running) {
@@ -371,6 +421,7 @@ class PumpDevListener {
       if (normalized.mint) {
         this.knownMints.add(normalized.mint);
         this.stats.knownMints = this.knownMints.size;
+        this.touchSubscribedMint(normalized.mint);
         this.maybeSubscribeMint(normalized.mint);
       }
       this.emitShadowEvent('provider.pumpdev.shadow_new_token', normalized);
@@ -382,6 +433,7 @@ class PumpDevListener {
 
     if (type === 'trade') {
       this.stats.trades += 1;
+      this.touchSubscribedMint(normalized.mint);
       this.emitShadowEvent('provider.pumpdev.shadow_trade', normalized);
       if (this.drivesPreMigration && typeof this.handlers.onTrade === 'function') {
         await this.safeRuntimeHandler('onTrade', normalized);
@@ -533,16 +585,202 @@ class PumpDevListener {
   maybeSubscribeMint(mint) {
     if (!mint || this.subscribedMints.has(mint)) return;
     if (this.subscribedMints.size >= this.maxSubscribedMints) return;
-    this.subscribedMints.add(mint);
-    this.stats.subscribedMints = this.subscribedMints.size;
-    const sent = this.send({ method: 'subscribeTokenTrade', keys: [mint] });
-    if (sent) this.stats.tokenTradeSubscribeFrames += 1;
+    const now = Date.now();
+    if (this.rateLimitCooldownUntilMs > now) {
+      this.deferSubscribeMint(mint);
+      return;
+    }
+    this.subscribeMintNow(mint, now);
   }
 
-  resubscribeTrackedMints() {
-    for (const mint of this.subscribedMints) {
-      this.send({ method: 'subscribeTokenTrade', keys: [mint] });
+  subscribeMintNow(mint, now = Date.now(), meta = {}) {
+    if (!mint || this.subscribedMints.has(mint)) return false;
+    if (this.subscribedMints.size >= this.maxSubscribedMints) {
+      if (meta.deferred) this.stats.tokenTradeDeferredSubscribeDropped += 1;
+      return false;
     }
+    this.subscribedMints.add(mint);
+    this.subscribedMintMeta.set(mint, {
+      subscribedAt: now,
+      lastSeenAt: now
+    });
+    this.stats.subscribedMints = this.subscribedMints.size;
+    const sent = this.send({ method: 'subscribeTokenTrade', keys: [mint] });
+    if (sent) {
+      this.stats.tokenTradeSubscribeFrames += 1;
+      if (meta.deferred) this.stats.tokenTradeDeferredSubscribeSent += 1;
+    }
+    return sent;
+  }
+
+  deferSubscribeMint(mint) {
+    if (!mint || this.subscribedMints.has(mint)) return;
+    if (!this.deferredSubscribeMints.has(mint)) {
+      this.stats.tokenTradeSubscribesSuppressedDuringCooldown += 1;
+    }
+    this.deferredSubscribeMints.add(mint);
+    this.scheduleDeferredSubscribeFlush();
+  }
+
+  scheduleDeferredSubscribeFlush(delayOverrideMs = null) {
+    if (this.deferredSubscribeTimer || this.deferredSubscribeMints.size === 0) return;
+    const cooldownWaitMs = this.rateLimitCooldownUntilMs - Date.now();
+    const delayMs = Number.isFinite(delayOverrideMs)
+      ? Math.max(0, delayOverrideMs)
+      : Math.max(0, cooldownWaitMs);
+    this.deferredSubscribeTimer = setTimeout(() => this.flushDeferredSubscribeBatch(), delayMs);
+    if (typeof this.deferredSubscribeTimer.unref === 'function') this.deferredSubscribeTimer.unref();
+  }
+
+  clearDeferredSubscribeTimer() {
+    if (this.deferredSubscribeTimer) {
+      clearTimeout(this.deferredSubscribeTimer);
+      this.deferredSubscribeTimer = null;
+    }
+    this.deferredSubscribeMints.clear();
+  }
+
+  flushDeferredSubscribeBatch() {
+    this.deferredSubscribeTimer = null;
+    if (!this.running || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.scheduleDeferredSubscribeFlush(1000);
+      return;
+    }
+
+    const cooldownWaitMs = this.rateLimitCooldownUntilMs - Date.now();
+    if (cooldownWaitMs > 0) {
+      this.scheduleDeferredSubscribeFlush(cooldownWaitMs);
+      return;
+    }
+
+    const batchSize = Number.isFinite(this.reconnectResubscribeBatchSize) && this.reconnectResubscribeBatchSize > 0
+      ? this.reconnectResubscribeBatchSize
+      : this.deferredSubscribeMints.size;
+    const batch = Array.from(this.deferredSubscribeMints).slice(0, batchSize);
+    for (const mint of batch) {
+      this.deferredSubscribeMints.delete(mint);
+      this.subscribeMintNow(mint, Date.now(), { deferred: true });
+    }
+    if (this.deferredSubscribeMints.size > 0) {
+      this.scheduleDeferredSubscribeFlush(this.reconnectResubscribeBatchDelayMs);
+    }
+  }
+
+  touchSubscribedMint(mint) {
+    if (!mint) return;
+    const meta = this.subscribedMintMeta.get(mint);
+    if (!meta) return;
+    meta.lastSeenAt = Date.now();
+  }
+
+  scheduleResubscribeTrackedMints() {
+    this.clearResubscribeTimer();
+    const ranked = Array.from(this.subscribedMints)
+      .map((mint) => {
+        const meta = this.subscribedMintMeta.get(mint) || {};
+        return {
+          mint,
+          subscribedAt: Number(meta.subscribedAt || 0),
+          lastSeenAt: Number(meta.lastSeenAt || 0)
+        };
+      })
+      .sort((a, b) => (b.lastSeenAt || b.subscribedAt) - (a.lastSeenAt || a.subscribedAt));
+    const limit = Number.isFinite(this.reconnectResubscribeMaxMints) && this.reconnectResubscribeMaxMints > 0
+      ? this.reconnectResubscribeMaxMints
+      : ranked.length;
+    const selected = ranked.slice(0, limit).map((item) => item.mint);
+    const droppedItems = ranked.slice(limit);
+    const dropped = droppedItems.length;
+    if (dropped > 0) {
+      this.stats.tokenTradeReconnectResubscribeDropped += dropped;
+      for (const item of droppedItems) {
+        this.subscribedMints.delete(item.mint);
+        this.subscribedMintMeta.delete(item.mint);
+      }
+      this.stats.subscribedMints = this.subscribedMints.size;
+    }
+    this.pendingResubscribeMints = selected.filter((mint) => this.subscribedMints.has(mint));
+    this.stats.tokenTradeReconnectResubscribeScheduled += this.pendingResubscribeMints.length;
+    if (this.pendingResubscribeMints.length === 0) return;
+    this.flushResubscribeBatch();
+    this.logger.info('Scheduled PumpDev trade re-subscriptions', {
+      trackedMints: ranked.length,
+      scheduledMints: this.pendingResubscribeMints.length,
+      droppedMints: dropped,
+      batchSize: this.reconnectResubscribeBatchSize,
+      batchDelayMs: this.reconnectResubscribeBatchDelayMs
+    });
+  }
+
+  clearResubscribeTimer() {
+    if (this.resubscribeTimer) {
+      clearTimeout(this.resubscribeTimer);
+      this.resubscribeTimer = null;
+    }
+    this.pendingResubscribeMints = [];
+  }
+
+  flushResubscribeBatch() {
+    this.resubscribeTimer = null;
+    if (!this.running || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.pendingResubscribeMints = [];
+      return;
+    }
+
+    const cooldownWaitMs = this.rateLimitCooldownUntilMs - Date.now();
+    if (cooldownWaitMs > 0) {
+      this.resubscribeTimer = setTimeout(() => this.flushResubscribeBatch(), cooldownWaitMs);
+      if (typeof this.resubscribeTimer.unref === 'function') this.resubscribeTimer.unref();
+      return;
+    }
+
+    const batchSize = Number.isFinite(this.reconnectResubscribeBatchSize) && this.reconnectResubscribeBatchSize > 0
+      ? this.reconnectResubscribeBatchSize
+      : this.pendingResubscribeMints.length;
+    const batch = this.pendingResubscribeMints.splice(0, batchSize);
+    for (const mint of batch) {
+      if (!this.subscribedMints.has(mint)) continue;
+      const sent = this.send({ method: 'subscribeTokenTrade', keys: [mint] });
+      if (sent) {
+        this.stats.tokenTradeSubscribeFrames += 1;
+        this.stats.tokenTradeReconnectResubscribeSent += 1;
+      }
+    }
+
+    if (this.pendingResubscribeMints.length === 0) return;
+    const delayMs = Number.isFinite(this.reconnectResubscribeBatchDelayMs) && this.reconnectResubscribeBatchDelayMs >= 0
+      ? this.reconnectResubscribeBatchDelayMs
+      : 0;
+    this.resubscribeTimer = setTimeout(() => this.flushResubscribeBatch(), delayMs);
+    if (typeof this.resubscribeTimer.unref === 'function') this.resubscribeTimer.unref();
+  }
+
+  resetReconnectDelay() {
+    this.currentReconnectDelayMs = this.reconnectDelayMs;
+    this.stats.reconnectDelayMs = this.currentReconnectDelayMs;
+  }
+
+  scheduleReconnectDelayReset(socket) {
+    this.clearReconnectDelayResetTimer();
+    if (!Number.isFinite(this.reconnectDelayResetAfterStableMs) || this.reconnectDelayResetAfterStableMs <= 0) return;
+    this.reconnectDelayResetTimer = setTimeout(() => {
+      this.reconnectDelayResetTimer = null;
+      if (!this.running || this.ws !== socket || socket.readyState !== WebSocket.OPEN) return;
+      this.resetReconnectDelay();
+      this.stats.reconnectDelayStableResets += 1;
+    }, this.reconnectDelayResetAfterStableMs);
+    if (typeof this.reconnectDelayResetTimer.unref === 'function') this.reconnectDelayResetTimer.unref();
+  }
+
+  clearReconnectDelayResetTimer() {
+    if (this.reconnectDelayResetTimer) {
+      clearTimeout(this.reconnectDelayResetTimer);
+      this.reconnectDelayResetTimer = null;
+    }
+  }
+
+  isRateLimitClose(code, reason = '') {
+    return Number(code) === 1008 || /rate\s*limit/i.test(String(reason || ''));
   }
 
   recordPairShape(type, payload) {

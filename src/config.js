@@ -2,7 +2,9 @@ const dotenv = require('dotenv');
 const path = require('path');
 
 // Load environment variables
-dotenv.config();
+if (process.env.SPECTRE_SKIP_DOTENV !== 'true') {
+  dotenv.config();
+}
 
 class Config {
   // Solana RPC Configuration
@@ -1422,6 +1424,26 @@ class Config {
     return parseInt(process.env.PUMPDEV_MAX_SUBSCRIBED_MINTS || '100', 10);
   }
 
+  static get pumpDevReconnectResubscribeMaxMints() {
+    return parseInt(process.env.PUMPDEV_RECONNECT_RESUBSCRIBE_MAX_MINTS || '25', 10);
+  }
+
+  static get pumpDevReconnectResubscribeBatchSize() {
+    return parseInt(process.env.PUMPDEV_RECONNECT_RESUBSCRIBE_BATCH_SIZE || '5', 10);
+  }
+
+  static get pumpDevReconnectResubscribeBatchDelayMs() {
+    return parseInt(process.env.PUMPDEV_RECONNECT_RESUBSCRIBE_BATCH_DELAY_MS || '2000', 10);
+  }
+
+  static get pumpDevRateLimitCooldownMs() {
+    return parseInt(process.env.PUMPDEV_RATE_LIMIT_COOLDOWN_MS || '60000', 10);
+  }
+
+  static get pumpDevReconnectDelayResetAfterStableMs() {
+    return parseInt(process.env.PUMPDEV_RECONNECT_DELAY_RESET_AFTER_STABLE_MS || '120000', 10);
+  }
+
   static get pumpDevPingIntervalMs() {
     return parseInt(process.env.PUMPDEV_PING_INTERVAL_MS || '25000', 10);
   }
@@ -2528,6 +2550,11 @@ class Config {
       { key: 'pumpPortalEventHandlerConcurrency', value: this.pumpPortalEventHandlerConcurrency, min: 1 },
       { key: 'pumpPortalEventQueueMaxSize', value: this.pumpPortalEventQueueMaxSize, min: 1 },
       { key: 'pumpDevMaxSubscribedMints', value: this.pumpDevMaxSubscribedMints, min: 1 },
+      { key: 'pumpDevReconnectResubscribeMaxMints', value: this.pumpDevReconnectResubscribeMaxMints, min: 0 },
+      { key: 'pumpDevReconnectResubscribeBatchSize', value: this.pumpDevReconnectResubscribeBatchSize, min: 1 },
+      { key: 'pumpDevReconnectResubscribeBatchDelayMs', value: this.pumpDevReconnectResubscribeBatchDelayMs, min: 0 },
+      { key: 'pumpDevRateLimitCooldownMs', value: this.pumpDevRateLimitCooldownMs, min: 0 },
+      { key: 'pumpDevReconnectDelayResetAfterStableMs', value: this.pumpDevReconnectDelayResetAfterStableMs, min: 0 },
       { key: 'pumpDevPingIntervalMs', value: this.pumpDevPingIntervalMs, min: 0 },
       { key: 'pumpDevReconnectDelayMs', value: this.pumpDevReconnectDelayMs, min: 1 },
       { key: 'pumpDevMaxReconnectDelayMs', value: this.pumpDevMaxReconnectDelayMs, min: 1 },
