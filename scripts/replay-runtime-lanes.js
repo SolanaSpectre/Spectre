@@ -211,18 +211,46 @@ function compareCounts(recorded = {}, replayed = {}) {
   return deltas;
 }
 
+function configFromSnapshot(snapshot = null) {
+  if (snapshot?.values && typeof snapshot.values === 'object') {
+    return snapshot.values;
+  }
+  return loadDefaultConfigWithoutDotenv();
+}
+
+function replayInputs(preMigrationLane, inputs = []) {
+  const events = [];
+  for (const input of inputs) {
+    const state = input.state || {};
+    if (!state.mint) continue;
+    events.push(...preMigrationLane.observe(state, input.options || {}));
+  }
+  return events;
+}
+
+function parityVerdict(divergence = {}) {
+  const hasDecisionDeltas = Object.keys(divergence.decisionDeltas || {}).length > 0;
+  const hasSkipDeltas = Object.keys(divergence.skipReasonDeltas || {}).length > 0;
+  if (!hasDecisionDeltas && !hasSkipDeltas && divergence.entryDelta === 0 && divergence.exitDelta === 0) {
+    return 'DECISION_REPLAY_PARITY_EXACT';
+  }
+  return 'DECISION_REPLAY_PARITY_DIVERGED';
+}
+
 function replayFile(filePath, options = {}) {
-  const config = loadDefaultConfigWithoutDotenv();
   const logger = loggerStub();
-  const preMigrationLane = new PreMigrationPaperLane(config, logger);
-  const continuationLane = new PostMigrationContinuationLane(config, logger);
-  const replayedPreMigrationEvents = [];
-  const continuationEvents = [];
+  const continuationLane = new PostMigrationContinuationLane(loadDefaultConfigWithoutDotenv(), logger);
+  let replayConfigSnapshot = null;
+  const laneInputs = [];
+  const legacyInputs = [];
   const recordedPreMigrationEvents = [];
+  const continuationEvents = [];
   const recordedContinuationCounts = {};
   const inputCounts = {
     rows: 0,
     malformedLines: 0,
+    preMigrationLaneInputRows: 0,
+    preMigrationLaneInputDroppedRows: 0,
     preMigrationObservedRows: 0,
     preMigrationFlaggedRows: 0,
     continuationInputRows: 0
@@ -234,6 +262,10 @@ function replayFile(filePath, options = {}) {
     const timestamp = timestampOf(event, payload);
     inputCounts.rows += 1;
 
+    if (type === 'session.started' && payload.replayConfigSnapshot) {
+      replayConfigSnapshot = payload.replayConfigSnapshot;
+    }
+
     if (type.startsWith('pre_migration_paper.')) {
       recordedPreMigrationEvents.push({
         telemetryType: type,
@@ -242,17 +274,34 @@ function replayFile(filePath, options = {}) {
       });
     }
 
+    if (type === 'pre_migration.lane_input') {
+      const state = payload.state || {};
+      const laneOptions = payload.options || {};
+      inputCounts.preMigrationLaneInputRows += 1;
+      if (state.mint) {
+        laneInputs.push({
+          seq: payload.seq ?? null,
+          state,
+          options: laneOptions
+        });
+      }
+    } else if (type === 'pre_migration.lane_input_dropped') {
+      inputCounts.preMigrationLaneInputDroppedRows += 1;
+    }
+
     if (type === 'pre_migration.observed' || type === 'pre_migration.flagged') {
       const state = pickStateFromPreMigrationPayload(payload);
       if (!state.mint) return;
       if (type === 'pre_migration.flagged') inputCounts.preMigrationFlaggedRows += 1;
       else inputCounts.preMigrationObservedRows += 1;
-      const events = preMigrationLane.observe(state, {
+      legacyInputs.push({
+        state,
+        options: {
         flagged: type === 'pre_migration.flagged',
         timestamp,
         walletClassificationContext: payload.walletClassificationContext || null
+        }
       });
-      replayedPreMigrationEvents.push(...events);
     }
 
     if (type.startsWith('continuation.')) {
@@ -273,18 +322,44 @@ function replayFile(filePath, options = {}) {
   });
   inputCounts.malformedLines = stats.malformedLines;
 
+  const config = configFromSnapshot(replayConfigSnapshot);
+  const preMigrationLane = new PreMigrationPaperLane(config, logger);
+  const useLaneInputs = laneInputs.length > 0;
+  const selectedInputs = useLaneInputs ? laneInputs : legacyInputs;
+  const replayedPreMigrationEvents = replayInputs(preMigrationLane, selectedInputs);
+
   const recordedPreMigration = eventCountSummary(recordedPreMigrationEvents);
   const replayedPreMigration = eventCountSummary(replayedPreMigrationEvents);
+  const divergence = {
+    decisionDeltas: compareCounts(recordedPreMigration.decisions, replayedPreMigration.decisions),
+    skipReasonDeltas: compareCounts(recordedPreMigration.skipReasons, replayedPreMigration.skipReasons),
+    entryDelta: replayedPreMigration.entries - recordedPreMigration.entries,
+    exitDelta: replayedPreMigration.exits - recordedPreMigration.exits
+  };
+  const fidelity = replayConfigSnapshot && useLaneInputs && inputCounts.preMigrationLaneInputDroppedRows === 0
+    ? 'exact_config_exact_lane_input'
+    : replayConfigSnapshot && useLaneInputs
+      ? 'exact_config_lane_input_with_drops'
+      : 'default_config_sampled_input';
   return {
     telemetryPath: rel(filePath),
-    configSource: 'src_config_documented_defaults_no_dotenv',
-    comparability: 'DEFAULT_CONFIG_VS_RECORDED_RUNTIME_INPUT_LIMITED',
-    limitations: [
-      'Requires src/config with SPECTRE_SKIP_DOTENV=true, so .env is not loaded.',
-      'Uses documented config defaults, not the private runtime env used during the original run.',
-      'Pre-migration replay uses only emitted pre_migration.observed/flagged telemetry rows.',
-      'Runtime may have called the lane on non-emitted watch updates, so mismatches are divergence leads rather than proof.'
-    ],
+    configSource: replayConfigSnapshot
+      ? 'session_started_sanitized_config_snapshot'
+      : 'src_config_documented_defaults_no_dotenv',
+    configHash: replayConfigSnapshot?.configHash || null,
+    fidelity,
+    comparability: fidelity === 'exact_config_exact_lane_input'
+      ? 'DECISION_REPLAY_COMPARABLE'
+      : 'NOT_COMPARABLE_FOR_EXACT_RUNTIME_PARITY',
+    parityVerdict: parityVerdict(divergence),
+    limitations: fidelity === 'exact_config_exact_lane_input'
+      ? ['Exact lane input and sanitized config snapshot were present. Parity validates deterministic lane decisions only, not full position/PnL lifecycle.']
+      : [
+          'Requires src/config with SPECTRE_SKIP_DOTENV=true when no run snapshot exists, so .env is not loaded.',
+          'Uses documented config defaults when no sanitized run snapshot exists.',
+          'Legacy fallback uses only emitted pre_migration.observed/flagged telemetry rows.',
+          'Runtime may have called the lane on non-emitted watch updates, so fallback mismatches are divergence leads rather than proof.'
+        ],
     inputCounts,
     recordedPreMigration: {
       decisions: sortedCounts(recordedPreMigration.decisions),
@@ -300,12 +375,7 @@ function replayFile(filePath, options = {}) {
       exits: replayedPreMigration.exits,
       byTelemetryType: sortedCounts(replayedPreMigration.byTelemetryType)
     },
-    divergence: {
-      decisionDeltas: compareCounts(recordedPreMigration.decisions, replayedPreMigration.decisions),
-      skipReasonDeltas: compareCounts(recordedPreMigration.skipReasons, replayedPreMigration.skipReasons),
-      entryDelta: replayedPreMigration.entries - recordedPreMigration.entries,
-      exitDelta: replayedPreMigration.exits - recordedPreMigration.exits
-    },
+    divergence,
     continuation: options.continuation ? {
       inputRows: inputCounts.continuationInputRows,
       emittedRows: continuationEvents.length,
@@ -324,7 +394,11 @@ function buildReport(args = parseArgs()) {
 
   const totals = runs.reduce((acc, run) => {
     acc.telemetryFilesRead += 1;
+    bump(acc.fidelityCounts, run.fidelity || 'unknown');
+    bump(acc.parityVerdictCounts, run.parityVerdict || 'unknown');
     acc.preMigrationObservedRows += run.inputCounts.preMigrationObservedRows;
+    acc.preMigrationLaneInputRows += run.inputCounts.preMigrationLaneInputRows;
+    acc.preMigrationLaneInputDroppedRows += run.inputCounts.preMigrationLaneInputDroppedRows;
     acc.preMigrationFlaggedRows += run.inputCounts.preMigrationFlaggedRows;
     acc.recordedEntries += run.recordedPreMigration.entries;
     acc.replayedEntries += run.replayedPreMigration.entries;
@@ -333,6 +407,10 @@ function buildReport(args = parseArgs()) {
     return acc;
   }, {
     telemetryFilesRead: 0,
+    fidelityCounts: {},
+    parityVerdictCounts: {},
+    preMigrationLaneInputRows: 0,
+    preMigrationLaneInputDroppedRows: 0,
     preMigrationObservedRows: 0,
     preMigrationFlaggedRows: 0,
     recordedEntries: 0,
@@ -346,6 +424,8 @@ function buildReport(args = parseArgs()) {
     mode: 'report_only_runtime_lane_replay_scaffold',
     summary: {
       ...totals,
+      aggregateComparable: Object.keys(totals.fidelityCounts).length === 1
+        && totals.fidelityCounts.exact_config_exact_lane_input === totals.telemetryFilesRead,
       entryDelta: totals.replayedEntries - totals.recordedEntries,
       exitDelta: totals.replayedExits - totals.recordedExits
     },

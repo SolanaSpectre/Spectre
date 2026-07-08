@@ -2478,6 +2478,7 @@ function buildSummary(docs) {
   const solanaRpcPressure = buildSolanaRpcPressure(battlefield);
   const runnerLifecycle = battlefield.runnerLane?.simpleRuntimeAiLifecycle || {};
   const signalExecutionLatency = battlefield.runnerLane?.signalExecutionLatencyMs || {};
+  const eventCounts = battlefield.eventCounts || {};
 
   lines.push(...buildLaunchDecisionLines({
     battlefield,
@@ -3062,6 +3063,7 @@ function buildSummary(docs) {
   lines.push(`- Events: ${events ?? 'n/a'}`);
   lines.push(`- Dossiers: ${dossiers ?? 'n/a'}`);
   lines.push(`- Pre-migration paper entries/exits: ${paperEntries ?? 'n/a'} / ${paperExits ?? 'n/a'}`);
+  lines.push(`- Replay lane-input coverage: inputs=${eventCounts['pre_migration.lane_input'] || 0}, dropped=${eventCounts['pre_migration.lane_input_dropped'] || 0}, paper decisions=${eventCounts['pre_migration_paper.decision'] || 0}, coverage=${Number(eventCounts['pre_migration.lane_input'] || 0) >= Number(eventCounts['pre_migration_paper.decision'] || 0) ? 'ok' : 'short'}`);
   lines.push(`- Pre-migration paper PnL: ${paperPnl === null ? 'n/a' : sol(paperPnl)}`);
   lines.push(`- Simple Runtime AI string evidence in logs (legacy/warmup included): ${summarizeEvidencePaths(aiEvidence)}`);
   lines.push(`- Historical Simple Runtime AI lifecycle attempts/completed/failed/dangling: ${aiHistoricalSummary.reviewAttempts ?? 'n/a'} / ${aiHistoricalSummary.completedAttempts ?? 'n/a'} / ${aiHistoricalSummary.failedAttempts ?? 'n/a'} / ${aiHistoricalSummary.danglingAttempts ?? 'n/a'}`);

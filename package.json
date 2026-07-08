@@ -161,7 +161,7 @@
     "sync:telegram": "node scripts/sync-telegram-context.js",
     "build:rick-context": "node scripts/build-rick-context.js",
     "send:rick": "node scripts/send-rick-command.js",
-    "test": "node scripts/smoke-check.js",
+    "test": "node scripts/smoke-check.js && node scripts/replay-snapshot-safety-check.js",
     "smoke": "node scripts/smoke-check.js",
     "lint": "eslint src/**/*.js scripts/**/*.js",
     "lint:fix": "eslint src/**/*.js scripts/**/*.js --fix"

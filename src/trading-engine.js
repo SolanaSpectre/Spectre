@@ -33,6 +33,10 @@ const SolanaRpcRouter = require('./lib/solana-rpc-router');
 const OutcomeLedger = require('./lib/outcome-ledger');
 const FinalistAccountVerifier = require('./lib/finalist-account-verifier');
 const LiveExecutionDryRunLane = require('./lib/live-execution-dry-run-lane');
+const {
+  buildSanitizedConfigSnapshot,
+  sanitizePreMigrationLaneInput
+} = require('./lib/runtime-replay-snapshot');
 
 const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
   '11111111111111111111111111111111',
@@ -173,6 +177,8 @@ class TradingEngine {
     this.preMigrationPaperRechecks = new Map();
     this.preMigrationPaperExpiredRechecks = new Set();
     this.preMigrationObservedTelemetryLastByMint = new Map();
+    this.preMigrationLaneInputSeq = 0;
+    this.preMigrationLaneInputDropped = 0;
     this.syntheticBondingCurveMigrations = new Set();
     this.lastTelegramSightingSyncAt = null;
     this.preMigrationDecisionLogWindowStartedAt = 0;
@@ -390,10 +396,13 @@ class TradingEngine {
     const sessionStartTime = Date.now();
     this.sessionId = `session_${sessionStartTime}`;
     this.active = true;
+    const replayConfigSnapshot = buildSanitizedConfigSnapshot(this.config);
     this.telemetry.record('session.started', {
       mode: this.executionModeManager.mode,
       sessionDurationMinutes: this.config.sessionDurationMinutes,
-      entryWarmupMs: this.getEffectiveEntryWarmupMs()
+      entryWarmupMs: this.getEffectiveEntryWarmupMs(),
+      replayConfigSnapshot,
+      configHash: replayConfigSnapshot.configHash
     });
     this.strategyLedger.record('session.started', {
       sessionId: this.sessionId,
@@ -3283,11 +3292,13 @@ class TradingEngine {
       });
     });
 
-    this.recordPreMigrationPaperEvents(this.preMigrationPaperLane.observe(result.state, {
+    const paperLaneOptions = {
       flagged: Boolean(result.flagged),
       timestamp: new Date().toISOString(),
       walletClassificationContext
-    }));
+    };
+    this.recordPreMigrationLaneInput(result.state, paperLaneOptions);
+    this.recordPreMigrationPaperEvents(this.preMigrationPaperLane.observe(result.state, paperLaneOptions));
 
     if (
       this.config.pumpDevTargetedCurveParitySampleWatchEnabled
@@ -3354,6 +3365,21 @@ class TradingEngine {
       this.preMigrationObservedTelemetryLastByMint.set(mint, { at: now, score, curveProgress });
     }
     return shouldEmit;
+  }
+
+  recordPreMigrationLaneInput(state = {}, options = {}) {
+    if (!this.executionModeManager?.isPaper?.()) return;
+    const seq = ++this.preMigrationLaneInputSeq;
+    const event = this.telemetry.record('pre_migration.lane_input', sanitizePreMigrationLaneInput(state, options, seq));
+    if (!event) {
+      this.preMigrationLaneInputDropped += 1;
+      this.telemetry.record('pre_migration.lane_input_dropped', {
+        seq,
+        mint: state?.mint || null,
+        dropped: this.preMigrationLaneInputDropped,
+        reason: this.telemetry.enabled ? 'telemetry_rate_limited_or_rejected' : 'telemetry_disabled'
+      });
+    }
   }
 
   buildWalletClassificationContextForMint(mint) {
