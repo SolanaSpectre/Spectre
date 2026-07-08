@@ -6,18 +6,34 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-wallet-conditioned-relaxed-gate-replay-latest.json');
+const STABILITY_OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-wallet-conditioned-slice-stability-latest.json');
 const RELAXED_REPLAY_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-relaxed-gate-replay-latest.json');
 const WALLET_FALSE_NEGATIVE_BRIDGE_PATH = path.join(ROOT, 'data', 'reports', 'wallet-false-negative-bridge-latest.json');
 const WALLET_PAPER_ENTRY_CONDITIONAL_PATH = path.join(ROOT, 'data', 'reports', 'wallet-paper-entry-conditional-latest.json');
 const WALLET_PROMOTION_REVIEW_PATH = path.join(ROOT, 'data', 'reports', 'wallet-promotion-review-latest.json');
 const WALLET_LAUNCH_INTEL_STABILITY_PATH = path.join(ROOT, 'data', 'reports', 'wallet-launch-intel-stability-latest.json');
 const WALLET_EVENTS_PATH = path.join(ROOT, 'data', 'wallet-events', 'events.jsonl');
+const FROZEN_STABILITY_SLICE = 'all_low_score_first_sight__tracked_first_touch_buy';
 
 const POSITIVE_EVIDENCE_TIERS = new Set(['PROVEN_POSITIVE', 'PROMISING_POSITIVE']);
 const POSITIVE_REVIEW_TIERS = new Set(['TRUST_REVIEW', 'PROFITABLE_NEEDS_FIRST_TOUCH_EVIDENCE']);
 const AVOID_REVIEW_TIERS = new Set(['AVOID_REVIEW']);
 const AVOID_EVIDENCE_TIERS = new Set(['NEGATIVE_EVIDENCE']);
 const STRESS_EXTRA_SLIPPAGE_PCT = 1.5;
+const FEE_STRESS_SCENARIOS = [
+  {
+    name: 'existing_extra_slippage_1_5pct',
+    description: 'Existing report-only stress haircut: subtracts 1.5 percentage points from netReturnPct.',
+    extraReturnPct: STRESS_EXTRA_SLIPPAGE_PCT,
+    fixedSolPerTrade: 0
+  },
+  {
+    name: 'fee_slippage_priority_conservative',
+    description: 'Report-only conservative live-ish haircut: 1% pump.fun fee proxy + 1.5% curve/slippage + 0.00005 SOL priority/landing cost per trade.',
+    extraReturnPct: 2.5,
+    fixedSolPerTrade: 0.00005
+  }
+];
 
 function readJson(filePath, fallback = null) {
   try {
@@ -641,6 +657,173 @@ function summarizeConditionLift(profileName, baseline, conditioned) {
   };
 }
 
+function quantile(values, q) {
+  const sorted = values.map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const index = (sorted.length - 1) * q;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
+}
+
+function scenarioPnlForTrade(trade, baseAmountSol, scenario) {
+  const netReturnPct = Number(trade.netReturnPct);
+  if (Number.isFinite(netReturnPct)) {
+    return (baseAmountSol * ((netReturnPct - scenario.extraReturnPct) / 100)) - Number(scenario.fixedSolPerTrade || 0);
+  }
+  const pnl = Number(trade.pnlSol);
+  return Number.isFinite(pnl)
+    ? pnl - (baseAmountSol * (scenario.extraReturnPct / 100)) - Number(scenario.fixedSolPerTrade || 0)
+    : 0;
+}
+
+function telemetryRunKey(trade) {
+  const value = String(trade.telemetryPath || 'unknown');
+  return value.split(/[\\/]/).pop() || value;
+}
+
+function tradeRunDate(trade) {
+  const entryMs = timestampMs(trade.entryAt);
+  if (Number.isFinite(entryMs)) return new Date(entryMs).toISOString().slice(0, 10);
+  const match = telemetryRunKey(trade).match(/telemetry-(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : 'unknown';
+}
+
+function eraForTrade(trade) {
+  const date = tradeRunDate(trade);
+  if (date === 'unknown') return 'unknown';
+  if (date < '2026-07-01') return 'pre_july_backfill';
+  if (date < '2026-07-07') return 'july_pre_lane_input';
+  return 'lane_input_era';
+}
+
+function summarizeTradeSet(trades, baseAmountSol) {
+  const pnls = trades.map((trade) => Number(trade.pnlSol)).filter(Number.isFinite);
+  const totalPnlSol = pnls.reduce((sum, value) => sum + value, 0);
+  const wins = pnls.filter((value) => value > 0).length;
+  const losses = pnls.filter((value) => value < 0).length;
+  const sortedDesc = pnls.slice().sort((a, b) => b - a);
+  const top3Pnl = sortedDesc.slice(0, 3).reduce((sum, value) => sum + value, 0);
+  const scenarioPnl = Object.fromEntries(FEE_STRESS_SCENARIOS.map((scenario) => [
+    scenario.name,
+    numberOrNull(trades.reduce((sum, trade) => sum + scenarioPnlForTrade(trade, baseAmountSol, scenario), 0), 9)
+  ]));
+  return {
+    trades: trades.length,
+    uniqueMints: uniqueCount(trades, (trade) => trade.mint),
+    wins,
+    losses,
+    winRate: trades.length ? numberOrNull(wins / trades.length, 4) : null,
+    totalPnlSol: numberOrNull(totalPnlSol, 9),
+    medianPnlSol: numberOrNull(quantile(pnls, 0.5), 9),
+    averagePnlSol: trades.length ? numberOrNull(totalPnlSol / trades.length, 9) : null,
+    pnlAfterRemovingTop3WinnersSol: numberOrNull(totalPnlSol - top3Pnl, 9),
+    scenarioPnlSol: scenarioPnl,
+    exitReasonCounts: countBy(trades, (trade) => trade.exitReason || 'unknown')
+  };
+}
+
+function groupTrades(trades, keyFn) {
+  const groups = new Map();
+  for (const trade of trades) {
+    const key = keyFn(trade) || 'unknown';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(trade);
+  }
+  return groups;
+}
+
+function summarizeGroups(trades, keyFn, baseAmountSol) {
+  return [...groupTrades(trades, keyFn).entries()]
+    .map(([key, rows]) => ({ key, ...summarizeTradeSet(rows, baseAmountSol) }))
+    .sort((a, b) => String(a.key).localeCompare(String(b.key)));
+}
+
+function stabilityGate(overall, perRun) {
+  const runsWithTrades = perRun.filter((row) => row.trades > 0);
+  const positiveRuns = runsWithTrades.filter((row) => Number(row.totalPnlSol || 0) > 0);
+  const totalPnl = Number(overall.totalPnlSol || 0);
+  const largestRunPnl = runsWithTrades.reduce((max, row) => Math.max(max, Number(row.totalPnlSol || 0)), Number.NEGATIVE_INFINITY);
+  const largestRunShareOfTotal = totalPnl > 0 && Number.isFinite(largestRunPnl)
+    ? largestRunPnl / totalPnl
+    : null;
+  const checks = {
+    positiveOrNonNegativeRunsAtLeast3: positiveRuns.length >= 3 || runsWithTrades.filter((row) => Number(row.totalPnlSol || 0) >= 0).length >= 3,
+    positiveRunsAtLeast3: positiveRuns.length >= 3,
+    noSingleRunOver60PctOfTotalPnl: largestRunShareOfTotal === null ? false : largestRunShareOfTotal <= 0.6,
+    totalPnlPositive: totalPnl > 0,
+    stressedPnlPositive: Number(overall.scenarioPnlSol?.existing_extra_slippage_1_5pct || 0) > 0,
+    conservativeFeePnlPositive: Number(overall.scenarioPnlSol?.fee_slippage_priority_conservative || 0) > 0
+  };
+  return {
+    verdict: Object.values(checks).every(Boolean) ? 'STABILITY_PASSED_FREEZE_SHADOW_NEXT' : 'STABILITY_NOT_PROVEN',
+    checks,
+    runsWithTrades: runsWithTrades.length,
+    positiveRuns: positiveRuns.length,
+    nonNegativeRuns: runsWithTrades.filter((row) => Number(row.totalPnlSol || 0) >= 0).length,
+    largestRunPnlSol: Number.isFinite(largestRunPnl) ? numberOrNull(largestRunPnl, 9) : null,
+    largestRunShareOfTotalPnl: largestRunShareOfTotal === null ? null : numberOrNull(largestRunShareOfTotal, 4)
+  };
+}
+
+function buildFrozenSliceStability(slice, baseAmountSol) {
+  const trades = (slice?.trades || []).slice().sort((a, b) => timestampMs(a.entryAt) - timestampMs(b.entryAt));
+  const overall = summarizeTradeSet(trades, baseAmountSol);
+  const perRun = summarizeGroups(trades, telemetryRunKey, baseAmountSol).map((row) => ({
+    ...row,
+    runDate: tradeRunDate(trades.find((trade) => telemetryRunKey(trade) === row.key) || {}),
+    era: eraForTrade(trades.find((trade) => telemetryRunKey(trade) === row.key) || {})
+  }));
+  const perEra = summarizeGroups(trades, eraForTrade, baseAmountSol);
+  const perDate = summarizeGroups(trades, tradeRunDate, baseAmountSol);
+  return {
+    generatedAt: new Date().toISOString(),
+    mode: 'report_only_wallet_conditioned_frozen_slice_stability',
+    note: 'Report-only stability drilldown for the frozen wallet-conditioned slice before any runtime shadow lane is added. Does not alter runtime gates, entries, exits, scoring, sizing, AI review, broadcasts, or live behavior.',
+    frozenHypothesis: {
+      name: FROZEN_STABILITY_SLICE,
+      profileName: slice?.profileName || 'all_low_score_first_sight',
+      condition: slice?.condition || 'tracked_first_touch_buy',
+      rule: 'Earliest pre-entry/pre-85 tracked wallet touch must be a buy. Profile and condition are frozen from the existing replay output; do not retune before OOS collection.'
+    },
+    feeStressScenarios: FEE_STRESS_SCENARIOS,
+    criteria: {
+      proceedToShadowLane: 'Require positive or at least non-negative total in >=3 covered runs, >=3 positive runs for the strict check, no single run contributing >60% of total PnL, positive total PnL, positive existing stressed PnL, and positive conservative fee/slippage/priority PnL.',
+      nextIfPass: 'Pre-register exactly this slice as a paper-only runtime shadow lane.',
+      nextIfFail: 'Do not add the runtime shadow lane yet; inspect concentration/fee failure first.'
+    },
+    summary: overall,
+    stability: stabilityGate(overall, perRun),
+    perRun,
+    perEra,
+    perDate,
+    topRunContributors: perRun.slice().sort((a, b) => Number(b.totalPnlSol || 0) - Number(a.totalPnlSol || 0)).slice(0, 10),
+    worstRunContributors: perRun.slice().sort((a, b) => Number(a.totalPnlSol || 0) - Number(b.totalPnlSol || 0)).slice(0, 10),
+    sampleTrades: trades.slice(0, 20).map((trade) => ({
+      telemetryPath: trade.telemetryPath || null,
+      mint: trade.mint,
+      symbol: trade.symbol || null,
+      entryAt: trade.entryAt || null,
+      exitAt: trade.exitAt || null,
+      entryCurveProgress: numberOrNull(trade.entryCurveProgress, 4),
+      score: numberOrNull(trade.score, 2),
+      exitReason: trade.exitReason || null,
+      pnlSol: numberOrNull(trade.pnlSol, 9),
+      netReturnPct: numberOrNull(trade.netReturnPct, 4),
+      firstTouch: trade.walletConditioning?.firstTouch ? {
+        source: trade.walletConditioning.firstTouch.source || null,
+        canonicalWallet: trade.walletConditioning.firstTouch.canonicalWallet || null,
+        side: trade.walletConditioning.firstTouch.side || null,
+        reviewTier: trade.walletConditioning.firstTouch.reviewTier || null,
+        evidenceTier: trade.walletConditioning.firstTouch.evidenceTier || null,
+        touchAt: trade.walletConditioning.firstTouch.touchAt || null,
+        curveProgress: numberOrNull(trade.walletConditioning.firstTouch.curveProgress, 4)
+      } : null
+    }))
+  };
+}
+
 function main() {
   const relaxedReplay = readJson(RELAXED_REPLAY_PATH, {});
   const bridge = readJson(WALLET_FALSE_NEGATIVE_BRIDGE_PATH, {});
@@ -709,6 +892,8 @@ function main() {
     sliceSummaries[`${profileName}__baseline`],
     sliceSummaries[`${profileName}__exclude_avoid_or_negative_touch`]
   )).sort((a, b) => Number(b.stressedDeltaSol || 0) - Number(a.stressedDeltaSol || 0));
+  const frozenSlice = slices.find((slice) => slice.name === FROZEN_STABILITY_SLICE);
+  const frozenSliceStability = buildFrozenSliceStability(frozenSlice, baseAmountSol);
 
   const output = {
     generatedAt: new Date().toISOString(),
@@ -750,12 +935,20 @@ function main() {
     },
     ranking,
     avoidNegativeLift,
+    frozenSliceStability: {
+      outputPath: path.relative(ROOT, STABILITY_OUTPUT_PATH),
+      verdict: frozenSliceStability.stability.verdict,
+      checks: frozenSliceStability.stability.checks,
+      summary: frozenSliceStability.summary
+    },
     slices: sliceSummaries
   };
 
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
   fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(output, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(STABILITY_OUTPUT_PATH, `${JSON.stringify(frozenSliceStability, null, 2)}\n`, 'utf8');
   console.log(`Wrote wallet-conditioned relaxed-gate replay: ${path.relative(ROOT, OUTPUT_PATH)}`);
+  console.log(`Wrote wallet-conditioned frozen-slice stability: ${path.relative(ROOT, STABILITY_OUTPUT_PATH)}`);
 }
 
 main();

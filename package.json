@@ -85,6 +85,7 @@
     "report:pre-migration-curve-false-negative-recovery-shadow": "node scripts/pre-migration-curve-false-negative-recovery-shadow-report.js",
     "report:pre-migration-fresh-curve-override-shadow": "node scripts/pre-migration-fresh-curve-override-shadow-report.js",
     "report:pre-migration-wallet-conditioned-relaxed-gate-replay": "node scripts/pre-migration-wallet-conditioned-relaxed-gate-replay-report.js",
+    "report:pre-migration-wallet-conditioned-slice-stability": "node scripts/pre-migration-wallet-conditioned-relaxed-gate-replay-report.js",
     "report:pre-migration-wallet-relaxed-shadow-outcome": "node scripts/pre-migration-wallet-relaxed-shadow-outcome-report.js",
     "report:pre-migration-wallet-context-coverage": "node scripts/pre-migration-wallet-context-coverage-report.js",
     "report:pre-migration-wallet-context-follow-through": "node scripts/pre-migration-wallet-context-follow-through-report.js",

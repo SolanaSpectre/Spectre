@@ -16,6 +16,7 @@ const REPORTS = {
   curveStallRelaxedReplay: 'pre-migration-curve-stall-relaxed-replay-latest.json',
   curveConfirmationReplay: 'pre-migration-curve-confirmation-replay-latest.json',
   walletConditionedRelaxedGateReplay: 'pre-migration-wallet-conditioned-relaxed-gate-replay-latest.json',
+  walletConditionedSliceStability: 'pre-migration-wallet-conditioned-slice-stability-latest.json',
   walletContextCoverage: 'pre-migration-wallet-context-coverage-latest.json',
   runnerRejectEntryReplay: 'runner-reject-entry-replay-latest.json',
   walletFalseNegativeEntryReplay: 'wallet-false-negative-entry-replay-latest.json'
@@ -224,6 +225,9 @@ function nextDataNeed(candidate, blockers, context) {
   if (candidate.lane === 'wallet_conditioned_relaxed_gate' && context.paperDecisionsWithWalletContext <= 0) {
     needs.push('produce paper decisions with wallet context attached');
   }
+  if (candidate.name === context.walletShadowCollectingSlice && context.walletShadowCollectingReady) {
+    needs.push('collect out-of-sample runtime shadow would-enter/exit evidence for the pre-registered frozen wallet slice');
+  }
   if (trades < minSample) needs.push(`collect ${minSample - trades} more trade(s) for this lane to reach the ${minSample}-trade floor`);
   if (context.paperEntries <= 0) needs.push('produce nonzero runtime paper entries before any live promotion review');
   if (candidate.mode === 'report_only') needs.push('confirm the lane through runtime paper/shadow telemetry, not historical replay alone');
@@ -236,6 +240,13 @@ function nextDataNeed(candidate, blockers, context) {
 }
 
 function statusFor(candidate, blockers, context) {
+  if (
+    candidate.lane === 'wallet_conditioned_relaxed_gate'
+    && candidate.name === context.walletShadowCollectingSlice
+    && context.walletShadowCollectingReady
+  ) {
+    return 'SHADOW_COLLECTING';
+  }
   if (!blockers.length) return candidate.mode === 'report_only' ? 'PROMISING_REPORT_ONLY' : 'PROMOTION_CANDIDATE';
   const candidateBlockers = blockers.filter((blocker) => ![
     'no runtime paper entries in latest evaluated run',
@@ -297,13 +308,16 @@ function main() {
   const launchBlocks = Array.isArray(docs.liveReadiness.data?.launchBlocks) ? docs.liveReadiness.data.launchBlocks : [];
   const broadcastBlocked = launchBlocks.some((line) => String(line).toLowerCase().includes('broadcast'));
   const walletCoverageRuntime = docs.walletContextCoverage.data?.runtime || {};
+  const frozenStability = docs.walletConditionedSliceStability.data || {};
   const context = {
     paperEntries,
     paperPnl,
     broadcastBlocked,
     runtimeWalletEvents: number(walletCoverageRuntime.walletEvents?.rows, 0),
     paperDecisionsWithWalletContext: number(walletCoverageRuntime.decisionCoverage?.withAnyWalletTouch, 0),
-    walletCoverageVerdict: docs.walletContextCoverage.data?.verdict || null
+    walletCoverageVerdict: docs.walletContextCoverage.data?.verdict || null,
+    walletShadowCollectingSlice: frozenStability.frozenHypothesis?.name || null,
+    walletShadowCollectingReady: frozenStability.stability?.verdict === 'STABILITY_PASSED_FREEZE_SHADOW_NEXT'
   };
 
   const scored = candidates.map((candidate) => {
@@ -352,6 +366,12 @@ function main() {
         verdict: context.walletCoverageVerdict,
         runtimeWalletEvents: context.runtimeWalletEvents,
         paperDecisionsWithWalletContext: context.paperDecisionsWithWalletContext
+      },
+      walletShadowCollection: {
+        frozenSlice: context.walletShadowCollectingSlice,
+        stabilityVerdict: frozenStability.stability?.verdict || null,
+        collecting: context.walletShadowCollectingReady,
+        artifact: docs.walletConditionedSliceStability.path
       },
       topBlockers: topBlockers(scored),
       bestCandidateNextDataNeed: scored[0]?.nextDataNeed || [],

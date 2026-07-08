@@ -3899,18 +3899,23 @@ class TradingEngine {
       ['PROVEN_POSITIVE', 'PROMISING_POSITIVE'].includes(wallet.evidenceTier)
       || ['TRUST_REVIEW', 'PROFITABLE_NEEDS_FIRST_TOUCH_EVIDENCE'].includes(wallet.reviewTier)
     );
-    const positiveFirstTouch = sortedWallets.find((wallet) =>
+    const isPreEntryPre85Touch = (wallet) => (
+      Number(wallet.curveProgress) < 0.85
+      || wallet.phase === 'fresh_launch'
+      || wallet.phase === 'pre_migration'
+    );
+    const conditioningTouches = sortedWallets.filter(isPreEntryPre85Touch);
+    const firstConditioningTouch = conditioningTouches[0] || null;
+    const positiveFirstTouch = conditioningTouches.find((wallet) =>
       String(wallet.side || '').toLowerCase() === 'buy'
       && isPositiveOrProven(wallet)
-      && (Number(wallet.curveProgress) < 0.85 || wallet.phase === 'fresh_launch' || wallet.phase === 'pre_migration')
     );
     const avoidTouches = sortedWallets.filter((wallet) =>
       wallet.reviewTier === 'AVOID_REVIEW' || wallet.evidenceTier === 'NEGATIVE_EVIDENCE'
     );
-    const qualifyingFirstTouch = sortedWallets.find((wallet) =>
-      String(wallet.side || '').toLowerCase() === 'buy'
-      && (Number(wallet.curveProgress) < 0.85 || wallet.phase === 'fresh_launch' || wallet.phase === 'pre_migration')
-    );
+    const qualifyingFirstTouch = firstConditioningTouch && String(firstConditioningTouch.side || '').toLowerCase() === 'buy'
+      ? firstConditioningTouch
+      : null;
     const wouldEnter = Boolean(qualifyingFirstTouch);
     if (wouldEnter) {
       if (this.walletRelaxedShadowEnterSeen.has(key)) return;
@@ -3925,6 +3930,10 @@ class TradingEngine {
         : 'pre_migration_wallet_relaxed_shadow.would_skip',
       {
         mode: 'report_only_wallet_relaxed_shadow',
+        preregisteredAt: '2026-07-08T00:00:00.000-05:00',
+        preregistrationSource: 'pre-migration-wallet-conditioned-slice-stability-latest.json',
+        frozenHypothesis: 'earliest pre-entry/pre-85 tracked wallet touch must be a buy',
+        frozenSlice: shadowProfile,
         shadowProfile,
         mint,
         symbol: payload.symbol || null,
@@ -3940,7 +3949,9 @@ class TradingEngine {
         priceSol: payload.priceSol ?? payload.bondingCurvePriceSol ?? payload.curvePriceSol ?? null,
         wouldEnter,
         shadowDecision: wouldEnter ? 'WOULD_ENTER' : 'WOULD_SKIP',
-        shadowReason: wouldEnter ? 'TRACKED_FIRST_TOUCH_BUY' : 'NO_TRACKED_FIRST_TOUCH_BUY',
+        shadowReason: wouldEnter
+          ? 'TRACKED_FIRST_TOUCH_BUY'
+          : (firstConditioningTouch ? 'FIRST_TRACKED_TOUCH_NOT_BUY' : 'NO_TRACKED_FIRST_TOUCH_BUY'),
         qualifyingFirstTouch: qualifyingFirstTouch ? {
           wallet: qualifyingFirstTouch.wallet || null,
           name: qualifyingFirstTouch.name || null,
@@ -3955,6 +3966,20 @@ class TradingEngine {
           positiveOrProven: isPositiveOrProven(qualifyingFirstTouch),
           avoidOrNegative: qualifyingFirstTouch.reviewTier === 'AVOID_REVIEW' || qualifyingFirstTouch.evidenceTier === 'NEGATIVE_EVIDENCE'
         } : null,
+        firstConditioningTouch: firstConditioningTouch ? {
+          wallet: firstConditioningTouch.wallet || null,
+          name: firstConditioningTouch.name || null,
+          reviewTier: firstConditioningTouch.reviewTier || null,
+          evidenceTier: firstConditioningTouch.evidenceTier || null,
+          label: firstConditioningTouch.label || null,
+          side: firstConditioningTouch.side || null,
+          phase: firstConditioningTouch.phase || null,
+          tradeAt: firstConditioningTouch.tradeAt || null,
+          curveProgress: firstConditioningTouch.curveProgress ?? null,
+          solAmount: firstConditioningTouch.solAmount ?? null,
+          positiveOrProven: isPositiveOrProven(firstConditioningTouch),
+          avoidOrNegative: firstConditioningTouch.reviewTier === 'AVOID_REVIEW' || firstConditioningTouch.evidenceTier === 'NEGATIVE_EVIDENCE'
+        } : null,
         positiveFirstTouch: positiveFirstTouch ? {
           wallet: positiveFirstTouch.wallet || null,
           name: positiveFirstTouch.name || null,
@@ -3968,6 +3993,7 @@ class TradingEngine {
           solAmount: positiveFirstTouch.solAmount ?? null
         } : null,
         walletTouchCount: sortedWallets.length,
+        conditioningTouchCount: conditioningTouches.length,
         walletContextSource: context.contextSource || null,
         earliestWalletTouchAt: context.earliestTouchAt || null,
         earliestWalletBuyAt: context.earliestBuyAt || null,

@@ -94,7 +94,7 @@ const POST_RUN_REPORTS = [
   { title: 'Pre-Migration Curve False-Negative Shadow Replay', script: 'pre-migration-curve-false-negative-shadow-replay-report.js' },
   { title: 'Pre-Migration Curve False-Negative Recovery Shadow', script: 'pre-migration-curve-false-negative-recovery-shadow-report.js' },
   { title: 'Pre-Migration Fresh Curve Override Shadow', script: 'pre-migration-fresh-curve-override-shadow-report.js' },
-  { title: 'Pre-Migration Wallet-Conditioned Relaxed-Gate Replay', script: 'pre-migration-wallet-conditioned-relaxed-gate-replay-report.js' },
+  { title: 'Pre-Migration Wallet-Conditioned Relaxed-Gate Replay + Frozen Slice Stability', script: 'pre-migration-wallet-conditioned-relaxed-gate-replay-report.js' },
   { title: 'Pre-Migration Wallet-Relaxed Shadow Outcome', script: 'pre-migration-wallet-relaxed-shadow-outcome-report.js' },
   { title: 'Pre-Migration Wallet Context Coverage', script: 'pre-migration-wallet-context-coverage-report.js' },
   { title: 'Pre-Migration Wallet Context Follow-through', script: 'pre-migration-wallet-context-follow-through-report.js' },
