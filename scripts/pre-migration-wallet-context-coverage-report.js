@@ -891,6 +891,88 @@ function summarizeJoinMissTelemetry(rows = []) {
   };
 }
 
+function summarizeShadowJoinMissAmbiguity(shadowRows = [], joinMissRows = []) {
+  const emittedJoinMissKeys = new Set(joinMissRows.map((row) => (
+    `${row.mint || ''}:${row.timestamp || row.at || ''}:${row.sourceReason || ''}`
+  )));
+  const summary = {
+    shadowRows: shadowRows.length,
+    emittedJoinMissRows: joinMissRows.length,
+    withAttachedWalletTouch: 0,
+    withJoinMissPayload: 0,
+    notApplicableTouchAttached: 0,
+    noSameMintLedgerTouch: 0,
+    noJoinMissPayload: 0,
+    sameMintLedgerTouchWithoutEmittedJoinMiss: 0,
+    emittedJoinMissMatchedToShadowRow: 0,
+    joinMissReasonCounts: {},
+    samples: []
+  };
+
+  for (const row of shadowRows) {
+    const payload = row.walletContextJoinMiss || null;
+    const walletTouchCount = Number(row.walletTouchCount || 0);
+    if (walletTouchCount > 0) summary.withAttachedWalletTouch += 1;
+    if (!payload || typeof payload !== 'object') {
+      if (walletTouchCount > 0) {
+        summary.notApplicableTouchAttached += 1;
+      } else {
+        summary.noJoinMissPayload += 1;
+      }
+      if (summary.samples.length < 16) {
+        summary.samples.push({
+          mint: row.mint || null,
+          symbol: row.symbol || null,
+          sourceReason: row.sourceReason || null,
+          shadowReason: row.shadowReason || null,
+          walletTouchCount,
+          classification: walletTouchCount > 0 ? 'NOT_APPLICABLE_TOUCH_ATTACHED' : 'NO_JOIN_MISS_PAYLOAD'
+        });
+      }
+      continue;
+    }
+
+    summary.withJoinMissPayload += 1;
+    const reason = payload.reason || 'unknown';
+    summary.joinMissReasonCounts[reason] = (summary.joinMissReasonCounts[reason] || 0) + 1;
+    if (reason === 'NO_SAME_MINT_TOUCH_IN_LEDGER') summary.noSameMintLedgerTouch += 1;
+
+    const key = `${row.mint || ''}:${row.timestamp || row.at || ''}:${row.sourceReason || ''}`;
+    const emitted = emittedJoinMissKeys.has(key);
+    if (emitted) summary.emittedJoinMissMatchedToShadowRow += 1;
+    if (reason !== 'NO_SAME_MINT_TOUCH_IN_LEDGER' && !emitted) {
+      summary.sameMintLedgerTouchWithoutEmittedJoinMiss += 1;
+    }
+
+    if (summary.samples.length < 16 && (!emitted || reason === 'NO_SAME_MINT_TOUCH_IN_LEDGER')) {
+      summary.samples.push({
+        mint: row.mint || null,
+        symbol: row.symbol || null,
+        sourceReason: row.sourceReason || null,
+        shadowReason: row.shadowReason || null,
+        walletTouchCount,
+        classification: reason,
+        priorTrackedRows: payload.priorTrackedRows ?? null,
+        priorUntrustedRows: payload.priorUntrustedRows ?? null,
+        futureTrackedRows: payload.futureTrackedRows ?? null,
+        futureUntrustedRows: payload.futureUntrustedRows ?? null
+      });
+    }
+  }
+
+  summary.zeroJoinMissAndZeroLedgerTouch = summary.noSameMintLedgerTouch;
+  summary.ambiguousSilentRows = summary.noJoinMissPayload;
+  summary.verdict = summary.noJoinMissPayload > 0
+    ? 'SHADOW_JOIN_CLASSIFIER_PAYLOAD_MISSING'
+    : (summary.sameMintLedgerTouchWithoutEmittedJoinMiss > 0
+      ? 'SAME_MINT_LEDGER_TOUCH_WITHOUT_JOIN_MISS_EVENT'
+      : 'SHADOW_JOIN_MISS_ACCOUNTED');
+  summary.joinMissReasonCounts = Object.fromEntries(
+    Object.entries(summary.joinMissReasonCounts).sort((a, b) => b[1] - a[1])
+  );
+  return summary;
+}
+
 function substrateFreshness({ runtime, historicalLedger, manualKolSummary }) {
   const durationHours = Number(runtime.durationMinutes || 0) > 0 ? Number(runtime.durationMinutes) / 60 : null;
   const providerTradeEvents = Number(runtime.trackingOpportunity?.providerTradeEvents || 0);
@@ -1137,6 +1219,7 @@ async function summarizeTelemetry(filePath, promotionIndex, substrateIndex) {
   const recordedWalletGateRows = [];
   const paperDecisionRows = [];
   const joinMissRows = [];
+  const walletRelaxedShadowRows = [];
   let startMs = Infinity;
   let endMs = -Infinity;
 
@@ -1337,6 +1420,20 @@ async function summarizeTelemetry(filePath, promotionIndex, substrateIndex) {
       shadow.sourceReasons[payload.sourceReason || 'unknown'] = (shadow.sourceReasons[payload.sourceReason || 'unknown'] || 0) + 1;
       shadow.contextSources[summary.contextSource || (summary.anyTouch ? 'unknown' : 'none')] =
         (shadow.contextSources[summary.contextSource || (summary.anyTouch ? 'unknown' : 'none')] || 0) + 1;
+      walletRelaxedShadowRows.push({
+        atMs,
+        at: Number.isFinite(atMs) ? new Date(atMs).toISOString() : null,
+        mint,
+        symbol: payload.symbol || null,
+        timestamp: payload.timestamp || event.timestamp || null,
+        sourceReason: payload.sourceReason || null,
+        sourceDecision: payload.sourceDecision || null,
+        shadowReason: payload.shadowReason || null,
+        walletTouchCount: Number(payload.walletTouchCount || 0),
+        walletContextSource: payload.walletContextSource || null,
+        walletContextJoinMiss: payload.walletContextJoinMiss || null,
+        wouldEnter: type.endsWith('.would_enter')
+      });
       void context;
     }
   });
@@ -1389,6 +1486,7 @@ async function summarizeTelemetry(filePath, promotionIndex, substrateIndex) {
     ...untrackedRowsWithFollowThrough
   ], paperDecisionRows);
   const joinMissTelemetry = summarizeJoinMissTelemetry(joinMissRows);
+  const shadowJoinMissAmbiguity = summarizeShadowJoinMissAmbiguity(walletRelaxedShadowRows, joinMissRows);
   const overlap = [...walletMints].filter((mint) => decisionMints.has(mint)).length;
   const promoted = walletEvents.filter((event) => event.promotion);
   const providerTradeEvents = Number(eventCounts['provider.pumpdev.runtime_trade'] || 0)
@@ -1498,6 +1596,7 @@ async function summarizeTelemetry(filePath, promotionIndex, substrateIndex) {
       untrackedWalletDecisionJoin: summarizeUntrackedDecisionJoin(untrackedRowsWithFollowThrough, paperDecisionRows),
       allTapeDecisionJoin,
       walletContextJoinMissTelemetry: joinMissTelemetry,
+      shadowJoinMissAmbiguity,
       walletObservationChannel,
       bridgeValidationStatus
     },
@@ -1512,6 +1611,7 @@ async function summarizeTelemetry(filePath, promotionIndex, substrateIndex) {
     walletDecisionJoin,
     allTapeDecisionJoin,
     walletContextJoinMissTelemetry: joinMissTelemetry,
+    shadowJoinMissAmbiguity,
     walletRelaxedShadowCoverage: {
       attempts: shadow.attempts,
       wouldEnter: shadow.wouldEnter,

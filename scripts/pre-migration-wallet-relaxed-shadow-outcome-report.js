@@ -10,6 +10,8 @@ const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
 const BATTLEFIELD_PATH = path.join(ROOT, 'data', 'reports', 'run-battlefield-latest.json');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-wallet-relaxed-shadow-outcome-latest.json');
+const MANUAL_WALLET_PATH = path.join(ROOT, 'data', 'wallet-watchlists', 'manual-kol-wallets.json');
+const SHADOW_WALLET_PATH = path.join(ROOT, 'data', 'wallet-watchlists', 'shadow-untracked-wallets.json');
 const WINDOWS_SECONDS = [30, 60, 120, 300];
 
 function parseArgs(argv) {
@@ -32,6 +34,93 @@ function parseArgs(argv) {
 function repoPath(filePath) {
   if (!filePath) return null;
   return path.isAbsolute(filePath) ? filePath : path.join(ROOT, filePath);
+}
+
+function readJson(filePath, fallback = null) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
+  } catch {
+    return fallback;
+  }
+}
+
+function walletKey(value) {
+  const key = String(value || '').trim();
+  return key || null;
+}
+
+function buildWalletCohortIndex() {
+  const index = new Map();
+  const addWallet = (wallet, fallbackCohort) => {
+    const address = walletKey(wallet.walletAddress || wallet.wallet || wallet.address);
+    if (!address) return;
+    const profile = wallet.profile || null;
+    const cohort = profile === 'observation_only_v2'
+      ? 'observation_only_v2'
+      : (fallbackCohort || profile || 'unknown_wallet_cohort');
+    index.set(address, {
+      walletCohort: cohort,
+      walletProfile: profile,
+      walletSource: wallet.source || null,
+      walletEra: wallet.era || null,
+      walletFlags: Array.isArray(wallet.flags) ? wallet.flags.slice(0, 12) : [],
+      watchlistName: wallet.name || null
+    });
+  };
+
+  const manual = readJson(MANUAL_WALLET_PATH, {});
+  for (const wallet of manual.wallets || []) addWallet(wallet, 'manual_kol_v1');
+
+  const shadow = readJson(SHADOW_WALLET_PATH, {});
+  for (const wallet of shadow.wallets || []) addWallet(wallet, wallet.profile || 'shadow_untracked_review');
+
+  return index;
+}
+
+function cohortForTouch(touch, walletCohortIndex) {
+  if (!touch || typeof touch !== 'object') return null;
+  const existing = touch.walletCohort || touch.cohort || null;
+  if (existing) {
+    return {
+      walletCohort: existing,
+      walletProfile: touch.walletProfile || null,
+      walletSource: touch.walletSource || null,
+      walletEra: touch.walletEra || null,
+      walletFlags: Array.isArray(touch.walletFlags) ? touch.walletFlags.slice(0, 12) : []
+    };
+  }
+  const address = walletKey(touch.wallet || touch.walletAddress);
+  const indexed = address ? walletCohortIndex.get(address) : null;
+  if (indexed) return indexed;
+  if (touch.reviewTier || touch.evidenceTier) {
+    return {
+      walletCohort: 'tracked_promotion_review',
+      walletProfile: null,
+      walletSource: null,
+      walletEra: null,
+      walletFlags: []
+    };
+  }
+  return {
+    walletCohort: 'unknown_tracked_runtime',
+    walletProfile: null,
+    walletSource: null,
+    walletEra: null,
+    walletFlags: []
+  };
+}
+
+function enrichTouch(touch, walletCohortIndex) {
+  if (!touch || typeof touch !== 'object') return null;
+  const cohort = cohortForTouch(touch, walletCohortIndex);
+  return {
+    ...touch,
+    walletCohort: cohort?.walletCohort || null,
+    walletProfile: cohort?.walletProfile || touch.walletProfile || null,
+    walletSource: cohort?.walletSource || touch.walletSource || null,
+    walletEra: cohort?.walletEra || touch.walletEra || null,
+    walletFlags: Array.isArray(cohort?.walletFlags) ? cohort.walletFlags : []
+  };
 }
 
 function latestTelemetryFile() {
@@ -133,13 +222,19 @@ function snapshotFromEvent(event) {
   };
 }
 
-function shadowAttemptFromEvent(event) {
+function shadowAttemptFromEvent(event, walletCohortIndex) {
   const eventType = event.type || event.event;
   if (!['pre_migration_wallet_relaxed_shadow.would_enter', 'pre_migration_wallet_relaxed_shadow.would_skip'].includes(eventType)) return null;
   const payload = payloadOf(event);
   const mint = mintOf(payload);
   const atMs = timestampMs(payload.timestamp || event.timestamp);
   if (!mint || !Number.isFinite(atMs)) return null;
+  const qualifyingFirstTouch = enrichTouch(payload.qualifyingFirstTouch, walletCohortIndex);
+  const positiveFirstTouch = enrichTouch(payload.positiveFirstTouch, walletCohortIndex);
+  const firstConditioningTouch = enrichTouch(payload.firstConditioningTouch, walletCohortIndex);
+  const walletSummary = Array.isArray(payload.walletSummary)
+    ? payload.walletSummary.map((touch) => enrichTouch(touch, walletCohortIndex)).filter(Boolean)
+    : [];
   return {
     eventType,
     wouldEnter: eventType === 'pre_migration_wallet_relaxed_shadow.would_enter',
@@ -162,8 +257,13 @@ function shadowAttemptFromEvent(event) {
     earliestWalletBuyAt: payload.earliestWalletBuyAt || null,
     positiveOrProvenTouchCount: numberOrNull(payload.positiveOrProvenTouchCount, 0),
     avoidTouchCount: numberOrNull(payload.avoidTouchCount, 0),
-    qualifyingFirstTouch: payload.qualifyingFirstTouch || null,
-    positiveFirstTouch: payload.positiveFirstTouch || null
+    qualifyingFirstTouch,
+    positiveFirstTouch,
+    firstConditioningTouch,
+    qualifyingWalletCohort: qualifyingFirstTouch?.walletCohort || null,
+    positiveWalletCohort: positiveFirstTouch?.walletCohort || null,
+    firstConditioningWalletCohort: firstConditioningTouch?.walletCohort || null,
+    walletSummary
   };
 }
 
@@ -218,6 +318,7 @@ function addOutcomes(attempt, snapshotsByMint) {
 }
 
 async function readTelemetry(filePath) {
+  const walletCohortIndex = buildWalletCohortIndex();
   const snapshotsByMint = new Map();
   const attempts = [];
   const eventCounts = {};
@@ -255,7 +356,7 @@ async function readTelemetry(filePath) {
       snapshotsByMint.set(snapshot.mint, rows);
     }
 
-    const attempt = shadowAttemptFromEvent(event);
+    const attempt = shadowAttemptFromEvent(event, walletCohortIndex);
     if (attempt) attempts.push(attempt);
   }
 
@@ -267,6 +368,7 @@ async function readTelemetry(filePath) {
     attempts,
     eventCounts,
     malformedLines,
+    walletCohortIndexSize: walletCohortIndex.size,
     startAt: Number.isFinite(startMs) ? new Date(startMs).toISOString() : null,
     endAt: Number.isFinite(endMs) ? new Date(endMs).toISOString() : null
   };
@@ -316,6 +418,36 @@ function summarize(outcomes) {
     wouldEnterSourceReasonCounts: countBy(wouldEnterRows, (row) => row.sourceReason),
     wouldSkipSourceReasonCounts: countBy(wouldSkipRows, (row) => row.sourceReason),
     shadowReasonCounts: countBy(outcomes, (row) => row.shadowReason),
+    qualifyingFirstTouchCohortCounts: countBy(wouldEnterRows, (row) => row.qualifyingFirstTouch?.walletCohort),
+    positiveFirstTouchCohortCounts: countBy(wouldEnterRows, (row) => row.positiveFirstTouch?.walletCohort),
+    wouldEnterByCohort: Object.fromEntries(
+      Object.entries(
+        wouldEnterRows.reduce((acc, row) => {
+          const cohort = row.qualifyingFirstTouch?.walletCohort || 'unknown';
+          const bucket = acc[cohort] || {
+            attempts: 0,
+            uniqueMints: new Set(),
+            withPositiveOrProvenTouch: 0,
+            withAvoidTouch: 0,
+            crossed85Within120s: 0,
+            crossed90Within120s: 0,
+            crossed90Within300s: 0
+          };
+          bucket.attempts += 1;
+          if (row.mint) bucket.uniqueMints.add(row.mint);
+          if (Number(row.positiveOrProvenTouchCount || 0) > 0) bucket.withPositiveOrProvenTouch += 1;
+          if (Number(row.avoidTouchCount || 0) > 0) bucket.withAvoidTouch += 1;
+          if (row.windows['120s']?.crossed85) bucket.crossed85Within120s += 1;
+          if (row.windows['120s']?.crossed90) bucket.crossed90Within120s += 1;
+          if (row.windows['300s']?.crossed90) bucket.crossed90Within300s += 1;
+          acc[cohort] = bucket;
+          return acc;
+        }, {})
+      ).map(([cohort, bucket]) => [cohort, {
+        ...bucket,
+        uniqueMints: bucket.uniqueMints.size
+      }])
+    ),
     qualifyingFirstTouchReviewTierCounts: countBy(wouldEnterRows, (row) => row.qualifyingFirstTouch?.reviewTier),
     qualifyingFirstTouchEvidenceTierCounts: countBy(wouldEnterRows, (row) => row.qualifyingFirstTouch?.evidenceTier),
     positiveFirstTouchReviewTierCounts: countBy(wouldEnterRows, (row) => row.positiveFirstTouch?.reviewTier),
@@ -377,7 +509,8 @@ async function main() {
       endAt: telemetry.endAt,
       malformedLines: telemetry.malformedLines,
       shadowEvents: telemetry.attempts.length,
-      snapshotMints: telemetry.snapshotsByMint.size
+      snapshotMints: telemetry.snapshotsByMint.size,
+      walletCohortIndexSize: telemetry.walletCohortIndexSize
     },
     summary: summarize(outcomes),
     topWouldEnterFollowThrough: topRows(outcomes),

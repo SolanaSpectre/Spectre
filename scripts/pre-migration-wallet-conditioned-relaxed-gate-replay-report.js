@@ -45,13 +45,41 @@ function readJson(filePath, fallback = null) {
 
 function readJsonl(filePath) {
   if (!fs.existsSync(filePath)) return [];
-  return fs.readFileSync(filePath, 'utf8').split(/\r?\n/).filter(Boolean).map((line) => {
-    try {
-      return JSON.parse(line.replace(/^\uFEFF/, ''));
-    } catch {
-      return null;
+  const rows = [];
+  const fd = fs.openSync(filePath, 'r');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  const decoder = new TextDecoder('utf8');
+  let pending = '';
+  try {
+    while (true) {
+      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, null);
+      if (bytesRead === 0) break;
+      pending += decoder.decode(buffer.subarray(0, bytesRead), { stream: true });
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() || '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          rows.push(JSON.parse(trimmed.replace(/^\uFEFF/, '')));
+        } catch {
+          // Skip malformed JSONL rows; the previous helper did the same.
+        }
+      }
     }
-  }).filter(Boolean);
+    pending += decoder.decode();
+    const trimmed = pending.trim();
+    if (trimmed) {
+      try {
+        rows.push(JSON.parse(trimmed.replace(/^\uFEFF/, '')));
+      } catch {
+        // Skip malformed JSONL rows; the previous helper did the same.
+      }
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  return rows.filter(Boolean);
 }
 
 function numberOrNull(value, digits = null) {

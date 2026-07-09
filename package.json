@@ -127,6 +127,8 @@
     "report:wallet-untracked-review": "node scripts/wallet-untracked-review-report.js",
     "report:wallet-launch-intel-bridge": "node scripts/wallet-launch-intel-bridge-report.js",
     "report:wallet-launch-intel-stability": "node scripts/wallet-launch-intel-stability-report.js",
+    "report:wallet-observation-oos-lift": "node scripts/wallet-observation-oos-lift-report.js",
+    "report:wallet-observation-only-tier": "node scripts/wallet-observation-only-tier-report.js",
     "report:wallet-launch-intel-shortlist-entry-replay": "node scripts/wallet-launch-intel-shortlist-entry-replay.js",
     "report:wallet-launch-intel-shortlist-shadow": "node scripts/wallet-launch-intel-shortlist-shadow-report.js",
     "report:wallet-untracked-shadow-impact": "node scripts/wallet-untracked-shadow-impact-report.js",

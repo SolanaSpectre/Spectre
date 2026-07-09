@@ -1,93 +1,2837 @@
 {
-  "source": "wallet_untracked_shadow_impact",
-  "updatedAt": "2026-06-12T18:35:00.000Z",
+  "source": "wallet_observation_only_tier_report",
+  "updatedAt": "2026-07-09T07:17:35.048Z",
   "mode": "report_only_shadow_profiles",
-  "note": "Shadow wallets are used for telemetry and report-only validation. They must not satisfy real wallet-proof entry guards.",
+  "era": "observation_only_v2_2026-07-09",
+  "note": "Observation-only wallets are used for telemetry and shadow validation. They must not satisfy real wallet-proof entry guards.",
   "wallets": [
     {
-      "walletAddress": "FjBooaCwFzgsyt7VJ1Y6rYdqQhdLDTUXFE4AjeKdYHYN",
-      "name": "untracked_runtime_FjBooa",
-      "source": "runtime_untracked_shadow_impact",
+      "walletAddress": "7cp6zxvhxbfS7QgYTB7ts2RqFf7zDYwtjfuHcEHhKLAz",
+      "name": "obs_v2_7cp6zx",
+      "source": "observation_only_v2_launch_intel_stability",
       "trustTier": null,
-      "profile": "shadow_untracked_review",
+      "profile": "observation_only_v2",
       "score": 100,
       "twitter": null,
       "telegram": null,
       "flags": [
+        "OBSERVATION_ONLY_V2",
         "REPORT_ONLY_SHADOW",
-        "NEEDS_REPEAT_CONFIRMATION",
-        "UNTRACKED_FIRST_TOUCH_CANDIDATE"
-      ]
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 6,
+        "decisionRunCount": 6,
+        "pre85BuyRows": 9,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1936,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
     },
     {
-      "walletAddress": "BWJxBMRtqqHhGtJmtUo7whFW2TBd9LPqxWDy6tJdSo8u",
-      "name": "untracked_runtime_BWJxBM",
-      "source": "runtime_untracked_shadow_impact",
+      "walletAddress": "BVyEmwFa2WUk7PnzMBbspu86PmgTr2j6NHct4K1ok6ki",
+      "name": "obs_v2_BVyEmw",
+      "source": "observation_only_v2_launch_intel_stability",
       "trustTier": null,
-      "profile": "shadow_untracked_review",
-      "score": 73.72,
+      "profile": "observation_only_v2",
+      "score": 100,
       "twitter": null,
       "telegram": null,
       "flags": [
+        "OBSERVATION_ONLY_V2",
         "REPORT_ONLY_SHADOW",
-        "SHADOW_PROMOTION_TEST_CANDIDATE",
-        "MANUAL_REVIEW_NOW",
-        "NEEDS_REPEAT_CONFIRMATION",
-        "UNTRACKED_FIRST_TOUCH_CANDIDATE",
-        "NO_RUNTIME_TRUST"
-      ]
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 6,
+        "decisionRunCount": 6,
+        "pre85BuyRows": 9,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
     },
     {
-      "walletAddress": "4zX15mBSPfwVvuMnyU4ncM4L8yjN9QxZDGBqsMBWAzHY",
-      "name": "untracked_runtime_4zX15m",
-      "source": "runtime_untracked_shadow_impact",
+      "walletAddress": "EXyNF1iX7mVDMChgzPhRaSu4SLjgKpadXoXLZNtMuvxC",
+      "name": "obs_v2_EXyNF1",
+      "source": "observation_only_v2_launch_intel_stability",
       "trustTier": null,
-      "profile": "shadow_untracked_review",
-      "score": 61.54,
+      "profile": "observation_only_v2",
+      "score": 100,
       "twitter": null,
       "telegram": null,
       "flags": [
+        "OBSERVATION_ONLY_V2",
         "REPORT_ONLY_SHADOW",
-        "SHADOW_PROMOTION_TEST_CANDIDATE",
-        "OBSERVE_NEXT_RUN",
-        "NEEDS_REPEAT_CONFIRMATION",
-        "UNTRACKED_FIRST_TOUCH_CANDIDATE",
-        "NO_RUNTIME_TRUST"
-      ]
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 6,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 6,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
     },
     {
-      "walletAddress": "Ez2jYoXp45DZxr7JVhiqbDNirgBT37MErjZGxA8jZkTf",
-      "name": "untracked_runtime_Ez2jYo",
-      "source": "runtime_untracked_review",
+      "walletAddress": "6yRBpeDDba4yASyjmWBLstxv1gYHVsvdHfuBpVpr63N2",
+      "name": "obs_v2_6yRBpe",
+      "source": "observation_only_v2_launch_intel_stability",
       "trustTier": null,
-      "profile": "shadow_untracked_review",
-      "score": 91.14,
+      "profile": "observation_only_v2",
+      "score": 100,
       "twitter": null,
       "telegram": null,
       "flags": [
+        "OBSERVATION_ONLY_V2",
         "REPORT_ONLY_SHADOW",
-        "MANUAL_REVIEW_NOW",
-        "NEEDS_REPEAT_CONFIRMATION",
-        "UNTRACKED_FIRST_TOUCH_CANDIDATE",
-        "NO_RUNTIME_TRUST"
-      ]
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 6,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 19,
+        "rowsPerMint": 1.0625,
+        "distinctMintsPerHour": 0.403,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
     },
     {
-      "walletAddress": "haqqiUUXB5gp7gDbSjpEkw3phAjQb25r86uXJsZQgWq",
-      "name": "untracked_runtime_haqqiU",
-      "source": "runtime_untracked_review",
+      "walletAddress": "BDuAJGTuPcUgfxWyKJVrWPASRyVTT8iTEc3j6xXPt1My",
+      "name": "obs_v2_BDuAJG",
+      "source": "observation_only_v2_launch_intel_stability",
       "trustTier": null,
-      "profile": "shadow_untracked_review",
-      "score": 87.69,
+      "profile": "observation_only_v2",
+      "score": 100,
       "twitter": null,
       "telegram": null,
       "flags": [
+        "OBSERVATION_ONLY_V2",
         "REPORT_ONLY_SHADOW",
-        "MANUAL_REVIEW_NOW",
-        "NEEDS_REPEAT_CONFIRMATION",
-        "UNTRACKED_FIRST_TOUCH_CANDIDATE",
-        "NO_RUNTIME_TRUST"
-      ]
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 6,
+        "decisionRunCount": 6,
+        "pre85BuyRows": 17,
+        "rowsPerMint": 1.0833,
+        "distinctMintsPerHour": 0.2329,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "AK7RhzmR7wXbyPV7gjHb7zDd8d1pLUy9gpC5TzEVykhr",
+      "name": "obs_v2_AK7Rhz",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 6,
+        "decisionRunCount": 6,
+        "pre85BuyRows": 28,
+        "rowsPerMint": 1.15,
+        "distinctMintsPerHour": 0.387,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "ARu4n5mFdZogZAravu7CcizaojWnS6oqka37gdLT5SZn",
+      "name": "obs_v2_ARu4n5",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 6,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 288,
+        "rowsPerMint": 1.2609,
+        "distinctMintsPerHour": 0.4453,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "DpGxaoQzvNnZsJaHWRrFXsPfiuZj6UdZ1om6eMJ3T4Cz",
+      "name": "obs_v2_DpGxao",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 6,
+        "decisionRunCount": 6,
+        "pre85BuyRows": 10,
+        "rowsPerMint": 1.4,
+        "distinctMintsPerHour": 0.097,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "Gsm1ExN2kswyUsy6TomaoNdR3iiGMjQnHhaVhDcU3fQR",
+      "name": "obs_v2_Gsm1Ex",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 17,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1792,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "AGbqwcKyEwmQ1qZzybEzZN9R2YnHQ9FrFbMjstCsC6xU",
+      "name": "obs_v2_AGbqwc",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 15,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1792,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "xYz3NuixcGrHDD6HnRWFwABMzqojaTktoM6qzaRrshv",
+      "name": "obs_v2_xYz3Nu",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 13,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.3275,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "7RoMjXXE88PoFhUVjmF6i5Er1qYM9iX2igAzodxVSeUR",
+      "name": "obs_v2_7RoMjX",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 17,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.387,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "6DskyYLmmA9j1Ht5gAKFBtf2dn8uPZgbVJ2zcmyTZfgp",
+      "name": "obs_v2_6DskyY",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 16,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.3531,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "5veTCy9eDaL66LqABfpywN6jr1s7zaXP4uit8sMRAaHA",
+      "name": "obs_v2_5veTCy",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 20,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.3754,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "nya666pQkP3PzWxi7JngU3rRMHuc7zbLK8c8wxQ4qpT",
+      "name": "obs_v2_nya666",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 11,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.2324,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "Gku8cuthhvfoPoG18rg1EULt58xB7j1fgPoifJcyh411",
+      "name": "obs_v2_Gku8cu",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 13,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1552,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "GZmUDsn8W1rtopeTgwVgab9rsRGMLVVMfsXwWKD1VS9p",
+      "name": "obs_v2_GZmUDs",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 13,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1355,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "5HsChPkobFXfABqQgf223a4sdsyYuWecUG2VJXfCxE3r",
+      "name": "obs_v2_5HsChP",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 15,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1747,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "EqgpVyzFTpuDTDmsSi9a8t5WXoAwfXxvBKBdLeXTyr4w",
+      "name": "obs_v2_EqgpVy",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 14,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.2903,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "9999huSCf6QpepPHQVFLZ9smhsbwkV4XWPLboiy9qqRj",
+      "name": "obs_v2_9999hu",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 16,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1934,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "Anubis512ho5t7S6LNSwoxUWdeQmX2kf3RvZ8ApHHF5w",
+      "name": "obs_v2_Anubis",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 18,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.5235,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "64hP97Bwr5PubotcTeGgfhkFrGiLVVxT2kVo9M9b4AEz",
+      "name": "obs_v2_64hP97",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 34,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.5883,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "AowrJaw84rGhmFFYRTqs3diCHwg8Q5zjMVWmWSfNkQJU",
+      "name": "obs_v2_AowrJa",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 8,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "9pP8SRaU7G4gP2aAckggBBLXmGT266LyrdQuA4Q1CB5h",
+      "name": "obs_v2_9pP8SR",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 7,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "F5MYFKgmGP1dGgSYuJQ8Crr2jkayxbeC7ArDMyU2tAjv",
+      "name": "obs_v2_F5MYFK",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 7,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "CWvyyHFxzApoJ6j4FV7oaYrm92pJzK6yA9WU7PfkKCTV",
+      "name": "obs_v2_CWvyyH",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 7,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "g8J7SWGYyAKFKfXGjbR2oormaG5s942wKE5mhvf4MtV",
+      "name": "obs_v2_g8J7SW",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 7,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "6hQSw5JDEjVvqFes2vwGnYFq9b44Yjq9wxeNVBYJpHSb",
+      "name": "obs_v2_6hQSw5",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 7,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1525,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "A155GZTHxHwNFSYVXxhVh4w4B67VnMkypotdKKK9DAfh",
+      "name": "obs_v2_A155GZ",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 6,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "92pY1qXJAakyGp6UZ5tEDMnk8MkLRkwhb2LbpkJTdbWq",
+      "name": "obs_v2_92pY1q",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 6,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "GpWzQoGQRY5Lcb4NTeZvb2HjCcG5y8Wy46TBejzZu18g",
+      "name": "obs_v2_GpWzQo",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 8,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1829,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "79U8GwLhPXcnuUpBVeZ1rSEfVoota888W3qJik48BxoD",
+      "name": "obs_v2_79U8Gw",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 8,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.2,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "CCCCQCrL6zVjnDeucDzcxJgxAs5ahNmrhw1CDexPhqrd",
+      "name": "obs_v2_CCCCQC",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 14,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1356,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "ALVWPcNq8aPeMdq5UjByScBTw25GGXEw8joFLa98XH9X",
+      "name": "obs_v2_ALVWPc",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 23,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.6974,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "AmoTosp6DmCpdnbfi2vfewi6xiZVPnihBmg3ETcKMUnh",
+      "name": "obs_v2_AmoTos",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 5,
+        "pre85BuyRows": 7,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1218,
+        "sourceClassification": "REPEAT_OBSERVE_NEXT_RUN"
+      }
+    },
+    {
+      "walletAddress": "BNwVduQq1AH3ee5hnLQtbJmPyrBJHaS29b6VQt3pzvsR",
+      "name": "obs_v2_BNwVdu",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 10,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1747,
+        "sourceClassification": "REPEAT_OBSERVE_NEXT_RUN"
+      }
+    },
+    {
+      "walletAddress": "3pk5yRhwwFdvDBrBuuC5CRorVafHG2EQmzNEYy8Ny2K6",
+      "name": "obs_v2_3pk5yR",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 15,
+        "rowsPerMint": 1.1111,
+        "distinctMintsPerHour": 0.2268,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "49Pvtit7pgtrUpSBpmN8A3BnVFqZ14BUfvqd5VCAykbP",
+      "name": "obs_v2_49Pvti",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 5,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 15,
+        "rowsPerMint": 1.2,
+        "distinctMintsPerHour": 0.7331,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "2QALaBbUUttvj8hwvzwZQJyq11YSZHpPT6Sp9USRGS5z",
+      "name": "obs_v2_2QALaB",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 11,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.3128,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "8kLKsGS5qfydG7pfFbJSRAdx8CBhaePSHTr1yFh44bZ9",
+      "name": "obs_v2_8kLKsG",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 12,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.8967,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "6YFDdJXVbKCCTGzkxFPcEgqjR3e3cpmbxo8UjK9C1Aa",
+      "name": "obs_v2_6YFDdJ",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 9,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.213,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "DGJX5Phf9drKA2pq7vcXxBEBZ2cE38bQuiQrA1byvdbC",
+      "name": "obs_v2_DGJX5P",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 16,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.2989,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "4zsBZLBGsMWn2FjGDhn6fg1VUvBL8zYnsgnWz4TSxt1n",
+      "name": "obs_v2_4zsBZL",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 14,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1741,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "3R1QdwYfNcMHG1ShvtbyTnftDvLwCguWEQGgVVmkiyZP",
+      "name": "obs_v2_3R1Qdw",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 9,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.4001,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "DQApNebkK5wCmy92T5c4Z9NePWjP7dC4avpLMzuxadxR",
+      "name": "obs_v2_DQApNe",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 9,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.3214,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "GgXicFDK9fiL7pfVdf9Cw6PFsovxdEXdYisQnDgZqxUC",
+      "name": "obs_v2_GgXicF",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 7,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.2134,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "BCD85BQNVY7kSqjR1NrFYCRDReP1Zngyu6U1TqeYm6ze",
+      "name": "obs_v2_BCD85B",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 8,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1552,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "DSmkz9ztNRJGjqWMB3zmxR6bTg1y42AvSZciWj3f74Ut",
+      "name": "obs_v2_DSmkz9",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 10,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.2135,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "GyTTdzyj9aWKUeLkxNaABUUdtgGg41uX2q2bB7Uz2hpY",
+      "name": "obs_v2_GyTTdz",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 26,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.0387,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "7JCe3GHwkEr3feHgtLXnmuJ1yB3A7coSeyynxTBgdG8k",
+      "name": "obs_v2_7JCe3G",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 21,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "ANGh6zUPwNi6oGNV7JDAzD3sAWcRH9UxyeeT7FUqLXGy",
+      "name": "obs_v2_ANGh6z",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 17,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "3TB4EwTwSrkWgjubYYbd6JNmVcTSJ44EgMMwKm8HZABQ",
+      "name": "obs_v2_3TB4Ew",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 11,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.0842,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "CEXKhHxgrEfeJ8RuJJC89a58npQTZuiKxFDNHZNkvbrw",
+      "name": "obs_v2_CEXKhH",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 14,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1434,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "56S29mZ3wqvw8hATuUUFqKhGcSGYFASRRFNT38W8q7G3",
+      "name": "obs_v2_56S29m",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 15,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "7Q6RcQKsmpaRsaK17nuVyxDEWMRcPJUhboHvsqNRgTsR",
+      "name": "obs_v2_7Q6RcQ",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 22,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 6.3429,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "Azxu5fAdDpko5LpHeefbCxPUeMagj6KG2edL7heBAu3n",
+      "name": "obs_v2_Azxu5f",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 9,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.6409,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "DeNwH63Xgj3a4bXXHw79BiL5iBUNBQVaRYeLHQTQxL7z",
+      "name": "obs_v2_DeNwH6",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 12,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.316,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "5i8rFRKn3TEWHTPC9JH7B6QQSNRmBx5TgUGiub1kAbJA",
+      "name": "obs_v2_5i8rFR",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 14,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.167,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "B6rneBPNPGu5TyJ8nk6NSi7cVnThz75f66wZZ4PTvAZC",
+      "name": "obs_v2_B6rneB",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 13,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.0757,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "4uR3i2EfzGBMDoNUKGnnzdCvKa3cn49UJQwBt4YaqHc9",
+      "name": "obs_v2_4uR3i2",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 9,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.7174,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "GQVfg8d9npbcWRspEhw9EHwMpXUZRHQT4vWLMWanqY33",
+      "name": "obs_v2_GQVfg8",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 8,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "66v9abAuNngFJkM5SSfCSMi7s8dHY24aTF2eW7BcdsQx",
+      "name": "obs_v2_66v9ab",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 5,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.3223,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "Cu7AJiu9eEjBBxGHRh5yndV6AmD1myaCj2BepKwhzHbu",
+      "name": "obs_v2_Cu7AJi",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 7,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.143,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "5st7H8QtPEVfovSwLmdJDjbUAQivVZJGzbHCir6dZxGc",
+      "name": "obs_v2_5st7H8",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 6,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.2233,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "A9k1y7pqipuggWN2CnwKt6zgdGr4PCsvhv3Puj6WKrJg",
+      "name": "obs_v2_A9k1y7",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 2,
+        "pre85BuyRows": 12,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.4472,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "ayaCRDLwYRqAvPnrpwnkUsxrqx4hniVaWAGHYG5DGBD",
+      "name": "obs_v2_ayaCRD",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 9,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.502,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "5XEj4qt6STm1dKvwTiqiuLRYJoMWUey4BqiwDPTuaUVG",
+      "name": "obs_v2_5XEj4q",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 10,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1161,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "FRdWQaCpJhz1jVRoi74i9p8HXc4cgENYRwCu7BXX3yeD",
+      "name": "obs_v2_FRdWQa",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 2,
+        "pre85BuyRows": 5,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "HwLUyAPykbPgkotArMazDsNUn7uMyCSBMjm3drDHSBfw",
+      "name": "obs_v2_HwLUyA",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 10,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "6kVeQugGKQmjDDXq52aDB7kwUURshbkcEpxL4zmd4jx2",
+      "name": "obs_v2_6kVeQu",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 2,
+        "pre85BuyRows": 5,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "5hpZag8AmNHtDnfs3oC8W74HRuL4WarDviYnAfHbm1XJ",
+      "name": "obs_v2_5hpZag",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 9,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.0968,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "Eo8ZQxX9pXoUmosc9MaJYMMSE8VPB6JK1M1fSrzdi6h5",
+      "name": "obs_v2_Eo8ZQx",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 7,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.313,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "CHtt4CqX9LAN7MeUSXPSrwaSpxPJ89Pmw1KPh2RSCuZG",
+      "name": "obs_v2_CHtt4C",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 9,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1516,
+        "sourceClassification": "REPEAT_OBSERVE_NEXT_RUN"
+      }
+    },
+    {
+      "walletAddress": "28eGXeTNGrhWm4cAL3feEnu5gpuxSsbtxv6iXnrRUfUv",
+      "name": "obs_v2_28eGXe",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 4,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.061,
+        "sourceClassification": "REPEAT_OBSERVE_NEXT_RUN"
+      }
+    },
+    {
+      "walletAddress": "AowTUid5daQr9EqwazF7hDm3jBTQSisv6LaHGhQL8k92",
+      "name": "obs_v2_AowTUi",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 4,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1008,
+        "sourceClassification": "REPEAT_OBSERVE_NEXT_RUN"
+      }
+    },
+    {
+      "walletAddress": "8bD6e45F83Bw1YrhSpzDjyd2oSh3RFCD64FUhX1xRxJz",
+      "name": "obs_v2_8bD6e4",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 4,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1008,
+        "sourceClassification": "REPEAT_OBSERVE_NEXT_RUN"
+      }
+    },
+    {
+      "walletAddress": "SQHK48QT8SY1vYN44iXji7wQ6CJek8AjfX6mBp47TZq",
+      "name": "obs_v2_SQHK48",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 25,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_OBSERVE_NEXT_RUN"
+      }
+    },
+    {
+      "walletAddress": "6JGME7y4Lsxyu2zjtYHBadY3HFDWUrZcsCxqktvA3P2x",
+      "name": "obs_v2_6JGME7",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 2,
+        "pre85BuyRows": 12,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.2771,
+        "sourceClassification": "REPEAT_OBSERVE_NEXT_RUN"
+      }
+    },
+    {
+      "walletAddress": "5bb5kQKhp4zT3MYuFp7QSpkvJkghfLp6yjQbvTDLK2vy",
+      "name": "obs_v2_5bb5kQ",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 9,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.2128,
+        "sourceClassification": "REPEAT_OBSERVE_NEXT_RUN"
+      }
+    },
+    {
+      "walletAddress": "Gx2TAgSvYqXS1mmFivtWAgVjBTiGJRjRtfApQcypmGsM",
+      "name": "obs_v2_Gx2TAg",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 8,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.2423,
+        "sourceClassification": "REPEAT_OBSERVE_NEXT_RUN"
+      }
+    },
+    {
+      "walletAddress": "GTmduaU9jAqqifQxSmvQqeZz9WuNcr4yemcxZi2ayJK2",
+      "name": "obs_v2_GTmdua",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 7,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1064,
+        "sourceClassification": "REPEAT_OBSERVE_NEXT_RUN"
+      }
+    },
+    {
+      "walletAddress": "HNFjT6CDeTUyEXu3BwHL5GnzFbaqkFoTRzKHoGqPY7qa",
+      "name": "obs_v2_HNFjT6",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 4,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.2231,
+        "sourceClassification": "REPEAT_OBSERVE_NEXT_RUN"
+      }
+    },
+    {
+      "walletAddress": "66Lk3nZ7rzwt8VdyUyL1mnSkU5dqYLhRheAdPBCg6fnc",
+      "name": "obs_v2_66Lk3n",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 2,
+        "pre85BuyRows": 13,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.5792,
+        "sourceClassification": "REPEAT_OBSERVE_NEXT_RUN"
+      }
+    },
+    {
+      "walletAddress": "ADkquSiH1zS6LmGoJxzwE6x44gpE6S3KWLALqNc3sTDs",
+      "name": "obs_v2_ADkquS",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 2,
+        "pre85BuyRows": 6,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.1165,
+        "sourceClassification": "REPEAT_OBSERVE_NEXT_RUN"
+      }
+    },
+    {
+      "walletAddress": "DxhpC9c4kGkYJR34xUrfFeDx9vwb6yoHUMWrTCZybwtH",
+      "name": "obs_v2_DxhpC9",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 2,
+        "pre85BuyRows": 5,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.2032,
+        "sourceClassification": "REPEAT_OBSERVE_NEXT_RUN"
+      }
+    },
+    {
+      "walletAddress": "8Fux3NDfxHxiK9W9ixzvQTw4GGgMazNwRvDS5Gvwejwk",
+      "name": "obs_v2_8Fux3N",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 2,
+        "pre85BuyRows": 29,
+        "rowsPerMint": 1.0625,
+        "distinctMintsPerHour": 0.7131,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "HnVKeQdZsb7vvqnikhqnW34Ntydf9f8JR78qYAAediWU",
+      "name": "obs_v2_HnVKeQ",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 9,
+        "rowsPerMint": 1.125,
+        "distinctMintsPerHour": 0.3192,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "C3DzwFnpw9nwwRf4Xr8j4V8DrwfjawnuGXUPgYJJx6te",
+      "name": "obs_v2_C3DzwF",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 14,
+        "rowsPerMint": 1.125,
+        "distinctMintsPerHour": 0.502,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "2CQgjcdNEo7WtbQLpJTAVcC3Ga61pNvRDTgP5grzctFG",
+      "name": "obs_v2_2CQgjc",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 11,
+        "rowsPerMint": 1.125,
+        "distinctMintsPerHour": 0.3252,
+        "sourceClassification": "REPEAT_OBSERVE_NEXT_RUN"
+      }
+    },
+    {
+      "walletAddress": "95vzL9YwamgyFTRqb5q9PHq6robU7EqTi5R1HaQMr1R8",
+      "name": "obs_v2_95vzL9",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 26,
+        "rowsPerMint": 1.3333,
+        "distinctMintsPerHour": 0.0581,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "BS5ZZpkieC2N8MJhSDuydRWmvX654F3cEMboz4JkJum7",
+      "name": "obs_v2_BS5ZZp",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 4,
+        "pre85BuyRows": 12,
+        "rowsPerMint": 1.3333,
+        "distinctMintsPerHour": 0.3284,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "23vsPTx7PTBWF1pc8ppj7UcnJ6v7jrC6L9iFpXr6KEVQ",
+      "name": "obs_v2_23vsPT",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 4,
+        "decisionRunCount": 2,
+        "pre85BuyRows": 109,
+        "rowsPerMint": 2,
+        "distinctMintsPerHour": 0.6055,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "6ED9YuJXMRjUCEYWQGbbsy8fXW9ae9WtpDHYGEoKstjV",
+      "name": "obs_v2_6ED9Yu",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 3,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 11,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.4299,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "BZoHFehjoi4Tr4Uy8BP5jVxpXff7wXoZGcxLRH6VW6KC",
+      "name": "obs_v2_BZoHFe",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEAT_SHORTLIST_CANDIDATE",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 3,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 16,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.626,
+        "sourceClassification": "REPEAT_SHORTLIST_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "H6Q4HhDmGzh81pnXCbRswT2xtdLJGLTBtHLMjo29HciE",
+      "name": "obs_v2_H6Q4Hh",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 3,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 28,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "Gbiuj8JVtKSpEQCV8y1Wavmhmrjbc7oLV4RAgm8ZLs4o",
+      "name": "obs_v2_Gbiuj8",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 3,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 16,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.2856,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "8cvLbit4Fa35HHWnVT9qZv3mcykdGLSKVo9AcqTdHSu1",
+      "name": "obs_v2_8cvLbi",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 3,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 8,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.3583,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "399Fpaxd8SD1FpRQBgjtXZxsCeoAL7Cy58xc4mKooF3i",
+      "name": "obs_v2_399Fpa",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 3,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 12,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.0581,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "6J1T22cKBTw11McuSteoEMpFfMfmWgG9NzsKs11mQYGD",
+      "name": "obs_v2_6J1T22",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 3,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 7,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.143,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
+    },
+    {
+      "walletAddress": "7VAXAAiriDJzpqqq1d9y6tmPBB8c5WY3vKYTZrgTqNJk",
+      "name": "obs_v2_7VAXAA",
+      "source": "observation_only_v2_launch_intel_stability",
+      "trustTier": null,
+      "profile": "observation_only_v2",
+      "score": 100,
+      "twitter": null,
+      "telegram": null,
+      "flags": [
+        "OBSERVATION_ONLY_V2",
+        "REPORT_ONLY_SHADOW",
+        "NO_RUNTIME_TRUST",
+        "NO_ENTRY_GATE_EFFECT",
+        "REPEATED_ACROSS_RUNS",
+        "REPEATED_DECISION_OVERLAP",
+        "NEAR_NO_TRACKED_FIRST_TOUCH_DECISION"
+      ],
+      "era": "observation_only_v2_2026-07-09",
+      "evidence": {
+        "runCount": 3,
+        "decisionRunCount": 3,
+        "pre85BuyRows": 6,
+        "rowsPerMint": 1,
+        "distinctMintsPerHour": 0.2416,
+        "sourceClassification": "REPEAT_MANUAL_REVIEW_CANDIDATE"
+      }
     }
   ]
 }

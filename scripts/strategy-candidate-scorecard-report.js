@@ -18,6 +18,7 @@ const REPORTS = {
   walletConditionedRelaxedGateReplay: 'pre-migration-wallet-conditioned-relaxed-gate-replay-latest.json',
   walletConditionedSliceStability: 'pre-migration-wallet-conditioned-slice-stability-latest.json',
   walletContextCoverage: 'pre-migration-wallet-context-coverage-latest.json',
+  walletRelaxedShadowOutcome: 'pre-migration-wallet-relaxed-shadow-outcome-latest.json',
   runnerRejectEntryReplay: 'runner-reject-entry-replay-latest.json',
   walletFalseNegativeEntryReplay: 'wallet-false-negative-entry-replay-latest.json'
 };
@@ -316,6 +317,7 @@ function main() {
   const frozenStability = docs.walletConditionedSliceStability.data || {};
   const trackedSubstrateFreshness = docs.walletContextCoverage.data?.trackedSubstrateFreshness || {};
   const walletShadowCoverage = walletCoverageRuntime.walletRelaxedShadowCoverage || {};
+  const walletRelaxedShadowOutcome = docs.walletRelaxedShadowOutcome.data?.summary || {};
   const context = {
     paperEntries,
     paperPnl,
@@ -327,6 +329,8 @@ function main() {
     walletShadowCollectingReady: frozenStability.stability?.verdict === 'STABILITY_PASSED_FREEZE_SHADOW_NEXT',
     walletShadowWouldEnter: number(walletShadowCoverage.wouldEnter, 0),
     walletShadowAttempts: number(walletShadowCoverage.attempts, 0),
+    walletShadowWouldEnterByCohort: walletRelaxedShadowOutcome.wouldEnterByCohort || {},
+    walletShadowOutcomeWindowSummary: walletRelaxedShadowOutcome.windowSummary || {},
     trackedSubstrateVerdict: trackedSubstrateFreshness.verdict || null,
     walletShadowStarved: trackedSubstrateFreshness.verdict === 'TRACKED_SUBSTRATE_DECAYED'
       && number(walletShadowCoverage.wouldEnter, 0) < number(trackedSubstrateFreshness.stoppingRule?.targetWouldEnterSamples, 10)
@@ -388,6 +392,8 @@ function main() {
         wouldEnterAccumulated: context.walletShadowWouldEnter,
         wouldEnterTarget: number(trackedSubstrateFreshness.stoppingRule?.targetWouldEnterSamples, 10),
         shadowAttempts: context.walletShadowAttempts,
+        wouldEnterByCohort: context.walletShadowWouldEnterByCohort,
+        outcomeWindowSummary: context.walletShadowOutcomeWindowSummary,
         trackedSubstrateVerdict: context.trackedSubstrateVerdict
       },
       topBlockers: topBlockers(scored),

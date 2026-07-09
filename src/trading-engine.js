@@ -3413,6 +3413,13 @@ class TradingEngine {
       const row = {
         wallet,
         name: event.walletProfile?.name || promotion?.name || null,
+        walletProfile: event.walletProfile?.profile || null,
+        walletSource: event.walletProfile?.source || null,
+        walletEra: event.walletProfile?.era || null,
+        walletFlags: Array.isArray(event.walletProfile?.flags) ? event.walletProfile.flags.slice(0, 12) : [],
+        walletCohort: event.walletProfile?.shadowOnly === true
+          ? (event.walletProfile?.profile || 'shadow_wallet_profile')
+          : (event.walletProfile?.profile || 'manual_kol_v1'),
         label,
         confidence: classification?.confidence ?? null,
         side: event.side || null,
@@ -4017,6 +4024,11 @@ class TradingEngine {
         qualifyingFirstTouch: qualifyingFirstTouch ? {
           wallet: qualifyingFirstTouch.wallet || null,
           name: qualifyingFirstTouch.name || null,
+          walletCohort: qualifyingFirstTouch.walletCohort || null,
+          walletProfile: qualifyingFirstTouch.walletProfile || null,
+          walletSource: qualifyingFirstTouch.walletSource || null,
+          walletEra: qualifyingFirstTouch.walletEra || null,
+          walletFlags: Array.isArray(qualifyingFirstTouch.walletFlags) ? qualifyingFirstTouch.walletFlags.slice(0, 12) : [],
           reviewTier: qualifyingFirstTouch.reviewTier || null,
           evidenceTier: qualifyingFirstTouch.evidenceTier || null,
           label: qualifyingFirstTouch.label || null,
@@ -4031,6 +4043,11 @@ class TradingEngine {
         firstConditioningTouch: firstConditioningTouch ? {
           wallet: firstConditioningTouch.wallet || null,
           name: firstConditioningTouch.name || null,
+          walletCohort: firstConditioningTouch.walletCohort || null,
+          walletProfile: firstConditioningTouch.walletProfile || null,
+          walletSource: firstConditioningTouch.walletSource || null,
+          walletEra: firstConditioningTouch.walletEra || null,
+          walletFlags: Array.isArray(firstConditioningTouch.walletFlags) ? firstConditioningTouch.walletFlags.slice(0, 12) : [],
           reviewTier: firstConditioningTouch.reviewTier || null,
           evidenceTier: firstConditioningTouch.evidenceTier || null,
           label: firstConditioningTouch.label || null,
@@ -4045,6 +4062,11 @@ class TradingEngine {
         positiveFirstTouch: positiveFirstTouch ? {
           wallet: positiveFirstTouch.wallet || null,
           name: positiveFirstTouch.name || null,
+          walletCohort: positiveFirstTouch.walletCohort || null,
+          walletProfile: positiveFirstTouch.walletProfile || null,
+          walletSource: positiveFirstTouch.walletSource || null,
+          walletEra: positiveFirstTouch.walletEra || null,
+          walletFlags: Array.isArray(positiveFirstTouch.walletFlags) ? positiveFirstTouch.walletFlags.slice(0, 12) : [],
           reviewTier: positiveFirstTouch.reviewTier || null,
           evidenceTier: positiveFirstTouch.evidenceTier || null,
           label: positiveFirstTouch.label || null,
@@ -4065,6 +4087,11 @@ class TradingEngine {
         walletSummary: sortedWallets.slice(0, 8).map((wallet) => ({
           wallet: wallet.wallet || null,
           name: wallet.name || null,
+          walletCohort: wallet.walletCohort || null,
+          walletProfile: wallet.walletProfile || null,
+          walletSource: wallet.walletSource || null,
+          walletEra: wallet.walletEra || null,
+          walletFlags: Array.isArray(wallet.walletFlags) ? wallet.walletFlags.slice(0, 12) : [],
           reviewTier: wallet.reviewTier || null,
           evidenceTier: wallet.evidenceTier || null,
           label: wallet.label || null,

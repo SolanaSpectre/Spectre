@@ -26,6 +26,8 @@ const POST_RUN_REPORTS = [
   { title: 'Untracked Wallet Review Report', script: 'wallet-untracked-review-report.js' },
   { title: 'Wallet Launch-Intel Bridge Report', script: 'wallet-launch-intel-bridge-report.js' },
   { title: 'Wallet Launch-Intel Stability Report', script: 'wallet-launch-intel-stability-report.js', timeoutMs: 300000 },
+  { title: 'Wallet Observation OOS Lift Report', script: 'wallet-observation-oos-lift-report.js' },
+  { title: 'Wallet Observation-Only Tier Report', script: 'wallet-observation-only-tier-report.js' },
   { title: 'Wallet Launch-Intel Shortlist Entry Replay', script: 'wallet-launch-intel-shortlist-entry-replay.js', timeoutMs: 300000 },
   { title: 'Wallet Launch-Intel Shortlist Shadow Report', script: 'wallet-launch-intel-shortlist-shadow-report.js', timeoutMs: 300000 },
   { title: 'Untracked Wallet Shadow Impact', script: 'wallet-untracked-shadow-impact-report.js' },
