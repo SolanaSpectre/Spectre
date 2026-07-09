@@ -226,7 +226,11 @@ function nextDataNeed(candidate, blockers, context) {
     needs.push('produce paper decisions with wallet context attached');
   }
   if (candidate.name === context.walletShadowCollectingSlice && context.walletShadowCollectingReady) {
-    needs.push('collect out-of-sample runtime shadow would-enter/exit evidence for the pre-registered frozen wallet slice');
+    if (context.walletShadowStarved) {
+      needs.push('refresh or expand observation-only tracked wallet substrate before further OOS collection');
+    } else {
+      needs.push('collect out-of-sample runtime shadow would-enter/exit evidence for the pre-registered frozen wallet slice');
+    }
   }
   if (trades < minSample) needs.push(`collect ${minSample - trades} more trade(s) for this lane to reach the ${minSample}-trade floor`);
   if (context.paperEntries <= 0) needs.push('produce nonzero runtime paper entries before any live promotion review');
@@ -245,6 +249,7 @@ function statusFor(candidate, blockers, context) {
     && candidate.name === context.walletShadowCollectingSlice
     && context.walletShadowCollectingReady
   ) {
+    if (context.walletShadowStarved) return 'SHADOW_STARVED';
     return 'SHADOW_COLLECTING';
   }
   if (!blockers.length) return candidate.mode === 'report_only' ? 'PROMISING_REPORT_ONLY' : 'PROMOTION_CANDIDATE';
@@ -309,6 +314,8 @@ function main() {
   const broadcastBlocked = launchBlocks.some((line) => String(line).toLowerCase().includes('broadcast'));
   const walletCoverageRuntime = docs.walletContextCoverage.data?.runtime || {};
   const frozenStability = docs.walletConditionedSliceStability.data || {};
+  const trackedSubstrateFreshness = docs.walletContextCoverage.data?.trackedSubstrateFreshness || {};
+  const walletShadowCoverage = walletCoverageRuntime.walletRelaxedShadowCoverage || {};
   const context = {
     paperEntries,
     paperPnl,
@@ -317,7 +324,12 @@ function main() {
     paperDecisionsWithWalletContext: number(walletCoverageRuntime.decisionCoverage?.withAnyWalletTouch, 0),
     walletCoverageVerdict: docs.walletContextCoverage.data?.verdict || null,
     walletShadowCollectingSlice: frozenStability.frozenHypothesis?.name || null,
-    walletShadowCollectingReady: frozenStability.stability?.verdict === 'STABILITY_PASSED_FREEZE_SHADOW_NEXT'
+    walletShadowCollectingReady: frozenStability.stability?.verdict === 'STABILITY_PASSED_FREEZE_SHADOW_NEXT',
+    walletShadowWouldEnter: number(walletShadowCoverage.wouldEnter, 0),
+    walletShadowAttempts: number(walletShadowCoverage.attempts, 0),
+    trackedSubstrateVerdict: trackedSubstrateFreshness.verdict || null,
+    walletShadowStarved: trackedSubstrateFreshness.verdict === 'TRACKED_SUBSTRATE_DECAYED'
+      && number(walletShadowCoverage.wouldEnter, 0) < number(trackedSubstrateFreshness.stoppingRule?.targetWouldEnterSamples, 10)
   };
 
   const scored = candidates.map((candidate) => {
@@ -371,7 +383,12 @@ function main() {
         frozenSlice: context.walletShadowCollectingSlice,
         stabilityVerdict: frozenStability.stability?.verdict || null,
         collecting: context.walletShadowCollectingReady,
-        artifact: docs.walletConditionedSliceStability.path
+        artifact: docs.walletConditionedSliceStability.path,
+        status: context.walletShadowStarved ? 'SHADOW_STARVED' : (context.walletShadowCollectingReady ? 'SHADOW_COLLECTING' : 'NOT_READY'),
+        wouldEnterAccumulated: context.walletShadowWouldEnter,
+        wouldEnterTarget: number(trackedSubstrateFreshness.stoppingRule?.targetWouldEnterSamples, 10),
+        shadowAttempts: context.walletShadowAttempts,
+        trackedSubstrateVerdict: context.trackedSubstrateVerdict
       },
       topBlockers: topBlockers(scored),
       bestCandidateNextDataNeed: scored[0]?.nextDataNeed || [],

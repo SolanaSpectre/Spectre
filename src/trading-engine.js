@@ -3870,6 +3870,66 @@ class TradingEngine {
     };
   }
 
+  walletLedgerTouchPayload(row = {}) {
+    if (!row) return null;
+    return {
+      wallet: row.wallet || null,
+      name: row.walletProfile?.name || null,
+      source: row.source || null,
+      eventType: row.eventType || null,
+      side: row.side || null,
+      phase: row.phase || null,
+      tradeAt: row.tradeAt || null,
+      curveProgress: row.market?.curveProgress ?? null,
+      solAmount: row.amount?.sol ?? null,
+      reviewTier: row.walletProfile?.trustTier || null,
+      profile: row.walletProfile?.profile || null,
+      shadowOnly: row.walletProfile?.shadowOnly === true,
+      untrustedReason: row.reason || null,
+      launchIntelClassification: row.launchIntelWallet?.classification || null
+    };
+  }
+
+  classifyWalletContextJoinMiss(mint, decisionAtIso, attachedWalletTouchCount = 0) {
+    if (!mint || attachedWalletTouchCount > 0) return null;
+    const decisionMs = new Date(decisionAtIso || Date.now()).getTime();
+    const finiteDecisionMs = Number.isFinite(decisionMs) ? decisionMs : Date.now();
+    const trackedRows = this.walletEventLedger?.recentEventsForMint?.(mint, 50) || [];
+    const untrustedRows = this.walletEventLedger?.recentUntrustedEventsForMint?.(mint, 50) || [];
+    const byTradeAt = (a, b) => new Date(a.tradeAt || a.observedAt || 0).getTime() - new Date(b.tradeAt || b.observedAt || 0).getTime();
+    const priorTracked = trackedRows
+      .filter((row) => new Date(row.tradeAt || row.observedAt || 0).getTime() <= finiteDecisionMs)
+      .sort(byTradeAt);
+    const priorUntrusted = untrustedRows
+      .filter((row) => new Date(row.tradeAt || row.observedAt || 0).getTime() <= finiteDecisionMs)
+      .sort(byTradeAt);
+    const futureTracked = trackedRows
+      .filter((row) => new Date(row.tradeAt || row.observedAt || 0).getTime() > finiteDecisionMs)
+      .sort(byTradeAt);
+    const futureUntrusted = untrustedRows
+      .filter((row) => new Date(row.tradeAt || row.observedAt || 0).getTime() > finiteDecisionMs)
+      .sort(byTradeAt);
+
+    let reason = 'NO_SAME_MINT_TOUCH_IN_LEDGER';
+    if (priorTracked.length > 0) reason = 'CACHE_MISS_TRACKED_TOUCH_BEFORE_DECISION';
+    else if (priorUntrusted.length > 0) reason = 'PROFILE_EXCLUDED_UNTRUSTED_TOUCH_BEFORE_DECISION';
+    else if (futureTracked.length > 0 || futureUntrusted.length > 0) reason = 'TIMING_AFTER_DECISION';
+
+    const nearestPrior = priorTracked[priorTracked.length - 1] || priorUntrusted[priorUntrusted.length - 1] || null;
+    const nearestFuture = futureTracked[0] || futureUntrusted[0] || null;
+    return {
+      reason,
+      trackedRowsForMint: trackedRows.length,
+      untrustedRowsForMint: untrustedRows.length,
+      priorTrackedRows: priorTracked.length,
+      priorUntrustedRows: priorUntrusted.length,
+      futureTrackedRows: futureTracked.length,
+      futureUntrustedRows: futureUntrusted.length,
+      nearestPriorTouch: this.walletLedgerTouchPayload(nearestPrior),
+      nearestFutureTouch: this.walletLedgerTouchPayload(nearestFuture)
+    };
+  }
+
   maybeRecordWalletRelaxedShadowDecision(event) {
     if (this.config.preMigrationWalletRelaxedShadowEnabled === false) {
       return;
@@ -3917,6 +3977,8 @@ class TradingEngine {
       ? firstConditioningTouch
       : null;
     const wouldEnter = Boolean(qualifyingFirstTouch);
+    const decisionTimestamp = payload.timestamp || new Date().toISOString();
+    const joinMiss = this.classifyWalletContextJoinMiss(mint, decisionTimestamp, sortedWallets.length);
     if (wouldEnter) {
       if (this.walletRelaxedShadowEnterSeen.has(key)) return;
       this.walletRelaxedShadowEnterSeen.add(key);
@@ -3937,7 +3999,7 @@ class TradingEngine {
         shadowProfile,
         mint,
         symbol: payload.symbol || null,
-        timestamp: payload.timestamp || new Date().toISOString(),
+        timestamp: decisionTimestamp,
         sourceDecision: payload.decision,
         sourceReason: payload.reason,
         sourcePreset: payload.preset || null,
@@ -3995,6 +4057,7 @@ class TradingEngine {
         walletTouchCount: sortedWallets.length,
         conditioningTouchCount: conditioningTouches.length,
         walletContextSource: context.contextSource || null,
+        walletContextJoinMiss: joinMiss,
         earliestWalletTouchAt: context.earliestTouchAt || null,
         earliestWalletBuyAt: context.earliestBuyAt || null,
         positiveOrProvenTouchCount: sortedWallets.filter(isPositiveOrProven).length,
@@ -4013,6 +4076,21 @@ class TradingEngine {
         }))
       }
     );
+    if (joinMiss && joinMiss.reason !== 'NO_SAME_MINT_TOUCH_IN_LEDGER') {
+      this.telemetry.record('wallet_context.join_miss', {
+        mode: 'report_only_wallet_context_join_miss',
+        mint,
+        symbol: payload.symbol || null,
+        timestamp: decisionTimestamp,
+        sourceTelemetryType: event.telemetryType,
+        sourceReason: payload.reason || null,
+        sourceDecision: payload.decision || null,
+        sourcePreset: payload.preset || null,
+        walletContextSource: context.contextSource || null,
+        attachedWalletTouchCount: sortedWallets.length,
+        ...joinMiss
+      });
+    }
   }
 
   maybeRecordCurveFalseNegativeShadowDecision(event) {

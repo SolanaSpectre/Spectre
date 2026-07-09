@@ -68,18 +68,21 @@ function readJson(filePath, fallback = null) {
 function fileSummary(filePath) {
   try {
     const stat = fs.statSync(filePath);
+    const ageDays = (Date.now() - stat.mtimeMs) / 86400000;
     return {
       path: filePath,
       exists: true,
       bytes: stat.size,
-      lastModifiedAt: stat.mtime.toISOString()
+      lastModifiedAt: stat.mtime.toISOString(),
+      ageDays: compact(ageDays, 2)
     };
   } catch {
     return {
       path: filePath,
       exists: false,
       bytes: 0,
-      lastModifiedAt: null
+      lastModifiedAt: null,
+      ageDays: null
     };
   }
 }
@@ -864,6 +867,73 @@ function summarizeWalletDecisionJoin(walletTouchRows = [], decisionRows = []) {
   };
 }
 
+function summarizeJoinMissTelemetry(rows = []) {
+  return {
+    rows: rows.length,
+    reasonCounts: countBy(rows, (row) => row.reason),
+    sourceReasonCounts: countBy(rows, (row) => row.sourceReason),
+    priorTrackedRows: rows.reduce((sum, row) => sum + Number(row.priorTrackedRows || 0), 0),
+    priorUntrustedRows: rows.reduce((sum, row) => sum + Number(row.priorUntrustedRows || 0), 0),
+    futureTrackedRows: rows.reduce((sum, row) => sum + Number(row.futureTrackedRows || 0), 0),
+    futureUntrustedRows: rows.reduce((sum, row) => sum + Number(row.futureUntrustedRows || 0), 0),
+    samples: rows.slice(0, 16).map((row) => ({
+      mint: row.mint || null,
+      symbol: row.symbol || null,
+      reason: row.reason || null,
+      sourceReason: row.sourceReason || null,
+      decisionAt: row.at || null,
+      walletContextSource: row.walletContextSource || null,
+      priorTrackedRows: row.priorTrackedRows ?? null,
+      priorUntrustedRows: row.priorUntrustedRows ?? null,
+      nearestPriorTouch: row.nearestPriorTouch || null,
+      nearestFutureTouch: row.nearestFutureTouch || null
+    }))
+  };
+}
+
+function substrateFreshness({ runtime, historicalLedger, manualKolSummary }) {
+  const durationHours = Number(runtime.durationMinutes || 0) > 0 ? Number(runtime.durationMinutes) / 60 : null;
+  const providerTradeEvents = Number(runtime.trackingOpportunity?.providerTradeEvents || 0);
+  const walletEvents = Number(runtime.walletEvents?.rows || 0);
+  const untrustedRows = Number(runtime.trackingOpportunity?.walletChannelPartition?.untrackedDropped?.rows || 0);
+  const pre85BuyRows = Number(runtime.trackingOpportunity?.walletChannelPartition?.totals?.pre85BuyRows || 0);
+  const historicalRows = Number(historicalLedger?.rows || 0);
+  const historicalWallets = Number(historicalLedger?.uniqueWallets || 0);
+  const manualAgeDays = Number(manualKolSummary?.ageDays);
+  const hitRate = providerTradeEvents > 0 ? walletEvents / providerTradeEvents : null;
+  const runtimeTrackedEventsPerHour = durationHours ? walletEvents / durationHours : null;
+  const providerTradesPerHour = durationHours ? providerTradeEvents / durationHours : null;
+  const decayed = providerTradeEvents >= 100
+    && walletEvents <= 5
+    && Number(hitRate || 0) < 0.005
+    && Number(manualAgeDays || 0) >= 30;
+  return {
+    verdict: decayed ? 'TRACKED_SUBSTRATE_DECAYED' : 'TRACKED_SUBSTRATE_ACTIVE_OR_INCONCLUSIVE',
+    providerTradeEvents,
+    untrustedTradeRows: untrustedRows,
+    pre85BuyRows,
+    trackedWalletEvents: walletEvents,
+    walletObservedHitRate: hitRate === null ? null : compact(hitRate, 6),
+    durationHours: durationHours === null ? null : compact(durationHours, 3),
+    providerTradesPerHour: providerTradesPerHour === null ? null : compact(providerTradesPerHour, 3),
+    runtimeTrackedEventsPerHour: runtimeTrackedEventsPerHour === null ? null : compact(runtimeTrackedEventsPerHour, 3),
+    manualKolAgeDays: Number.isFinite(manualAgeDays) ? compact(manualAgeDays, 2) : null,
+    historicalLedgerRows: historicalRows,
+    historicalLedgerUniqueWallets: historicalWallets,
+    historicalRowsPerTrackedWallet: historicalWallets > 0 ? compact(historicalRows / historicalWallets, 3) : null,
+    stoppingRule: {
+      targetWouldEnterSamples: 10,
+      maxOosRunsWithoutTarget: 5,
+      maxRuntimeHoursWithoutTarget: 20,
+      currentRunWouldEnterSamples: Number(runtime.walletRelaxedShadowCoverage?.wouldEnter || 0),
+      currentRunShadowAttempts: Number(runtime.walletRelaxedShadowCoverage?.attempts || 0),
+      currentRunVerdict: Number(runtime.walletRelaxedShadowCoverage?.wouldEnter || 0) < 10
+        ? 'BELOW_SAMPLE_TARGET'
+        : 'SAMPLE_TARGET_MET'
+    }
+  };
+}
+
 async function readJsonl(filePath, onRow) {
   if (!filePath || !fs.existsSync(filePath)) return { rows: 0, malformed: 0 };
   let rows = 0;
@@ -1066,6 +1136,7 @@ async function summarizeTelemetry(filePath, promotionIndex, substrateIndex) {
   const untrackedWalletRows = [];
   const recordedWalletGateRows = [];
   const paperDecisionRows = [];
+  const joinMissRows = [];
   let startMs = Infinity;
   let endMs = -Infinity;
 
@@ -1087,6 +1158,15 @@ async function summarizeTelemetry(filePath, promotionIndex, substrateIndex) {
         at: Number.isFinite(atMs) ? new Date(atMs).toISOString() : null,
         sourceKind: 'wallet.trade_observed',
         promotion
+      });
+      return;
+    }
+
+    if (type === 'wallet_context.join_miss') {
+      joinMissRows.push({
+        ...payload,
+        atMs,
+        at: Number.isFinite(atMs) ? new Date(atMs).toISOString() : null
       });
       return;
     }
@@ -1139,6 +1219,7 @@ async function summarizeTelemetry(filePath, promotionIndex, substrateIndex) {
           untrackedWalletRows.push({
             atMs: rowAtMs,
             at: new Date(rowAtMs).toISOString(),
+            sourceKind: 'wallet.trade_gate_diagnostic.UNTRACKED_WALLET',
             provider,
             source,
             mint,
@@ -1291,6 +1372,23 @@ async function summarizeTelemetry(filePath, promotionIndex, substrateIndex) {
     })),
     ...recordedWalletGateRows
   ], paperDecisionRows);
+  const allTapeDecisionJoin = summarizeWalletDecisionJoin([
+    ...walletEvents.map((event) => ({
+      atMs: event.atMs,
+      at: event.at,
+      sourceKind: event.sourceKind,
+      mint: event.mint,
+      symbol: event.symbol || null,
+      wallet: walletOf(event),
+      side: event.side || null,
+      watchedReason: event.watchedReason || null,
+      reviewTier: event.promotion?.reviewTier || null,
+      evidenceTier: event.promotion?.evidenceTier || null
+    })),
+    ...recordedWalletGateRows,
+    ...untrackedRowsWithFollowThrough
+  ], paperDecisionRows);
+  const joinMissTelemetry = summarizeJoinMissTelemetry(joinMissRows);
   const overlap = [...walletMints].filter((mint) => decisionMints.has(mint)).length;
   const promoted = walletEvents.filter((event) => event.promotion);
   const providerTradeEvents = Number(eventCounts['provider.pumpdev.runtime_trade'] || 0)
@@ -1398,6 +1496,8 @@ async function summarizeTelemetry(filePath, promotionIndex, substrateIndex) {
       untrackedSubstrateOverlap,
       untrackedWalletOpportunity: summarizeUntrackedWalletOpportunity(untrackedRowsWithFollowThrough, decisionMints),
       untrackedWalletDecisionJoin: summarizeUntrackedDecisionJoin(untrackedRowsWithFollowThrough, paperDecisionRows),
+      allTapeDecisionJoin,
+      walletContextJoinMissTelemetry: joinMissTelemetry,
       walletObservationChannel,
       bridgeValidationStatus
     },
@@ -1410,6 +1510,8 @@ async function summarizeTelemetry(filePath, promotionIndex, substrateIndex) {
       overlapMints: overlap
     },
     walletDecisionJoin,
+    allTapeDecisionJoin,
+    walletContextJoinMissTelemetry: joinMissTelemetry,
     walletRelaxedShadowCoverage: {
       attempts: shadow.attempts,
       wouldEnter: shadow.wouldEnter,
@@ -1437,6 +1539,15 @@ async function main() {
     summarizeHistoricalLedger(promotionIndex),
     summarizeTelemetry(telemetryPath, promotionIndex, substrateIndex)
   ]);
+  const manualKolSummary = {
+    ...fileSummary(MANUAL_KOL_WALLET_PATH),
+    configuredWalletCount: countManualKolWallets(MANUAL_KOL_WALLET_PATH)
+  };
+  const trackedSubstrateFreshness = substrateFreshness({
+    runtime,
+    historicalLedger,
+    manualKolSummary
+  });
 
   const verdict = runtime.walletRelaxedShadowCoverage.withPositiveOrProvenTouch > 0
     ? 'WALLET_RELAXED_SIGNAL_OBSERVED'
@@ -1460,12 +1571,10 @@ async function main() {
     },
     trackingSubstrate: {
       launchIntelWalletIndex: fileSummary(LAUNCH_INTEL_WALLET_INDEX_PATH),
-      manualKolWallets: {
-        ...fileSummary(MANUAL_KOL_WALLET_PATH),
-        configuredWalletCount: countManualKolWallets(MANUAL_KOL_WALLET_PATH)
-      },
+      manualKolWallets: manualKolSummary,
       walletEventLedger: fileSummary(WALLET_EVENTS_PATH)
     },
+    trackedSubstrateFreshness,
     walletSubstrateIndex: {
       counts: substrateIndex.counts,
       sources: substrateIndex.sources
@@ -1480,11 +1589,14 @@ async function main() {
       liveBroadcastImplication: 'none_report_only',
       walletObservationChannel: runtime.trackingOpportunity.walletObservationChannel,
       bridgeValidationStatus: runtime.trackingOpportunity.bridgeValidationStatus,
-      summary: verdict === 'BROAD_TRACKED_WALLET_SIGNAL_OBSERVED'
+      trackedSubstrateFreshness: trackedSubstrateFreshness.verdict,
+      summary: trackedSubstrateFreshness.verdict === 'TRACKED_SUBSTRATE_DECAYED'
+        ? `Runtime provider tape was active (${trackedSubstrateFreshness.providerTradeEvents} trades; ${trackedSubstrateFreshness.pre85BuyRows} pre-85 buys) but tracked wallet hits were near zero (${trackedSubstrateFreshness.trackedWalletEvents}); the wallet-conditioned lane is substrate-starved, not market-starved.`
+        : (verdict === 'BROAD_TRACKED_WALLET_SIGNAL_OBSERVED'
         ? 'Runtime saw tracked wallet touches feeding the broadened wallet-relaxed shadow lane; inspect outcome follow-through before any runtime use.'
         : (verdict === 'PROSPECTIVE_WALLET_SIGNAL_STARVED'
         ? `Runtime saw provider trade flow but no tracked wallet.trade_observed events, so wallet-conditioned lanes cannot collect fresh runtime evidence from this run. Channel=${runtime.trackingOpportunity.walletObservationChannel}; bridgeValidation=${runtime.trackingOpportunity.bridgeValidationStatus}.`
-        : 'Runtime saw at least some promoted wallet signal; inspect shadow coverage before considering any runtime use.')
+        : 'Runtime saw at least some promoted wallet signal; inspect shadow coverage before considering any runtime use.'))
     }
   };
 
