@@ -33,6 +33,7 @@ const SolanaRpcRouter = require('./lib/solana-rpc-router');
 const OutcomeLedger = require('./lib/outcome-ledger');
 const FinalistAccountVerifier = require('./lib/finalist-account-verifier');
 const LiveExecutionDryRunLane = require('./lib/live-execution-dry-run-lane');
+const { fileProvenance } = require('./lib/file-provenance');
 const {
   buildSanitizedConfigSnapshot,
   sanitizePreMigrationLaneInput
@@ -397,12 +398,21 @@ class TradingEngine {
     this.sessionId = `session_${sessionStartTime}`;
     this.active = true;
     const replayConfigSnapshot = buildSanitizedConfigSnapshot(this.config);
+    const shadowWalletProvenance = fileProvenance(this.config.shadowWalletFilePath, {
+      jsonArrayPath: 'wallets'
+    });
     this.telemetry.record('session.started', {
       mode: this.executionModeManager.mode,
       sessionDurationMinutes: this.config.sessionDurationMinutes,
       entryWarmupMs: this.getEffectiveEntryWarmupMs(),
       replayConfigSnapshot,
-      configHash: replayConfigSnapshot.configHash
+      configHash: replayConfigSnapshot.configHash,
+      shadowWalletFile: {
+        ...shadowWalletProvenance,
+        path: shadowWalletProvenance.path
+          ? path.relative(process.cwd(), shadowWalletProvenance.path).replace(/\\/g, '/')
+          : null
+      }
     });
     this.strategyLedger.record('session.started', {
       sessionId: this.sessionId,

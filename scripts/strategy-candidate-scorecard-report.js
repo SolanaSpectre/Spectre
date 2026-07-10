@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { summarizeLedger } = require('./lib/wallet-shadow-sample-ledger');
 
 const ROOT = path.join(__dirname, '..');
 const REPORT_DIR = path.join(ROOT, 'data', 'reports');
@@ -318,6 +319,11 @@ function main() {
   const trackedSubstrateFreshness = docs.walletContextCoverage.data?.trackedSubstrateFreshness || {};
   const walletShadowCoverage = walletCoverageRuntime.walletRelaxedShadowCoverage || {};
   const walletRelaxedShadowOutcome = docs.walletRelaxedShadowOutcome.data?.summary || {};
+  const walletShadowEra = 'wallet_relaxed_shadow_v1_2026-07-08';
+  const walletShadowLedgerSummary = summarizeLedger({
+    era: walletShadowEra,
+    frozenSlice: frozenStability.frozenHypothesis?.name || 'all_low_score_first_sight__tracked_first_touch_buy'
+  });
   const context = {
     paperEntries,
     paperPnl,
@@ -327,8 +333,9 @@ function main() {
     walletCoverageVerdict: docs.walletContextCoverage.data?.verdict || null,
     walletShadowCollectingSlice: frozenStability.frozenHypothesis?.name || null,
     walletShadowCollectingReady: frozenStability.stability?.verdict === 'STABILITY_PASSED_FREEZE_SHADOW_NEXT',
-    walletShadowWouldEnter: number(walletShadowCoverage.wouldEnter, 0),
+    walletShadowWouldEnter: number(walletShadowLedgerSummary.filteredRows, number(walletShadowCoverage.wouldEnter, 0)),
     walletShadowAttempts: number(walletShadowCoverage.attempts, 0),
+    walletShadowLedgerSummary,
     walletShadowWouldEnterByCohort: walletRelaxedShadowOutcome.wouldEnterByCohort || {},
     walletShadowOutcomeWindowSummary: walletRelaxedShadowOutcome.windowSummary || {},
     trackedSubstrateVerdict: trackedSubstrateFreshness.verdict || null,
@@ -390,10 +397,20 @@ function main() {
         artifact: docs.walletConditionedSliceStability.path,
         status: context.walletShadowStarved ? 'SHADOW_STARVED' : (context.walletShadowCollectingReady ? 'SHADOW_COLLECTING' : 'NOT_READY'),
         wouldEnterAccumulated: context.walletShadowWouldEnter,
+        wouldEnterLatestRun: number(walletShadowCoverage.wouldEnter, 0),
         wouldEnterTarget: number(trackedSubstrateFreshness.stoppingRule?.targetWouldEnterSamples, 10),
         shadowAttempts: context.walletShadowAttempts,
-        wouldEnterByCohort: context.walletShadowWouldEnterByCohort,
-        outcomeWindowSummary: context.walletShadowOutcomeWindowSummary,
+        sampleLedger: {
+          path: path.relative(ROOT, context.walletShadowLedgerSummary.ledgerPath).replace(/\\/g, '/'),
+          era: walletShadowEra,
+          totalRows: context.walletShadowLedgerSummary.totalRows,
+          filteredRows: context.walletShadowLedgerSummary.filteredRows,
+          outcomeJoined120s: context.walletShadowLedgerSummary.outcomeJoined120s,
+          outcomeMissing120s: context.walletShadowLedgerSummary.outcomeMissing120s,
+          byCohort: context.walletShadowLedgerSummary.byCohort
+        },
+        latestRunWouldEnterByCohort: context.walletShadowWouldEnterByCohort,
+        latestRunOutcomeWindowSummary: context.walletShadowOutcomeWindowSummary,
         trackedSubstrateVerdict: context.trackedSubstrateVerdict
       },
       topBlockers: topBlockers(scored),

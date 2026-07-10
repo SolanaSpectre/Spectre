@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const { resolveTelemetryPath, telemetryFromReport } = require('./lib/report-telemetry');
+const { appendSamples, summarizeLedger } = require('./lib/wallet-shadow-sample-ledger');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
@@ -272,6 +273,7 @@ function futureForWindow(attempt, snapshots, seconds) {
   const rows = snapshots.filter((snapshot) => snapshot.atMs > attempt.atMs && snapshot.atMs <= endMs);
   if (!rows.length) {
     return {
+      outcomeJoined: false,
       snapshotCount: 0,
       maxCurveProgress: null,
       maxCurveAt: null,
@@ -296,6 +298,7 @@ function futureForWindow(attempt, snapshots, seconds) {
   }
   const maxCurve = Number(maxCurveRow?.curveProgress);
   return {
+    outcomeJoined: true,
     snapshotCount: rows.length,
     maxCurveProgress: numberOrNull(maxCurve, 6),
     maxCurveAt: maxCurveRow?.at || null,
@@ -389,15 +392,20 @@ function summarize(outcomes) {
   const windowSummary = {};
   for (const seconds of WINDOWS_SECONDS) {
     const key = `${seconds}s`;
+    const joinedRows = wouldEnterRows.filter((row) => row.windows[key]?.outcomeJoined);
+    const missingRows = wouldEnterRows.filter((row) => !row.windows[key]?.outcomeJoined);
     windowSummary[key] = {
-      attemptsWithFuture: wouldEnterRows.filter((row) => (row.windows[key]?.snapshotCount || 0) > 0).length,
+      attemptsWithFuture: joinedRows.length,
+      attemptsMissingFuture: missingRows.length,
+      outcomeJoined: joinedRows.length,
+      outcomeMissing: missingRows.length,
       crossed85: wouldEnterRows.filter((row) => row.windows[key]?.crossed85).length,
       crossed90: wouldEnterRows.filter((row) => row.windows[key]?.crossed90).length,
       crossed95: wouldEnterRows.filter((row) => row.windows[key]?.crossed95).length,
       uniqueCrossed85: uniqueRows.filter((row) => row.windows[key]?.crossed85).length,
       uniqueCrossed90: uniqueRows.filter((row) => row.windows[key]?.crossed90).length,
-      curveDelta: stat(wouldEnterRows.map((row) => row.windows[key]?.curveDelta), 6),
-      maxPriceDeltaPct: stat(wouldEnterRows.map((row) => row.windows[key]?.maxPriceDeltaPct), 4)
+      curveDelta: stat(joinedRows.map((row) => row.windows[key]?.curveDelta), 6),
+      maxPriceDeltaPct: stat(joinedRows.map((row) => row.windows[key]?.maxPriceDeltaPct), 4)
     };
   }
 
@@ -479,9 +487,41 @@ function topRows(outcomes, limit = 12) {
       max30: row.windows['30s']?.maxCurveProgress,
       max120: row.windows['120s']?.maxCurveProgress,
       max300: row.windows['300s']?.maxCurveProgress,
+      outcomeJoined120s: row.windows['120s']?.outcomeJoined || false,
       curveDelta120s: row.windows['120s']?.curveDelta,
       priceDelta120sPct: row.windows['120s']?.maxPriceDeltaPct,
       crossed90Within120s: row.windows['120s']?.crossed90
+    }));
+}
+
+function ledgerSamples(outcomes, telemetryPath) {
+  return outcomes
+    .filter((row) => row.wouldEnter)
+    .map((row) => ({
+      era: 'wallet_relaxed_shadow_v1_2026-07-08',
+      frozenSlice: row.shadowProfile || 'all_low_score_first_sight__tracked_first_touch_buy',
+      cohort: row.qualifyingFirstTouch?.walletCohort || 'unknown',
+      telemetryPath: path.relative(ROOT, telemetryPath).replace(/\\/g, '/'),
+      mint: row.mint,
+      symbol: row.symbol,
+      at: row.at,
+      atMs: row.atMs,
+      sourceReason: row.sourceReason,
+      sourcePreset: row.sourcePreset,
+      score: row.score,
+      curveProgress: row.curveProgress,
+      priceSol: row.priceSol,
+      withPositiveOrProvenTouch: Number(row.positiveOrProvenTouchCount || 0) > 0,
+      withAvoidTouch: Number(row.avoidTouchCount || 0) > 0,
+      positiveOrProvenTouchCount: row.positiveOrProvenTouchCount,
+      avoidTouchCount: row.avoidTouchCount,
+      qualifyingFirstTouch: row.qualifyingFirstTouch,
+      positiveFirstTouch: row.positiveFirstTouch,
+      firstConditioningTouch: row.firstConditioningTouch,
+      walletTouchCount: row.walletTouchCount,
+      walletContextSource: row.walletContextSource,
+      walletContextJoinMiss: row.walletContextJoinMiss || null,
+      windows: row.windows
     }));
 }
 
@@ -497,6 +537,10 @@ async function main() {
   const outputPath = args.output ? path.resolve(ROOT, args.output) : OUTPUT_PATH;
   const telemetry = await readTelemetry(telemetryPath);
   const outcomes = telemetry.attempts.map((attempt) => addOutcomes(attempt, telemetry.snapshotsByMint));
+  const ledgerAppend = appendSamples(ledgerSamples(outcomes, telemetryPath));
+  const ledgerSummary = summarizeLedger({
+    frozenSlice: 'all_low_score_first_sight__tracked_first_touch_buy'
+  });
   const report = {
     generatedAt: new Date().toISOString(),
     mode: 'report_only_wallet_relaxed_shadow_outcome',
@@ -511,6 +555,16 @@ async function main() {
       shadowEvents: telemetry.attempts.length,
       snapshotMints: telemetry.snapshotsByMint.size,
       walletCohortIndexSize: telemetry.walletCohortIndexSize
+    },
+    ledger: {
+      append: {
+        ...ledgerAppend,
+        ledgerPath: path.relative(ROOT, ledgerAppend.ledgerPath).replace(/\\/g, '/')
+      },
+      summary: {
+        ...ledgerSummary,
+        ledgerPath: path.relative(ROOT, ledgerSummary.ledgerPath).replace(/\\/g, '/')
+      }
     },
     summary: summarize(outcomes),
     topWouldEnterFollowThrough: topRows(outcomes),
