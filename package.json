@@ -114,6 +114,7 @@
     "report:runner-raydium-shadow": "node scripts/runner-raydium-shadow-report.js",
     "report:runner-reject-follow-through": "node scripts/runner-reject-follow-through-report.js",
     "report:runner-reject-entry-replay": "node scripts/runner-reject-entry-replay-report.js",
+    "report:runner-reject-runtime-shadow-outcome": "node scripts/runner-reject-runtime-shadow-outcome-report.js",
     "report:runner-raydium-shadow-fixed-horizon": "node scripts/runner-raydium-shadow-fixed-horizon-report.js",
     "report:runner-raydium-shadow-historical-horizon": "node scripts/runner-raydium-shadow-historical-horizon-report.js",
     "report:runner-raydium-shadow-outcome-join": "node scripts/runner-raydium-shadow-outcome-join-report.js",
@@ -164,7 +165,7 @@
     "sync:telegram": "node scripts/sync-telegram-context.js",
     "build:rick-context": "node scripts/build-rick-context.js",
     "send:rick": "node scripts/send-rick-command.js",
-    "test": "node scripts/smoke-check.js && node scripts/replay-snapshot-safety-check.js",
+    "test": "node scripts/smoke-check.js && node scripts/replay-snapshot-safety-check.js && node scripts/smoke-runner-reject-runtime-shadow-report.js",
     "smoke": "node scripts/smoke-check.js",
     "lint": "eslint src/**/*.js scripts/**/*.js",
     "lint:fix": "eslint src/**/*.js scripts/**/*.js --fix"

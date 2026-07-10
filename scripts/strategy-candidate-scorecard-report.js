@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { summarizeLedger } = require('./lib/wallet-shadow-sample-ledger');
+const { summarizeLedger: summarizeRunnerRejectLedger } = require('./lib/runner-reject-shadow-sample-ledger');
 
 const ROOT = path.join(__dirname, '..');
 const REPORT_DIR = path.join(ROOT, 'data', 'reports');
@@ -21,6 +22,7 @@ const REPORTS = {
   walletContextCoverage: 'pre-migration-wallet-context-coverage-latest.json',
   walletRelaxedShadowOutcome: 'pre-migration-wallet-relaxed-shadow-outcome-latest.json',
   runnerRejectEntryReplay: 'runner-reject-entry-replay-latest.json',
+  runnerRejectRuntimeShadowOutcome: 'runner-reject-runtime-shadow-outcome-latest.json',
   walletFalseNegativeEntryReplay: 'wallet-false-negative-entry-replay-latest.json'
 };
 
@@ -247,6 +249,13 @@ function nextDataNeed(candidate, blockers, context) {
 
 function statusFor(candidate, blockers, context) {
   if (
+    candidate.lane === 'runner_reject_runtime_shadow'
+    && candidate.name === context.runnerRejectRuntimeShadowProfile
+    && context.runnerRejectRuntimeShadowCollecting
+  ) {
+    return 'SHADOW_COLLECTING';
+  }
+  if (
     candidate.lane === 'wallet_conditioned_relaxed_gate'
     && candidate.name === context.walletShadowCollectingSlice
     && context.walletShadowCollectingReady
@@ -302,6 +311,13 @@ function main() {
   addRelaxedProfiles(candidates, 'curve_stall_relaxed_gate', docs.curveStallRelaxedReplay.path, docs.curveStallRelaxedReplay.data);
   addRanking(candidates, 'wallet_conditioned_relaxed_gate', docs.walletConditionedRelaxedGateReplay.path, docs.walletConditionedRelaxedGateReplay.data?.ranking);
   addSummaryByProfile(candidates, 'runner_reject_entry_replay', docs.runnerRejectEntryReplay.path, docs.runnerRejectEntryReplay.data?.summaryByProfile);
+  candidates.push(normalizeSummaryCandidate(
+    'runner_reject_runtime_shadow',
+    'fast_300s_tp50_sl25_slip3',
+    docs.runnerRejectRuntimeShadowOutcome.path,
+    docs.runnerRejectRuntimeShadowOutcome.data?.summary || {},
+    { notes: ['pre-registered runtime shadow for pre90 RUNNER_SCALPER_REQUIRES_MIGRATION rejects'] }
+  ));
   addRanking(candidates, 'wallet_false_negative_entry_replay', docs.walletFalseNegativeEntryReplay.path, docs.walletFalseNegativeEntryReplay.data?.ranking);
 
   const paperEntries = number(
@@ -320,10 +336,17 @@ function main() {
   const walletShadowCoverage = walletCoverageRuntime.walletRelaxedShadowCoverage || {};
   const walletRelaxedShadowOutcome = docs.walletRelaxedShadowOutcome.data?.summary || {};
   const walletShadowEra = 'wallet_relaxed_shadow_v1_2026-07-08';
+  const runnerRejectRuntimeShadowEra = 'runner_reject_shadow_v1_2026-07-10';
+  const runnerRejectRuntimeShadowProfile = 'fast_300s_tp50_sl25_slip3';
   const walletShadowLedgerSummary = summarizeLedger({
     era: walletShadowEra,
     frozenSlice: frozenStability.frozenHypothesis?.name || 'all_low_score_first_sight__tracked_first_touch_buy'
   });
+  const runnerRejectRuntimeShadowLedgerSummary = summarizeRunnerRejectLedger({
+    era: runnerRejectRuntimeShadowEra,
+    frozenProfile: runnerRejectRuntimeShadowProfile
+  });
+  const runnerRejectRuntimeShadowSummary = docs.runnerRejectRuntimeShadowOutcome.data?.summary || {};
   const context = {
     paperEntries,
     paperPnl,
@@ -339,6 +362,11 @@ function main() {
     walletShadowWouldEnterByCohort: walletRelaxedShadowOutcome.wouldEnterByCohort || {},
     walletShadowOutcomeWindowSummary: walletRelaxedShadowOutcome.windowSummary || {},
     trackedSubstrateVerdict: trackedSubstrateFreshness.verdict || null,
+    runnerRejectRuntimeShadowProfile,
+    runnerRejectRuntimeShadowCollecting: true,
+    runnerRejectRuntimeShadowWouldEnter: number(runnerRejectRuntimeShadowLedgerSummary.filteredRows, 0),
+    runnerRejectRuntimeShadowLatestRunWouldEnter: number(runnerRejectRuntimeShadowSummary.wouldEnter, 0),
+    runnerRejectRuntimeShadowLedgerSummary,
     walletShadowStarved: trackedSubstrateFreshness.verdict === 'TRACKED_SUBSTRATE_DECAYED'
       && number(walletShadowCoverage.wouldEnter, 0) < number(trackedSubstrateFreshness.stoppingRule?.targetWouldEnterSamples, 10)
   };
@@ -412,6 +440,32 @@ function main() {
         latestRunWouldEnterByCohort: context.walletShadowWouldEnterByCohort,
         latestRunOutcomeWindowSummary: context.walletShadowOutcomeWindowSummary,
         trackedSubstrateVerdict: context.trackedSubstrateVerdict
+      },
+      runnerRejectRuntimeShadowCollection: {
+        frozenProfile: context.runnerRejectRuntimeShadowProfile,
+        era: runnerRejectRuntimeShadowEra,
+        collecting: true,
+        status: 'SHADOW_COLLECTING',
+        artifact: docs.runnerRejectRuntimeShadowOutcome.path,
+        wouldEnterAccumulated: context.runnerRejectRuntimeShadowWouldEnter,
+        wouldEnterLatestRun: context.runnerRejectRuntimeShadowLatestRunWouldEnter,
+        uniqueMintsAccumulated: context.runnerRejectRuntimeShadowLedgerSummary.uniqueMints,
+        uniqueMintTarget: 20,
+        sampleLedger: {
+          path: path.relative(ROOT, context.runnerRejectRuntimeShadowLedgerSummary.ledgerPath).replace(/\\/g, '/'),
+          era: runnerRejectRuntimeShadowEra,
+          totalRows: context.runnerRejectRuntimeShadowLedgerSummary.totalRows,
+          filteredRows: context.runnerRejectRuntimeShadowLedgerSummary.filteredRows,
+          uniqueMints: context.runnerRejectRuntimeShadowLedgerSummary.uniqueMints,
+          outcomeJoinedProfileHold: context.runnerRejectRuntimeShadowLedgerSummary.outcomeJoinedProfileHold,
+          outcomeMissingProfileHold: context.runnerRejectRuntimeShadowLedgerSummary.outcomeMissingProfileHold,
+          wins: context.runnerRejectRuntimeShadowLedgerSummary.wins,
+          losses: context.runnerRejectRuntimeShadowLedgerSummary.losses,
+          winRate: context.runnerRejectRuntimeShadowLedgerSummary.winRate,
+          totalPnlSol: context.runnerRejectRuntimeShadowLedgerSummary.totalPnlSol,
+          byExitReason: context.runnerRejectRuntimeShadowLedgerSummary.byExitReason
+        },
+        latestRunSummary: runnerRejectRuntimeShadowSummary
       },
       topBlockers: topBlockers(scored),
       bestCandidateNextDataNeed: scored[0]?.nextDataNeed || [],

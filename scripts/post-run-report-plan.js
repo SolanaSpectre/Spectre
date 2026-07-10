@@ -8,6 +8,7 @@ const POST_RUN_REPORTS = [
   { title: 'Event Loop Lag Diagnostic', script: 'event-loop-lag-diagnostic-report.js' },
   { title: 'Runner Reject Follow-through', script: 'runner-reject-follow-through-report.js' },
   { title: 'Runner Reject Entry Replay', script: 'runner-reject-entry-replay-report.js' },
+  { title: 'Runner Reject Runtime Shadow Outcome', script: 'runner-reject-runtime-shadow-outcome-report.js' },
   { title: 'Runner Raydium Shadow Report', script: 'runner-raydium-shadow-report.js' },
   { title: 'Runner Raydium Shadow Fixed Horizon', script: 'runner-raydium-shadow-fixed-horizon-report.js' },
   { title: 'Runner Raydium Shadow Historical Horizon', script: 'runner-raydium-shadow-historical-horizon-report.js' },

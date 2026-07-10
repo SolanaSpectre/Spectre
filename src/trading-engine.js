@@ -208,6 +208,7 @@ class TradingEngine {
     this.curveConfirmationShadowEnterSeen = new Set();
     this.curveConfirmationShadowSkipSeen = new Set();
     this.freshCurveOverrideShadowSeen = new Set();
+    this.runnerRejectRuntimeShadowSeen = new Set();
 
     this.dailyPnL = 0;
     this.realizedPnL = 0;
@@ -2112,6 +2113,13 @@ class TradingEngine {
             pumpFailureValues: pumpMomentumGate.values,
             pumpFailureThreshold: pumpMomentumGate.threshold
           });
+          this.emitRunnerRejectRuntimeShadow({
+            token,
+            quality,
+            momentum,
+            rankScore,
+            pumpMomentumGate
+          });
           this.emitCandidateSnapshot({
             signal: {
               id: `cand_${token.mintAddress}_${Date.now()}`,
@@ -2911,6 +2919,88 @@ class TradingEngine {
     }
 
     return 0;
+  }
+
+  runnerRejectShadowNumber(value, digits = null) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return null;
+    return digits === null ? number : Number(number.toFixed(digits));
+  }
+
+  getRunnerRejectShadowCurveProgress(token = {}) {
+    const raw = token.providerCurveProgress
+      ?? token.curveProgress
+      ?? token.bondingCurveProgress
+      ?? token.progress
+      ?? token.market?.maxCurveProgress;
+    const curve = Number(raw);
+    if (!Number.isFinite(curve)) return null;
+    if (curve > 1 && curve <= 100) return Number((curve / 100).toFixed(6));
+    return Number(curve.toFixed(6));
+  }
+
+  getRunnerRejectShadowPriceSol(token = {}) {
+    const raw = token.providerCurvePriceSol
+      ?? token.bondingCurvePriceSol
+      ?? token.curvePriceSol
+      ?? token.priceSol
+      ?? token.market?.priceSol;
+    const price = Number(raw);
+    return Number.isFinite(price) && price > 0 ? Number(price.toFixed(12)) : null;
+  }
+
+  emitRunnerRejectRuntimeShadow({ token, quality, momentum, rankScore, pumpMomentumGate }) {
+    if (!this.config.runnerRejectRuntimeShadowEnabled) return;
+    if (pumpMomentumGate?.reason !== 'RUNNER_SCALPER_REQUIRES_MIGRATION') return;
+
+    const curveProgress = this.getRunnerRejectShadowCurveProgress(token);
+    const priceSol = this.getRunnerRejectShadowPriceSol(token);
+    if (!Number.isFinite(curveProgress) || curveProgress >= 0.9) return;
+    if (!Number.isFinite(priceSol) || priceSol <= 0) return;
+
+    const key = `${token.mintAddress}|fast_300s_tp50_sl25_slip3`;
+    if (this.runnerRejectRuntimeShadowSeen.has(key)) return;
+    this.runnerRejectRuntimeShadowSeen.add(key);
+
+    this.telemetry.record('runner_reject_runtime_shadow.would_enter', {
+      token: token.mintAddress,
+      symbol: token.symbol || null,
+      source: token.source || null,
+      mode: 'report_only_runner_reject_runtime_shadow',
+      era: 'runner_reject_shadow_v1_2026-07-10',
+      frozenProfile: 'fast_300s_tp50_sl25_slip3',
+      frozenProfileSource: 'runner-reject-entry-replay-latest.json',
+      frozenHypothesis: 'pre90_low_pump_momentum_runner_scalper_requires_migration',
+      rejectReason: 'LOW_PUMP_MOMENTUM',
+      pumpFailureReason: pumpMomentumGate.reason,
+      pumpFailureValues: pumpMomentumGate.values || null,
+      pumpFailureThreshold: pumpMomentumGate.threshold || null,
+      routeType: token.routeType || null,
+      bondingStage: token.bondingStage || null,
+      ageSeconds: this.runnerRejectShadowNumber(pumpMomentumGate.values?.ageSeconds, 3),
+      agePassed: pumpMomentumGate.values?.agePassed ?? null,
+      nonMigratedCounterfactualPassed: pumpMomentumGate.values?.nonMigratedCounterfactualPassed ?? null,
+      nonMigratedCounterfactualReason: pumpMomentumGate.values?.nonMigratedCounterfactualReason
+        || pumpMomentumGate.values?.nonMigratedCounterfactualGateReason
+        || null,
+      curveProgress,
+      priceSol,
+      momentumScore: this.runnerRejectShadowNumber(momentum.score, 4),
+      momentumFactors: momentum.factors || null,
+      qualityScore: this.runnerRejectShadowNumber(quality.score, 4),
+      qualityFactors: quality.factors || null,
+      rankScore: this.runnerRejectShadowNumber(rankScore, 4),
+      assumptions: {
+        amountSol: 0.05,
+        feeSol: 0.0005,
+        holdSeconds: 300,
+        takeProfitPct: 50,
+        stopLossPct: -25,
+        entrySlippagePct: 1.5,
+        exitSlippagePct: 1.5
+      },
+      note: 'Report-only shadow event emitted after the runtime gate rejected this runner candidate; it does not change entries, exits, quotes, or live execution.'
+    });
   }
 
   evaluatePumpMomentumGate(token, momentum) {

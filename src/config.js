@@ -2041,6 +2041,10 @@ class Config {
     return process.env.RUNNER_RAYDIUM_SHADOW_ENABLED === 'true';
   }
 
+  static get runnerRejectRuntimeShadowEnabled() {
+    return process.env.RUNNER_REJECT_RUNTIME_SHADOW_ENABLED !== 'false';
+  }
+
   static get paperRunnerRequirePumpMigration() {
     return process.env.PAPER_RUNNER_REQUIRE_PUMP_MIGRATION !== 'false';
   }
