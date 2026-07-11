@@ -65,6 +65,7 @@ const POST_RUN_REPORTS = [
   { title: 'Pre-Migration Flagged Follow-through Slice Shadow', script: 'pre-migration-flagged-follow-through-slice-shadow-report.js' },
   { title: 'Pre-Migration Flagged Follow-through Slice Shadow Replay', script: 'pre-migration-flagged-follow-through-slice-shadow-replay-report.js' },
   { title: 'Pre-Migration Candidate Supply Funnel', script: 'pre-migration-candidate-supply-funnel-report.js' },
+  { title: 'Pre-Migration Curve60 Supply Decomposition', script: 'pre-migration-curve60-supply-decomposition-report.js' },
   { title: 'Pre-Migration Watch-vs-Crosser Supply', script: 'pre-migration-watch-vs-crosser-supply-report.js' },
   { title: 'Pre-Migration Runner No-Entry Autopsy', script: 'pre-migration-runner-no-entry-autopsy-report.js' },
   { title: 'Pre-Migration Advancing High-Curve Lane Gap', script: 'pre-migration-advancing-high-curve-lane-gap-report.js', timeoutMs: 300000 },

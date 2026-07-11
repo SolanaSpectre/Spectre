@@ -35,6 +35,7 @@ const FILES = {
   preMigrationFlaggedFollowThroughSliceShadow: 'data/reports/pre-migration-flagged-follow-through-slice-shadow-latest.json',
   preMigrationFlaggedFollowThroughSliceShadowReplay: 'data/reports/pre-migration-flagged-follow-through-slice-shadow-replay-latest.json',
   preMigrationCandidateSupplyFunnel: 'data/reports/pre-migration-candidate-supply-funnel-latest.json',
+  preMigrationCurve60SupplyDecomposition: 'data/reports/pre-migration-curve60-supply-decomposition-latest.json',
   preMigrationWatchVsCrosserSupply: 'data/reports/pre-migration-watch-vs-crosser-supply-latest.json',
   preMigrationRunnerNoEntryAutopsy: 'data/reports/pre-migration-runner-no-entry-autopsy-latest.json',
   preMigrationAdvancingHighCurveLaneGap: 'data/reports/pre-migration-advancing-high-curve-lane-gap-latest.json',
@@ -2339,6 +2340,7 @@ function buildSummary(docs) {
   const flaggedFollowThroughSliceShadow = docs.preMigrationFlaggedFollowThroughSliceShadow.data || {};
   const flaggedFollowThroughSliceShadowReplay = docs.preMigrationFlaggedFollowThroughSliceShadowReplay.data || {};
   const candidateSupplyFunnel = docs.preMigrationCandidateSupplyFunnel.data || {};
+  const curve60SupplyDecomposition = docs.preMigrationCurve60SupplyDecomposition.data || {};
   const watchVsCrosserSupply = docs.preMigrationWatchVsCrosserSupply.data || {};
   const runnerNoEntryAutopsy = docs.preMigrationRunnerNoEntryAutopsy.data || {};
   const advancingHighCurveLaneGap = docs.preMigrationAdvancingHighCurveLaneGap.data || {};
@@ -2706,10 +2708,29 @@ function buildSummary(docs) {
     lines.push('');
   }
 
+  if (curve60SupplyDecomposition.summary) {
+    const supply = curve60SupplyDecomposition.summary || {};
+    const cohorts = topArray(curve60SupplyDecomposition.cohorts, 6);
+    lines.push('0b9a. Curve60 Supply Decomposition');
+    lines.push('-----------------------------------');
+    lines.push('- Mode: report-only; decomposes curve60+ supply loss into scarcity, observation latency, flagging misses, and post-flag gating.');
+    lines.push(`- Verdict: ${supply.verdict || 'n/a'}; observed=${supply.observedMints ?? 'n/a'} (${fmt(supply.observedPerHour, 2)}/hr), curve60+=${supply.curve60PlusMints ?? 'n/a'} (${fmt(supply.curve60PlusPerHour, 2)}/hr), observedPre60ThenCurve60=${supply.observedPre60ThenCurve60Mints ?? 'n/a'}, lateObserved=${supply.lateObservedCurve60Mints ?? 'n/a'}, flaggingMiss=${supply.flaggingMissObservedPre60Mints ?? 'n/a'}, gatedAfterFlag=${(Number(supply.flaggedButGatedMints || 0) + Number(supply.shadowWouldEnterNotPaperMints || 0)) || 'n/a'}, paperEntered=${supply.paperEnteredCurve60Mints ?? 'n/a'}.`);
+    lines.push(`- Rates: curve60Observed=${pct(supply.curve60ObservedRate, 2)}, lateObserved=${pct(supply.curve60LateObservedRate, 2)}, flaggingMiss=${pct(supply.curve60FlaggingMissRate, 2)}, gatedAfterFlag=${pct(supply.curve60GatedAfterFlagRate, 2)}.`);
+    lines.push(`- Curve60 classifications: ${formatTopCounts(supply.curve60ClassificationCounts)}.`);
+    lines.push(`- Timing observedPre60->curve60 median/p90=${fmt(supply.secondsObservedPre60ToCurve60?.median, 2)}s / ${fmt(supply.secondsObservedPre60ToCurve60?.p90, 2)}s; flagged->curve60 median/p90=${fmt(supply.secondsFlaggedToCurve60?.median, 2)}s / ${fmt(supply.secondsFlaggedToCurve60?.p90, 2)}s.`);
+    if (cohorts.length) {
+      lines.push('- Cohorts:');
+      cohorts.forEach((row) => {
+        lines.push(`  - ${row.cohort}: mints=${row.mints ?? 'n/a'}.`);
+      });
+    }
+    lines.push('');
+  }
+
   if (watchVsCrosserSupply.summary) {
     const supply = watchVsCrosserSupply.summary || {};
     const cohorts = topArray(watchVsCrosserSupply.cohorts, 8);
-    lines.push('0b9a. Watch-vs-Crosser Supply');
+    lines.push('0b9b. Watch-vs-Crosser Supply');
     lines.push('-----------------------------');
     lines.push('- Mode: report-only provenance autopsy; classifies cross60/cross90 mints as missed, observed-not-flagged, flagged-but-gated, shadow-enterable, or entered.');
     lines.push(`- Verdict: ${supply.verdict || 'n/a'}; observed=${supply.observedMints ?? 'n/a'} (${fmt(supply.observedPerHour, 2)}/hr), flagged=${supply.flaggedMints ?? 'n/a'}, evaluated=${supply.evaluatedMints ?? 'n/a'}, curve60/85/90=${supply.curve60PlusMints ?? 'n/a'} / ${supply.curve85PlusMints ?? 'n/a'} / ${supply.curve90PlusMints ?? 'n/a'}, paperEntered=${supply.paperEnteredMints ?? 'n/a'}.`);
@@ -2729,7 +2750,7 @@ function buildSummary(docs) {
   if (runnerNoEntryAutopsy.summary) {
     const autopsy = runnerNoEntryAutopsy.summary || {};
     const runners = topArray(runnerNoEntryAutopsy.runners, 5);
-    lines.push('0b9aa. Runner No-Entry Autopsy');
+    lines.push('0b9c. Runner No-Entry Autopsy');
     lines.push('-------------------------------');
     lines.push('- Mode: report-only; audits why curve90 runners did not become paper entries by joining gate inputs, blocker co-fires, and nearby verifier/parity truth.');
     lines.push(`- Verdict: ${autopsy.verdict || 'n/a'}; curve60/90=${autopsy.curve60PlusMints ?? 'n/a'} / ${autopsy.curve90PlusMints ?? 'n/a'}, noEntryRunners=${autopsy.noEntryRunnerMints ?? 'n/a'}, enteredRunners=${autopsy.paperEnteredRunnerMints ?? 'n/a'}.`);
@@ -2752,7 +2773,7 @@ function buildSummary(docs) {
     const all = gap.all || {};
     const byReason = gap.byReason || {};
     const buckets = topArray(gap.byCrowdingBreadth, 5);
-    lines.push('0b9ab. Advancing High-Curve Lane Gap');
+    lines.push('0b9d. Advancing High-Curve Lane Gap');
     lines.push('-------------------------------------');
     lines.push('- Mode: report-only; tests decision-time high-curve advancing candidates blocked by first-sight override or curve-false-negative stalled-curve policy. No future max fields are used for filtering.');
     lines.push(`- Verdict: ${gap.verdict || 'n/a'}; raw/deduped=${gap.rawCandidateRows ?? 'n/a'} / ${gap.dedupedCandidateRows ?? 'n/a'}, uniqueMints=${gap.uniqueMints ?? 'n/a'}, replayed=${all.replayed ?? 'n/a'}, crossed90_300=${all.crossed90Within300s ?? 'n/a'}.`);
@@ -2777,7 +2798,7 @@ function buildSummary(docs) {
     const field = coverage.pre60FieldCoverage || {};
     const byType = topArray(coverage.pre60CoverageByType, 6);
     const timelines = topArray(pre60SnapshotCoverage.rawPre85Cross90Timelines, 5);
-    lines.push('0b9b. Pre60 Snapshot Coverage');
+    lines.push('0b9e. Pre60 Snapshot Coverage');
     lines.push('-----------------------------');
     lines.push('- Mode: report-only; audits whether pre60 snapshots actually contain the market fields needed for entry timing, and whether observed curve rows lag finalist curve crossings.');
     lines.push(`- Verdict: ${coverage.verdict || 'n/a'}; mints=${coverage.mints ?? 'n/a'}, crossed60/90=${coverage.crossed60 ?? 'n/a'} / ${coverage.crossed90 ?? 'n/a'}, pre60Snapshots=${coverage.pre60Snapshots ?? 'n/a'}, recommendation=${coverage.recommendation || 'n/a'}.`);

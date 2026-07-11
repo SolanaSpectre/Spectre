@@ -185,7 +185,9 @@ function shadowFromEvent(event, telemetryPath) {
     routeType: payload.routeType || null,
     bondingStage: payload.bondingStage || null,
     curveProgress: numberOrNull(payload.curveProgress, 6),
+    curveProgressSource: payload.curveProgressSource || null,
     priceSol: numberOrNull(payload.priceSol, 12),
+    priceSolSource: payload.priceSolSource || null,
     momentumScore: numberOrNull(payload.momentumScore, 4),
     qualityScore: numberOrNull(payload.qualityScore, 4),
     rankScore: numberOrNull(payload.rankScore, 4),
@@ -351,7 +353,9 @@ function summarizeRows(rows) {
     pnlSol: stat(joined.map((row) => row.replay.pnlSol), 9),
     returnPct: stat(joined.map((row) => row.replay.returnPct), 4),
     exitReasonCounts: countBy(rows, (row) => row.replay?.exitReason),
-    pumpFailureReasonCounts: countBy(rows, (row) => row.pumpFailureReason)
+    pumpFailureReasonCounts: countBy(rows, (row) => row.pumpFailureReason),
+    curveProgressSourceCounts: countBy(rows.filter((row) => row.curveProgressSource), (row) => row.curveProgressSource),
+    priceSolSourceCounts: countBy(rows.filter((row) => row.priceSolSource), (row) => row.priceSolSource)
   };
 }
 
@@ -401,7 +405,9 @@ function buildReport(runs) {
     routeType: row.routeType,
     bondingStage: row.bondingStage,
     curveProgress: row.curveProgress,
+    curveProgressSource: row.curveProgressSource,
     priceSol: row.priceSol,
+    priceSolSource: row.priceSolSource,
     momentumScore: row.momentumScore,
     qualityScore: row.qualityScore,
     rankScore: row.rankScore,
