@@ -84,6 +84,7 @@ const POST_RUN_REPORTS = [
   { title: 'Pre-Migration CURVE_NOT_ADVANCING Separator Shadow Ledger', script: 'pre-migration-curve-not-advancing-separator-shadow-ledger-report.js', timeoutMs: 300000 },
   { title: 'Pre-Migration Guard Attribution', script: 'pre-migration-guard-attribution-report.js' },
   { title: 'Pre-Migration Skip Follow-through', script: 'pre-migration-skip-follow-through-report.js' },
+  { title: 'Pre-Migration Gated Crosser Follow-through', script: 'pre-migration-gated-crosser-follow-through-report.js' },
   { title: 'Pre-Migration Skip Near-90 Watchlist', script: 'pre-migration-skip-near-90-watchlist-report.js' },
   { title: 'Pre-Migration High-Conviction Watch Follow-through', script: 'pre-migration-high-conviction-watch-follow-through-report.js' },
   { title: 'Pre-Migration Dry-Run Outcome Follow-through', script: 'pre-migration-dry-run-outcome-report.js' },

@@ -54,6 +54,7 @@ const FILES = {
   preMigrationCurveNotAdvancingSeparatorShadowLedger: 'data/reports/pre-migration-curve-not-advancing-separator-shadow-ledger-latest.json',
   preMigrationGuardAttribution: 'data/reports/pre-migration-guard-attribution-latest.json',
   preMigrationSkipFollowThrough: 'data/reports/pre-migration-skip-follow-through-latest.json',
+  preMigrationGatedCrosserFollowThrough: 'data/reports/pre-migration-gated-crosser-follow-through-latest.json',
   preMigrationSkipNear90Watchlist: 'data/reports/pre-migration-skip-near-90-watchlist-latest.json',
   preMigrationHighConvictionWatchFollowThrough: 'data/reports/pre-migration-high-conviction-watch-follow-through-latest.json',
   preMigrationDryRunOutcome: 'data/reports/pre-migration-dry-run-outcome-latest.json',
@@ -2355,6 +2356,7 @@ function buildSummary(docs) {
   const curveNotAdvancingSeparatorShadow = docs.preMigrationCurveNotAdvancingSeparatorShadow.data || {};
   const curveNotAdvancingSeparatorShadowLedger = docs.preMigrationCurveNotAdvancingSeparatorShadowLedger.data || {};
   const skipFollowThrough = docs.preMigrationSkipFollowThrough.data || {};
+  const gatedCrosserFollowThrough = docs.preMigrationGatedCrosserFollowThrough.data || {};
   const skipNear90Watchlist = docs.preMigrationSkipNear90Watchlist.data || {};
   const highConvictionWatchFollowThrough = docs.preMigrationHighConvictionWatchFollowThrough.data || {};
   const dryRunOutcome = docs.preMigrationDryRunOutcome.data || {};
@@ -4300,6 +4302,30 @@ function buildSummary(docs) {
     lines.push('- Top post-skip wakeups: none');
   }
   lines.push('');
+
+  if (gatedCrosserFollowThrough.summary) {
+    const gated = gatedCrosserFollowThrough.summary || {};
+    const cohorts = topArray(gatedCrosserFollowThrough.cohorts, 6);
+    const blockers = topArray(gatedCrosserFollowThrough.crosserBlockers, 6);
+    lines.push('9b1. Gated Crosser Follow-through');
+    lines.push('----------------------------------');
+    lines.push('- Mode: report-only diagnostic. Future-crosser cohort is selected on future curve movement, so it is hypothesis-generation only and cannot directly promote a runtime shadow lane.');
+    lines.push(`- Verdict: ${gated.verdict || 'n/a'}; rows=${gated.rows ?? 'n/a'}, unique=${gated.uniqueMints ?? 'n/a'}, crosserMeasured=${gated.crosserMeasured ?? 'n/a'}, crosserMedian=${sol(gated.crosserMedianPnlSol, 6)}, crosserExTop3=${sol(gated.crosserPnlAfterRemovingTop3WinnersSol, 6)}, controlMeasured=${gated.controlMeasured ?? 'n/a'}.`);
+    lines.push(`- Cohorts: ${formatTopCounts(gated.cohortCounts)}.`);
+    if (cohorts.length) {
+      lines.push('- Cohort summaries:');
+      cohorts.forEach((row) => {
+        lines.push(`  - ${row.label}: verdict=${row.verdict || 'n/a'}, rows=${row.rows ?? 'n/a'}, measured=${row.measured ?? 'n/a'}, wins/losses=${row.wins ?? 'n/a'}/${row.losses ?? 'n/a'}, median=${sol(row.medianPnlSol, 6)}, exTop3=${sol(row.pnlAfterRemovingTop3WinnersSol, 6)}, cross85/90_120=${row.crossed85Within120s ?? 'n/a'}/${row.crossed90Within120s ?? 'n/a'}.`);
+      });
+    }
+    if (blockers.length) {
+      lines.push('- Future-crosser blockers, descriptive only:');
+      blockers.forEach((row) => {
+        lines.push(`  - ${row.label}: rows=${row.rows ?? 'n/a'}, measured=${row.measured ?? 'n/a'}, median=${sol(row.medianPnlSol, 6)}, exTop3=${sol(row.pnlAfterRemovingTop3WinnersSol, 6)}.`);
+      });
+    }
+    lines.push('');
+  }
 
   lines.push('9b2. Pre-Migration Entry Gate Margin');
   lines.push('------------------------------------');
