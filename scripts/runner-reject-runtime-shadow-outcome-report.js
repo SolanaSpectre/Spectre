@@ -17,6 +17,24 @@ const WINDOWS_SECONDS = [30, 60, 120, 300];
 const ERA = 'runner_reject_shadow_v1_2026-07-10';
 const FROZEN_PROFILE = {
   name: 'fast_300s_tp50_sl25_slip3',
+  selectionCriterion: 'selected_over_fast_120s_on_positive_ex_top3_at_equal_replay_sample_count_before_runtime_samples',
+  selectionTradeoff: 'fast_300s_replay_had_negative_median; runtime evaluation must require median and ex-top-winner robustness, not total_pnl_only',
+  selectionComparedProfiles: {
+    fast_120s_tp50_sl25_slip3: {
+      trades: 20,
+      winRate: 0.6,
+      totalPnlSol: 0.089078905,
+      medianPnlSol: 0.0019,
+      pnlAfterRemovingTop3WinnersSol: -0.0035
+    },
+    fast_300s_tp50_sl25_slip3: {
+      trades: 20,
+      winRate: 0.5,
+      totalPnlSol: 0.116556559,
+      medianPnlSol: -0.0115,
+      pnlAfterRemovingTop3WinnersSol: 0.0178
+    }
+  },
   amountSol: 0.05,
   feeSol: 0.0005,
   holdSeconds: 300,
@@ -176,10 +194,38 @@ function shadowFromEvent(event, telemetryPath) {
   };
 }
 
+function skippedFromEvent(event, telemetryPath) {
+  if (event.type !== 'runner_reject_runtime_shadow.skipped') return null;
+  const payload = payloadOf(event);
+  const mint = mintOf(payload);
+  const atMs = timestampMs(payload.timestamp || event.timestamp);
+  if (!mint || !Number.isFinite(atMs)) return null;
+  return {
+    telemetryPath,
+    mint,
+    atMs,
+    at: new Date(atMs).toISOString(),
+    symbol: payload.symbol || null,
+    era: payload.era || ERA,
+    frozenProfile: payload.frozenProfile || FROZEN_PROFILE.name,
+    reason: payload.reason || 'unknown',
+    rejectReason: payload.rejectReason || null,
+    pumpFailureReason: payload.pumpFailureReason || null,
+    curveProgress: numberOrNull(payload.curveProgress, 6),
+    curveProgressSource: payload.curveProgressSource || null,
+    priceSol: numberOrNull(payload.priceSol, 12),
+    priceSolSource: payload.priceSolSource || null,
+    momentumScore: numberOrNull(payload.momentumScore, 4),
+    qualityScore: numberOrNull(payload.qualityScore, 4),
+    rankScore: numberOrNull(payload.rankScore, 4)
+  };
+}
+
 async function readTelemetry(filePath) {
   const telemetryPath = path.relative(ROOT, filePath).replace(/\\/g, '/');
   const snapshotsByMint = new Map();
   const shadows = [];
+  const skipped = [];
   let malformedLines = 0;
   const rl = readline.createInterface({
     input: fs.createReadStream(filePath, { encoding: 'utf8' }),
@@ -204,11 +250,14 @@ async function readTelemetry(filePath) {
     }
     const shadow = shadowFromEvent(event, telemetryPath);
     if (shadow) shadows.push(shadow);
+    const skippedRow = skippedFromEvent(event, telemetryPath);
+    if (skippedRow) skipped.push(skippedRow);
   }
 
   for (const rows of snapshotsByMint.values()) rows.sort((a, b) => a.atMs - b.atMs);
   shadows.sort((a, b) => a.atMs - b.atMs);
-  return { telemetryPath, snapshotsByMint, shadows, malformedLines };
+  skipped.sort((a, b) => a.atMs - b.atMs);
+  return { telemetryPath, snapshotsByMint, shadows, skipped, malformedLines };
 }
 
 function futureWindowSummary(entry, snapshotsByMint) {
@@ -306,8 +355,20 @@ function summarizeRows(rows) {
   };
 }
 
+function summarizeSkipped(rows) {
+  return {
+    skipped: rows.length,
+    uniqueMints: new Set(rows.map((row) => row.mint)).size,
+    reasonCounts: countBy(rows, (row) => row.reason),
+    pumpFailureReasonCounts: countBy(rows, (row) => row.pumpFailureReason),
+    curveProgressSourceCounts: countBy(rows.filter((row) => row.curveProgressSource), (row) => row.curveProgressSource),
+    priceSolSourceCounts: countBy(rows.filter((row) => row.priceSolSource), (row) => row.priceSolSource)
+  };
+}
+
 function buildReport(runs) {
   const rows = [];
+  const skippedRows = [];
   for (const run of runs) {
     for (const shadow of run.shadows) {
       if (shadow.era !== ERA || shadow.frozenProfile !== FROZEN_PROFILE.name) continue;
@@ -318,6 +379,10 @@ function buildReport(runs) {
         windows,
         replay
       });
+    }
+    for (const skipped of run.skipped || []) {
+      if (skipped.era !== ERA || skipped.frozenProfile !== FROZEN_PROFILE.name) continue;
+      skippedRows.push(skipped);
     }
   }
 
@@ -356,6 +421,17 @@ function buildReport(runs) {
       era: ERA,
       name: 'pre90_low_pump_momentum_runner_scalper_requires_migration',
       source: 'runner-reject-entry-replay-latest.json',
+      selectedProfile: FROZEN_PROFILE.name,
+      selectionCriterion: FROZEN_PROFILE.selectionCriterion,
+      selectionTradeoff: FROZEN_PROFILE.selectionTradeoff,
+      selectionComparedProfiles: FROZEN_PROFILE.selectionComparedProfiles,
+      runtimeSamplesBeforeFreeze: 0,
+      evaluationRequirements: [
+        'runtime_shadow_sample_target_20_unique_mints',
+        'positive_total_pnl_sol',
+        'positive_median_pnl_sol',
+        'positive_pnl_after_removing_top_winners'
+      ],
       preregistered: true
     },
     inputs: {
@@ -364,6 +440,7 @@ function buildReport(runs) {
       malformedLines: runs.reduce((total, run) => total + run.malformedLines, 0)
     },
     summary: summarizeRows(rows),
+    skippedSummary: summarizeSkipped(skippedRows),
     sampleLedger: {
       ...ledgerWrite,
       ledgerPath: path.relative(ROOT, ledgerWrite.ledgerPath).replace(/\\/g, '/'),
@@ -372,6 +449,7 @@ function buildReport(runs) {
         ledgerPath: path.relative(ROOT, LEDGER_PATH).replace(/\\/g, '/')
       }
     },
+    skippedRows: skippedRows.slice().sort((a, b) => a.atMs - b.atMs),
     rows: rows.slice().sort((a, b) => Number(b.replay?.pnlSol || 0) - Number(a.replay?.pnlSol || 0))
   };
 }
@@ -390,7 +468,7 @@ async function main() {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   console.log(`Wrote ${path.relative(ROOT, outputPath)}`);
-  console.log(`Runtime runner-reject shadow samples: ${report.summary.wouldEnter}, joined profile hold: ${report.summary.outcomeJoinedProfileHold}`);
+  console.log(`Runtime runner-reject shadow samples: ${report.summary.wouldEnter}, skipped: ${report.skippedSummary.skipped}, joined profile hold: ${report.summary.outcomeJoinedProfileHold}`);
 }
 
 if (require.main === module) {

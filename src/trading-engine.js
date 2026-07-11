@@ -38,6 +38,10 @@ const {
   buildSanitizedConfigSnapshot,
   sanitizePreMigrationLaneInput
 } = require('./lib/runtime-replay-snapshot');
+const {
+  roundNumber: runnerRejectShadowNumber,
+  runnerRejectRuntimeShadowMarketState
+} = require('./lib/runner-reject-runtime-shadow');
 
 const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
   '11111111111111111111111111111111',
@@ -2922,44 +2926,98 @@ class TradingEngine {
   }
 
   runnerRejectShadowNumber(value, digits = null) {
-    const number = Number(value);
-    if (!Number.isFinite(number)) return null;
-    return digits === null ? number : Number(number.toFixed(digits));
+    return runnerRejectShadowNumber(value, digits);
   }
 
   getRunnerRejectShadowCurveProgress(token = {}) {
-    const raw = token.providerCurveProgress
-      ?? token.curveProgress
-      ?? token.bondingCurveProgress
-      ?? token.progress
-      ?? token.market?.maxCurveProgress;
-    const curve = Number(raw);
-    if (!Number.isFinite(curve)) return null;
-    if (curve > 1 && curve <= 100) return Number((curve / 100).toFixed(6));
-    return Number(curve.toFixed(6));
+    return runnerRejectRuntimeShadowMarketState(token).curveProgress;
   }
 
   getRunnerRejectShadowPriceSol(token = {}) {
-    const raw = token.providerCurvePriceSol
-      ?? token.bondingCurvePriceSol
-      ?? token.curvePriceSol
-      ?? token.priceSol
-      ?? token.market?.priceSol;
-    const price = Number(raw);
-    return Number.isFinite(price) && price > 0 ? Number(price.toFixed(12)) : null;
+    return runnerRejectRuntimeShadowMarketState(token).priceSol;
+  }
+
+  emitRunnerRejectRuntimeShadowSkipped({ token, reason, quality, momentum, rankScore, pumpMomentumGate, marketState = null }) {
+    this.telemetry.record('runner_reject_runtime_shadow.skipped', {
+      token: token?.mintAddress || token?.mint || token?.token || null,
+      symbol: token?.symbol || token?.raw?.symbol || null,
+      source: token?.source || token?.raw?.source || null,
+      mode: 'report_only_runner_reject_runtime_shadow',
+      era: 'runner_reject_shadow_v1_2026-07-10',
+      frozenProfile: 'fast_300s_tp50_sl25_slip3',
+      frozenProfileSelectionCriterion: 'selected_over_fast_120s_on_positive_ex_top3_at_equal_replay_sample_count_before_runtime_samples',
+      frozenProfileSelectionTradeoff: 'fast_300s_replay_had_negative_median; runtime evaluation must require median and ex-top-winner robustness, not total_pnl_only',
+      reason,
+      rejectReason: 'LOW_PUMP_MOMENTUM',
+      pumpFailureReason: pumpMomentumGate?.reason || null,
+      pumpFailureThreshold: pumpMomentumGate?.threshold || null,
+      curveProgress: marketState?.curveProgress ?? null,
+      curveProgressSource: marketState?.curveProgressSource || null,
+      priceSol: marketState?.priceSol ?? null,
+      priceSolSource: marketState?.priceSolSource || null,
+      momentumScore: this.runnerRejectShadowNumber(momentum?.score, 4),
+      qualityScore: this.runnerRejectShadowNumber(quality?.score, 4),
+      rankScore: this.runnerRejectShadowNumber(rankScore, 4),
+      note: 'Report-only skip telemetry for the runner-reject runtime shadow emitter; it does not change gates, entries, exits, quotes, or live execution.'
+    });
   }
 
   emitRunnerRejectRuntimeShadow({ token, quality, momentum, rankScore, pumpMomentumGate }) {
     if (!this.config.runnerRejectRuntimeShadowEnabled) return;
     if (pumpMomentumGate?.reason !== 'RUNNER_SCALPER_REQUIRES_MIGRATION') return;
 
-    const curveProgress = this.getRunnerRejectShadowCurveProgress(token);
-    const priceSol = this.getRunnerRejectShadowPriceSol(token);
-    if (!Number.isFinite(curveProgress) || curveProgress >= 0.9) return;
-    if (!Number.isFinite(priceSol) || priceSol <= 0) return;
+    const marketState = runnerRejectRuntimeShadowMarketState(token);
+    const { curveProgress, priceSol } = marketState;
+    if (!Number.isFinite(curveProgress)) {
+      this.emitRunnerRejectRuntimeShadowSkipped({
+        token,
+        reason: 'MISSING_CURVE',
+        quality,
+        momentum,
+        rankScore,
+        pumpMomentumGate,
+        marketState
+      });
+      return;
+    }
+    if (curveProgress >= 0.9) {
+      this.emitRunnerRejectRuntimeShadowSkipped({
+        token,
+        reason: 'CURVE_GE_90',
+        quality,
+        momentum,
+        rankScore,
+        pumpMomentumGate,
+        marketState
+      });
+      return;
+    }
+    if (!Number.isFinite(priceSol) || priceSol <= 0) {
+      this.emitRunnerRejectRuntimeShadowSkipped({
+        token,
+        reason: 'MISSING_PRICE',
+        quality,
+        momentum,
+        rankScore,
+        pumpMomentumGate,
+        marketState
+      });
+      return;
+    }
 
     const key = `${token.mintAddress}|fast_300s_tp50_sl25_slip3`;
-    if (this.runnerRejectRuntimeShadowSeen.has(key)) return;
+    if (this.runnerRejectRuntimeShadowSeen.has(key)) {
+      this.emitRunnerRejectRuntimeShadowSkipped({
+        token,
+        reason: 'DEDUPED',
+        quality,
+        momentum,
+        rankScore,
+        pumpMomentumGate,
+        marketState
+      });
+      return;
+    }
     this.runnerRejectRuntimeShadowSeen.add(key);
 
     this.telemetry.record('runner_reject_runtime_shadow.would_enter', {
@@ -2971,6 +3029,8 @@ class TradingEngine {
       frozenProfile: 'fast_300s_tp50_sl25_slip3',
       frozenProfileSource: 'runner-reject-entry-replay-latest.json',
       frozenHypothesis: 'pre90_low_pump_momentum_runner_scalper_requires_migration',
+      frozenProfileSelectionCriterion: 'selected_over_fast_120s_on_positive_ex_top3_at_equal_replay_sample_count_before_runtime_samples',
+      frozenProfileSelectionTradeoff: 'fast_300s_replay_had_negative_median; runtime evaluation must require median and ex-top-winner robustness, not total_pnl_only',
       rejectReason: 'LOW_PUMP_MOMENTUM',
       pumpFailureReason: pumpMomentumGate.reason,
       pumpFailureValues: pumpMomentumGate.values || null,
@@ -2984,7 +3044,9 @@ class TradingEngine {
         || pumpMomentumGate.values?.nonMigratedCounterfactualGateReason
         || null,
       curveProgress,
+      curveProgressSource: marketState.curveProgressSource || null,
       priceSol,
+      priceSolSource: marketState.priceSolSource || null,
       momentumScore: this.runnerRejectShadowNumber(momentum.score, 4),
       momentumFactors: momentum.factors || null,
       qualityScore: this.runnerRejectShadowNumber(quality.score, 4),

@@ -42,6 +42,19 @@ async function main() {
         providerCurveProgress: 0.91,
         providerCurvePriceSol: 0.0000019
       }
+    },
+    {
+      timestamp: '2026-07-10T12:02:00.000Z',
+      type: 'runner_reject_runtime_shadow.skipped',
+      payload: {
+        token: `${mint}Skipped`,
+        era: ERA,
+        frozenProfile: FROZEN_PROFILE.name,
+        reason: 'MISSING_PRICE',
+        pumpFailureReason: 'RUNNER_SCALPER_REQUIRES_MIGRATION',
+        curveProgress: 0.72,
+        curveProgressSource: 'token.raw'
+      }
     }
   ];
   fs.writeFileSync(filePath, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`, 'utf8');
@@ -57,6 +70,18 @@ async function main() {
     if (shadow.frozenProfile !== FROZEN_PROFILE.name) throw new Error('frozen profile did not parse');
     if ((run.snapshotsByMint.get(mint) || []).length < 2) {
       throw new Error('fixture snapshots did not parse');
+    }
+    if (run.skipped.length !== 1) {
+      throw new Error(`expected 1 skipped row, got ${run.skipped.length}`);
+    }
+    if (run.skipped[0].reason !== 'MISSING_PRICE') {
+      throw new Error('skipped reason did not parse');
+    }
+    if (FROZEN_PROFILE.name !== 'fast_300s_tp50_sl25_slip3') {
+      throw new Error('frozen profile selection was not documented');
+    }
+    if (!FROZEN_PROFILE.selectionCriterion) {
+      throw new Error('frozen profile selection criterion is missing');
     }
     console.log('[runner-shadow-smoke] synthetic shadow event parsed');
   } finally {
