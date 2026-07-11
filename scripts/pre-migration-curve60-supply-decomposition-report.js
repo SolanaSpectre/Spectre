@@ -271,7 +271,9 @@ function classify(row) {
   const flaggedBefore60 = row.firstFlaggedMs !== null
     && row.firstCurve60Ms !== null
     && row.firstFlaggedMs <= row.firstCurve60Ms;
-  if (!flaggedBefore60) return 'flagging_miss_observed_pre60';
+  if (!flaggedBefore60) {
+    return row.firstFlaggedMs !== null ? 'flagged_late_after_curve60' : 'never_flagged_observed_pre60';
+  }
   if (row.firstSliceShadowWouldEnterMs !== null) return 'shadow_would_enter_not_paper';
   return 'flagged_but_gated';
 }
@@ -322,17 +324,24 @@ function buildReport(filePath) {
 
   const observedPre60Crossers = curve60Rows.filter((row) => row.firstObservedPre60Ms !== null);
   const lateObservedCrossers = curve60Rows.filter((row) => row.classification === 'observation_latency_or_late_first_observed');
-  const flaggingMissRows = curve60Rows.filter((row) => row.classification === 'flagging_miss_observed_pre60');
+  const neverFlaggedRows = curve60Rows.filter((row) => row.classification === 'never_flagged_observed_pre60');
+  const flaggedLateRows = curve60Rows.filter((row) => row.classification === 'flagged_late_after_curve60');
+  const flaggingMissRows = [...neverFlaggedRows, ...flaggedLateRows];
   const gatedRows = curve60Rows.filter((row) => row.classification === 'flagged_but_gated');
   const shadowRows = curve60Rows.filter((row) => row.classification === 'shadow_would_enter_not_paper');
   const paperRows = curve60Rows.filter((row) => row.classification === 'paper_entered');
 
-  let verdict = 'MIXED_SUPPLY_CONSTRAINT';
-  if (!observedRows.length) verdict = 'NO_PRE_MIGRATION_OBSERVED_SUPPLY';
-  else if (curve60Rows.length / Math.max(1, observedRows.length) < 0.02 && lateObservedCrossers.length <= flaggingMissRows.length) verdict = 'MARKET_WIDE_CURVE60_SCARCITY';
-  else if (curve60Rows.length && lateObservedCrossers.length / curve60Rows.length >= 0.35) verdict = 'OBSERVATION_LATENCY_DOMINANT';
-  else if (curve60Rows.length && flaggingMissRows.length / curve60Rows.length >= 0.35) verdict = 'FLAGGING_MISS_DOMINANT';
-  else if (curve60Rows.length && (gatedRows.length + shadowRows.length) / curve60Rows.length >= 0.35) verdict = 'GATING_AFTER_FLAG_DOMINANT';
+  let baseRateVerdict = 'CURVE60_SUPPLY_BASE_RATE_HEALTHY';
+  if (!observedRows.length) baseRateVerdict = 'NO_PRE_MIGRATION_OBSERVED_SUPPLY';
+  else if (curve60Rows.length / Math.max(1, observedRows.length) < 0.02) baseRateVerdict = 'MARKET_WIDE_CURVE60_SCARCITY';
+
+  let conditionalLossVerdict = 'MIXED_CONDITIONAL_LOSS';
+  if (!curve60Rows.length) conditionalLossVerdict = 'NO_CURVE60_CROSSERS';
+  else if (lateObservedCrossers.length / curve60Rows.length >= 0.35) conditionalLossVerdict = 'OBSERVATION_LATENCY_DOMINANT';
+  else if (flaggingMissRows.length / curve60Rows.length >= 0.35) conditionalLossVerdict = 'FLAGGING_MISS_DOMINANT';
+  else if ((gatedRows.length + shadowRows.length) / curve60Rows.length >= 0.35) conditionalLossVerdict = 'GATING_AFTER_FLAG_DOMINANT';
+
+  const verdict = `${baseRateVerdict}+${conditionalLossVerdict}`;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -348,12 +357,16 @@ function buildReport(filePath) {
     },
     summary: {
       verdict,
+      baseRateVerdict,
+      conditionalLossVerdict,
       totalTrackedMints: rows.length,
       observedMints: observedRows.length,
       curve60PlusMints: curve60Rows.length,
       observedPre60ThenCurve60Mints: observedPre60Crossers.length,
       lateObservedCurve60Mints: lateObservedCrossers.length,
       flaggingMissObservedPre60Mints: flaggingMissRows.length,
+      neverFlaggedObservedPre60Mints: neverFlaggedRows.length,
+      flaggedLateAfterCurve60Mints: flaggedLateRows.length,
       flaggedButGatedMints: gatedRows.length,
       shadowWouldEnterNotPaperMints: shadowRows.length,
       paperEnteredCurve60Mints: paperRows.length,
@@ -383,7 +396,8 @@ function buildReport(filePath) {
     cohorts: [
       { cohort: 'curve60_plus', mints: curve60Rows.length, rows: curve60Rows.slice(0, 50).map(rowSummary) },
       { cohort: 'late_observed_curve60', mints: lateObservedCrossers.length, rows: lateObservedCrossers.slice(0, 50).map(rowSummary) },
-      { cohort: 'flagging_miss_observed_pre60', mints: flaggingMissRows.length, rows: flaggingMissRows.slice(0, 50).map(rowSummary) },
+      { cohort: 'never_flagged_observed_pre60', mints: neverFlaggedRows.length, rows: neverFlaggedRows.slice(0, 50).map(rowSummary) },
+      { cohort: 'flagged_late_after_curve60', mints: flaggedLateRows.length, rows: flaggedLateRows.slice(0, 50).map(rowSummary) },
       { cohort: 'flagged_but_gated', mints: gatedRows.length, rows: gatedRows.slice(0, 50).map(rowSummary) },
       { cohort: 'shadow_would_enter_not_paper', mints: shadowRows.length, rows: shadowRows.slice(0, 50).map(rowSummary) },
       { cohort: 'paper_entered_curve60', mints: paperRows.length, rows: paperRows.slice(0, 50).map(rowSummary) }
