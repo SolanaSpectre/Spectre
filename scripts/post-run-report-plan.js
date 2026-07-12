@@ -85,6 +85,7 @@ const POST_RUN_REPORTS = [
   { title: 'Pre-Migration Guard Attribution', script: 'pre-migration-guard-attribution-report.js' },
   { title: 'Pre-Migration Skip Follow-through', script: 'pre-migration-skip-follow-through-report.js' },
   { title: 'Pre-Migration Gated Crosser Follow-through', script: 'pre-migration-gated-crosser-follow-through-report.js' },
+  { title: 'Pre-Migration Crosser Precursor Discovery', script: 'pre-migration-crosser-precursor-discovery-report.js' },
   { title: 'Pre-Migration Skip Near-90 Watchlist', script: 'pre-migration-skip-near-90-watchlist-report.js' },
   { title: 'Pre-Migration High-Conviction Watch Follow-through', script: 'pre-migration-high-conviction-watch-follow-through-report.js' },
   { title: 'Pre-Migration Dry-Run Outcome Follow-through', script: 'pre-migration-dry-run-outcome-report.js' },

@@ -55,6 +55,7 @@ const FILES = {
   preMigrationGuardAttribution: 'data/reports/pre-migration-guard-attribution-latest.json',
   preMigrationSkipFollowThrough: 'data/reports/pre-migration-skip-follow-through-latest.json',
   preMigrationGatedCrosserFollowThrough: 'data/reports/pre-migration-gated-crosser-follow-through-latest.json',
+  preMigrationCrosserPrecursorDiscovery: 'data/reports/pre-migration-crosser-precursor-discovery-latest.json',
   preMigrationSkipNear90Watchlist: 'data/reports/pre-migration-skip-near-90-watchlist-latest.json',
   preMigrationHighConvictionWatchFollowThrough: 'data/reports/pre-migration-high-conviction-watch-follow-through-latest.json',
   preMigrationDryRunOutcome: 'data/reports/pre-migration-dry-run-outcome-latest.json',
@@ -2357,6 +2358,7 @@ function buildSummary(docs) {
   const curveNotAdvancingSeparatorShadowLedger = docs.preMigrationCurveNotAdvancingSeparatorShadowLedger.data || {};
   const skipFollowThrough = docs.preMigrationSkipFollowThrough.data || {};
   const gatedCrosserFollowThrough = docs.preMigrationGatedCrosserFollowThrough.data || {};
+  const crosserPrecursorDiscovery = docs.preMigrationCrosserPrecursorDiscovery.data || {};
   const skipNear90Watchlist = docs.preMigrationSkipNear90Watchlist.data || {};
   const highConvictionWatchFollowThrough = docs.preMigrationHighConvictionWatchFollowThrough.data || {};
   const dryRunOutcome = docs.preMigrationDryRunOutcome.data || {};
@@ -4335,7 +4337,32 @@ function buildSummary(docs) {
     lines.push('');
   }
 
-  lines.push('9b2. Pre-Migration Entry Gate Margin');
+  if (crosserPrecursorDiscovery.summary) {
+    const precursor = crosserPrecursorDiscovery.summary || {};
+    const candidates = topArray(crosserPrecursorDiscovery.candidateSlices, 5);
+    const singles = topArray(crosserPrecursorDiscovery.singleThresholds, 5);
+    lines.push('9b2. Crosser Precursor Discovery');
+    lines.push('---------------------------------');
+    lines.push('- Mode: report-only; bounded decision-time feature search. Future-crosser labels are hypothesis-generation only.');
+    lines.push(`- Verdict: ${precursor.verdict || 'n/a'}; rows=${precursor.rows ?? 'n/a'}, futureCrossers=${precursor.futureCrossers ?? 'n/a'}, controls=${precursor.controls ?? 'n/a'}, baseCrossRate=${pct(precursor.baseCrossRate, 1)}.`);
+    lines.push(`- Hypotheses tested: total=${precursor.hypothesesTested ?? 'n/a'}, singles=${precursor.singleThresholdHypotheses ?? 'n/a'}, conjunctions=${precursor.conjunctionHypotheses ?? 'n/a'}; candidateSlices=${precursor.candidateSlices ?? 'n/a'}, runsUntilPark=${precursor.runsUntilPark ?? 'n/a'}.`);
+    if (candidates.length) {
+      lines.push('- Candidate slices, report-only:');
+      candidates.forEach((row, index) => {
+        const replay = row.replay || {};
+        lines.push(`  ${index + 1}. ${row.label || 'unknown'} | matched=${row.matchedUniqueMints ?? row.matched ?? 'n/a'}, enrich=${fmt(row.enrichmentVsBaseRate, 2)}x, precision=${pct(row.precision, 1)}, medianPnl=${sol(replay.medianPnlSol, 6)}, exTop3Mean=${sol(replay.pnlAfterRemovingTop3WinnersMeanSol, 6)}`);
+      });
+    } else if (singles.length) {
+      lines.push('- Top single-threshold precursors:');
+      singles.forEach((row, index) => {
+        const replay = row.replay || {};
+        lines.push(`  ${index + 1}. ${row.label || 'unknown'} | matched=${row.matchedUniqueMints ?? row.matched ?? 'n/a'}, enrich=${fmt(row.enrichmentVsBaseRate, 2)}x, precision=${pct(row.precision, 1)}, medianPnl=${sol(replay.medianPnlSol, 6)}, exTop3Mean=${sol(replay.pnlAfterRemovingTop3WinnersMeanSol, 6)}`);
+      });
+    }
+    lines.push('');
+  }
+
+  lines.push('9b3. Pre-Migration Entry Gate Margin');
   lines.push('------------------------------------');
   lines.push('- Mode: report-only; ranks the tightest measurable skipped-entry gate by preset/reason.');
   lines.push(`- Skip decisions / unique mints: ${entryGateMarginSummary.decisions ?? 'n/a'} / ${entryGateMarginSummary.uniqueMints ?? 'n/a'}`);
@@ -4454,7 +4481,7 @@ function buildSummary(docs) {
   const curveAdvanceClosest = topArray(curveAdvanceDiagnostic.closestThresholdMisses, 8);
   const curveAdvanceActionable = topArray(curveAdvanceDiagnostic.topActionableDataConcerns, 8);
 
-  lines.push('9b3. CURVE_NOT_ADVANCING Diagnostic');
+  lines.push('9b4. CURVE_NOT_ADVANCING Diagnostic');
   lines.push('-----------------------------------');
   lines.push('- Mode: report-only; compares curve-stall gate deltas with later curve/price follow-through.');
   lines.push(`- Decisions / unique mints: ${curveAdvanceSummary.decisions ?? 'n/a'} / ${curveAdvanceSummary.uniqueMints ?? 'n/a'}`);
