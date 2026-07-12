@@ -63,7 +63,7 @@ const PREREGISTERED = {
       rowFilter: 'decision atMs strictly after pinnedAt; discovery telemetry is training provenance and excluded from confirmation',
       onlyPinnedShapesCanPromote: true,
       discoveryMayContinueButCannotMutatePinnedThresholds: true,
-      passVerdict: 'PINNED_SLICE_CONFIRMED_OOS',
+      passVerdict: 'PINNED_SLICE_CONFIRMED_OOS_1_OF_2',
       failVerdict: 'PINNED_SLICE_FAILED_OOS',
       pendingVerdict: 'PINNED_SLICE_CONFIRMATION_COLLECTING'
     },
