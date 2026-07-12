@@ -4339,13 +4339,32 @@ function buildSummary(docs) {
 
   if (crosserPrecursorDiscovery.summary) {
     const precursor = crosserPrecursorDiscovery.summary || {};
+    const pinned = crosserPrecursorDiscovery.pinnedConfirmation || {};
     const candidates = topArray(crosserPrecursorDiscovery.candidateSlices, 5);
+    const pinnedCandidates = topArray(pinned.candidates, 3);
     const singles = topArray(crosserPrecursorDiscovery.singleThresholds, 5);
     lines.push('9b2. Crosser Precursor Discovery');
     lines.push('---------------------------------');
     lines.push('- Mode: report-only; bounded decision-time feature search. Future-crosser labels are hypothesis-generation only.');
     lines.push(`- Verdict: ${precursor.verdict || 'n/a'}; rows=${precursor.rows ?? 'n/a'}, futureCrossers=${precursor.futureCrossers ?? 'n/a'}, controls=${precursor.controls ?? 'n/a'}, baseCrossRate=${pct(precursor.baseCrossRate, 1)}.`);
     lines.push(`- Hypotheses tested: total=${precursor.hypothesesTested ?? 'n/a'}, singles=${precursor.singleThresholdHypotheses ?? 'n/a'}, conjunctions=${precursor.conjunctionHypotheses ?? 'n/a'}; candidateSlices=${precursor.candidateSlices ?? 'n/a'}, runsUntilPark=${precursor.runsUntilPark ?? 'n/a'}.`);
+    lines.push(`- Pinned OOS confirmation: ${pinned.verdict || precursor.pinnedConfirmationVerdict || 'n/a'}; pinnedAt=${pinned.pinnedAt || 'n/a'}, rows=${pinned.rows ?? 'n/a'}, baseCrossRate=${pct(pinned.baseCrossRate, 1)}, pass/fail=${pinned.passCount ?? 'n/a'}/${pinned.failCount ?? 'n/a'}.`);
+    if (pinnedCandidates.length) {
+      lines.push('- Pinned candidates:');
+      pinnedCandidates.forEach((row, index) => {
+        const replay = row.replay || {};
+        const enrichment = row.enrichmentVsBaseRate === null || row.enrichmentVsBaseRate === undefined
+          ? 'n/a'
+          : `${fmt(row.enrichmentVsBaseRate, 2)}x`;
+        const medianPnl = replay.medianPnlSol === null || replay.medianPnlSol === undefined
+          ? 'n/a'
+          : sol(replay.medianPnlSol, 6);
+        const exTop3Mean = replay.pnlAfterRemovingTop3WinnersMeanSol === null || replay.pnlAfterRemovingTop3WinnersMeanSol === undefined
+          ? 'n/a'
+          : sol(replay.pnlAfterRemovingTop3WinnersMeanSol, 6);
+        lines.push(`  ${index + 1}. ${row.pinnedLabel || row.label || 'unknown'} | verdict=${row.confirmationVerdict || 'n/a'}, matched=${row.matchedUniqueMints ?? row.matched ?? 'n/a'}, enrich=${enrichment}, medianPnl=${medianPnl}, exTop3Mean=${exTop3Mean}`);
+      });
+    }
     if (candidates.length) {
       lines.push('- Candidate slices, report-only:');
       candidates.forEach((row, index) => {

@@ -51,6 +51,41 @@ const PREREGISTERED = {
     ],
     availableRuntimeShadowSlots: 1
   },
+  pinnedCandidates: {
+    pinnedAt: '2026-07-12T05:00:00.000Z',
+    selectionSource: '3-run discovery scratch from commit 4391324; in-sample best-of-50, not runtime evidence',
+    discoveryTelemetryPaths: [
+      'run-logs/telemetry-2026-07-11T02-19-33-101Z.jsonl',
+      'run-logs/telemetry-2026-07-10T13-16-46-434Z.jsonl',
+      'run-logs/telemetry-2026-07-09T13-12-16-691Z.jsonl'
+    ],
+    confirmationMode: {
+      rowFilter: 'decision atMs strictly after pinnedAt; discovery telemetry is training provenance and excluded from confirmation',
+      onlyPinnedShapesCanPromote: true,
+      discoveryMayContinueButCannotMutatePinnedThresholds: true,
+      passVerdict: 'PINNED_SLICE_CONFIRMED_OOS',
+      failVerdict: 'PINNED_SLICE_FAILED_OOS',
+      pendingVerdict: 'PINNED_SLICE_CONFIRMATION_COLLECTING'
+    },
+    candidates: [
+      {
+        id: 'curve37_score28',
+        label: 'curveProgress >= 0.377115 AND score >= 28.88',
+        conditions: [
+          { feature: 'curveProgress', direction: 'gte', threshold: 0.377115 },
+          { feature: 'score', direction: 'gte', threshold: 28.88 }
+        ]
+      },
+      {
+        id: 'curve_delta60_17_score28',
+        label: 'curveDelta60s >= 0.170215 AND score >= 28.88',
+        conditions: [
+          { feature: 'curveDelta60s', direction: 'gte', threshold: 0.170215 },
+          { feature: 'score', direction: 'gte', threshold: 28.88 }
+        ]
+      }
+    ]
+  },
   operationalNote: 'Discovery telemetry may span mixed eras. Any frozen slice OOS clock starts only after the slice is frozen.'
 };
 
@@ -232,7 +267,7 @@ function summarizeReplay(rows) {
     totalPnlSol: compact(total, 9),
     medianPnlSol: stat(pnls, 9).median,
     pnlAfterRemovingTop3WinnersSol: compact(exTop3, 9),
-    pnlAfterRemovingTop3WinnersMeanSol: compact(exTop3Mean, 9),
+    pnlAfterRemovingTop3WinnersMeanSol: exTop3Mean === null ? null : compact(exTop3Mean, 9),
     pnlSol: stat(pnls, 9),
     exitReasons: countBy(joined, (row) => row.replay.exitReason)
   };
@@ -302,6 +337,56 @@ function evaluateConditions(rows, conditions, baseRate) {
   };
 }
 
+function confirmationVerdict(evaluation) {
+  const checks = evaluation.promotionChecks || {};
+  if (checks.minMeasuredUnique && checks.crossingEnrichment && checks.medianPnlPositive && checks.exTop3MeanPnlPositive) {
+    return PREREGISTERED.pinnedCandidates.confirmationMode.passVerdict;
+  }
+  if (checks.minMeasuredUnique) return PREREGISTERED.pinnedCandidates.confirmationMode.failVerdict;
+  return PREREGISTERED.pinnedCandidates.confirmationMode.pendingVerdict;
+}
+
+function evaluatePinnedConfirmation(rows) {
+  const pinnedAtMs = new Date(PREREGISTERED.pinnedCandidates.pinnedAt).getTime();
+  const trainingPaths = new Set(PREREGISTERED.pinnedCandidates.discoveryTelemetryPaths);
+  const confirmationRows = rows.filter((row) => (
+    Number(row.atMs) > pinnedAtMs
+    && !trainingPaths.has(row.telemetryPath)
+  ));
+  const crosserCount = confirmationRows.filter((row) => row.isFutureCrosser).length;
+  const baseRate = confirmationRows.length ? crosserCount / confirmationRows.length : 0;
+  const pinned = PREREGISTERED.pinnedCandidates.candidates.map((candidate) => {
+    const evaluation = evaluateConditions(confirmationRows, candidate.conditions, baseRate);
+    return {
+      id: candidate.id,
+      pinnedLabel: candidate.label,
+      ...evaluation,
+      confirmationVerdict: confirmationVerdict(evaluation)
+    };
+  });
+  const passCount = pinned.filter((row) => row.confirmationVerdict === PREREGISTERED.pinnedCandidates.confirmationMode.passVerdict).length;
+  const failCount = pinned.filter((row) => row.confirmationVerdict === PREREGISTERED.pinnedCandidates.confirmationMode.failVerdict).length;
+  const verdict = passCount
+    ? PREREGISTERED.pinnedCandidates.confirmationMode.passVerdict
+    : failCount === pinned.length && pinned.length
+      ? PREREGISTERED.pinnedCandidates.confirmationMode.failVerdict
+      : PREREGISTERED.pinnedCandidates.confirmationMode.pendingVerdict;
+  return {
+    verdict,
+    pinnedAt: PREREGISTERED.pinnedCandidates.pinnedAt,
+    rows: confirmationRows.length,
+    uniqueMints: new Set(confirmationRows.map((row) => row.mint)).size,
+    futureCrossers: crosserCount,
+    controls: confirmationRows.length - crosserCount,
+    baseCrossRate: compact(baseRate, 4),
+    pinnedCandidatesEvaluated: pinned.length,
+    passCount,
+    failCount,
+    trainingTelemetryPathsExcluded: Array.from(trainingPaths),
+    candidates: pinned
+  };
+}
+
 function buildRows(files) {
   const runs = [];
   for (const filePath of files) {
@@ -356,6 +441,7 @@ function buildReport(files) {
     : files.length >= PREREGISTERED.stoppingRule.parkAfterRuns
       ? PREREGISTERED.stoppingRule.verdictAfterNoSlice
       : 'NO_SLICE_FOUND_CONTINUE_DISCOVERY';
+  const pinnedConfirmation = evaluatePinnedConfirmation(rows);
   return {
     generatedAt: new Date().toISOString(),
     mode: PREREGISTERED.mode,
@@ -364,6 +450,7 @@ function buildReport(files) {
     discoveryTelemetryPaths: files.map((filePath) => path.relative(ROOT, filePath).replace(/\\/g, '/')),
     summary: {
       verdict,
+      pinnedConfirmationVerdict: pinnedConfirmation.verdict,
       rows: rows.length,
       uniqueMints: new Set(rows.map((row) => row.mint)).size,
       futureCrossers: crosserCount,
@@ -377,6 +464,7 @@ function buildReport(files) {
       runsUntilPark: Math.max(0, PREREGISTERED.stoppingRule.parkAfterRuns - files.length),
       warning: PREREGISTERED.warning
     },
+    pinnedConfirmation,
     featureDistributions,
     singleThresholds: singles
       .sort((a, b) => Number(b.enrichmentVsBaseRate || 0) - Number(a.enrichmentVsBaseRate || 0) || b.matchedUniqueMints - a.matchedUniqueMints)
