@@ -25,8 +25,8 @@ const PROMOTION_REQUIREMENTS = {
   metricFamily: 'max_favorable_excursion_mfe_not_realizable_exit',
   requireControlRelativeMedianMfePnlSol: true,
   minControlMedianMfePnlDeltaSol: 0.005,
-  requireControlRelativeExTop3MfePnlSol: true,
-  minControlExTop3MfePnlDeltaSol: 0.05,
+  requireControlRelativeExTop3MeanMfePnlSol: true,
+  minControlExTop3MeanMfePnlDeltaSol: 0.005,
   minMeasuredPerBlockerForBlockerVerdict: 10,
   nextStepIfPromising: 'derive a decision-time-only slice, replay/stress it on all matching gated decisions, then freeze a runtime shadow ledger target before collecting OOS samples'
 };
@@ -331,10 +331,11 @@ function summarize(rows, label, aggregateVerdict = true) {
   const primaryWindow = `${PROMOTION_REQUIREMENTS.primaryWindowSeconds}s`;
   const uniqueRows = firstPerMint(rows);
   const measured = uniqueRows.filter((row) => row.windows?.[primaryWindow]?.outcomeJoined === true);
-  const wins = measured.filter((row) => Number(row.windows[primaryWindow].mfePnlSol) > 0).length;
+  const mfePositiveCount = measured.filter((row) => Number(row.windows[primaryWindow].mfePnlSol) > 0).length;
   const totalMfePnlSol = measured.reduce((sum, row) => sum + Number(row.windows[primaryWindow].mfePnlSol || 0), 0);
   const medianMfePnl = stat(measured.map((row) => row.windows[primaryWindow].mfePnlSol), 9).median;
   const exTop3 = mfePnlAfterRemovingTop(measured, primaryWindow, 3);
+  const exTop3Mean = measured.length ? compact(Number(exTop3 || 0) / measured.length, 9) : null;
   let verdict = 'DESCRIPTIVE_ONLY';
   if (aggregateVerdict) {
     if (measured.length < PROMOTION_REQUIREMENTS.measuredSampleTarget) verdict = 'INSUFFICIENT_SAMPLE';
@@ -349,12 +350,13 @@ function summarize(rows, label, aggregateVerdict = true) {
     uniqueMints: uniqueRows.length,
     measured: measured.length,
     measuredUniqueMints: new Set(measured.map((row) => row.mint)).size,
-    wins,
-    losses: measured.length - wins,
-    winRate: measured.length ? compact(wins / measured.length, 4) : null,
+    mfePositiveCount,
+    mfeNonPositiveCount: measured.length - mfePositiveCount,
+    mfePositiveRate: measured.length ? compact(mfePositiveCount / measured.length, 4) : null,
     totalMfePnlSol: compact(totalMfePnlSol, 9),
     medianMfePnlSol: medianMfePnl,
     mfePnlAfterRemovingTop3WinnersSol: exTop3,
+    mfePnlAfterRemovingTop3WinnersMeanSol: exTop3Mean,
     blockerCounts: countBy(uniqueRows, (row) => row.blockerKey),
     reasonCounts: countBy(uniqueRows, (row) => row.reason),
     failedCheckCountsAll: countList(uniqueRows.flatMap((row) => row.failedChecksAll || [])),
@@ -375,18 +377,18 @@ function applyControlRelativeVerdict(crosserSummary, controlSummary) {
     return { ...crosserSummary, verdict: 'INSUFFICIENT_CONTROL_SAMPLE' };
   }
   const medianDelta = Number(crosserSummary.medianMfePnlSol) - Number(controlSummary.medianMfePnlSol);
-  const exTop3Delta = Number(crosserSummary.mfePnlAfterRemovingTop3WinnersSol) - Number(controlSummary.mfePnlAfterRemovingTop3WinnersSol);
+  const exTop3MeanDelta = Number(crosserSummary.mfePnlAfterRemovingTop3WinnersMeanSol) - Number(controlSummary.mfePnlAfterRemovingTop3WinnersMeanSol);
   const deltas = {
     medianMfePnlDeltaVsControlSol: compact(medianDelta, 9),
-    exTop3MfePnlDeltaVsControlSol: compact(exTop3Delta, 9)
+    exTop3MeanMfePnlDeltaVsControlSol: compact(exTop3MeanDelta, 9)
   };
   if (
     medianDelta >= PROMOTION_REQUIREMENTS.minControlMedianMfePnlDeltaSol
-    && exTop3Delta >= PROMOTION_REQUIREMENTS.minControlExTop3MfePnlDeltaSol
+    && exTop3MeanDelta >= PROMOTION_REQUIREMENTS.minControlExTop3MeanMfePnlDeltaSol
   ) {
     return { ...crosserSummary, ...deltas, verdict: 'GATED_CROSSERS_PROMISING_REPORT_ONLY_CONTROL_RELATIVE' };
   }
-  if (medianDelta <= 0 && exTop3Delta <= 0) {
+  if (medianDelta <= 0 && exTop3MeanDelta <= 0) {
     return { ...crosserSummary, ...deltas, verdict: 'GATED_CROSSERS_NOT_BETTER_THAN_CONTROL' };
   }
   return { ...crosserSummary, ...deltas, verdict: 'MIXED_OR_OUTLIER_DOMINATED_CONTROL_RELATIVE' };
@@ -452,12 +454,14 @@ function buildReport(files) {
       crosserMeasuredUniqueMints: crosserSummary.measuredUniqueMints,
       crosserMedianMfePnlSol: crosserSummary.medianMfePnlSol,
       crosserMfePnlAfterRemovingTop3WinnersSol: crosserSummary.mfePnlAfterRemovingTop3WinnersSol,
+      crosserMfePnlAfterRemovingTop3WinnersMeanSol: crosserSummary.mfePnlAfterRemovingTop3WinnersMeanSol,
       controlMeasured: controlSummary.measured,
       controlMeasuredUniqueMints: controlSummary.measuredUniqueMints,
       controlMedianMfePnlSol: controlSummary.medianMfePnlSol,
       controlMfePnlAfterRemovingTop3WinnersSol: controlSummary.mfePnlAfterRemovingTop3WinnersSol,
+      controlMfePnlAfterRemovingTop3WinnersMeanSol: controlSummary.mfePnlAfterRemovingTop3WinnersMeanSol,
       medianMfePnlDeltaVsControlSol: crosserSummary.medianMfePnlDeltaVsControlSol ?? null,
-      exTop3MfePnlDeltaVsControlSol: crosserSummary.exTop3MfePnlDeltaVsControlSol ?? null,
+      exTop3MeanMfePnlDeltaVsControlSol: crosserSummary.exTop3MeanMfePnlDeltaVsControlSol ?? null,
       warning: PROMOTION_REQUIREMENTS.warning
     },
     cohorts,

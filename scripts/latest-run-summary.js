@@ -4311,25 +4311,25 @@ function buildSummary(docs) {
     lines.push('----------------------------------');
     lines.push('- Mode: report-only diagnostic. Future-crosser cohort is selected on future curve movement, so it is hypothesis-generation only and cannot directly promote a runtime shadow lane.');
     lines.push('- Metric note: MFE fields are max favorable excursion under stress assumptions, not a realizable exit simulation.');
-    lines.push(`- Verdict: ${gated.verdict || 'n/a'}; rows=${gated.rows ?? 'n/a'}, unique=${gated.uniqueMints ?? 'n/a'}, crosserMeasured=${gated.crosserMeasured ?? 'n/a'} / unique=${gated.crosserMeasuredUniqueMints ?? 'n/a'}, crosserMedianMFE=${sol(gated.crosserMedianMfePnlSol, 6)}, crosserExTop3MFE=${sol(gated.crosserMfePnlAfterRemovingTop3WinnersSol, 6)}.`);
+    lines.push(`- Verdict: ${gated.verdict || 'n/a'}; rows=${gated.rows ?? 'n/a'}, unique=${gated.uniqueMints ?? 'n/a'}, crosserMeasured=${gated.crosserMeasured ?? 'n/a'} / unique=${gated.crosserMeasuredUniqueMints ?? 'n/a'}, crosserMedianMFE=${sol(gated.crosserMedianMfePnlSol, 6)}, crosserExTop3MeanMFE=${sol(gated.crosserMfePnlAfterRemovingTop3WinnersMeanSol, 6)}.`);
     const medianDelta = gated.medianMfePnlDeltaVsControlSol === null || gated.medianMfePnlDeltaVsControlSol === undefined
       ? 'n/a'
       : sol(gated.medianMfePnlDeltaVsControlSol, 6);
-    const exTop3Delta = gated.exTop3MfePnlDeltaVsControlSol === null || gated.exTop3MfePnlDeltaVsControlSol === undefined
+    const exTop3Delta = gated.exTop3MeanMfePnlDeltaVsControlSol === null || gated.exTop3MeanMfePnlDeltaVsControlSol === undefined
       ? 'n/a'
-      : sol(gated.exTop3MfePnlDeltaVsControlSol, 6);
-    lines.push(`- Control: measured=${gated.controlMeasured ?? 'n/a'} / unique=${gated.controlMeasuredUniqueMints ?? 'n/a'}, medianMFE=${sol(gated.controlMedianMfePnlSol, 6)}, exTop3MFE=${sol(gated.controlMfePnlAfterRemovingTop3WinnersSol, 6)}, deltaMedian=${medianDelta}, deltaExTop3=${exTop3Delta}.`);
+      : sol(gated.exTop3MeanMfePnlDeltaVsControlSol, 6);
+    lines.push(`- Control: measured=${gated.controlMeasured ?? 'n/a'} / unique=${gated.controlMeasuredUniqueMints ?? 'n/a'}, medianMFE=${sol(gated.controlMedianMfePnlSol, 6)}, exTop3MeanMFE=${sol(gated.controlMfePnlAfterRemovingTop3WinnersMeanSol, 6)}, deltaMedian=${medianDelta}, deltaExTop3Mean=${exTop3Delta}.`);
     lines.push(`- Cohorts: ${formatTopCounts(gated.cohortCounts)}.`);
     if (cohorts.length) {
       lines.push('- Cohort summaries:');
       cohorts.forEach((row) => {
-        lines.push(`  - ${row.label}: verdict=${row.verdict || 'n/a'}, rows=${row.rows ?? 'n/a'}, unique=${row.uniqueMints ?? 'n/a'}, measured=${row.measured ?? 'n/a'}, wins/losses=${row.wins ?? 'n/a'}/${row.losses ?? 'n/a'}, medianMFE=${sol(row.medianMfePnlSol, 6)}, exTop3MFE=${sol(row.mfePnlAfterRemovingTop3WinnersSol, 6)}, cross85/90_120=${row.crossed85Within120s ?? 'n/a'}/${row.crossed90Within120s ?? 'n/a'}.`);
+        lines.push(`  - ${row.label}: verdict=${row.verdict || 'n/a'}, rows=${row.rows ?? 'n/a'}, unique=${row.uniqueMints ?? 'n/a'}, measured=${row.measured ?? 'n/a'}, mfePositive/non=${row.mfePositiveCount ?? 'n/a'}/${row.mfeNonPositiveCount ?? 'n/a'}, medianMFE=${sol(row.medianMfePnlSol, 6)}, exTop3MeanMFE=${sol(row.mfePnlAfterRemovingTop3WinnersMeanSol, 6)}, cross85/90_120=${row.crossed85Within120s ?? 'n/a'}/${row.crossed90Within120s ?? 'n/a'}.`);
       });
     }
     if (blockers.length) {
       lines.push('- Future-crosser blockers, descriptive only:');
       blockers.forEach((row) => {
-        lines.push(`  - ${row.label}: rows=${row.rows ?? 'n/a'}, unique=${row.uniqueMints ?? 'n/a'}, measured=${row.measured ?? 'n/a'}, medianMFE=${sol(row.medianMfePnlSol, 6)}, exTop3MFE=${sol(row.mfePnlAfterRemovingTop3WinnersSol, 6)}.`);
+        lines.push(`  - ${row.label}: rows=${row.rows ?? 'n/a'}, unique=${row.uniqueMints ?? 'n/a'}, measured=${row.measured ?? 'n/a'}, medianMFE=${sol(row.medianMfePnlSol, 6)}, exTop3MeanMFE=${sol(row.mfePnlAfterRemovingTop3WinnersMeanSol, 6)}.`);
       });
     }
     lines.push('');
