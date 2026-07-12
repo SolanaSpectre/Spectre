@@ -22,8 +22,11 @@ const PROMOTION_REQUIREMENTS = {
   measuredSampleTarget: 20,
   requireMultipleRuns: true,
   primaryWindowSeconds: 120,
-  requirePositiveMedianPnlSolAfterStress: true,
-  requirePositivePnlAfterRemovingTop3WinnersSol: true,
+  metricFamily: 'max_favorable_excursion_mfe_not_realizable_exit',
+  requireControlRelativeMedianMfePnlSol: true,
+  minControlMedianMfePnlDeltaSol: 0.005,
+  requireControlRelativeExTop3MfePnlSol: true,
+  minControlExTop3MfePnlDeltaSol: 0.05,
   minMeasuredPerBlockerForBlockerVerdict: 10,
   nextStepIfPromising: 'derive a decision-time-only slice, replay/stress it on all matching gated decisions, then freeze a runtime shadow ledger target before collecting OOS samples'
 };
@@ -233,9 +236,19 @@ function scan(filePath) {
 function firstPerMint(rows) {
   const byMint = new Map();
   for (const row of rows) {
-    if (!byMint.has(row.mint)) byMint.set(row.mint, row);
+    const existing = byMint.get(row.mint);
+    if (!existing || Number(row.atMs || 0) < Number(existing.atMs || 0)) byMint.set(row.mint, row);
   }
   return Array.from(byMint.values());
+}
+
+function countList(items) {
+  const counts = {};
+  for (const item of items || []) {
+    const key = item || 'unknown';
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])));
 }
 
 function firstCrossAfter(snapshots, atMs, threshold) {
@@ -250,9 +263,9 @@ function windowOutcome(decision, snapshots, seconds) {
   const maxPrice = stat(futureWithPrice.map((snapshot) => snapshot.priceSol), 15).max;
   const maxCurve = stat(future.map((snapshot) => snapshot.curveProgress), 6).max;
   const outcomeJoined = Number.isFinite(entryPrice) && entryPrice > 0 && Number.isFinite(Number(maxPrice));
-  const grossReturnPct = outcomeJoined ? ((Number(maxPrice) / entryPrice) - 1) * 100 : null;
-  const stressedReturnPct = outcomeJoined ? grossReturnPct - STRESS.entrySlippagePct - STRESS.exitSlippagePct : null;
-  const pnlSol = outcomeJoined ? (STRESS.amountSol * (stressedReturnPct / 100)) - STRESS.feeSol : null;
+  const grossMfeReturnPct = outcomeJoined ? ((Number(maxPrice) / entryPrice) - 1) * 100 : null;
+  const stressedMfeReturnPct = outcomeJoined ? grossMfeReturnPct - STRESS.entrySlippagePct - STRESS.exitSlippagePct : null;
+  const mfePnlSol = outcomeJoined ? (STRESS.amountSol * (stressedMfeReturnPct / 100)) - STRESS.feeSol : null;
   return {
     seconds,
     outcomeJoined,
@@ -260,9 +273,9 @@ function windowOutcome(decision, snapshots, seconds) {
     futurePriceSnapshotCount: futureWithPrice.length,
     maxCurveProgress: compact(maxCurve, 6),
     maxPriceSol: compact(maxPrice, 15),
-    grossReturnPct: compact(grossReturnPct, 4),
-    stressedReturnPct: compact(stressedReturnPct, 4),
-    pnlSol: compact(pnlSol, 9),
+    grossMfeReturnPct: compact(grossMfeReturnPct, 4),
+    stressedMfeReturnPct: compact(stressedMfeReturnPct, 4),
+    mfePnlSol: compact(mfePnlSol, 9),
     crossed85WithinWindow: Boolean(firstCrossAfter(future, decision.atMs, 0.85)),
     crossed90WithinWindow: Boolean(firstCrossAfter(future, decision.atMs, 0.9))
   };
@@ -279,15 +292,21 @@ function classifyCohort(decision, snapshots, entriesByMint) {
 function analyzeRun(filePath) {
   const scanned = scan(filePath);
   const entriesByMint = new Set(scanned.entries.map((entry) => entry.mint));
+  const decisionsByMint = groupBy(scanned.decisions, (decision) => decision.mint);
   const rows = firstPerMint(scanned.decisions).map((decision) => {
     const snapshots = scanned.snapshotsByMint.get(decision.mint) || [];
     const windows = Object.fromEntries(WINDOWS_SECONDS.map((seconds) => [`${seconds}s`, windowOutcome(decision, snapshots, seconds)]));
     const firstCurve60 = firstCrossAfter(snapshots, decision.atMs, 0.6);
+    const sameMintDecisions = decisionsByMint[decision.mint] || [];
+    const failedChecksAll = sameMintDecisions.flatMap((row) => row.failedChecks || []);
     return {
       ...decision,
       telemetryPath: path.relative(ROOT, filePath).replace(/\\/g, '/'),
       cohort: classifyCohort(decision, snapshots, entriesByMint),
       firstCurve60AfterDecisionAt: firstCurve60?.at || null,
+      skippedDecisionCountForMint: sameMintDecisions.length,
+      failedChecksAll,
+      failedCheckCountsAll: countList(failedChecksAll),
       windows
     };
   });
@@ -299,9 +318,9 @@ function analyzeRun(filePath) {
   };
 }
 
-function pnlAfterRemovingTop(rows, windowKey, topCount) {
+function mfePnlAfterRemovingTop(rows, windowKey, topCount) {
   const pnls = rows
-    .map((row) => Number(row.windows?.[windowKey]?.pnlSol))
+    .map((row) => Number(row.windows?.[windowKey]?.mfePnlSol))
     .filter(Number.isFinite)
     .sort((a, b) => b - a)
     .slice(topCount);
@@ -310,17 +329,16 @@ function pnlAfterRemovingTop(rows, windowKey, topCount) {
 
 function summarize(rows, label, aggregateVerdict = true) {
   const primaryWindow = `${PROMOTION_REQUIREMENTS.primaryWindowSeconds}s`;
-  const measured = rows.filter((row) => row.windows?.[primaryWindow]?.outcomeJoined === true);
-  const wins = measured.filter((row) => Number(row.windows[primaryWindow].pnlSol) > 0).length;
-  const totalPnlSol = measured.reduce((sum, row) => sum + Number(row.windows[primaryWindow].pnlSol || 0), 0);
-  const medianPnl = stat(measured.map((row) => row.windows[primaryWindow].pnlSol), 9).median;
-  const exTop3 = pnlAfterRemovingTop(measured, primaryWindow, 3);
+  const uniqueRows = firstPerMint(rows);
+  const measured = uniqueRows.filter((row) => row.windows?.[primaryWindow]?.outcomeJoined === true);
+  const wins = measured.filter((row) => Number(row.windows[primaryWindow].mfePnlSol) > 0).length;
+  const totalMfePnlSol = measured.reduce((sum, row) => sum + Number(row.windows[primaryWindow].mfePnlSol || 0), 0);
+  const medianMfePnl = stat(measured.map((row) => row.windows[primaryWindow].mfePnlSol), 9).median;
+  const exTop3 = mfePnlAfterRemovingTop(measured, primaryWindow, 3);
   let verdict = 'DESCRIPTIVE_ONLY';
   if (aggregateVerdict) {
     if (measured.length < PROMOTION_REQUIREMENTS.measuredSampleTarget) verdict = 'INSUFFICIENT_SAMPLE';
-    else if (Number(medianPnl) > 0 && Number(exTop3) > 0) verdict = 'GATED_CROSSERS_PROMISING_REPORT_ONLY';
-    else if (Number(medianPnl) <= 0 && Number(exTop3) <= 0) verdict = 'GATED_CROSSERS_CORRECTLY_BLOCKED';
-    else verdict = 'MIXED_OR_OUTLIER_DOMINATED';
+    else verdict = 'CONTROL_COMPARISON_REQUIRED';
   } else if (measured.length < PROMOTION_REQUIREMENTS.minMeasuredPerBlockerForBlockerVerdict) {
     verdict = 'DESCRIPTIVE_ONLY_UNDER_BLOCKER_MIN_SAMPLE';
   }
@@ -328,23 +346,50 @@ function summarize(rows, label, aggregateVerdict = true) {
     label,
     verdict,
     rows: rows.length,
-    uniqueMints: new Set(rows.map((row) => row.mint)).size,
+    uniqueMints: uniqueRows.length,
     measured: measured.length,
+    measuredUniqueMints: new Set(measured.map((row) => row.mint)).size,
     wins,
     losses: measured.length - wins,
     winRate: measured.length ? compact(wins / measured.length, 4) : null,
-    totalPnlSol: compact(totalPnlSol, 9),
-    medianPnlSol: medianPnl,
-    pnlAfterRemovingTop3WinnersSol: exTop3,
-    blockerCounts: countBy(rows, (row) => row.blockerKey),
-    reasonCounts: countBy(rows, (row) => row.reason),
-    crossed85Within120s: rows.filter((row) => row.windows['120s']?.crossed85WithinWindow).length,
-    crossed90Within120s: rows.filter((row) => row.windows['120s']?.crossed90WithinWindow).length,
-    crossed85Within300s: rows.filter((row) => row.windows['300s']?.crossed85WithinWindow).length,
-    crossed90Within300s: rows.filter((row) => row.windows['300s']?.crossed90WithinWindow).length,
-    pnlSol120s: stat(measured.map((row) => row.windows['120s']?.pnlSol), 9),
-    pnlSol300s: stat(rows.filter((row) => row.windows['300s']?.outcomeJoined).map((row) => row.windows['300s']?.pnlSol), 9)
+    totalMfePnlSol: compact(totalMfePnlSol, 9),
+    medianMfePnlSol: medianMfePnl,
+    mfePnlAfterRemovingTop3WinnersSol: exTop3,
+    blockerCounts: countBy(uniqueRows, (row) => row.blockerKey),
+    reasonCounts: countBy(uniqueRows, (row) => row.reason),
+    failedCheckCountsAll: countList(uniqueRows.flatMap((row) => row.failedChecksAll || [])),
+    crossed85Within120s: uniqueRows.filter((row) => row.windows['120s']?.crossed85WithinWindow).length,
+    crossed90Within120s: uniqueRows.filter((row) => row.windows['120s']?.crossed90WithinWindow).length,
+    crossed85Within300s: uniqueRows.filter((row) => row.windows['300s']?.crossed85WithinWindow).length,
+    crossed90Within300s: uniqueRows.filter((row) => row.windows['300s']?.crossed90WithinWindow).length,
+    mfePnlSol120s: stat(measured.map((row) => row.windows['120s']?.mfePnlSol), 9),
+    mfePnlSol300s: stat(uniqueRows.filter((row) => row.windows['300s']?.outcomeJoined).map((row) => row.windows['300s']?.mfePnlSol), 9)
   };
+}
+
+function applyControlRelativeVerdict(crosserSummary, controlSummary) {
+  if (!crosserSummary || crosserSummary.measuredUniqueMints < PROMOTION_REQUIREMENTS.measuredSampleTarget) {
+    return { ...(crosserSummary || {}), verdict: 'INSUFFICIENT_SAMPLE' };
+  }
+  if (!controlSummary || controlSummary.measuredUniqueMints < PROMOTION_REQUIREMENTS.measuredSampleTarget) {
+    return { ...crosserSummary, verdict: 'INSUFFICIENT_CONTROL_SAMPLE' };
+  }
+  const medianDelta = Number(crosserSummary.medianMfePnlSol) - Number(controlSummary.medianMfePnlSol);
+  const exTop3Delta = Number(crosserSummary.mfePnlAfterRemovingTop3WinnersSol) - Number(controlSummary.mfePnlAfterRemovingTop3WinnersSol);
+  const deltas = {
+    medianMfePnlDeltaVsControlSol: compact(medianDelta, 9),
+    exTop3MfePnlDeltaVsControlSol: compact(exTop3Delta, 9)
+  };
+  if (
+    medianDelta >= PROMOTION_REQUIREMENTS.minControlMedianMfePnlDeltaSol
+    && exTop3Delta >= PROMOTION_REQUIREMENTS.minControlExTop3MfePnlDeltaSol
+  ) {
+    return { ...crosserSummary, ...deltas, verdict: 'GATED_CROSSERS_PROMISING_REPORT_ONLY_CONTROL_RELATIVE' };
+  }
+  if (medianDelta <= 0 && exTop3Delta <= 0) {
+    return { ...crosserSummary, ...deltas, verdict: 'GATED_CROSSERS_NOT_BETTER_THAN_CONTROL' };
+  }
+  return { ...crosserSummary, ...deltas, verdict: 'MIXED_OR_OUTLIER_DOMINATED_CONTROL_RELATIVE' };
 }
 
 function compactRow(row) {
@@ -356,6 +401,8 @@ function compactRow(row) {
     at: row.at,
     reason: row.reason,
     blockerKey: row.blockerKey,
+    failedChecksAll: row.failedChecksAll,
+    failedCheckCountsAll: row.failedCheckCountsAll,
     preset: row.preset,
     curveProgress: row.curveProgress,
     priceSol: row.priceSol,
@@ -371,18 +418,23 @@ function compactRow(row) {
 function buildReport(files) {
   const runs = files.map(analyzeRun);
   const rows = runs.flatMap((run) => run.rows);
-  const cohorts = Object.entries(groupBy(rows, (row) => row.cohort || 'unknown'))
+  let cohorts = Object.entries(groupBy(rows, (row) => row.cohort || 'unknown'))
     .map(([cohort, cohortRows]) => summarize(cohortRows, cohort, cohort === 'gated_future_curve60_biased'))
     .sort((a, b) => b.rows - a.rows || a.label.localeCompare(b.label));
   const crosserRows = rows.filter((row) => row.cohort === 'gated_future_curve60_biased');
   const blockers = Object.entries(groupBy(crosserRows, (row) => row.blockerKey || row.reason || 'unknown'))
     .map(([blocker, blockerRows]) => summarize(blockerRows, blocker, false))
     .sort((a, b) => b.rows - a.rows || a.label.localeCompare(b.label));
-  const crosserSummary = cohorts.find((row) => row.label === 'gated_future_curve60_biased') || summarize([], 'gated_future_curve60_biased');
+  const controlSummary = cohorts.find((row) => row.label === 'gated_non_crosser_control') || summarize([], 'gated_non_crosser_control', false);
+  const crosserSummary = applyControlRelativeVerdict(
+    cohorts.find((row) => row.label === 'gated_future_curve60_biased') || summarize([], 'gated_future_curve60_biased'),
+    controlSummary
+  );
+  cohorts = cohorts.map((row) => (row.label === 'gated_future_curve60_biased' ? crosserSummary : row));
   return {
     generatedAt: new Date().toISOString(),
     mode: 'report_only_gated_crosser_follow_through_diagnostic',
-    note: 'Diagnostic only. The gated_future_curve60_biased cohort is selected on future curve60 crossing, so promising results here are hypothesis-generation only and cannot be promoted directly. Outcomes are anchored at the first gated PAPER_SKIPPED decision timestamp and compared against gated non-crossers as a natural control.',
+    note: 'Diagnostic only. The gated_future_curve60_biased cohort is selected on future curve60 crossing, so promising results here are hypothesis-generation only and cannot be promoted directly. Outcomes are anchored at the first gated PAPER_SKIPPED decision timestamp and compared against gated non-crossers as a natural control. Return/PnL fields are max favorable excursion (MFE), not realizable exit simulation.',
     promotionRequirements: PROMOTION_REQUIREMENTS,
     stressAssumptions: STRESS,
     inputs: {
@@ -397,23 +449,29 @@ function buildReport(files) {
       uniqueMints: new Set(rows.map((row) => row.mint)).size,
       cohortCounts: countBy(rows, (row) => row.cohort),
       crosserMeasured: crosserSummary.measured,
-      crosserMedianPnlSol: crosserSummary.medianPnlSol,
-      crosserPnlAfterRemovingTop3WinnersSol: crosserSummary.pnlAfterRemovingTop3WinnersSol,
-      controlMeasured: cohorts.find((row) => row.label === 'gated_non_crosser_control')?.measured ?? 0,
+      crosserMeasuredUniqueMints: crosserSummary.measuredUniqueMints,
+      crosserMedianMfePnlSol: crosserSummary.medianMfePnlSol,
+      crosserMfePnlAfterRemovingTop3WinnersSol: crosserSummary.mfePnlAfterRemovingTop3WinnersSol,
+      controlMeasured: controlSummary.measured,
+      controlMeasuredUniqueMints: controlSummary.measuredUniqueMints,
+      controlMedianMfePnlSol: controlSummary.medianMfePnlSol,
+      controlMfePnlAfterRemovingTop3WinnersSol: controlSummary.mfePnlAfterRemovingTop3WinnersSol,
+      medianMfePnlDeltaVsControlSol: crosserSummary.medianMfePnlDeltaVsControlSol ?? null,
+      exTop3MfePnlDeltaVsControlSol: crosserSummary.exTop3MfePnlDeltaVsControlSol ?? null,
       warning: PROMOTION_REQUIREMENTS.warning
     },
     cohorts,
     crosserBlockers: blockers,
     examples: {
-      crosserTopPnl: crosserRows
+      crosserTopMfe: crosserRows
         .slice()
-        .sort((a, b) => Number(b.windows['120s']?.pnlSol ?? -Infinity) - Number(a.windows['120s']?.pnlSol ?? -Infinity))
+        .sort((a, b) => Number(b.windows['120s']?.mfePnlSol ?? -Infinity) - Number(a.windows['120s']?.mfePnlSol ?? -Infinity))
         .slice(0, 20)
         .map(compactRow),
-      controlTopPnl: rows
+      controlTopMfe: rows
         .filter((row) => row.cohort === 'gated_non_crosser_control')
         .slice()
-        .sort((a, b) => Number(b.windows['120s']?.pnlSol ?? -Infinity) - Number(a.windows['120s']?.pnlSol ?? -Infinity))
+        .sort((a, b) => Number(b.windows['120s']?.mfePnlSol ?? -Infinity) - Number(a.windows['120s']?.mfePnlSol ?? -Infinity))
         .slice(0, 20)
         .map(compactRow)
     }
