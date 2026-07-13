@@ -43,6 +43,60 @@ function normalizeSample(sample) {
   return normalized;
 }
 
+function isPositiveOrProvenTouch(touch) {
+  return Boolean(touch?.positiveOrProven)
+    || ['PROVEN_POSITIVE', 'PROMISING_POSITIVE'].includes(touch?.evidenceTier)
+    || ['TRUST_REVIEW', 'PROFITABLE_NEEDS_FIRST_TOUCH_EVIDENCE'].includes(touch?.reviewTier);
+}
+
+function isAvoidOrNegativeTouch(touch) {
+  return Boolean(touch?.avoidOrNegative)
+    || touch?.reviewTier === 'AVOID_REVIEW'
+    || touch?.evidenceTier === 'NEGATIVE_EVIDENCE';
+}
+
+function isBuyTouch(touch) {
+  return String(touch?.side || '').toLowerCase() === 'buy';
+}
+
+function initWindowDiagnostics() {
+  return {
+    joined: 0,
+    missing: 0,
+    crossed85: 0,
+    crossed90: 0,
+    crossed95: 0,
+    staticFuturePriceSeries: 0,
+    missingPriceJoin: 0,
+    zeroPriceDeltaWithManySnapshots: 0,
+    touchCurveAboveWindowMax: 0
+  };
+}
+
+function updateWindowDiagnostics(bucket, window, row) {
+  if (!window?.outcomeJoined) {
+    bucket.missing += 1;
+    return;
+  }
+  bucket.joined += 1;
+  if (window.crossed85) bucket.crossed85 += 1;
+  if (window.crossed90) bucket.crossed90 += 1;
+  if (window.crossed95) bucket.crossed95 += 1;
+  const zeroPriceDeltaWithManySnapshots = Number(window.snapshotCount || 0) >= 10 && Number(window.maxPriceDeltaPct) === 0;
+  if (window.priceJoinStatus === 'STATIC_FUTURE_PRICE_SERIES' || zeroPriceDeltaWithManySnapshots) {
+    bucket.staticFuturePriceSeries += 1;
+  }
+  if (['MISSING_BASE_PRICE', 'MISSING_FUTURE_PRICE'].includes(window.priceJoinStatus)) bucket.missingPriceJoin += 1;
+  if (zeroPriceDeltaWithManySnapshots) {
+    bucket.zeroPriceDeltaWithManySnapshots += 1;
+  }
+  const touchCurve = Number(row?.qualifyingFirstTouch?.curveProgress);
+  const maxCurve = Number(window.maxCurveProgress);
+  if (window.touchCurveAboveWindowMax || (Number.isFinite(touchCurve) && Number.isFinite(maxCurve) && touchCurve - maxCurve > 0.02)) {
+    bucket.touchCurveAboveWindowMax += 1;
+  }
+}
+
 function appendSamples(samples, ledgerPath = LEDGER_PATH) {
   const normalized = (samples || []).map(normalizeSample);
   if (!normalized.length) {
@@ -90,6 +144,26 @@ function summarizeLedger(filters = {}, ledgerPath = LEDGER_PATH) {
   const byCohort = {};
   let outcomeJoined120s = 0;
   let outcomeMissing120s = 0;
+  const qualifyingFirstTouchIntegrity = {
+    frozenCondition: 'tracked_first_touch_buy',
+    frozenRule: 'Earliest pre-entry/pre-85 touch must be a buy from any tracked wallet.',
+    clarification: 'This cumulative count is not positive/proven-only; avoid/negative tracked-wallet buys remain qualifying samples for this frozen slice.',
+    qualifyingSamples: 0,
+    qualifyingFirstTouchBuy: 0,
+    qualifyingFirstTouchPositiveOrProven: 0,
+    qualifyingFirstTouchAvoidOrNegative: 0,
+    qualifyingFirstTouchNeitherPositiveNorAvoid: 0,
+    withAnyPositiveOrProvenTouch: 0,
+    withAnyAvoidOrNegativeTouch: 0,
+    positiveOnlySiblingSamples: 0,
+    excludeAvoidSiblingSamples: 0
+  };
+  const windowDiagnostics = {
+    '30s': initWindowDiagnostics(),
+    '60s': initWindowDiagnostics(),
+    '120s': initWindowDiagnostics(),
+    '300s': initWindowDiagnostics()
+  };
   for (const row of selected) {
     const cohort = row.cohort || 'unknown';
     const bucket = byCohort[cohort] || {
@@ -101,12 +175,34 @@ function summarizeLedger(filters = {}, ledgerPath = LEDGER_PATH) {
       outcomeMissing120s: 0,
       crossed85Within120s: 0,
       crossed90Within120s: 0,
-      crossed90Within300s: 0
+      crossed90Within300s: 0,
+      qualifyingFirstTouchPositiveOrProven: 0,
+      qualifyingFirstTouchAvoidOrNegative: 0
     };
     bucket.samples += 1;
     if (row.mint) bucket.uniqueMints.add(row.mint);
     if (row.withPositiveOrProvenTouch) bucket.withPositiveOrProvenTouch += 1;
     if (row.withAvoidTouch) bucket.withAvoidTouch += 1;
+    const qualifyingFirstTouch = row.qualifyingFirstTouch || null;
+    if (qualifyingFirstTouch) {
+      qualifyingFirstTouchIntegrity.qualifyingSamples += 1;
+      if (isBuyTouch(qualifyingFirstTouch)) qualifyingFirstTouchIntegrity.qualifyingFirstTouchBuy += 1;
+      const positive = isPositiveOrProvenTouch(qualifyingFirstTouch);
+      const avoid = isAvoidOrNegativeTouch(qualifyingFirstTouch);
+      if (positive) {
+        qualifyingFirstTouchIntegrity.qualifyingFirstTouchPositiveOrProven += 1;
+        bucket.qualifyingFirstTouchPositiveOrProven += 1;
+      }
+      if (avoid) {
+        qualifyingFirstTouchIntegrity.qualifyingFirstTouchAvoidOrNegative += 1;
+        bucket.qualifyingFirstTouchAvoidOrNegative += 1;
+      }
+      if (!positive && !avoid) qualifyingFirstTouchIntegrity.qualifyingFirstTouchNeitherPositiveNorAvoid += 1;
+      if (isBuyTouch(qualifyingFirstTouch) && positive) qualifyingFirstTouchIntegrity.positiveOnlySiblingSamples += 1;
+      if (isBuyTouch(qualifyingFirstTouch) && !row.withAvoidTouch) qualifyingFirstTouchIntegrity.excludeAvoidSiblingSamples += 1;
+    }
+    if (row.withPositiveOrProvenTouch) qualifyingFirstTouchIntegrity.withAnyPositiveOrProvenTouch += 1;
+    if (row.withAvoidTouch) qualifyingFirstTouchIntegrity.withAnyAvoidOrNegativeTouch += 1;
     if (row.windows?.['120s']?.outcomeJoined) {
       bucket.outcomeJoined120s += 1;
       outcomeJoined120s += 1;
@@ -117,6 +213,9 @@ function summarizeLedger(filters = {}, ledgerPath = LEDGER_PATH) {
     if (row.windows?.['120s']?.crossed85) bucket.crossed85Within120s += 1;
     if (row.windows?.['120s']?.crossed90) bucket.crossed90Within120s += 1;
     if (row.windows?.['300s']?.crossed90) bucket.crossed90Within300s += 1;
+    for (const [windowKey, diagnostics] of Object.entries(windowDiagnostics)) {
+      updateWindowDiagnostics(diagnostics, row.windows?.[windowKey], row);
+    }
     byCohort[cohort] = bucket;
   }
 
@@ -127,6 +226,8 @@ function summarizeLedger(filters = {}, ledgerPath = LEDGER_PATH) {
     filters,
     outcomeJoined120s,
     outcomeMissing120s,
+    qualifyingFirstTouchIntegrity,
+    windowDiagnostics,
     byCohort: Object.fromEntries(Object.entries(byCohort).map(([cohort, bucket]) => [cohort, {
       ...bucket,
       uniqueMints: bucket.uniqueMints.size

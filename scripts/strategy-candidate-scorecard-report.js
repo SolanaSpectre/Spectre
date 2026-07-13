@@ -435,6 +435,8 @@ function main() {
           filteredRows: context.walletShadowLedgerSummary.filteredRows,
           outcomeJoined120s: context.walletShadowLedgerSummary.outcomeJoined120s,
           outcomeMissing120s: context.walletShadowLedgerSummary.outcomeMissing120s,
+          qualifyingFirstTouchIntegrity: context.walletShadowLedgerSummary.qualifyingFirstTouchIntegrity,
+          windowDiagnostics: context.walletShadowLedgerSummary.windowDiagnostics,
           byCohort: context.walletShadowLedgerSummary.byCohort
         },
         latestRunWouldEnterByCohort: context.walletShadowWouldEnterByCohort,

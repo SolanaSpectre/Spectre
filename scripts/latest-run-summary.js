@@ -5042,6 +5042,7 @@ function buildSummary(docs) {
   lines.push('');
 
   const walletShadowSummary = walletRelaxedShadowOutcome.summary || {};
+  const walletShadowLedgerSummary = walletRelaxedShadowOutcome.ledger?.summary || {};
   const walletShadowWindow120 = walletShadowSummary.windowSummary?.['120s'] || {};
   const walletShadowWindow300 = walletShadowSummary.windowSummary?.['300s'] || {};
   const walletShadowTop = topArray(walletRelaxedShadowOutcome.topWouldEnterFollowThrough, 8);
@@ -5051,10 +5052,24 @@ function buildSummary(docs) {
   lines.push('- Mode: report-only; follows prospective wallet-conditioned LOW_SCORE/FIRST_SIGHT shadow would-enter rows. Does not alter runtime gates or live broadcast.');
   lines.push(`- Shadow attempts / would_enter / would_skip / unique would_enter mints: ${walletShadowSummary.attempts ?? 'n/a'} / ${walletShadowSummary.wouldEnter ?? 'n/a'} / ${walletShadowSummary.wouldSkip ?? 'n/a'} / ${walletShadowSummary.uniqueWouldEnterMints ?? 'n/a'}`);
   lines.push(`- Wallet context coverage any/no-touch/qualifying-first-touch/positive-or-proven/avoid: ${walletShadowSummary.contextCoverage?.withAnyWalletTouch ?? 'n/a'} / ${walletShadowSummary.contextCoverage?.withNoWalletTouch ?? 'n/a'} / ${walletShadowSummary.contextCoverage?.withQualifyingFirstTouch ?? 'n/a'} / ${walletShadowSummary.contextCoverage?.withPositiveOrProvenTouch ?? 'n/a'} / ${walletShadowSummary.contextCoverage?.withAvoidTouch ?? 'n/a'}`);
+  const walletShadowIntegrity = walletShadowSummary.qualifyingFirstTouchIntegrity || {};
+  if (walletShadowIntegrity.qualifyingSamples !== undefined) {
+    lines.push(`- Frozen slice integrity: ${walletShadowIntegrity.frozenCondition || 'n/a'} counts any tracked-wallet first-touch buy; qualifying/positive-first/avoid-first/neither=${walletShadowIntegrity.qualifyingSamples ?? 'n/a'} / ${walletShadowIntegrity.qualifyingFirstTouchPositiveOrProven ?? 'n/a'} / ${walletShadowIntegrity.qualifyingFirstTouchAvoidOrNegative ?? 'n/a'} / ${walletShadowIntegrity.qualifyingFirstTouchNeitherPositiveNorAvoid ?? 'n/a'}`);
+    lines.push(`- Positive-only sibling samples / exclude-avoid sibling samples: ${walletShadowIntegrity.positiveOnlySiblingSamples ?? 'n/a'} / ${walletShadowIntegrity.excludeAvoidSiblingSamples ?? 'n/a'}`);
+  }
+  const walletShadowLedgerIntegrity = walletShadowLedgerSummary.qualifyingFirstTouchIntegrity || {};
+  const walletShadowLedgerWindow300 = walletShadowLedgerSummary.windowDiagnostics?.['300s'] || {};
+  if (walletShadowLedgerIntegrity.qualifyingSamples !== undefined) {
+    lines.push(`- Cumulative ledger checkpoint: rows=${walletShadowLedgerSummary.filteredRows ?? 'n/a'}; qualifying/positive-first/avoid-first/neither=${walletShadowLedgerIntegrity.qualifyingSamples ?? 'n/a'} / ${walletShadowLedgerIntegrity.qualifyingFirstTouchPositiveOrProven ?? 'n/a'} / ${walletShadowLedgerIntegrity.qualifyingFirstTouchAvoidOrNegative ?? 'n/a'} / ${walletShadowLedgerIntegrity.qualifyingFirstTouchNeitherPositiveNorAvoid ?? 'n/a'}; 300s staticPrice/touchCurveAboveMax=${walletShadowLedgerWindow300.staticFuturePriceSeries ?? 'n/a'} / ${walletShadowLedgerWindow300.touchCurveAboveWindowMax ?? 'n/a'}`);
+  }
   lines.push(`- Crossed 85/90 within 120s: ${walletShadowWindow120.crossed85 ?? 'n/a'} / ${walletShadowWindow120.crossed90 ?? 'n/a'}; uniqueCross85/90=${walletShadowWindow120.uniqueCrossed85 ?? 'n/a'} / ${walletShadowWindow120.uniqueCrossed90 ?? 'n/a'}`);
   lines.push(`- Crossed 85/90 within 300s: ${walletShadowWindow300.crossed85 ?? 'n/a'} / ${walletShadowWindow300.crossed90 ?? 'n/a'}; uniqueCross85/90=${walletShadowWindow300.uniqueCrossed85 ?? 'n/a'} / ${walletShadowWindow300.uniqueCrossed90 ?? 'n/a'}`);
   lines.push(`- Curve delta 120s median/p90/max: ${fmt(walletShadowWindow120.curveDelta?.median, 4)} / ${fmt(walletShadowWindow120.curveDelta?.p90, 4)} / ${fmt(walletShadowWindow120.curveDelta?.max, 4)}`);
   lines.push(`- Price delta 120s median/p90/max: ${fmt(walletShadowWindow120.maxPriceDeltaPct?.median, 2)}% / ${fmt(walletShadowWindow120.maxPriceDeltaPct?.p90, 2)}% / ${fmt(walletShadowWindow120.maxPriceDeltaPct?.max, 2)}%`);
+  if (walletShadowWindow120.priceJoinStatusCounts || walletShadowWindow300.priceJoinStatusCounts) {
+    lines.push(`- Price join status 120s: ${JSON.stringify(walletShadowWindow120.priceJoinStatusCounts || {})}; static/missing/touchCurveAboveMax=${walletShadowWindow120.staticFuturePriceSeries ?? 'n/a'} / ${walletShadowWindow120.missingPriceJoin ?? 'n/a'} / ${walletShadowWindow120.touchCurveAboveWindowMax ?? 'n/a'}`);
+    lines.push(`- Price join status 300s: ${JSON.stringify(walletShadowWindow300.priceJoinStatusCounts || {})}; static/missing/touchCurveAboveMax=${walletShadowWindow300.staticFuturePriceSeries ?? 'n/a'} / ${walletShadowWindow300.missingPriceJoin ?? 'n/a'} / ${walletShadowWindow300.touchCurveAboveWindowMax ?? 'n/a'}`);
+  }
   lines.push('- Source reasons:');
   objectLines(walletShadowSummary.sourceReasonCounts, 4).forEach((line) => lines.push(`  - ${line}`));
   lines.push('- Wallet context sources:');
