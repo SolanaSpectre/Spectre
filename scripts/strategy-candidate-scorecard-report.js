@@ -435,8 +435,12 @@ function main() {
           filteredRows: context.walletShadowLedgerSummary.filteredRows,
           outcomeJoined120s: context.walletShadowLedgerSummary.outcomeJoined120s,
           outcomeMissing120s: context.walletShadowLedgerSummary.outcomeMissing120s,
+          postFixCleanSamples: context.walletShadowLedgerSummary.postFixCleanSamples,
+          postFixTargetAdditionalSamples: context.walletShadowLedgerSummary.postFixTargetAdditionalSamples,
+          postFixOutcomeJoined120s: context.walletShadowLedgerSummary.postFixOutcomeJoined120s,
           qualifyingFirstTouchIntegrity: context.walletShadowLedgerSummary.qualifyingFirstTouchIntegrity,
           windowDiagnostics: context.walletShadowLedgerSummary.windowDiagnostics,
+          preDecisionContextSummary: context.walletShadowLedgerSummary.preDecisionContextSummary,
           byCohort: context.walletShadowLedgerSummary.byCohort
         },
         latestRunWouldEnterByCohort: context.walletShadowWouldEnterByCohort,

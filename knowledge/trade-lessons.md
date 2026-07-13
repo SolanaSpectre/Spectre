@@ -44,6 +44,15 @@ These lessons come from this bot's own paper-trading outcomes.
 - Any attempt to apply trailing-giveback or runner-watch-style confirmation to a failed curve-advancement population must be treated as a new pre-registered hypothesis with its own future-only confirmation.
 - The strongest live-shaped evidence remains selective `RUNNER_WATCH` entries with confirmation plus trailing exits, not raw proximity to curve60/curve90.
 
+## Wallet Shadow Checkpoint Discipline
+
+- The `all_low_score_first_sight__tracked_first_touch_buy` wallet shadow lane reached its first 10-sample checkpoint on 2026-07-13, but it was not promoted.
+- The denominator was valid for the frozen broad slice: the rule was "earliest pre-entry/pre-85 tracked-wallet touch is a buy," not "positive/proven wallet only."
+- The evidence was not clean enough to grade economically because some samples mixed a prior high wallet-touch curve with a later lower decision-time outcome window.
+- Treat the first 10 samples as instrumentation-compromised/crossings-only supporting context.
+- The lane disposition is `EXTEND_WITH_CAUSE_AFTER_JOIN_PROVENANCE_FIX`: collect 10 additional clean post-fix samples under the same broad slice before any promotion/kill decision.
+- Do not tighten this frozen lane into a positive/proven-only wallet slice after seeing its OOS mix. A positive/proven-first-touch rule is a new hypothesis and needs its own discovery/pin/confirm cycle.
+
 ## How To Use Wins And Losses
 
 - A profitable trade does not prove every similar setup is good.

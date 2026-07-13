@@ -144,6 +144,8 @@ function summarizeLedger(filters = {}, ledgerPath = LEDGER_PATH) {
   const byCohort = {};
   let outcomeJoined120s = 0;
   let outcomeMissing120s = 0;
+  let postFixCleanSamples = 0;
+  let postFixOutcomeJoined120s = 0;
   const qualifyingFirstTouchIntegrity = {
     frozenCondition: 'tracked_first_touch_buy',
     frozenRule: 'Earliest pre-entry/pre-85 touch must be a buy from any tracked wallet.',
@@ -164,8 +166,17 @@ function summarizeLedger(filters = {}, ledgerPath = LEDGER_PATH) {
     '120s': initWindowDiagnostics(),
     '300s': initWindowDiagnostics()
   };
+  const preDecisionContextSummary = {
+    joined: 0,
+    missing: 0,
+    fadedFromTouchBeforeDecision: 0,
+    fadedFromPreDecisionMax: 0,
+    reasonCounts: {}
+  };
   for (const row of selected) {
     const cohort = row.cohort || 'unknown';
+    const isPostFixCleanSample = Number(row.outcomeJoinSchemaVersion || 0) >= 2;
+    if (isPostFixCleanSample) postFixCleanSamples += 1;
     const bucket = byCohort[cohort] || {
       samples: 0,
       uniqueMints: new Set(),
@@ -206,6 +217,7 @@ function summarizeLedger(filters = {}, ledgerPath = LEDGER_PATH) {
     if (row.windows?.['120s']?.outcomeJoined) {
       bucket.outcomeJoined120s += 1;
       outcomeJoined120s += 1;
+      if (isPostFixCleanSample) postFixOutcomeJoined120s += 1;
     } else {
       bucket.outcomeMissing120s += 1;
       outcomeMissing120s += 1;
@@ -216,6 +228,13 @@ function summarizeLedger(filters = {}, ledgerPath = LEDGER_PATH) {
     for (const [windowKey, diagnostics] of Object.entries(windowDiagnostics)) {
       updateWindowDiagnostics(diagnostics, row.windows?.[windowKey], row);
     }
+    const preDecisionContext = row.preDecisionContext || {};
+    if (preDecisionContext.joined) preDecisionContextSummary.joined += 1;
+    else preDecisionContextSummary.missing += 1;
+    if (preDecisionContext.fadedFromTouchBeforeDecision) preDecisionContextSummary.fadedFromTouchBeforeDecision += 1;
+    if (preDecisionContext.fadedFromPreDecisionMax) preDecisionContextSummary.fadedFromPreDecisionMax += 1;
+    const reason = preDecisionContext.reason || 'unknown';
+    preDecisionContextSummary.reasonCounts[reason] = (preDecisionContextSummary.reasonCounts[reason] || 0) + 1;
     byCohort[cohort] = bucket;
   }
 
@@ -226,8 +245,12 @@ function summarizeLedger(filters = {}, ledgerPath = LEDGER_PATH) {
     filters,
     outcomeJoined120s,
     outcomeMissing120s,
+    postFixCleanSamples,
+    postFixOutcomeJoined120s,
+    postFixTargetAdditionalSamples: 10,
     qualifyingFirstTouchIntegrity,
     windowDiagnostics,
+    preDecisionContextSummary,
     byCohort: Object.fromEntries(Object.entries(byCohort).map(([cohort, bucket]) => [cohort, {
       ...bucket,
       uniqueMints: bucket.uniqueMints.size

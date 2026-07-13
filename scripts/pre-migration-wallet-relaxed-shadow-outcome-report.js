@@ -6,6 +6,16 @@ const path = require('path');
 const readline = require('readline');
 const { resolveTelemetryPath, telemetryFromReport } = require('./lib/report-telemetry');
 const { appendSamples, summarizeLedger } = require('./lib/wallet-shadow-sample-ledger');
+const {
+  buildOutcomeWindow,
+  buildPreDecisionContext,
+  mintOf,
+  numberOrNull,
+  payloadOf,
+  priceOf,
+  snapshotFromEvent,
+  timestampMs
+} = require('./lib/pre-migration-outcome-windows');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
@@ -21,6 +31,15 @@ const FROZEN_WALLET_RULE = {
   clarification: 'This is not the positive/proven-only slice. Avoid/negative tracked-wallet buys remain qualifying samples and are reported separately as diagnostics.',
   positiveOnlySiblingCondition: 'positive_or_proven_first_touch_buy',
   excludeAvoidSiblingCondition: 'tracked_first_touch_buy_exclude_avoid'
+};
+const WALLET_CHECKPOINT_DISPOSITION = {
+  decidedAtCommit: 'eadca7b',
+  disposition: 'EXTEND_WITH_CAUSE_AFTER_JOIN_PROVENANCE_FIX',
+  reason: 'The 10-sample broad tracked-first-touch-buy checkpoint was reached, but several samples mixed earlier high wallet-touch curves with later lower decision-time windows. Economic grading needs clean post-fix provenance.',
+  dirtyEraTreatment: 'The first 10 samples remain supporting context only and should be labeled instrumentation-compromised/crossings-only when window provenance is ambiguous.',
+  postFixTargetAdditionalSamples: 10,
+  postFixSampleEra: 'wallet_relaxed_shadow_v1_join_provenance_2026-07-13',
+  noPostHocSliceTightening: 'Do not reinterpret this frozen lane as positive/proven-only. A positive/proven-first-touch requirement is a new hypothesis with its own discovery/pin/confirm cycle.'
 };
 
 function parseArgs(argv) {
@@ -147,17 +166,6 @@ function telemetryFromBattlefield() {
   return telemetryFromReport(ROOT, BATTLEFIELD_PATH);
 }
 
-function timestampMs(value) {
-  const ms = new Date(value || 0).getTime();
-  return Number.isFinite(ms) ? ms : null;
-}
-
-function numberOrNull(value, digits = null) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return null;
-  return digits === null ? number : Number(number.toFixed(digits));
-}
-
 function isBuyTouch(touch) {
   return String(touch?.side || '').toLowerCase() === 'buy';
 }
@@ -172,39 +180,6 @@ function isAvoidOrNegativeTouch(touch) {
   return Boolean(touch?.avoidOrNegative)
     || touch?.reviewTier === 'AVOID_REVIEW'
     || touch?.evidenceTier === 'NEGATIVE_EVIDENCE';
-}
-
-function payloadOf(event) {
-  return event.payload || event.data || {};
-}
-
-function mintOf(payload) {
-  return payload.mint || payload.token || payload.mintAddress || payload.address || null;
-}
-
-function curveOf(payload) {
-  const raw = payload.accountCurveProgress
-    ?? payload.paperCurveProgress
-    ?? payload.providerCurveProgress
-    ?? payload.curveProgress
-    ?? payload.bondingCurveProgress
-    ?? payload.progress
-    ?? payload.market?.maxCurveProgress;
-  const curve = Number(raw);
-  if (!Number.isFinite(curve)) return null;
-  if (curve > 1 && curve <= 100) return curve / 100;
-  return curve;
-}
-
-function priceOf(payload) {
-  const raw = payload.quote?.spotPriceSol
-    ?? payload.providerCurvePriceSol
-    ?? payload.bondingCurvePriceSol
-    ?? payload.curvePriceSol
-    ?? payload.priceSol
-    ?? payload.market?.priceSol;
-  const price = Number(raw);
-  return Number.isFinite(price) && price > 0 ? price : null;
 }
 
 function stat(values, digits = 6) {
@@ -228,23 +203,6 @@ function countBy(items, keyFn) {
     counts[key] = (counts[key] || 0) + 1;
   }
   return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1]));
-}
-
-function snapshotFromEvent(event) {
-  const payload = payloadOf(event);
-  const mint = mintOf(payload);
-  const atMs = timestampMs(payload.timestamp || event.timestamp);
-  const curveProgress = curveOf(payload);
-  if (!mint || !Number.isFinite(atMs) || !Number.isFinite(curveProgress)) return null;
-  return {
-    mint,
-    atMs,
-    at: new Date(atMs).toISOString(),
-    eventType: event.type || event.event || 'unknown',
-    source: payload.source || payload.provider || event.type || 'unknown',
-    curveProgress: numberOrNull(curveProgress, 6),
-    priceSol: numberOrNull(priceOf(payload), 12)
-  };
 }
 
 function shadowAttemptFromEvent(event, walletCohortIndex) {
@@ -292,90 +250,16 @@ function shadowAttemptFromEvent(event, walletCohortIndex) {
   };
 }
 
-function futureForWindow(attempt, snapshots, seconds) {
-  const endMs = attempt.atMs + seconds * 1000;
-  const rows = snapshots.filter((snapshot) => snapshot.atMs > attempt.atMs && snapshot.atMs <= endMs);
-  if (!rows.length) {
-    return {
-      outcomeJoined: false,
-      snapshotCount: 0,
-      maxCurveProgress: null,
-      maxCurveAt: null,
-      curveDelta: null,
-      crossed85: false,
-      crossed90: false,
-      crossed95: false,
-      crossed100: false,
-      maxPriceDeltaPct: null,
-      priceJoinStatus: 'NO_FUTURE_SNAPSHOTS',
-      priceSnapshotCount: 0,
-      distinctPriceCount: 0,
-      basePriceSol: numberOrNull(attempt.priceSol, 12),
-      maxPriceSol: null,
-      touchCurveAboveWindowMax: false,
-      touchCurveWindowMaxDelta: null
-    };
-  }
-  const baseCurve = Number(attempt.curveProgress);
-  const basePrice = Number(attempt.priceSol);
-  let maxCurveRow = null;
-  let maxPriceDeltaPct = null;
-  let maxPriceSol = null;
-  const futurePrices = [];
-  for (const row of rows) {
-    if (!maxCurveRow || Number(row.curveProgress) > Number(maxCurveRow.curveProgress)) maxCurveRow = row;
-    const price = Number(row.priceSol);
-    if (Number.isFinite(price) && price > 0) {
-      futurePrices.push(price);
-      if (maxPriceSol === null || price > maxPriceSol) maxPriceSol = price;
-    }
-    if (Number.isFinite(basePrice) && basePrice > 0 && Number.isFinite(price) && price > 0) {
-      const deltaPct = ((price - basePrice) / basePrice) * 100;
-      if (maxPriceDeltaPct === null || deltaPct > maxPriceDeltaPct) maxPriceDeltaPct = deltaPct;
-    }
-  }
-  const maxCurve = Number(maxCurveRow?.curveProgress);
-  const distinctPriceCount = new Set(futurePrices.map((price) => price.toFixed(12))).size;
-  const touchCurve = Number(attempt.qualifyingFirstTouch?.curveProgress);
-  const touchCurveWindowMaxDelta = Number.isFinite(touchCurve) && Number.isFinite(maxCurve)
-    ? touchCurve - maxCurve
-    : null;
-  let priceJoinStatus = 'OK';
-  if (!Number.isFinite(basePrice) || basePrice <= 0) {
-    priceJoinStatus = 'MISSING_BASE_PRICE';
-  } else if (!futurePrices.length) {
-    priceJoinStatus = 'MISSING_FUTURE_PRICE';
-  } else if (distinctPriceCount <= 1 && rows.length >= 10) {
-    priceJoinStatus = 'STATIC_FUTURE_PRICE_SERIES';
-  }
-  return {
-    outcomeJoined: true,
-    snapshotCount: rows.length,
-    maxCurveProgress: numberOrNull(maxCurve, 6),
-    maxCurveAt: maxCurveRow?.at || null,
-    curveDelta: Number.isFinite(baseCurve) ? numberOrNull(maxCurve - baseCurve, 6) : null,
-    crossed85: maxCurve >= 0.85,
-    crossed90: maxCurve >= 0.9,
-    crossed95: maxCurve >= 0.95,
-    crossed100: maxCurve >= 1,
-    maxPriceDeltaPct: numberOrNull(maxPriceDeltaPct, 4),
-    priceJoinStatus,
-    priceSnapshotCount: futurePrices.length,
-    distinctPriceCount,
-    basePriceSol: numberOrNull(basePrice, 12),
-    maxPriceSol: numberOrNull(maxPriceSol, 12),
-    touchCurveAboveWindowMax: Number.isFinite(touchCurveWindowMaxDelta) && touchCurveWindowMaxDelta > 0.02,
-    touchCurveWindowMaxDelta: numberOrNull(touchCurveWindowMaxDelta, 6)
-  };
-}
-
 function addOutcomes(attempt, snapshotsByMint) {
   const snapshots = snapshotsByMint.get(attempt.mint) || [];
   const windows = {};
   for (const seconds of WINDOWS_SECONDS) {
-    windows[`${seconds}s`] = futureForWindow(attempt, snapshots, seconds);
+    windows[`${seconds}s`] = buildOutcomeWindow(attempt, snapshots, seconds, {
+      referenceTouch: attempt.qualifyingFirstTouch
+    });
   }
-  return { ...attempt, windows };
+  const preDecisionContext = buildPreDecisionContext(attempt, snapshots, attempt.qualifyingFirstTouch);
+  return { ...attempt, windows, preDecisionContext };
 }
 
 async function readTelemetry(filePath) {
@@ -470,6 +354,7 @@ function summarize(outcomes) {
       touchCurveAboveWindowMax: joinedRows.filter((row) => row.windows[key]?.touchCurveAboveWindowMax).length
     };
   }
+  const preDecisionContexts = wouldEnterRows.map((row) => row.preDecisionContext || {});
   const qualifyingRows = wouldEnterRows.filter((row) => row.qualifyingFirstTouch);
   const qualifyingFirstTouchIntegrity = {
     frozenCondition: FROZEN_WALLET_RULE.condition,
@@ -503,6 +388,13 @@ function summarize(outcomes) {
       walletContextSources: countBy(outcomes, (row) => row.walletContextSource || (Number(row.walletTouchCount || 0) > 0 ? 'unknown_context' : 'none'))
     },
     qualifyingFirstTouchIntegrity,
+    preDecisionContextSummary: {
+      joined: preDecisionContexts.filter((row) => row.joined).length,
+      missing: preDecisionContexts.filter((row) => !row.joined).length,
+      fadedFromTouchBeforeDecision: preDecisionContexts.filter((row) => row.fadedFromTouchBeforeDecision).length,
+      fadedFromPreDecisionMax: preDecisionContexts.filter((row) => row.fadedFromPreDecisionMax).length,
+      reasonCounts: countBy(preDecisionContexts, (row) => row.reason)
+    },
     sourceReasonCounts: countBy(outcomes, (row) => row.sourceReason),
     wouldEnterSourceReasonCounts: countBy(wouldEnterRows, (row) => row.sourceReason),
     wouldSkipSourceReasonCounts: countBy(wouldSkipRows, (row) => row.sourceReason),
@@ -582,6 +474,8 @@ function ledgerSamples(outcomes, telemetryPath) {
       era: 'wallet_relaxed_shadow_v1_2026-07-08',
       frozenSlice: row.shadowProfile || FROZEN_WALLET_SLICE,
       frozenRule: FROZEN_WALLET_RULE,
+      outcomeJoinSchemaVersion: 2,
+      outcomeJoinFixEra: WALLET_CHECKPOINT_DISPOSITION.postFixSampleEra,
       cohort: row.qualifyingFirstTouch?.walletCohort || 'unknown',
       telemetryPath: path.relative(ROOT, telemetryPath).replace(/\\/g, '/'),
       mint: row.mint,
@@ -602,6 +496,7 @@ function ledgerSamples(outcomes, telemetryPath) {
       qualifyingFirstTouch: row.qualifyingFirstTouch,
       positiveFirstTouch: row.positiveFirstTouch,
       firstConditioningTouch: row.firstConditioningTouch,
+      preDecisionContext: row.preDecisionContext,
       walletTouchCount: row.walletTouchCount,
       walletContextSource: row.walletContextSource,
       walletContextJoinMiss: row.walletContextJoinMiss || null,
@@ -633,6 +528,7 @@ async function main() {
       name: FROZEN_WALLET_SLICE,
       ...FROZEN_WALLET_RULE
     },
+    checkpointDisposition: WALLET_CHECKPOINT_DISPOSITION,
     sources: {
       telemetryPath: path.relative(ROOT, telemetryPath).replace(/\\/g, '/')
     },

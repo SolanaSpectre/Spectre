@@ -5043,6 +5043,7 @@ function buildSummary(docs) {
 
   const walletShadowSummary = walletRelaxedShadowOutcome.summary || {};
   const walletShadowLedgerSummary = walletRelaxedShadowOutcome.ledger?.summary || {};
+  const walletShadowDisposition = walletRelaxedShadowOutcome.checkpointDisposition || {};
   const walletShadowWindow120 = walletShadowSummary.windowSummary?.['120s'] || {};
   const walletShadowWindow300 = walletShadowSummary.windowSummary?.['300s'] || {};
   const walletShadowTop = topArray(walletRelaxedShadowOutcome.topWouldEnterFollowThrough, 8);
@@ -5050,6 +5051,9 @@ function buildSummary(docs) {
   lines.push('9c4. Wallet-Relaxed Shadow Outcome');
   lines.push('-----------------------------------');
   lines.push('- Mode: report-only; follows prospective wallet-conditioned LOW_SCORE/FIRST_SIGHT shadow would-enter rows. Does not alter runtime gates or live broadcast.');
+  if (walletShadowDisposition.disposition) {
+    lines.push(`- Checkpoint disposition: ${walletShadowDisposition.disposition}; post-fix target additional samples=${walletShadowDisposition.postFixTargetAdditionalSamples ?? 'n/a'}; clean era=${walletShadowDisposition.postFixSampleEra || 'n/a'}`);
+  }
   lines.push(`- Shadow attempts / would_enter / would_skip / unique would_enter mints: ${walletShadowSummary.attempts ?? 'n/a'} / ${walletShadowSummary.wouldEnter ?? 'n/a'} / ${walletShadowSummary.wouldSkip ?? 'n/a'} / ${walletShadowSummary.uniqueWouldEnterMints ?? 'n/a'}`);
   lines.push(`- Wallet context coverage any/no-touch/qualifying-first-touch/positive-or-proven/avoid: ${walletShadowSummary.contextCoverage?.withAnyWalletTouch ?? 'n/a'} / ${walletShadowSummary.contextCoverage?.withNoWalletTouch ?? 'n/a'} / ${walletShadowSummary.contextCoverage?.withQualifyingFirstTouch ?? 'n/a'} / ${walletShadowSummary.contextCoverage?.withPositiveOrProvenTouch ?? 'n/a'} / ${walletShadowSummary.contextCoverage?.withAvoidTouch ?? 'n/a'}`);
   const walletShadowIntegrity = walletShadowSummary.qualifyingFirstTouchIntegrity || {};
@@ -5061,6 +5065,12 @@ function buildSummary(docs) {
   const walletShadowLedgerWindow300 = walletShadowLedgerSummary.windowDiagnostics?.['300s'] || {};
   if (walletShadowLedgerIntegrity.qualifyingSamples !== undefined) {
     lines.push(`- Cumulative ledger checkpoint: rows=${walletShadowLedgerSummary.filteredRows ?? 'n/a'}; qualifying/positive-first/avoid-first/neither=${walletShadowLedgerIntegrity.qualifyingSamples ?? 'n/a'} / ${walletShadowLedgerIntegrity.qualifyingFirstTouchPositiveOrProven ?? 'n/a'} / ${walletShadowLedgerIntegrity.qualifyingFirstTouchAvoidOrNegative ?? 'n/a'} / ${walletShadowLedgerIntegrity.qualifyingFirstTouchNeitherPositiveNorAvoid ?? 'n/a'}; 300s staticPrice/touchCurveAboveMax=${walletShadowLedgerWindow300.staticFuturePriceSeries ?? 'n/a'} / ${walletShadowLedgerWindow300.touchCurveAboveWindowMax ?? 'n/a'}`);
+    lines.push(`- Post-fix clean wallet samples: ${walletShadowLedgerSummary.postFixCleanSamples ?? 'n/a'} / ${walletShadowLedgerSummary.postFixTargetAdditionalSamples ?? 'n/a'}; joined120=${walletShadowLedgerSummary.postFixOutcomeJoined120s ?? 'n/a'}`);
+  }
+  if (walletShadowSummary.preDecisionContextSummary || walletShadowLedgerSummary.preDecisionContextSummary) {
+    const latestPreDecision = walletShadowSummary.preDecisionContextSummary || {};
+    const ledgerPreDecision = walletShadowLedgerSummary.preDecisionContextSummary || {};
+    lines.push(`- Pre-decision touch context latest fadedFromTouch/preMax=${latestPreDecision.fadedFromTouchBeforeDecision ?? 'n/a'} / ${latestPreDecision.fadedFromPreDecisionMax ?? 'n/a'}; ledger fadedFromTouch/preMax=${ledgerPreDecision.fadedFromTouchBeforeDecision ?? 'n/a'} / ${ledgerPreDecision.fadedFromPreDecisionMax ?? 'n/a'}`);
   }
   lines.push(`- Crossed 85/90 within 120s: ${walletShadowWindow120.crossed85 ?? 'n/a'} / ${walletShadowWindow120.crossed90 ?? 'n/a'}; uniqueCross85/90=${walletShadowWindow120.uniqueCrossed85 ?? 'n/a'} / ${walletShadowWindow120.uniqueCrossed90 ?? 'n/a'}`);
   lines.push(`- Crossed 85/90 within 300s: ${walletShadowWindow300.crossed85 ?? 'n/a'} / ${walletShadowWindow300.crossed90 ?? 'n/a'}; uniqueCross85/90=${walletShadowWindow300.uniqueCrossed85 ?? 'n/a'} / ${walletShadowWindow300.uniqueCrossed90 ?? 'n/a'}`);
