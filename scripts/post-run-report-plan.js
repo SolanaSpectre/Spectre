@@ -58,6 +58,7 @@ const POST_RUN_REPORTS = [
   { title: 'Pre-Migration Rolling Entry Trend', script: 'pre-migration-rolling-entry-trend-report.js' },
   { title: 'Pre-Migration Entry Shape', script: 'pre-migration-entry-shape-report.js' },
   { title: 'Pre-Migration Entry Funnel', script: 'pre-migration-entry-funnel-report.js' },
+  { title: 'Pre-Migration Runner Watch Funnel', script: 'pre-migration-runner-watch-funnel-report.js' },
   { title: 'Pre-Migration Observed Coverage', script: 'pre-migration-observed-coverage-report.js' },
   { title: 'Pre-Migration Flagged Candidate Attribution', script: 'pre-migration-flagged-candidate-attribution-report.js' },
   { title: 'Pre-Migration Flagged Attribution Trend', script: 'pre-migration-flagged-attribution-trend-report.js', timeoutMs: 300000 },

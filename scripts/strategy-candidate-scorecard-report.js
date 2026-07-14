@@ -251,6 +251,13 @@ function statusFor(candidate, blockers, context) {
   if (
     candidate.lane === 'runner_reject_runtime_shadow'
     && candidate.name === context.runnerRejectRuntimeShadowProfile
+    && context.runnerRejectRuntimeShadowCheckpointDisposition === 'FAILED_AT_CHECKPOINT'
+  ) {
+    return 'REJECTED';
+  }
+  if (
+    candidate.lane === 'runner_reject_runtime_shadow'
+    && candidate.name === context.runnerRejectRuntimeShadowProfile
     && context.runnerRejectRuntimeShadowCollecting
   ) {
     return 'SHADOW_COLLECTING';
@@ -347,6 +354,8 @@ function main() {
     frozenProfile: runnerRejectRuntimeShadowProfile
   });
   const runnerRejectRuntimeShadowSummary = docs.runnerRejectRuntimeShadowOutcome.data?.summary || {};
+  const runnerRejectRuntimeShadowCheckpoint = runnerRejectRuntimeShadowLedgerSummary.checkpointDisposition || {};
+  const runnerRejectRuntimeShadowCollecting = runnerRejectRuntimeShadowCheckpoint.disposition !== 'FAILED_AT_CHECKPOINT';
   const context = {
     paperEntries,
     paperPnl,
@@ -363,7 +372,8 @@ function main() {
     walletShadowOutcomeWindowSummary: walletRelaxedShadowOutcome.windowSummary || {},
     trackedSubstrateVerdict: trackedSubstrateFreshness.verdict || null,
     runnerRejectRuntimeShadowProfile,
-    runnerRejectRuntimeShadowCollecting: true,
+    runnerRejectRuntimeShadowCollecting,
+    runnerRejectRuntimeShadowCheckpointDisposition: runnerRejectRuntimeShadowCheckpoint.disposition || null,
     runnerRejectRuntimeShadowWouldEnter: number(runnerRejectRuntimeShadowLedgerSummary.filteredRows, 0),
     runnerRejectRuntimeShadowLatestRunWouldEnter: number(runnerRejectRuntimeShadowSummary.wouldEnter, 0),
     runnerRejectRuntimeShadowLedgerSummary,
@@ -450,8 +460,8 @@ function main() {
       runnerRejectRuntimeShadowCollection: {
         frozenProfile: context.runnerRejectRuntimeShadowProfile,
         era: runnerRejectRuntimeShadowEra,
-        collecting: true,
-        status: 'SHADOW_COLLECTING',
+        collecting: context.runnerRejectRuntimeShadowCollecting,
+        status: context.runnerRejectRuntimeShadowCheckpointDisposition === 'FAILED_AT_CHECKPOINT' ? 'REJECTED' : 'SHADOW_COLLECTING',
         artifact: docs.runnerRejectRuntimeShadowOutcome.path,
         wouldEnterAccumulated: context.runnerRejectRuntimeShadowWouldEnter,
         wouldEnterLatestRun: context.runnerRejectRuntimeShadowLatestRunWouldEnter,
@@ -469,6 +479,10 @@ function main() {
           losses: context.runnerRejectRuntimeShadowLedgerSummary.losses,
           winRate: context.runnerRejectRuntimeShadowLedgerSummary.winRate,
           totalPnlSol: context.runnerRejectRuntimeShadowLedgerSummary.totalPnlSol,
+          pnlSol: context.runnerRejectRuntimeShadowLedgerSummary.pnlSol,
+          pnlAfterRemovingTop1WinnerSol: context.runnerRejectRuntimeShadowLedgerSummary.pnlAfterRemovingTop1WinnerSol,
+          pnlAfterRemovingTop3WinnersSol: context.runnerRejectRuntimeShadowLedgerSummary.pnlAfterRemovingTop3WinnersSol,
+          checkpointDisposition: context.runnerRejectRuntimeShadowLedgerSummary.checkpointDisposition,
           byExitReason: context.runnerRejectRuntimeShadowLedgerSummary.byExitReason
         },
         latestRunSummary: runnerRejectRuntimeShadowSummary

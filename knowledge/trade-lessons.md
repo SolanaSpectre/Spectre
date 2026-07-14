@@ -39,7 +39,12 @@ These lessons come from this bot's own paper-trading outcomes.
   - runner-reject shadow reached `11/20` samples with `3W/8L`, `-0.059271262 SOL`, and `8` stop losses.
   - pinned crosser precursor confirmed crossing enrichment out of sample but failed economics with negative median and negative ex-top robustness.
   - prior `CURVE_NOT_ADVANCING` separator shadows were rejected out of sample.
+- PAPER480 on 2026-07-13 closed the runner-reject runtime shadow at its frozen checkpoint:
+  - the lane reached `26/20` samples with `11W/15L` and `+0.036205768 SOL` total PnL.
+  - the frozen rule rejected total-PnL-only acceptance, and the lane failed with median `-0.013406834 SOL` and ex-top-3 `-0.049574906 SOL`.
+  - `14` of `26` joined outcomes exited by `STOP_LOSS`, matching the knife-catching shape seen in the earlier high-curve tests.
 - The shared lesson is that "this mint will advance up the curve" can be learnable while still being unprofitable with tight fixed-stop momentum entries near the curve.
+- Treat fixed-stop high-curve momentum entries as a closed hypothesis family.
 - Do not repin or loosen a failed curve-advancement lane by quietly swapping exits, stops, or holds after seeing OOS results.
 - Any attempt to apply trailing-giveback or runner-watch-style confirmation to a failed curve-advancement population must be treated as a new pre-registered hypothesis with its own future-only confirmation.
 - The strongest live-shaped evidence remains selective `RUNNER_WATCH` entries with confirmation plus trailing exits, not raw proximity to curve60/curve90.

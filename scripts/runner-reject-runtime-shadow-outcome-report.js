@@ -43,6 +43,7 @@ const FROZEN_PROFILE = {
   entrySlippagePct: 1.5,
   exitSlippagePct: 1.5
 };
+const CLOSED_DISPOSITIONS = new Set(['FAILED_AT_CHECKPOINT']);
 
 function parseArgs(argv) {
   const args = {};
@@ -137,6 +138,12 @@ function stat(values, digits = 6) {
     max: numberOrNull(finite[finite.length - 1], digits),
     avg: numberOrNull(sum / finite.length, digits)
   };
+}
+
+function sumAfterRemovingTopWinners(values, winnerCount = 3) {
+  const sorted = values.map(Number).filter(Number.isFinite).sort((a, b) => b - a);
+  if (!sorted.length) return null;
+  return numberOrNull(sorted.slice(winnerCount).reduce((sum, value) => sum + value, 0), 9);
 }
 
 function countBy(rows, keyFn) {
@@ -339,6 +346,7 @@ function summarizeRows(rows) {
   const wins = joined.filter((row) => Number(row.replay.pnlSol) > 0).length;
   const losses = joined.filter((row) => Number(row.replay.pnlSol) < 0).length;
   const totalPnlSol = joined.reduce((sum, row) => sum + Number(row.replay.pnlSol || 0), 0);
+  const pnlValues = joined.map((row) => row.replay.pnlSol);
   return {
     attempts: rows.length,
     wouldEnter: rows.length,
@@ -350,13 +358,19 @@ function summarizeRows(rows) {
     winRate: joined.length ? numberOrNull(wins / joined.length, 4) : null,
     totalPnlSol: numberOrNull(totalPnlSol, 9),
     averagePnlSol: joined.length ? numberOrNull(totalPnlSol / joined.length, 9) : null,
-    pnlSol: stat(joined.map((row) => row.replay.pnlSol), 9),
+    pnlSol: stat(pnlValues, 9),
+    pnlAfterRemovingTop1WinnerSol: sumAfterRemovingTopWinners(pnlValues, 1),
+    pnlAfterRemovingTop3WinnersSol: sumAfterRemovingTopWinners(pnlValues, 3),
     returnPct: stat(joined.map((row) => row.replay.returnPct), 4),
     exitReasonCounts: countBy(rows, (row) => row.replay?.exitReason),
     pumpFailureReasonCounts: countBy(rows, (row) => row.pumpFailureReason),
     curveProgressSourceCounts: countBy(rows.filter((row) => row.curveProgressSource), (row) => row.curveProgressSource),
     priceSolSourceCounts: countBy(rows.filter((row) => row.priceSolSource), (row) => row.priceSolSource)
   };
+}
+
+function shouldCloseLedger(summary) {
+  return CLOSED_DISPOSITIONS.has(summary?.checkpointDisposition?.disposition);
 }
 
 function summarizeSkipped(rows) {
@@ -390,7 +404,16 @@ function buildReport(runs) {
     }
   }
 
-  const ledgerWrite = appendSamples(rows.map((row) => ({
+  const preWriteLedgerSummary = summarizeLedger({ era: ERA, frozenProfile: FROZEN_PROFILE.name });
+  const ledgerClosedBeforeWrite = shouldCloseLedger(preWriteLedgerSummary);
+  const ledgerWrite = ledgerClosedBeforeWrite ? {
+    ledgerPath: LEDGER_PATH,
+    appended: 0,
+    existing: preWriteLedgerSummary.totalRows,
+    total: preWriteLedgerSummary.totalRows,
+    closed: true,
+    reason: preWriteLedgerSummary.checkpointDisposition?.disposition || 'CLOSED'
+  } : appendSamples(rows.map((row) => ({
     era: row.era,
     frozenProfile: row.frozenProfile,
     frozenHypothesis: row.frozenHypothesis,
@@ -417,6 +440,7 @@ function buildReport(runs) {
     replay: row.replay
   })));
   const ledgerSummary = summarizeLedger({ era: ERA, frozenProfile: FROZEN_PROFILE.name });
+  const checkpointDisposition = ledgerSummary.checkpointDisposition;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -440,6 +464,24 @@ function buildReport(runs) {
       ],
       preregistered: true
     },
+    checkpointDisposition: checkpointDisposition.disposition === 'FAILED_AT_CHECKPOINT' ? {
+      ...checkpointDisposition,
+      closedToFurtherLedgerAppends: true,
+      closureReason: 'Reached the pre-registered 20 unique mint runtime sample checkpoint and failed median/ex-top-winner durability despite positive total PnL.',
+      familyDisposition: 'fixed_stop_high_curve_momentum_closed_pending_new_pre_registered_trailing_exit_variant',
+      dirtyExtensionPolicy: 'no_extension_without_new_pre_registration_or_instrumentation_failure',
+      metricsAtDecision: {
+        uniqueMints: ledgerSummary.uniqueMints,
+        wins: ledgerSummary.wins,
+        losses: ledgerSummary.losses,
+        winRate: ledgerSummary.winRate,
+        totalPnlSol: ledgerSummary.totalPnlSol,
+        medianPnlSol: ledgerSummary.pnlSol?.median ?? null,
+        pnlAfterRemovingTop1WinnerSol: ledgerSummary.pnlAfterRemovingTop1WinnerSol,
+        pnlAfterRemovingTop3WinnersSol: ledgerSummary.pnlAfterRemovingTop3WinnersSol,
+        byExitReason: ledgerSummary.byExitReason
+      }
+    } : checkpointDisposition,
     inputs: {
       telemetryFilesRead: runs.length,
       telemetryPaths: runs.map((run) => run.telemetryPath),
@@ -450,6 +492,7 @@ function buildReport(runs) {
     sampleLedger: {
       ...ledgerWrite,
       ledgerPath: path.relative(ROOT, ledgerWrite.ledgerPath).replace(/\\/g, '/'),
+      closedBeforeWrite: ledgerClosedBeforeWrite,
       cumulative: {
         ...ledgerSummary,
         ledgerPath: path.relative(ROOT, LEDGER_PATH).replace(/\\/g, '/')
