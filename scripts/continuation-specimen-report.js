@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-const { readJsonl } = require('./lib/jsonl');
+const { forEachJsonlSync } = require('./lib/jsonl');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_RICK_CONTEXT = path.join(REPO_ROOT, 'data', 'rick-context', 'latest.json');
@@ -302,18 +302,83 @@ function summarizePairGroup(group, targetSymbol, rickOverlap, nowMs) {
   };
 }
 
-function loadRecentDossiers(logDir, limitRuns) {
-  return listJsonl(logDir, 'candidate-dossiers-', limitRuns)
-    .flatMap((item) => readJsonl(item.fullPath));
+function compactDossier(dossier) {
+  return {
+    timestamp: dossier.timestamp,
+    source: dossier.source,
+    identity: {
+      mint: dossier.identity?.mint || dossier.mint || null,
+      symbol: dossier.identity?.symbol || dossier.symbol || null
+    },
+    gmgnStyle: {
+      verdict: dossier.gmgnStyle?.verdict || null,
+      score: dossier.gmgnStyle?.score,
+      reasons: Array.isArray(dossier.gmgnStyle?.reasons) ? dossier.gmgnStyle.reasons.slice(0, 10) : [],
+      tags: Array.isArray(dossier.gmgnStyle?.tags) ? dossier.gmgnStyle.tags.slice(0, 10) : []
+    },
+    curve: {
+      progress: dossier.curve?.progress
+    },
+    continuation: {
+      rejectReason: dossier.continuation?.rejectReason || null
+    },
+    paper: {
+      reason: dossier.paper?.reason || null
+    }
+  };
 }
 
-function summarizeInternalContext(specimen, dossiers) {
+function loadRecentDossierIndex(logDir, limitRuns, symbols, options = {}) {
+  const targetSymbols = new Set(symbols.map(normalizeSymbol).filter(Boolean));
+  const maxPerSymbol = Math.max(1, Number(options.maxPerSymbol || 300));
+  const bySymbol = new Map();
+  const files = listJsonl(logDir, 'candidate-dossiers-', limitRuns);
+  const stats = {
+    filesRead: files.length,
+    rowsScanned: 0,
+    rowsMatched: 0,
+    rowsStored: 0,
+    rowsDroppedByCap: 0,
+    malformedLines: 0,
+    maxPerSymbol
+  };
+
+  for (const item of files) {
+    const scan = forEachJsonlSync(item.fullPath, (dossier) => {
+      stats.rowsScanned += 1;
+      const symbolKey = normalizeSymbol(dossier.identity?.symbol || dossier.symbol);
+      if (!targetSymbols.has(symbolKey)) return;
+
+      stats.rowsMatched += 1;
+      if (!bySymbol.has(symbolKey)) {
+        bySymbol.set(symbolKey, {
+          rows: [],
+          mintSet: new Set()
+        });
+      }
+
+      const bucket = bySymbol.get(symbolKey);
+      const mint = dossier.identity?.mint || dossier.mint;
+      if (mint) bucket.mintSet.add(mint);
+
+      if (bucket.rows.length >= maxPerSymbol) {
+        stats.rowsDroppedByCap += 1;
+        return;
+      }
+
+      bucket.rows.push(compactDossier(dossier));
+      stats.rowsStored += 1;
+    });
+    stats.malformedLines += scan.malformedLines;
+  }
+
+  return { bySymbol, stats };
+}
+
+function summarizeInternalContext(specimen, dossierIndex) {
   const symbolKey = normalizeSymbol(specimen.symbol);
-  const relevant = dossiers.filter((dossier) => {
-    const mint = dossier.identity?.mint || dossier.mint;
-    const symbol = normalizeSymbol(dossier.identity?.symbol || dossier.symbol);
-    return mint === specimen.mint || (symbolKey && symbol === symbolKey);
-  });
+  const bucket = dossierIndex?.bySymbol?.get(symbolKey) || { rows: [], mintSet: new Set() };
+  const relevant = bucket.rows;
 
   const byMint = relevant.filter((dossier) => (dossier.identity?.mint || dossier.mint) === specimen.mint);
   const watch = latestByScore(relevant.filter((dossier) => dossier.source === 'pre_migration_watch'));
@@ -326,7 +391,9 @@ function summarizeInternalContext(specimen, dossiers) {
     watchLane: watch ? summarizeDossier(watch) : null,
     preMigrationPaper: paper ? summarizeDossier(paper) : null,
     continuationLane: continuation ? summarizeDossier(continuation) : null,
-    symbolCollisionInOurLogs: uniqueValues(relevant, (dossier) => dossier.identity?.mint || dossier.mint).length > 1
+    symbolCollisionInOurLogs: bucket.mintSet.size > 1,
+    dossierIndexCapped: relevant.length >= Number(dossierIndex?.stats?.maxPerSymbol || 0),
+    candidateDossierRowsDroppedByCap: Number(dossierIndex?.stats?.rowsDroppedByCap || 0)
   };
 }
 
@@ -528,7 +595,7 @@ function collisionSummary(groups, targetSymbol) {
   };
 }
 
-async function buildSpecimen(symbol, rickOverlap, dossiers, nowMs) {
+async function buildSpecimen(symbol, rickOverlap, dossierIndex, nowMs) {
   const pairs = (await fetchDexPairs(symbol)).filter((pair) => pair?.chainId === 'solana');
   const groups = groupPairsByBaseMint(pairs);
   const exactGroups = groups.filter((group) => {
@@ -570,7 +637,7 @@ async function buildSpecimen(symbol, rickOverlap, dossiers, nowMs) {
   specimen.symbolCollision = collision.unresolved && !collision.activeExactMints.some((item) => item.mint === specimen.mint && item.volume1hUsd === specimen.volume1hUsd);
   specimen.collision = collision;
 
-  const internalContext = summarizeInternalContext(specimen, dossiers);
+  const internalContext = summarizeInternalContext(specimen, dossierIndex);
   const scoreSummary = scoreContinuation(specimen, internalContext);
   const label = labelContinuation(specimen, scoreSummary);
 
@@ -619,12 +686,14 @@ async function main() {
   const rickContext = readJson(rickContextPath, { tokenOverlap: [] });
   const nowMs = Date.now();
   const limitRuns = Number(args.limitRuns || 8);
-  const dossiers = loadRecentDossiers(logDir, limitRuns);
   const overlapBySymbol = new Map((rickContext.tokenOverlap || []).map((item) => [
     normalizeSymbol(item.symbolKey || item.symbol),
     summarizeRickOverlap(item)
   ]));
   const symbols = chooseTargetSymbols(rickContext, args);
+  const dossierIndex = loadRecentDossierIndex(logDir, limitRuns, symbols, {
+    maxPerSymbol: args.maxDossiersPerSymbol
+  });
   const specimens = [];
 
   for (const symbol of symbols) {
@@ -642,7 +711,7 @@ async function main() {
       lines: []
     };
     try {
-      specimens.push(await buildSpecimen(symbol, rickOverlap, dossiers, nowMs));
+      specimens.push(await buildSpecimen(symbol, rickOverlap, dossierIndex, nowMs));
     } catch (error) {
       specimens.push({
         symbol,
@@ -667,6 +736,7 @@ async function main() {
       outputDir,
       logDir
     },
+    dossierIndex: dossierIndex.stats,
     source: {
       rickGeneratedAt: rickContext.generatedAt || null,
       rickMessageCount: rickContext.messageCount || 0,
