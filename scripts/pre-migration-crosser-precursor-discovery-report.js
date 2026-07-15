@@ -65,7 +65,22 @@ const PREREGISTERED = {
       discoveryMayContinueButCannotMutatePinnedThresholds: true,
       passVerdict: 'PINNED_SLICE_CONFIRMED_OOS_1_OF_2',
       failVerdict: 'PINNED_SLICE_FAILED_OOS',
+      terminalFailVerdict: 'PINNED_SLICE_FAILED_OOS_TERMINAL',
       pendingVerdict: 'PINNED_SLICE_CONFIRMATION_COLLECTING'
+    },
+    terminalDisposition: {
+      disposition: 'PINNED_SLICE_FAILED_OOS_TERMINAL',
+      originalVerdict: 'PINNED_SLICE_FAILED_OOS',
+      decidedBy: 'pre_registered_pinned_crosser_precursor_checkpoint',
+      decidedAfter: 'Pinned confirmation reached the minimum OOS sample floor and failed the frozen economics bar before this latch was added.',
+      evidence: {
+        measuredOosUniqueMintsAtFailure: 22,
+        crossingEnrichmentPassed: true,
+        medianPnlPositive: false,
+        exTop3MeanPnlPositive: false
+      },
+      nextAction: 'keep_pinned_candidates_closed; discovery may continue, but these exact pinned shapes require a fresh re-pin and fresh OOS window to be tested again',
+      noResurrectionByRecomputation: true
     },
     candidates: [
       {
@@ -137,6 +152,54 @@ function telemetryFiles(limit = 1) {
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
     .slice(0, Math.max(1, Number(limit) || 1))
     .map((item) => item.filePath);
+}
+
+function telemetryStartMs(filePath) {
+  const name = path.basename(filePath || '');
+  const match = name.match(/^telemetry-(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z\.jsonl$/i);
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second, ms] = match;
+  const timestamp = Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+    Number(ms)
+  );
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function validDiscoveryRunClock(files) {
+  const pinnedAtMs = new Date(PREREGISTERED.pinnedCandidates.pinnedAt).getTime();
+  const trainingPaths = new Set(PREREGISTERED.pinnedCandidates.discoveryTelemetryPaths.map((item) => item.replace(/\\/g, '/')));
+  const seen = new Set();
+  if (fs.existsSync(LOG_DIR)) {
+    for (const name of fs.readdirSync(LOG_DIR)) {
+      if (!/^telemetry-.*\.jsonl$/i.test(name)) continue;
+      const filePath = path.join(LOG_DIR, name);
+      const relative = path.relative(ROOT, filePath).replace(/\\/g, '/');
+      const startMs = telemetryStartMs(filePath);
+      if (startMs !== null && startMs <= pinnedAtMs) continue;
+      if (trainingPaths.has(relative)) continue;
+      seen.add(relative);
+    }
+  }
+  for (const filePath of files) {
+    const relative = path.relative(ROOT, filePath).replace(/\\/g, '/');
+    if (!trainingPaths.has(relative)) seen.add(relative);
+  }
+  const validRunsSincePinned = seen.size;
+  const parkAfterRuns = PREREGISTERED.stoppingRule.parkAfterRuns;
+  return {
+    pinnedAt: PREREGISTERED.pinnedCandidates.pinnedAt,
+    validRunsSincePinned,
+    parkAfterRuns,
+    runsUntilPark: Math.max(0, parkAfterRuns - validRunsSincePinned),
+    expired: validRunsSincePinned >= parkAfterRuns,
+    countedTelemetryPaths: Array.from(seen).sort()
+  };
 }
 
 function compact(value, digits = 6) {
@@ -349,6 +412,7 @@ function confirmationVerdict(evaluation) {
 function evaluatePinnedConfirmation(rows) {
   const pinnedAtMs = new Date(PREREGISTERED.pinnedCandidates.pinnedAt).getTime();
   const trainingPaths = new Set(PREREGISTERED.pinnedCandidates.discoveryTelemetryPaths);
+  const terminalDisposition = PREREGISTERED.pinnedCandidates.terminalDisposition || null;
   const confirmationRows = rows.filter((row) => (
     Number(row.atMs) > pinnedAtMs
     && !trainingPaths.has(row.telemetryPath)
@@ -366,13 +430,17 @@ function evaluatePinnedConfirmation(rows) {
   });
   const passCount = pinned.filter((row) => row.confirmationVerdict === PREREGISTERED.pinnedCandidates.confirmationMode.passVerdict).length;
   const failCount = pinned.filter((row) => row.confirmationVerdict === PREREGISTERED.pinnedCandidates.confirmationMode.failVerdict).length;
-  const verdict = passCount
+  const recomputedVerdict = passCount
     ? PREREGISTERED.pinnedCandidates.confirmationMode.passVerdict
     : failCount === pinned.length && pinned.length
       ? PREREGISTERED.pinnedCandidates.confirmationMode.failVerdict
       : PREREGISTERED.pinnedCandidates.confirmationMode.pendingVerdict;
+  const verdict = terminalDisposition?.disposition || recomputedVerdict;
   return {
     verdict,
+    recomputedVerdict,
+    terminal: Boolean(terminalDisposition),
+    terminalDisposition,
     pinnedAt: PREREGISTERED.pinnedCandidates.pinnedAt,
     rows: confirmationRows.length,
     uniqueMints: new Set(confirmationRows.map((row) => row.mint)).size,
@@ -380,10 +448,16 @@ function evaluatePinnedConfirmation(rows) {
     controls: confirmationRows.length - crosserCount,
     baseCrossRate: compact(baseRate, 4),
     pinnedCandidatesEvaluated: pinned.length,
-    passCount,
-    failCount,
+    passCount: terminalDisposition ? 0 : passCount,
+    failCount: terminalDisposition ? pinned.length : failCount,
+    recomputedPassCount: passCount,
+    recomputedFailCount: failCount,
     trainingTelemetryPathsExcluded: Array.from(trainingPaths),
-    candidates: pinned
+    candidates: pinned.map((candidate) => ({
+      ...candidate,
+      recomputedConfirmationVerdict: candidate.confirmationVerdict,
+      confirmationVerdict: terminalDisposition?.disposition || candidate.confirmationVerdict
+    }))
   };
 }
 
@@ -406,6 +480,7 @@ function buildRows(files) {
 
 function buildReport(files) {
   const rows = buildRows(files);
+  const discoveryRunClock = validDiscoveryRunClock(files);
   const crosserCount = rows.filter((row) => row.isFutureCrosser).length;
   const baseRate = rows.length ? crosserCount / rows.length : 0;
   const featureDistributions = Object.fromEntries(
@@ -438,7 +513,7 @@ function buildReport(files) {
     .sort((a, b) => Number(b.enrichmentVsBaseRate || 0) - Number(a.enrichmentVsBaseRate || 0) || Number(b.replay.medianPnlSol || 0) - Number(a.replay.medianPnlSol || 0));
   const verdict = candidateSlices.length
     ? 'SLICE_CANDIDATE_FOUND'
-    : files.length >= PREREGISTERED.stoppingRule.parkAfterRuns
+    : discoveryRunClock.expired
       ? PREREGISTERED.stoppingRule.verdictAfterNoSlice
       : 'NO_SLICE_FOUND_CONTINUE_DISCOVERY';
   const pinnedConfirmation = evaluatePinnedConfirmation(rows);
@@ -461,9 +536,11 @@ function buildReport(files) {
       conjunctionHypotheses: conjunctions.length,
       candidateSlices: candidateSlices.length,
       runsRead: files.length,
-      runsUntilPark: Math.max(0, PREREGISTERED.stoppingRule.parkAfterRuns - files.length),
+      validRunsSincePinned: discoveryRunClock.validRunsSincePinned,
+      runsUntilPark: discoveryRunClock.runsUntilPark,
       warning: PREREGISTERED.warning
     },
+    discoveryRunClock,
     pinnedConfirmation,
     featureDistributions,
     singleThresholds: singles
