@@ -3295,6 +3295,7 @@ function buildSummary(docs) {
     lines.push('- PumpDev subscription lifecycle:');
     lines.push(`  - verdict: ${sub.verdict || 'n/a'}; candidates/requested/acked/rejected/active/cap-skips=${sub.subscribeCandidates ?? 'n/a'} / ${sub.requestedSubscriptions ?? sub.subscribeFrames ?? 'n/a'} / ${sub.acknowledgedSubscriptions ?? 'n/a'} / ${sub.rejectedSubscriptions ?? 'n/a'} / ${sub.subscribedMints ?? 'n/a'} / ${sub.skippedAtCap ?? 'n/a'}`);
     lines.push(`  - trades/acks/send-failures/queue-drops: ${sub.trades ?? 'n/a'} / ${sub.ackMessages ?? 'n/a'} / ${sub.sendFailures ?? 'n/a'} / ${sub.queueDropped ?? 'n/a'}`);
+    lines.push(`  - mode/targeted requests/refreshes/evictions: ${sub.tradeSubscriptionMode || 'n/a'} / ${sub.targetedSubscriptionRequests ?? 'n/a'} / ${sub.targetedSubscriptionRefreshes ?? 'n/a'} / ${sub.targetedSubscriptionEvictions ?? 'n/a'}`);
     if (sub.featureSourceDependency?.verdict) {
       lines.push(`  - decision feature dependency: ${sub.featureSourceDependency.verdict}; pumpdev=${sub.featureSourceDependency.pumpDevFeedMode || 'n/a'}, portalBackupOnly=${sub.featureSourceDependency.pumpPortalBackupOnly ?? 'n/a'}`);
     }

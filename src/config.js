@@ -1424,6 +1424,16 @@ class Config {
     return parseInt(process.env.PUMPDEV_MAX_SUBSCRIBED_MINTS || '100', 10);
   }
 
+  static get pumpDevTradeSubscriptionMode() {
+    const fallback = this.pumpDevFeedMode === 'primary' ? 'all_new_tokens' : 'targeted_candidates';
+    const mode = String(process.env.PUMPDEV_TRADE_SUBSCRIPTION_MODE || fallback).trim().toLowerCase();
+    return mode === 'all_new_tokens' ? 'all_new_tokens' : 'targeted_candidates';
+  }
+
+  static get pumpDevTargetedSubscriptionTtlMs() {
+    return parseInt(process.env.PUMPDEV_TARGETED_SUBSCRIPTION_TTL_MS || '180000', 10);
+  }
+
   static get pumpDevReconnectResubscribeMaxMints() {
     return parseInt(process.env.PUMPDEV_RECONNECT_RESUBSCRIBE_MAX_MINTS || '25', 10);
   }
@@ -2554,6 +2564,7 @@ class Config {
       { key: 'pumpPortalEventHandlerConcurrency', value: this.pumpPortalEventHandlerConcurrency, min: 1 },
       { key: 'pumpPortalEventQueueMaxSize', value: this.pumpPortalEventQueueMaxSize, min: 1 },
       { key: 'pumpDevMaxSubscribedMints', value: this.pumpDevMaxSubscribedMints, min: 1 },
+      { key: 'pumpDevTargetedSubscriptionTtlMs', value: this.pumpDevTargetedSubscriptionTtlMs, min: 1000 },
       { key: 'pumpDevReconnectResubscribeMaxMints', value: this.pumpDevReconnectResubscribeMaxMints, min: 0 },
       { key: 'pumpDevReconnectResubscribeBatchSize', value: this.pumpDevReconnectResubscribeBatchSize, min: 1 },
       { key: 'pumpDevReconnectResubscribeBatchDelayMs', value: this.pumpDevReconnectResubscribeBatchDelayMs, min: 0 },

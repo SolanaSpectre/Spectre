@@ -3361,6 +3361,8 @@ class TradingEngine {
       return result;
     }
 
+    this.maybeTargetPumpDevFinalist(result);
+
     const summary = this.launchIntelStore.registerPreMigrationState(result.state);
     const mint = result.state.mint;
     const current = this.latestPumpPortalTokens.get(mint);
@@ -3494,6 +3496,29 @@ class TradingEngine {
     }
 
     return result;
+  }
+
+  maybeTargetPumpDevFinalist(result = {}) {
+    if (this.config.pumpDevTradeSubscriptionMode !== 'targeted_candidates') return false;
+    const state = result.state || {};
+    const score = Number(state.score);
+    const curveProgress = Number(state.curveProgress);
+    const finalist = Boolean(
+      result.flagged
+      || state.confirmed
+      || (
+        Number.isFinite(score)
+        && score >= this.config.finalistAccountVerifierMinScore
+        && Number.isFinite(curveProgress)
+        && curveProgress >= this.config.finalistAccountVerifierMinCurveProgress
+      )
+    );
+    if (!finalist || !state.mint) return false;
+    return this.pumpDevListener?.targetMint?.(state.mint, {
+      reason: result.flagged ? 'flagged' : (state.confirmed ? 'confirmed' : 'finalist_threshold'),
+      score,
+      curveProgress
+    });
   }
 
   shouldEmitPreMigrationObservedTelemetry(result = {}) {

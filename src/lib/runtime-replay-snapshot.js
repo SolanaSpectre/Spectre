@@ -13,6 +13,8 @@ const CONFIG_GETTER_ALLOWLIST = [
   'pumpDevFeedMode',
   'pumpDevDrivesPreMigration',
   'pumpDevMaxSubscribedMints',
+  'pumpDevTradeSubscriptionMode',
+  'pumpDevTargetedSubscriptionTtlMs',
   'pumpDevReconnectResubscribeMaxMints',
   'pumpDevReconnectResubscribeBatchSize',
   'pumpDevReconnectResubscribeBatchDelayMs',

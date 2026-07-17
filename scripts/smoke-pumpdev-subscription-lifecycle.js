@@ -75,4 +75,25 @@ assert.strictEqual(disconnectedStats.subscribedMints, 0);
 assert.strictEqual(disconnectedStats.pendingSubscriptionMints, 0);
 assert.strictEqual(disconnectedStats.queuedSubscriptionMints, 5);
 
+const targeted = new PumpDevListener({
+  pumpDevShadowEnabled: true,
+  pumpDevFeedMode: 'shadow',
+  pumpDevTradeSubscriptionMode: 'targeted_candidates',
+  pumpDevTargetedSubscriptionTtlMs: 1000,
+  pumpDevMaxSubscribedMints: 5
+}, { info() {}, warn() {} });
+targeted.send = () => true;
+targeted.targetMint('finalist-a', { reason: 'flagged', score: 80, curveProgress: 0.7 });
+targeted.recordSystemSubscriptionMessage({
+  type: 'subscribed',
+  method: 'subscribeTokenTrade',
+  keys: ['finalist-a']
+});
+const targetMeta = targeted.subscribedMintMeta.get('finalist-a');
+targeted.pruneExpiredTargetedSubscriptions(Number(targetMeta.lastTargetedAt) + 1001);
+const targetedStats = targeted.getStats();
+assert.strictEqual(targetedStats.subscribedMints, 0);
+assert.strictEqual(targetedStats.targetedSubscriptionRequests, 1);
+assert.strictEqual(targetedStats.targetedSubscriptionEvictions, 1);
+
 console.log('PumpDev subscription lifecycle smoke passed.');
