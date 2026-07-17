@@ -159,10 +159,15 @@ function getRow(rowsByMint, mint, payload = {}) {
       firstObservedMs: null,
       firstFlaggedMs: null,
       firstCross60Ms: null,
+      firstCross60Source: null,
       firstCross85Ms: null,
+      firstCross85Source: null,
       firstCross90Ms: null,
+      firstCross90Source: null,
       paperEntered: false,
       maxCurveProgress: null,
+      maxCurveProgressSource: null,
+      curveSourceCounts: {},
       maxScore: null,
       maxRecentVolumeSol: null,
       maxTradeVelocityPerMin: null,
@@ -196,6 +201,23 @@ function updateMax(row, key, value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return;
   row[key] = row[key] === null ? number : Math.max(row[key], number);
+}
+
+function updateCurveMax(row, curve, source) {
+  if (!Number.isFinite(curve)) return;
+  bump(row.curveSourceCounts, source);
+  if (row.maxCurveProgress === null || curve > row.maxCurveProgress) {
+    row.maxCurveProgress = curve;
+    row.maxCurveProgressSource = source;
+  }
+}
+
+function updateFirstCross(row, timeKey, sourceKey, atMs, source) {
+  if (!Number.isFinite(atMs)) return;
+  if (row[timeKey] === null || atMs < row[timeKey]) {
+    row[timeKey] = atMs;
+    row[sourceKey] = source;
+  }
 }
 
 function gateInputs(payload = {}, curve = null, price = null) {
@@ -366,7 +388,7 @@ function scan(filePath) {
     updateTimes(row, atMs);
     const curve = curveOf(payload);
     const price = priceOf(payload);
-    updateMax(row, 'maxCurveProgress', curve);
+    updateCurveMax(row, curve, type);
     updateMax(row, 'maxScore', payload.score ?? payload.entryScore);
     updateMax(row, 'maxRecentVolumeSol', payload.recentVolumeSol);
     updateMax(row, 'maxTradeVelocityPerMin', payload.tradeVelocityPerMin);
@@ -379,9 +401,9 @@ function scan(filePath) {
     }
 
     if (Number.isFinite(curve)) {
-      if (curve >= 0.6) updateMin(row, 'firstCross60Ms', atMs);
-      if (curve >= 0.85) updateMin(row, 'firstCross85Ms', atMs);
-      if (curve >= 0.9) updateMin(row, 'firstCross90Ms', atMs);
+      if (curve >= 0.6) updateFirstCross(row, 'firstCross60Ms', 'firstCross60Source', atMs, type);
+      if (curve >= 0.85) updateFirstCross(row, 'firstCross85Ms', 'firstCross85Source', atMs, type);
+      if (curve >= 0.9) updateFirstCross(row, 'firstCross90Ms', 'firstCross90Source', atMs, type);
     }
     if (type === 'pre_migration.observed') updateMin(row, 'firstObservedMs', atMs);
     if (type === 'pre_migration.flagged') {
@@ -450,6 +472,11 @@ function summarizeRunner(row) {
     secondsObservedToCross60: row.firstObservedMs !== null && row.firstCross60Ms !== null ? compact((row.firstCross60Ms - row.firstObservedMs) / 1000, 3) : null,
     secondsObservedToCross90: row.firstObservedMs !== null && row.firstCross90Ms !== null ? compact((row.firstCross90Ms - row.firstObservedMs) / 1000, 3) : null,
     maxCurveProgress: compact(row.maxCurveProgress, 6),
+    maxCurveProgressSource: row.maxCurveProgressSource,
+    firstCross60Source: row.firstCross60Source,
+    firstCross85Source: row.firstCross85Source,
+    firstCross90Source: row.firstCross90Source,
+    curveSourceCounts: topCounts(row.curveSourceCounts, 8),
     maxScore: compact(row.maxScore, 2),
     maxRecentVolumeSol: compact(row.maxRecentVolumeSol, 4),
     maxTradeVelocityPerMin: compact(row.maxTradeVelocityPerMin, 2),
@@ -536,6 +563,12 @@ function buildReport(filePath) {
   }
 
   const breadthRows = runnerAutopsies.map((row) => row.decisionBuyerSniperRatio);
+  const curve60FirstSourceCounts = {};
+  const curve60MaxSourceCounts = {};
+  for (const row of crossers) {
+    bump(curve60FirstSourceCounts, row.firstCross60Source);
+    bump(curve60MaxSourceCounts, row.maxCurveProgressSource);
+  }
   const verdict = (() => {
     if (!runners.length) return 'NO_CURVE90_RUNNERS';
     if (!noEntryRunners.length) return 'RUNNERS_ENTERED';
@@ -562,6 +595,8 @@ function buildReport(filePath) {
       curve90PlusMints: runners.length,
       noEntryRunnerMints: noEntryRunners.length,
       paperEnteredRunnerMints: runners.length - noEntryRunners.length,
+      curve60FirstSourceCounts: topCounts(curve60FirstSourceCounts, 12),
+      curve60MaxSourceCounts: topCounts(curve60MaxSourceCounts, 12),
       bindingGates: topCounts(gateCounts, 12),
       staleGateVerdicts: topCounts(staleVerdicts, 12),
       blockerCoFire,

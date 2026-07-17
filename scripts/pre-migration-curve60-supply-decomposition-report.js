@@ -151,6 +151,11 @@ function getMint(rowsByMint, mint, payload = {}) {
       firstVelocity25Ms: null,
       maxScore: null,
       maxCurveProgress: null,
+      maxCurveProgressSource: null,
+      firstCurve60Source: null,
+      firstCurve85Source: null,
+      firstCurve90Source: null,
+      curveSourceCounts: {},
       maxRecentVolumeSol: null,
       maxTradeVelocityPerMin: null,
       observedRows: 0,
@@ -185,11 +190,29 @@ function updateMax(row, key, value) {
   row[key] = row[key] === null ? number : Math.max(row[key], number);
 }
 
-function updateCurveCrossings(row, atMs, curve) {
+function updateCurveMax(row, curve, source) {
+  if (!Number.isFinite(curve)) return;
+  bump(row.curveSourceCounts, source);
+  if (row.maxCurveProgress === null || curve > row.maxCurveProgress) {
+    row.maxCurveProgress = curve;
+    row.maxCurveProgressSource = source;
+  }
+}
+
+function updateCurveCrossings(row, atMs, curve, source) {
   if (!Number.isFinite(atMs) || !Number.isFinite(curve)) return;
-  if (curve >= 0.6) updateMinTime(row, 'firstCurve60Ms', atMs);
-  if (curve >= 0.85) updateMinTime(row, 'firstCurve85Ms', atMs);
-  if (curve >= 0.9) updateMinTime(row, 'firstCurve90Ms', atMs);
+  if (curve >= 0.6 && (row.firstCurve60Ms === null || atMs < row.firstCurve60Ms)) {
+    row.firstCurve60Ms = atMs;
+    row.firstCurve60Source = source;
+  }
+  if (curve >= 0.85 && (row.firstCurve85Ms === null || atMs < row.firstCurve85Ms)) {
+    row.firstCurve85Ms = atMs;
+    row.firstCurve85Source = source;
+  }
+  if (curve >= 0.9 && (row.firstCurve90Ms === null || atMs < row.firstCurve90Ms)) {
+    row.firstCurve90Ms = atMs;
+    row.firstCurve90Source = source;
+  }
 }
 
 function scan(filePath) {
@@ -215,10 +238,10 @@ function scan(filePath) {
     updateTimes(row, atMs);
     bump(row.events, type);
     updateMax(row, 'maxScore', payload.score ?? payload.entryScore);
-    updateMax(row, 'maxCurveProgress', curve);
+    updateCurveMax(row, curve, type);
     updateMax(row, 'maxRecentVolumeSol', payload.recentVolumeSol);
     updateMax(row, 'maxTradeVelocityPerMin', payload.tradeVelocityPerMin);
-    updateCurveCrossings(row, atMs, curve);
+    updateCurveCrossings(row, atMs, curve, type);
     if (Number.isFinite(price)) updateMinTime(row, 'firstPriceMs', atMs);
     if (Number(payload.tradeVelocityPerMin) >= 25) updateMinTime(row, 'firstVelocity25Ms', atMs);
 
@@ -297,6 +320,11 @@ function rowSummary(row) {
     secondsFlaggedToCurve60: secondsBetween(row.firstFlaggedMs, row.firstCurve60Ms),
     maxScore: compact(row.maxScore, 2),
     maxCurveProgress: compact(row.maxCurveProgress, 6),
+    maxCurveProgressSource: row.maxCurveProgressSource,
+    firstCurve60Source: row.firstCurve60Source,
+    firstCurve85Source: row.firstCurve85Source,
+    firstCurve90Source: row.firstCurve90Source,
+    curveSourceCounts: topCounts(row.curveSourceCounts, 8),
     maxRecentVolumeSol: compact(row.maxRecentVolumeSol, 4),
     maxTradeVelocityPerMin: compact(row.maxTradeVelocityPerMin, 2),
     observedRows: row.observedRows,
@@ -321,6 +349,12 @@ function buildReport(filePath) {
   for (const row of rows) bump(classificationCounts, row.classification);
   const curve60ClassificationCounts = {};
   for (const row of curve60Rows) bump(curve60ClassificationCounts, row.classification);
+  const curve60FirstSourceCounts = {};
+  const curve60MaxSourceCounts = {};
+  for (const row of curve60Rows) {
+    bump(curve60FirstSourceCounts, row.firstCurve60Source);
+    bump(curve60MaxSourceCounts, row.maxCurveProgressSource);
+  }
 
   const observedPre60Crossers = curve60Rows.filter((row) => row.firstObservedPre60Ms !== null);
   const lateObservedCrossers = curve60Rows.filter((row) => row.classification === 'observation_latency_or_late_first_observed');
@@ -378,6 +412,8 @@ function buildReport(filePath) {
       curve60GatedAfterFlagRate: curve60Rows.length ? compact((gatedRows.length + shadowRows.length) / curve60Rows.length, 4) : null,
       classificationCounts: topCounts(classificationCounts, 12),
       curve60ClassificationCounts: topCounts(curve60ClassificationCounts, 12),
+      curve60FirstSourceCounts: topCounts(curve60FirstSourceCounts, 12),
+      curve60MaxSourceCounts: topCounts(curve60MaxSourceCounts, 12),
       topReasons: topCounts(rows.reduce((counts, row) => {
         for (const [reason, count] of Object.entries(row.topReasons)) bump(counts, reason, count);
         return counts;

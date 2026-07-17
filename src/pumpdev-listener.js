@@ -44,6 +44,9 @@ class PumpDevListener {
     this.tradeCoalesceQueueDepth = Math.max(0, Number(config.pumpDevTradeCoalesceQueueDepth || 500));
     this.subscribedMints = new Set();
     this.subscribedMintMeta = new Map();
+    this.pendingSubscriptionMints = new Map();
+    this.queuedSubscriptionMints = new Set();
+    this.effectiveMaxSubscribedMints = this.maxSubscribedMints;
     this.knownMints = new Set();
     this.stats = {
       enabled: Boolean(config.pumpDevShadowEnabled),
@@ -64,12 +67,26 @@ class PumpDevListener {
       knownMints: 0,
       subscribedMints: 0,
       maxSubscribedMints: this.maxSubscribedMints,
+      effectiveMaxSubscribedMints: this.effectiveMaxSubscribedMints,
+      pendingSubscriptionMints: 0,
+      queuedSubscriptionMints: 0,
       openEvents: 0,
       closeEvents: 0,
       errorEvents: 0,
       reconnectAttempts: 0,
       controlFramesSent: 0,
       tokenTradeSubscribeFrames: 0,
+      tokenTradeSubscribeCandidates: 0,
+      tokenTradeSubscribeSkippedAtCap: 0,
+      tokenTradeSubscribeSkippedDuplicate: 0,
+      tokenTradeSubscribeSendFailures: 0,
+      tokenTradeSubscriptionAcks: 0,
+      tokenTradeSubscriptionRejects: 0,
+      subscriptionAckMessages: 0,
+      subscriptionErrorMessages: 0,
+      unsubscriptionAckMessages: 0,
+      lastSubscriptionAckAt: null,
+      lastSubscriptionAckMessage: null,
       tokenTradeReconnectResubscribeScheduled: 0,
       tokenTradeReconnectResubscribeSent: 0,
       tokenTradeReconnectResubscribeDropped: 0,
@@ -147,6 +164,9 @@ class PumpDevListener {
     this.clearReconnectDelayResetTimer();
     this.clearResubscribeTimer();
     this.clearDeferredSubscribeTimer();
+    this.pendingSubscriptionMints.clear();
+    this.queuedSubscriptionMints.clear();
+    this.syncSubscriptionStats();
     this.stopHeartbeat();
     if (this.eventQueue.length > 0) {
       this.stats.eventQueueDiscardedOnStop += this.eventQueue.length;
@@ -187,6 +207,7 @@ class PumpDevListener {
       this.scheduleReconnectDelayReset(socket);
       this.scheduleResubscribeTrackedMints();
       this.scheduleDeferredSubscribeFlush();
+      this.flushQueuedSubscription();
       this.startHeartbeat(socket);
       this.emitLifecycle('provider.pumpdev.connected', {
         subscribedMints: this.subscribedMints.size,
@@ -246,6 +267,7 @@ class PumpDevListener {
       this.clearReconnectDelayResetTimer();
       this.clearResubscribeTimer();
       this.stopHeartbeat();
+      this.resetSubscriptionsAfterDisconnect();
       this.logger.warn('PumpDev shadow websocket closed', {
         code: this.stats.lastCloseCode,
         reason: this.stats.lastCloseReason || 'none',
@@ -412,6 +434,7 @@ class PumpDevListener {
 
     if (type === 'system') {
       this.stats.systemMessages += 1;
+      this.recordSystemSubscriptionMessage(payload);
       return;
     }
 
@@ -421,7 +444,7 @@ class PumpDevListener {
       if (normalized.mint) {
         this.knownMints.add(normalized.mint);
         this.stats.knownMints = this.knownMints.size;
-        this.touchSubscribedMint(normalized.mint);
+        this.touchSubscribedMint(normalized.mint, 'new_token');
         this.maybeSubscribeMint(normalized.mint);
       }
       this.emitShadowEvent('provider.pumpdev.shadow_new_token', normalized);
@@ -433,7 +456,7 @@ class PumpDevListener {
 
     if (type === 'trade') {
       this.stats.trades += 1;
-      this.touchSubscribedMint(normalized.mint);
+      this.touchSubscribedMint(normalized.mint, 'trade');
       this.emitShadowEvent('provider.pumpdev.shadow_trade', normalized);
       if (this.drivesPreMigration && typeof this.handlers.onTrade === 'function') {
         await this.safeRuntimeHandler('onTrade', normalized);
@@ -582,39 +605,217 @@ class PumpDevListener {
     return Number.isFinite(parsed) ? parsed : null;
   }
 
-  maybeSubscribeMint(mint) {
-    if (!mint || this.subscribedMints.has(mint)) return;
-    if (this.subscribedMints.size >= this.maxSubscribedMints) return;
+  recordSystemSubscriptionMessage(payload = {}) {
+    const type = String(payload.type || '').toLowerCase();
+    const message = String(payload.message || payload.error || '').slice(0, 500) || null;
+    const method = payload.method || payload.subscription || null;
+    const keys = Array.isArray(payload.keys) ? payload.keys.filter(Boolean) : [];
+    if (type === 'subscribed') {
+      this.stats.subscriptionAckMessages += 1;
+      this.stats.lastSubscriptionAckAt = Date.now();
+      this.stats.lastSubscriptionAckMessage = message;
+      if (method === 'subscribeTokenTrade') {
+        this.acknowledgePendingSubscriptions(keys);
+      }
+      this.emitLifecycle('provider.pumpdev.subscription_ack', {
+        message,
+        method,
+        keys: keys.length || null,
+        activeMints: this.subscribedMints.size,
+        pendingMints: this.pendingSubscriptionMints.size,
+        effectiveMaxSubscribedMints: this.effectiveMaxSubscribedMints
+      });
+    } else if (type === 'unsubscribed') {
+      this.stats.unsubscriptionAckMessages += 1;
+      this.emitLifecycle('provider.pumpdev.unsubscription_ack', { message });
+    } else if (type === 'error') {
+      this.stats.subscriptionErrorMessages += 1;
+      this.rejectPendingSubscription(message);
+      this.emitLifecycle('provider.pumpdev.subscription_error', {
+        message,
+        activeMints: this.subscribedMints.size,
+        pendingMints: this.pendingSubscriptionMints.size,
+        effectiveMaxSubscribedMints: this.effectiveMaxSubscribedMints
+      });
+    }
+  }
+
+  acknowledgePendingSubscriptions(keys = []) {
+    const pendingKeys = keys.filter((mint) => this.pendingSubscriptionMints.has(mint));
+    const resolved = pendingKeys.length
+      ? pendingKeys
+      : Array.from(this.pendingSubscriptionMints.keys()).slice(0, 1);
     const now = Date.now();
-    if (this.rateLimitCooldownUntilMs > now) {
-      this.deferSubscribeMint(mint);
+    for (const mint of resolved) {
+      const pending = this.pendingSubscriptionMints.get(mint);
+      if (!pending) continue;
+      this.pendingSubscriptionMints.delete(mint);
+      this.subscribedMints.add(mint);
+      this.subscribedMintMeta.set(mint, {
+        subscribedAt: now,
+        lastSeenAt: now,
+        lastTradeAt: null,
+        tradeCount: 0,
+        requestedAt: pending.requestedAt
+      });
+      this.stats.tokenTradeSubscriptionAcks += 1;
+    }
+    this.syncSubscriptionStats();
+    this.flushQueuedSubscription();
+  }
+
+  rejectPendingSubscription(message = null) {
+    const mint = this.pendingSubscriptionMints.keys().next().value || null;
+    if (mint) {
+      this.pendingSubscriptionMints.delete(mint);
+      this.stats.tokenTradeSubscriptionRejects += 1;
+    }
+    if (/anonymous tier allows 5 live subscriptions/i.test(String(message || ''))) {
+      this.effectiveMaxSubscribedMints = Math.min(
+        this.effectiveMaxSubscribedMints,
+        Math.max(1, this.subscribedMints.size)
+      );
+      this.dropQueuedSubscriptionsAtCapacity();
+    }
+    this.syncSubscriptionStats();
+    this.flushQueuedSubscription();
+  }
+
+  syncSubscriptionStats() {
+    this.stats.subscribedMints = this.subscribedMints.size;
+    this.stats.pendingSubscriptionMints = this.pendingSubscriptionMints.size;
+    this.stats.queuedSubscriptionMints = this.queuedSubscriptionMints.size;
+    this.stats.effectiveMaxSubscribedMints = this.effectiveMaxSubscribedMints;
+  }
+
+  subscriptionProductivity(now = Date.now()) {
+    const rows = Array.from(this.subscribedMintMeta.values()).map((meta) => ({
+      ageMs: Math.max(0, now - Number(meta.subscribedAt || now)),
+      idleMs: Math.max(0, now - Number(meta.lastTradeAt || meta.subscribedAt || now)),
+      tradeCount: Number(meta.tradeCount || 0)
+    }));
+    const stats = (values) => {
+      const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
+      if (!sorted.length) return { count: 0, min: null, median: null, p90: null, max: null };
+      const pick = (q) => sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * q))];
+      return {
+        count: sorted.length,
+        min: sorted[0],
+        median: pick(0.5),
+        p90: pick(0.9),
+        max: sorted[sorted.length - 1]
+      };
+    };
+    return {
+      slots: rows.length,
+      zeroTradeSlots: rows.filter((row) => row.tradeCount === 0).length,
+      tradedSlots: rows.filter((row) => row.tradeCount > 0).length,
+      totalTrades: rows.reduce((sum, row) => sum + row.tradeCount, 0),
+      ageMs: stats(rows.map((row) => row.ageMs)),
+      idleMs: stats(rows.map((row) => row.idleMs)),
+      tradesPerSlot: stats(rows.map((row) => row.tradeCount))
+    };
+  }
+
+  maybeSubscribeMint(mint) {
+    if (!mint) return;
+    this.stats.tokenTradeSubscribeCandidates += 1;
+    if (
+      this.subscribedMints.has(mint)
+      || this.pendingSubscriptionMints.has(mint)
+      || this.queuedSubscriptionMints.has(mint)
+    ) {
+      this.stats.tokenTradeSubscribeSkippedDuplicate += 1;
       return;
     }
-    this.subscribeMintNow(mint, now);
+    if (this.subscribedMints.size >= this.effectiveMaxSubscribedMints) {
+      this.recordSubscriptionCapacitySkip(1);
+      return;
+    }
+    this.queuedSubscriptionMints.add(mint);
+    this.syncSubscriptionStats();
+    this.flushQueuedSubscription();
   }
 
   subscribeMintNow(mint, now = Date.now(), meta = {}) {
-    if (!mint || this.subscribedMints.has(mint)) return false;
-    if (this.subscribedMints.size >= this.maxSubscribedMints) {
+    if (!mint || this.subscribedMints.has(mint) || this.pendingSubscriptionMints.has(mint)) return false;
+    if (this.subscribedMints.size + this.pendingSubscriptionMints.size >= this.effectiveMaxSubscribedMints) {
       if (meta.deferred) this.stats.tokenTradeDeferredSubscribeDropped += 1;
       return false;
     }
-    this.subscribedMints.add(mint);
-    this.subscribedMintMeta.set(mint, {
-      subscribedAt: now,
-      lastSeenAt: now
-    });
-    this.stats.subscribedMints = this.subscribedMints.size;
+    this.pendingSubscriptionMints.set(mint, { requestedAt: now });
+    this.syncSubscriptionStats();
     const sent = this.send({ method: 'subscribeTokenTrade', keys: [mint] });
     if (sent) {
       this.stats.tokenTradeSubscribeFrames += 1;
       if (meta.deferred) this.stats.tokenTradeDeferredSubscribeSent += 1;
+    } else {
+      this.stats.tokenTradeSubscribeSendFailures += 1;
+      this.pendingSubscriptionMints.delete(mint);
+      this.syncSubscriptionStats();
     }
     return sent;
   }
 
+  flushQueuedSubscription() {
+    if (this.pendingSubscriptionMints.size > 0 || this.queuedSubscriptionMints.size === 0) return;
+    if (this.subscribedMints.size >= this.effectiveMaxSubscribedMints) {
+      this.dropQueuedSubscriptionsAtCapacity();
+      return;
+    }
+    const now = Date.now();
+    if (this.rateLimitCooldownUntilMs > now) return;
+    const mint = this.queuedSubscriptionMints.values().next().value;
+    if (!mint) return;
+    this.queuedSubscriptionMints.delete(mint);
+    this.syncSubscriptionStats();
+    this.subscribeMintNow(mint, now);
+  }
+
+  dropQueuedSubscriptionsAtCapacity() {
+    const dropped = this.queuedSubscriptionMints.size;
+    if (dropped === 0) return;
+    this.queuedSubscriptionMints.clear();
+    this.recordSubscriptionCapacitySkip(dropped);
+    this.syncSubscriptionStats();
+  }
+
+  recordSubscriptionCapacitySkip(count = 1) {
+    this.stats.tokenTradeSubscribeSkippedAtCap += count;
+    const skipped = this.stats.tokenTradeSubscribeSkippedAtCap;
+    if (skipped === count || skipped % 1000 < count) {
+      this.emitLifecycle('provider.pumpdev.subscription_capacity', {
+        subscribedMints: this.subscribedMints.size,
+        pendingMints: this.pendingSubscriptionMints.size,
+        configuredMaxSubscribedMints: this.maxSubscribedMints,
+        effectiveMaxSubscribedMints: this.effectiveMaxSubscribedMints,
+        skippedAtCap: skipped,
+        productivity: this.subscriptionProductivity()
+      });
+    }
+  }
+
+  resetSubscriptionsAfterDisconnect() {
+    const reconnectMints = [
+      ...this.subscribedMints,
+      ...this.pendingSubscriptionMints.keys()
+    ];
+    this.subscribedMints.clear();
+    this.subscribedMintMeta.clear();
+    this.pendingSubscriptionMints.clear();
+    for (const mint of reconnectMints.slice(0, this.reconnectResubscribeMaxMints)) {
+      this.queuedSubscriptionMints.add(mint);
+    }
+    this.syncSubscriptionStats();
+  }
+
   deferSubscribeMint(mint) {
-    if (!mint || this.subscribedMints.has(mint)) return;
+    if (
+      !mint
+      || this.subscribedMints.has(mint)
+      || this.pendingSubscriptionMints.has(mint)
+      || this.queuedSubscriptionMints.has(mint)
+    ) return;
     if (!this.deferredSubscribeMints.has(mint)) {
       this.stats.tokenTradeSubscribesSuppressedDuringCooldown += 1;
     }
@@ -659,18 +860,24 @@ class PumpDevListener {
     const batch = Array.from(this.deferredSubscribeMints).slice(0, batchSize);
     for (const mint of batch) {
       this.deferredSubscribeMints.delete(mint);
-      this.subscribeMintNow(mint, Date.now(), { deferred: true });
+      this.queuedSubscriptionMints.add(mint);
     }
+    this.syncSubscriptionStats();
+    this.flushQueuedSubscription();
     if (this.deferredSubscribeMints.size > 0) {
       this.scheduleDeferredSubscribeFlush(this.reconnectResubscribeBatchDelayMs);
     }
   }
 
-  touchSubscribedMint(mint) {
+  touchSubscribedMint(mint, kind = 'event') {
     if (!mint) return;
     const meta = this.subscribedMintMeta.get(mint);
     if (!meta) return;
     meta.lastSeenAt = Date.now();
+    if (kind === 'trade') {
+      meta.lastTradeAt = meta.lastSeenAt;
+      meta.tradeCount = Number(meta.tradeCount || 0) + 1;
+    }
   }
 
   scheduleResubscribeTrackedMints() {
@@ -962,13 +1169,18 @@ class PumpDevListener {
   }
 
   getStats() {
+    this.syncSubscriptionStats();
     return {
       ...this.stats,
       connected: Boolean(this.ws && this.ws.readyState === WebSocket.OPEN),
       knownMints: this.knownMints.size,
       subscribedMints: this.subscribedMints.size,
+      pendingSubscriptionMints: this.pendingSubscriptionMints.size,
+      queuedSubscriptionMints: this.queuedSubscriptionMints.size,
+      effectiveMaxSubscribedMints: this.effectiveMaxSubscribedMints,
       eventQueueActive: this.activeEventHandlers,
       eventQueueDepth: this.eventQueue.length,
+      subscriptionProductivity: this.subscriptionProductivity(),
       currentReconnectDelayMs: this.currentReconnectDelayMs
     };
   }

@@ -40,6 +40,18 @@ function number(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function telemetryPathOf(data = {}) {
+  return data.telemetryPath
+    || data.summary?.telemetryPath
+    || data.sources?.telemetryPath
+    || data.run?.telemetryPath
+    || null;
+}
+
+function normalizedTelemetryPath(value) {
+  return value ? String(value).replace(/\\/g, '/').toLowerCase() : null;
+}
+
 function round(value, digits = 6) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Number(parsed.toFixed(digits)) : null;
@@ -60,12 +72,25 @@ function buildReport(docs) {
   const scorecard = docs.scorecard.data?.summary || {};
   const paper = battlefield.preMigrationPaper || {};
 
+  const inputTelemetryPaths = Object.fromEntries(
+    Object.entries(docs).map(([key, doc]) => [key, telemetryPathOf(doc.data)])
+  );
+  const canonicalTelemetryPath = inputTelemetryPaths.entryFunnel
+    || inputTelemetryPaths.battlefield
+    || null;
+  const runnerTelemetryPath = inputTelemetryPaths.runnerNoEntryAutopsy;
+  const runnerInputMatches = Boolean(
+    canonicalTelemetryPath
+    && runnerTelemetryPath
+    && normalizedTelemetryPath(canonicalTelemetryPath) === normalizedTelemetryPath(runnerTelemetryPath)
+  );
+
   const observedMints = number(entryFunnel.observedMints);
   const flaggedMints = number(entryFunnel.flaggedMints);
   const evaluatedMints = number(entryFunnel.evaluatedMints);
   const enteredMints = number(entryFunnel.enteredMints, number(paper.entries));
-  const curve60PlusMints = number(runnerNoEntry.curve60PlusMints);
-  const noEntryRunnerMints = number(runnerNoEntry.noEntryRunnerMints);
+  const curve60PlusMints = runnerInputMatches ? number(runnerNoEntry.curve60PlusMints) : null;
+  const noEntryRunnerMints = runnerInputMatches ? number(runnerNoEntry.noEntryRunnerMints) : null;
   const simRows = number(flaggedReplay.rows);
   const simMeasured = number(flaggedReplay.measured);
   const simPnlSol = number(flaggedReplay.pnlSol, null);
@@ -88,11 +113,17 @@ function buildReport(docs) {
     flaggedPerObserved: observedMints ? round(flaggedMints / observedMints, 6) : null,
     evaluatedPerFlagged: flaggedMints ? round(evaluatedMints / flaggedMints, 6) : null,
     enteredPerEvaluated: evaluatedMints ? round(enteredMints / evaluatedMints, 6) : null,
-    curve60PlusPerObserved: observedMints ? round(curve60PlusMints / observedMints, 6) : null,
-    noEntryRunnerPerCurve60Plus: curve60PlusMints ? round(noEntryRunnerMints / curve60PlusMints, 6) : null
+    curve60PlusPerObserved: observedMints && Number.isFinite(curve60PlusMints)
+      ? round(curve60PlusMints / observedMints, 6)
+      : null,
+    noEntryRunnerPerCurve60Plus: curve60PlusMints && Number.isFinite(noEntryRunnerMints)
+      ? round(noEntryRunnerMints / curve60PlusMints, 6)
+      : null
   };
 
-  const verdict = enteredMints === 0 && flaggedMints > 0 && simMeasured > 0
+  const verdict = !runnerInputMatches
+    ? 'INPUT_TELEMETRY_MISMATCH'
+    : enteredMints === 0 && flaggedMints > 0 && simMeasured > 0
     ? 'RUNNER_WATCH_RUNTIME_ADMISSION_STARVED_WITH_REPORT_ONLY_UPSIDE'
     : (enteredMints > 0
       ? 'RUNNER_WATCH_RUNTIME_ADMITTED_ENTRIES'
@@ -109,7 +140,13 @@ function buildReport(docs) {
     }])),
     summary: {
       verdict,
-      telemetryPath: docs.entryFunnel.data?.summary?.telemetryPath || docs.runnerNoEntryAutopsy.data?.telemetryPath || null,
+      telemetryPath: canonicalTelemetryPath,
+      inputTelemetryIntegrity: {
+        runnerInputMatches,
+        canonicalTelemetryPath,
+        runnerNoEntryTelemetryPath: runnerTelemetryPath,
+        inputTelemetryPaths
+      },
       observedMints,
       curve60PlusMints,
       flaggedMints,
@@ -120,8 +157,12 @@ function buildReport(docs) {
       runtimeToSimGap,
       scorecardStatusCounts: scorecard.statusCounts || {},
       liveAction: scorecard.bestAction || 'KEEP_LIVE_DISABLED',
-      interpretation: enteredMints === 0
+      interpretation: !runnerInputMatches
+        ? 'Runner-watch funnel withheld curve60 metrics because its runner-no-entry input belongs to a different telemetry run.'
+        : enteredMints === 0 && simMeasured > 0
         ? 'The next question is why runner-watch confirmation admitted zero runtime entries while report-only shadow/sim paths still found candidates. Treat the sim as a gap to explain, not as permission to loosen gates.'
+        : enteredMints === 0
+          ? 'Neither runtime runner-watch nor same-run report-only shadow replay found an admissible candidate; this run is supply-starved within captured coverage.'
         : 'Runner-watch admitted runtime entries; inspect their exits before changing any gates.'
     },
     bottlenecks: {

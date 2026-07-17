@@ -13,6 +13,7 @@ const FILES = {
   pumpDevCurveParity: 'data/reports/pumpdev-curve-parity-latest.json',
   pumpDevTargetedCurveParity: 'data/reports/pumpdev-targeted-curve-parity-latest.json',
   eventLoopLagDiagnostic: 'data/reports/event-loop-lag-diagnostic-latest.json',
+  pumpDevSubscriptionLifecycle: 'data/reports/pumpdev-subscription-lifecycle-latest.json',
   outcomeLedger: 'data/reports/outcome-ledger-latest.json',
   falseNegatives: 'data/watchlists/outcome-ledger-false-negative-latest.json',
   preMigrationOutcomes: 'data/reports/pre-migration-outcomes-latest.json',
@@ -2320,6 +2321,7 @@ function buildSummary(docs) {
   const pumpDevCurveParity = docs.pumpDevCurveParity.data || {};
   const pumpDevTargetedCurveParity = docs.pumpDevTargetedCurveParity.data || {};
   const eventLoopLagDiagnostic = docs.eventLoopLagDiagnostic.data || {};
+  const pumpDevSubscriptionLifecycle = docs.pumpDevSubscriptionLifecycle.data || {};
   const ledger = docs.outcomeLedger.data || {};
   const falseNeg = docs.falseNegatives.data || {};
   const preOutcomes = docs.preMigrationOutcomes.data || {};
@@ -3286,6 +3288,18 @@ function buildSummary(docs) {
     const preceding = Object.entries(lagDiag.topPrecedingEventTypes5s || {}).slice(0, 5);
     if (preceding.length) {
       lines.push(`  - top event types in 5s before lag: ${preceding.map(([type, count]) => `${type}=${count}`).join(', ')}`);
+    }
+  }
+  if (pumpDevSubscriptionLifecycle.summary) {
+    const sub = pumpDevSubscriptionLifecycle.summary;
+    lines.push('- PumpDev subscription lifecycle:');
+    lines.push(`  - verdict: ${sub.verdict || 'n/a'}; candidates/requested/acked/rejected/active/cap-skips=${sub.subscribeCandidates ?? 'n/a'} / ${sub.requestedSubscriptions ?? sub.subscribeFrames ?? 'n/a'} / ${sub.acknowledgedSubscriptions ?? 'n/a'} / ${sub.rejectedSubscriptions ?? 'n/a'} / ${sub.subscribedMints ?? 'n/a'} / ${sub.skippedAtCap ?? 'n/a'}`);
+    lines.push(`  - trades/acks/send-failures/queue-drops: ${sub.trades ?? 'n/a'} / ${sub.ackMessages ?? 'n/a'} / ${sub.sendFailures ?? 'n/a'} / ${sub.queueDropped ?? 'n/a'}`);
+    if (sub.featureSourceDependency?.verdict) {
+      lines.push(`  - decision feature dependency: ${sub.featureSourceDependency.verdict}; pumpdev=${sub.featureSourceDependency.pumpDevFeedMode || 'n/a'}, portalBackupOnly=${sub.featureSourceDependency.pumpPortalBackupOnly ?? 'n/a'}`);
+    }
+    if (sub.productivity) {
+      lines.push(`  - slot productivity (${sub.productivityTrust || 'unknown trust'}): slots=${sub.productivity.slots ?? 'n/a'}, zero-trade=${sub.productivity.zeroTradeSlots ?? 'n/a'}, traded=${sub.productivity.tradedSlots ?? 'n/a'}, totalTrades=${sub.productivity.totalTrades ?? 'n/a'}`);
     }
   }
   lines.push('- Finalist account verifier:');

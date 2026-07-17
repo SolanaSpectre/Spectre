@@ -148,6 +148,18 @@ function analyzeTelemetry(filePath) {
       topEventTypes: topEntries(minute.eventTypes, 6)
     }));
 
+  const allMinutes = [...minuteBuckets.values()];
+  const lagMinutes = allMinutes.filter((minute) => minute.lagEvents > 0);
+  const nonLagMinutes = allMinutes.filter((minute) => minute.lagEvents === 0);
+  const sortedMinuteEvents = allMinutes.map((minute) => minute.events).sort((a, b) => a - b);
+  const p90MinuteEvents = sortedMinuteEvents.length
+    ? sortedMinuteEvents[Math.min(sortedMinuteEvents.length - 1, Math.floor((sortedMinuteEvents.length - 1) * 0.9))]
+    : null;
+  const highDensityLagMinutes = Number.isFinite(p90MinuteEvents)
+    ? lagMinutes.filter((minute) => minute.events >= p90MinuteEvents).length
+    : 0;
+  const totalEvents = allMinutes.reduce((sum, minute) => sum + minute.events, 0);
+
   let diagnosis = 'NO_LAG_EVENTS';
   if (lagRows.length > 0) {
     diagnosis = cadenceShare >= 0.7
@@ -194,7 +206,22 @@ function analyzeTelemetry(filePath) {
       firstLagAt: lagRows[0]?.at || null,
       lastLagAt: lagRows[lagRows.length - 1]?.at || null,
       topPrecedingEventTypes5s: topEntries(precedingEventTypes5s, 20),
-      topLagMinutes
+      topLagMinutes,
+      eventDensityCorrelation: {
+        totalMinutes: allMinutes.length,
+        lagMinutes: lagMinutes.length,
+        nonLagMinutes: nonLagMinutes.length,
+        eventsPerLagMinute: stat(lagMinutes.map((minute) => minute.events), 0),
+        eventsPerNonLagMinute: stat(nonLagMinutes.map((minute) => minute.events), 0),
+        p90MinuteEventThreshold: numberOrNull(p90MinuteEvents, 0),
+        lagMinutesAtOrAboveP90Density: highDensityLagMinutes,
+        highDensityShareOfLagMinutes: lagMinutes.length
+          ? numberOrNull(highDensityLagMinutes / lagMinutes.length, 4)
+          : null,
+        lagEventsPer1000TelemetryEvents: totalEvents
+          ? numberOrNull((lagRows.length / totalEvents) * 1000, 4)
+          : null
+      }
     },
     interpretation
   };
