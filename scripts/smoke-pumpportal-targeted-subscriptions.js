@@ -54,7 +54,7 @@ async function main() {
     },
     pumpPortalTargetedFirstRpcObservations: new Map(),
     pumpPortalTargetedPrefilterRefreshState: new Map(),
-    pumpPortalTargetedPrefilterExpiredMints: new Set(),
+    pumpPortalTargetedPrefilterExpiredMints: new Map(),
     telemetry: { record(type, payload) { engineTelemetry.push({ type, payload }); } },
     pumpPortalListener: {
       targetMint(mint, metadata) { requested.push({ mint, metadata }); return true; }
@@ -100,6 +100,18 @@ async function main() {
     && row.payload.mint === 'first-seen-above'
     && row.payload.classification === 'ABOVE_BAND'
     && row.payload.coverageShapedExclusion === true));
+
+  engineContext.pumpPortalTargetedPrefilterExpiredMints.set('aged-builder', {
+    expiredAt: '2026-07-18T12:00:00.000Z',
+    curveProgress: 0.2,
+    attempts: 12
+  });
+  assert.strictEqual(TradingEngine.prototype.maybeTargetPumpPortalPaidTape.call(engineContext, {
+    state: { mint: 'aged-builder', curveProgress: 0.92, curveProgressSource: 'pump_bonding_curve_rpc', bondingCurveAccountFound: true, score: 90 }
+  }), false);
+  assert(engineTelemetry.some((row) => row.type === 'provider.pumpportal.targeted_prefilter_expired_later_observed'
+    && row.payload.mint === 'aged-builder'
+    && row.payload.laterClassification === 'ABOVE_BAND'));
 
   console.log('PumpPortal targeted subscription smoke passed');
 }

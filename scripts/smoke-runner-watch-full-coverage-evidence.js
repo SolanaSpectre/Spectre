@@ -35,13 +35,17 @@ assert.strictEqual(summary.liveAction, 'KEEP_LIVE_DISABLED');
 const telemetryPath = path.join(os.tmpdir(), `spectre-runner-watch-coverage-${process.pid}.jsonl`);
 fs.writeFileSync(telemetryPath, [
   { type: 'provider.pumpportal.targeted_prefilter_first_rpc_observation', timestamp: '2026-07-18T12:00:00.000Z', payload: { mint: 'FAST', symbol: 'FAST', classification: 'ABOVE_BAND' } },
-  { type: 'pre_migration_paper.decision', timestamp: '2026-07-18T12:00:01.000Z', payload: { mint: 'FAST', symbol: 'FAST', decision: 'PAPER_SKIPPED', reason: 'MISSING_BUY_RATIO' } }
+  { type: 'pre_migration_paper.decision', timestamp: '2026-07-18T12:00:01.000Z', payload: { mint: 'FAST', symbol: 'FAST', decision: 'PAPER_SKIPPED', reason: 'MISSING_BUY_RATIO' } },
+  { type: 'provider.pumpportal.targeted_prefilter_refresh_expired', timestamp: '2026-07-18T12:03:00.000Z', payload: { mint: 'SLOW', curveProgress: 0.2, attempts: 12 } },
+  { type: 'provider.pumpportal.targeted_prefilter_expired_later_observed', timestamp: '2026-07-18T12:05:00.000Z', payload: { mint: 'SLOW', laterCurveProgress: 0.4, laterClassification: 'IN_BAND' } }
 ].map((row) => JSON.stringify(row)).join('\n') + '\n', 'utf8');
 try {
   const scanned = scanRun(telemetryPath);
   assert.strictEqual(scanned.coverageDiagnostics.firstObservedAboveBandMints, 1);
   assert.strictEqual(scanned.coverageDiagnostics.coverageShapedPaperSkips, 1);
   assert.strictEqual(scanned.coverageDiagnostics.coverageShapedPaperSkipReasons.MISSING_BUY_RATIO, 1);
+  assert.strictEqual(scanned.coverageDiagnostics.belowBandRecheckExpirations, 1);
+  assert.strictEqual(scanned.coverageDiagnostics.expiredLaterObservedInOrAboveBand, 1);
 } finally {
   fs.rmSync(telemetryPath, { force: true });
 }

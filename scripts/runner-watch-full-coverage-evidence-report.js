@@ -43,6 +43,8 @@ function scanRun(telemetryPath) {
   const entries = [];
   const exits = [];
   const prefilterObservations = [];
+  const prefilterExpirations = [];
+  const prefilterExpiredLaterObserved = [];
   const paperDecisions = [];
   forEachJsonlSync(telemetryPath, (event) => {
     const payload = event.payload || event.data || {};
@@ -55,6 +57,10 @@ function scanRun(telemetryPath) {
       exits.push({ timestamp: event.timestamp, ...payload });
     } else if (event.type === 'provider.pumpportal.targeted_prefilter_first_rpc_observation') {
       prefilterObservations.push({ timestamp: event.timestamp, ...payload });
+    } else if (event.type === 'provider.pumpportal.targeted_prefilter_refresh_expired') {
+      prefilterExpirations.push({ timestamp: event.timestamp, ...payload });
+    } else if (event.type === 'provider.pumpportal.targeted_prefilter_expired_later_observed') {
+      prefilterExpiredLaterObserved.push({ timestamp: event.timestamp, ...payload });
     } else if (event.type === 'pre_migration_paper.decision') {
       paperDecisions.push({ timestamp: event.timestamp, ...payload });
     }
@@ -88,6 +94,10 @@ function scanRun(telemetryPath) {
       byClassification,
       firstObservedAboveBandMints: firstObservedAboveBand.length,
       firstObservedAboveBand,
+      belowBandRecheckExpirations: prefilterExpirations.length,
+      belowBandRecheckExpirationRows: prefilterExpirations,
+      expiredLaterObservedInOrAboveBand: prefilterExpiredLaterObserved.length,
+      expiredLaterObservedRows: prefilterExpiredLaterObserved,
       coverageShapedPaperSkips: coverageShapedSkips.length,
       coverageShapedPaperSkipReasons: skipReasons,
       coverageShapedSkips

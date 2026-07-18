@@ -176,7 +176,7 @@ class TradingEngine {
     this.pumpBondingCurveQueueTimer = null;
     this.pumpPortalTargetedFirstRpcObservations = new Map();
     this.pumpPortalTargetedPrefilterRefreshState = new Map();
-    this.pumpPortalTargetedPrefilterExpiredMints = new Set();
+    this.pumpPortalTargetedPrefilterExpiredMints = new Map();
     this.pumpDevTargetedCurveParityLastSampleAt = new Map();
     this.pumpDevTargetedCurveParityInFlight = new Set();
     this.pumpDevTargetedCurveParitySkipLogLastAt = new Map();
@@ -3568,6 +3568,23 @@ class TradingEngine {
         maxCurveProgress
       });
     }
+    const expired = this.pumpPortalTargetedPrefilterExpiredMints.get(mint);
+    if (expired && !expired.laterObservedAt && curveProgress >= minCurveProgress) {
+      const laterClassification = curveProgress >= maxCurveProgress ? 'ABOVE_BAND' : 'IN_BAND';
+      expired.laterObservedAt = new Date().toISOString();
+      expired.laterCurveProgress = curveProgress;
+      expired.laterClassification = laterClassification;
+      this.telemetry.record('provider.pumpportal.targeted_prefilter_expired_later_observed', {
+        mint,
+        symbol: state.symbol || null,
+        expiredAt: expired.expiredAt,
+        expiredCurveProgress: expired.curveProgress,
+        expiredAttempts: expired.attempts,
+        laterCurveProgress: curveProgress,
+        laterClassification,
+        coverageShapedExclusion: true
+      });
+    }
     if (
       curveProgress < minCurveProgress
       || curveProgress >= maxCurveProgress
@@ -3601,9 +3618,15 @@ class TradingEngine {
     const maxAgeMs = Number(this.config.pumpPortalTargetedPrefilterMaxAgeMs);
     if (now - state.firstScheduledAt >= maxAgeMs) {
       this.pumpPortalTargetedPrefilterRefreshState.delete(mint);
-      this.pumpPortalTargetedPrefilterExpiredMints.add(mint);
+      const expiredAt = new Date(now).toISOString();
+      this.pumpPortalTargetedPrefilterExpiredMints.set(mint, {
+        expiredAt,
+        curveProgress,
+        attempts: state.attempts
+      });
       this.telemetry.record('provider.pumpportal.targeted_prefilter_refresh_expired', {
         mint,
+        expiredAt,
         curveProgress,
         attempts: state.attempts,
         ageMs: now - state.firstScheduledAt,
