@@ -8,6 +8,7 @@ const { scanTelemetryCoverage } = require('./lib/paid-tape-coverage-epochs');
 
 const ROOT = path.join(__dirname, '..');
 const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'runner-watch-full-coverage-v1.json');
+const PAID_TAPE_COVERAGE_PATH = path.join(ROOT, 'data', 'reports', 'paid-tape-coverage-epoch-latest.json');
 const BATTLEFIELD_PATH = path.join(ROOT, 'data', 'reports', 'run-battlefield-latest.json');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'runner-watch-full-coverage-evidence-latest.json');
 const LEDGER_PATH = path.join(ROOT, 'data', 'runner-watch-ledgers', 'full-coverage-v1.jsonl');
@@ -18,6 +19,25 @@ function readJson(filePath) {
 
 function relative(filePath) {
   return path.relative(ROOT, filePath).replace(/\\/g, '/');
+}
+
+function resolveTelemetryPath(argv = process.argv.slice(2)) {
+  const explicitIndex = argv.indexOf('--telemetry');
+  if (explicitIndex >= 0) {
+    const explicitValue = argv[explicitIndex + 1];
+    if (!explicitValue) throw new Error('--telemetry requires a file path.');
+    return path.resolve(ROOT, explicitValue);
+  }
+
+  if (fs.existsSync(PAID_TAPE_COVERAGE_PATH)) {
+    const coverage = readJson(PAID_TAPE_COVERAGE_PATH);
+    if (coverage.telemetryPath) return path.resolve(ROOT, coverage.telemetryPath);
+  }
+
+  const battlefield = readJson(BATTLEFIELD_PATH);
+  const telemetryValue = battlefield.files?.telemetryPath || battlefield.telemetryPath;
+  if (!telemetryValue) throw new Error('No telemetry path found in paid-tape coverage or battlefield reports.');
+  return path.resolve(ROOT, telemetryValue);
 }
 
 function number(value, fallback = null) {
@@ -235,10 +255,7 @@ function summarizeLedger(rows, prereg) {
 
 function main() {
   const prereg = readJson(PREREG_PATH);
-  const battlefield = readJson(BATTLEFIELD_PATH);
-  const telemetryValue = battlefield.files?.telemetryPath || battlefield.telemetryPath;
-  if (!telemetryValue) throw new Error('Latest battlefield report has no telemetry path.');
-  const telemetryPath = path.resolve(ROOT, telemetryValue);
+  const telemetryPath = resolveTelemetryPath();
   const run = scanRun(telemetryPath);
   const coverage = scanTelemetryCoverage(telemetryPath);
   const validation = validateRun(prereg, telemetryPath, run, coverage);
@@ -275,4 +292,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { scanRun, buildEpisodes, validateRun, summarizeLedger };
+module.exports = { resolveTelemetryPath, scanRun, buildEpisodes, validateRun, summarizeLedger };

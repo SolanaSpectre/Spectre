@@ -5,13 +5,19 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { scanRun, buildEpisodes, summarizeLedger } = require('./runner-watch-full-coverage-evidence-report');
+const { resolveTelemetryPath, scanRun, buildEpisodes, summarizeLedger } = require('./runner-watch-full-coverage-evidence-report');
 
 const prereg = {
   throughputCheckpoint: { minimumUniqueMintEpisodesPerFullCoverageHour: 1 },
   economicCheckpoint: { minimumUniqueMintEpisodes: 2, minimumValidRuns: 1 },
   stoppingRule: { validRuns: 10 }
 };
+
+assert.strictEqual(
+  resolveTelemetryPath(['--telemetry', 'run-logs/explicit.jsonl']),
+  path.resolve(__dirname, '..', 'run-logs', 'explicit.jsonl'),
+  'explicit telemetry path must override report artifacts'
+);
 
 const episodes = buildEpisodes({
   entries: [{ mint: 'A', symbol: 'A' }, { mint: 'A', symbol: 'A' }, { mint: 'B', symbol: 'B' }],
