@@ -1,5 +1,3 @@
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
-
 const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
@@ -48,7 +46,7 @@ function nowIso() {
 }
 
 function sanitizeUrl(url) {
-  return String(url || '').replace(/([?&](?:api-key|apikey|key)=)[^&]+/gi, '$1<redacted>');
+  return String(url || '').replace(/([?&](?:api-key|apikey|key|token|access_token)=)[^&]+/gi, '$1<redacted>');
 }
 
 function mintOf(payload = {}) {
@@ -112,6 +110,11 @@ function buildEmptyStats(url, durationMs, sampleTokenTrades, pingIntervalMs) {
     unknownMessages: 0,
     knownMints: 0,
     subscribedTokenTrades: 0,
+    requestedTokenTrades: 0,
+    acknowledgedTokenTrades: 0,
+    subscriptionAckMessages: 0,
+    subscriptionErrorMessages: 0,
+    subscriptionErrors: [],
     tokenTradeSubscribeFrames: 0,
     tokenTradeUnsubscribeFrames: 0,
     controlFramesSent: 0,
@@ -130,7 +133,8 @@ function buildEmptyStats(url, durationMs, sampleTokenTrades, pingIntervalMs) {
     messageTypeCounts: {},
     messageTextCounts: {},
     firstSamples: {},
-    subscribedMints: []
+    requestedMints: [],
+    acknowledgedMints: []
   };
 }
 
@@ -138,6 +142,7 @@ function runProbe({ url, durationMs, sampleTokenTrades, pingIntervalMs }) {
   return new Promise((resolve) => {
     const stats = buildEmptyStats(url, durationMs, sampleTokenTrades, pingIntervalMs);
     const subscribedMints = new Set();
+    const acknowledgedMints = new Set();
     const knownMints = new Set();
     let settled = false;
     let pingTimer = null;
@@ -171,6 +176,10 @@ function runProbe({ url, durationMs, sampleTokenTrades, pingIntervalMs }) {
         stats.connectionAgeMs = new Date(stats.stoppedAt).getTime() - new Date(stats.openedAt).getTime();
       }
       stats.subscribedMints = Array.from(subscribedMints);
+      stats.requestedMints = Array.from(subscribedMints);
+      stats.acknowledgedMints = Array.from(acknowledgedMints);
+      stats.requestedTokenTrades = subscribedMints.size;
+      stats.acknowledgedTokenTrades = acknowledgedMints.size;
       stats.knownMints = knownMints.size;
       try {
         socket.removeAllListeners();
@@ -237,6 +246,17 @@ function runProbe({ url, durationMs, sampleTokenTrades, pingIntervalMs }) {
 
       if (type === 'system') {
         stats.systemMessages += 1;
+        const systemType = String(payload.type || '').toLowerCase();
+        if (systemType === 'subscribed' && payload.method === 'subscribeTokenTrade') {
+          stats.subscriptionAckMessages += 1;
+          const keys = Array.isArray(payload.keys) ? payload.keys.filter(Boolean) : [];
+          for (const mint of keys) acknowledgedMints.add(mint);
+          stats.acknowledgedTokenTrades = acknowledgedMints.size;
+        } else if (systemType === 'error') {
+          stats.subscriptionErrorMessages += 1;
+          const message = String(payload.message || payload.error || 'unknown error').slice(0, 500);
+          if (!stats.subscriptionErrors.includes(message)) stats.subscriptionErrors.push(message);
+        }
       } else if (type === 'newToken') {
         stats.newTokens += 1;
         const mint = mintOf(payload);
@@ -278,6 +298,39 @@ function runProbe({ url, durationMs, sampleTokenTrades, pingIntervalMs }) {
   });
 }
 
+function assessCapacity(stats, requirements = {}) {
+  const requiredSubscriptions = Math.max(1, Number(requirements.requiredSubscriptions || 162));
+  const expectedPlanSubscriptions = Number(requirements.expectedPlanSubscriptions);
+  const expectedMonthlyTradeQuota = Number(requirements.expectedMonthlyTradeQuota);
+  const requiredTradeMessagesPerHour = Math.max(1, Number(requirements.requiredTradeMessagesPerHour || 96000));
+  const capacityError = stats.subscriptionErrors.find((message) => /subscription|tier|limit|capacity/i.test(message)) || null;
+  const observedEnoughCandidates = Number(stats.knownMints || 0) >= requiredSubscriptions;
+  let verdict = 'PROBE_INCONCLUSIVE';
+  if (Number.isFinite(expectedPlanSubscriptions) && expectedPlanSubscriptions < requiredSubscriptions) {
+    verdict = 'DECLARED_PLAN_CAPACITY_BELOW_REQUIREMENT';
+  } else if (Number(stats.acknowledgedTokenTrades || 0) >= requiredSubscriptions) {
+    verdict = 'ACKNOWLEDGED_CAPACITY_MEETS_REQUIREMENT';
+  } else if (capacityError || observedEnoughCandidates) {
+    verdict = 'OBSERVED_CAPACITY_BELOW_REQUIREMENT';
+  } else {
+    verdict = 'PROBE_INCONCLUSIVE_INSUFFICIENT_NEW_TOKENS';
+  }
+  return {
+    verdict,
+    requiredSubscriptions,
+    acknowledgedSubscriptions: Number(stats.acknowledgedTokenTrades || 0),
+    requestedSubscriptions: Number(stats.requestedTokenTrades || 0),
+    knownMints: Number(stats.knownMints || 0),
+    capacityError,
+    expectedPlanSubscriptions: Number.isFinite(expectedPlanSubscriptions) ? expectedPlanSubscriptions : null,
+    requiredTradeMessagesPerHour,
+    expectedMonthlyTradeQuota: Number.isFinite(expectedMonthlyTradeQuota) ? expectedMonthlyTradeQuota : null,
+    projectedFullCoverageHoursPerMonth: Number.isFinite(expectedMonthlyTradeQuota)
+      ? Number((expectedMonthlyTradeQuota / requiredTradeMessagesPerHour).toFixed(2))
+      : null
+  };
+}
+
 function interpretProbe(stats) {
   const marketMessages = Number(stats.newTokens || 0)
     + Number(stats.trades || 0)
@@ -305,11 +358,20 @@ function interpretProbe(stats) {
 }
 
 async function main() {
+  require('dotenv').config({ path: path.join(ROOT, '.env') });
   const args = parseArgs(process.argv.slice(2));
   const durationMs = Number(args.durationMs || args.ms || 300000);
   const sampleTokenTrades = Number(args.sampleTokenTrades || 25);
   const pingIntervalMs = Number(args.pingIntervalMs || process.env.PUMPDEV_PING_INTERVAL_MS || 25000);
   const url = String(args.url || process.env.PUMPDEV_WS_URL || DEFAULT_WS_URL);
+  const requiredSubscriptions = Number(args.requiredSubscriptions || 162);
+  const requiredTradeMessagesPerHour = Number(args.requiredTradeMessagesPerHour || 96000);
+  const expectedPlanSubscriptions = args.expectedPlanSubscriptions === undefined
+    ? null
+    : Number(args.expectedPlanSubscriptions);
+  const expectedMonthlyTradeQuota = args.expectedMonthlyTradeQuota === undefined
+    ? null
+    : Number(args.expectedMonthlyTradeQuota);
   const reportDir = resolveRepoPath(args.reportDir, DEFAULT_REPORT_DIR);
   const latestPath = resolveRepoPath(args.latestPath, DEFAULT_LATEST_PATH);
   const generatedAt = nowIso();
@@ -317,6 +379,12 @@ async function main() {
   console.log(`Starting PumpDev feed probe: durationMs=${durationMs} sampleTokenTrades=${sampleTokenTrades} pingIntervalMs=${pingIntervalMs} url=${sanitizeUrl(url)}`);
   const probe = await runProbe({ url, durationMs, sampleTokenTrades, pingIntervalMs });
   probe.interpretation = interpretProbe(probe);
+  const capacityAssessment = assessCapacity(probe, {
+    requiredSubscriptions,
+    requiredTradeMessagesPerHour,
+    expectedPlanSubscriptions,
+    expectedMonthlyTradeQuota
+  });
   console.log(`pumpdev: opened=${probe.openEvents} messages=${probe.messages} newTokens=${probe.newTokens} trades=${probe.trades} migrations=${probe.migrations} tokenSubFrames=${probe.tokenTradeSubscribeFrames} pings=${probe.pingsSent}/${probe.pongsReceived} errors=${probe.errorEvents} closes=${probe.closeEvents} lastClose=${probe.lastCloseCode || 'none'} lastError=${probe.lastErrorMessage || 'none'}`);
 
   const payload = {
@@ -342,11 +410,14 @@ async function main() {
       migrations: probe.migrations,
       knownMints: probe.knownMints,
       subscribedTokenTrades: probe.subscribedTokenTrades,
+      requestedTokenTrades: probe.requestedTokenTrades,
+      acknowledgedTokenTrades: probe.acknowledgedTokenTrades,
       pairSolEvents: probe.pairSolEvents,
       pairUsdcEvents: probe.pairUsdcEvents,
       pairUnknownEvents: probe.pairUnknownEvents,
       interpretation: probe.interpretation
     },
+    capacityAssessment,
     probe
   };
 
@@ -358,7 +429,11 @@ async function main() {
   console.log(`Wrote latest PumpDev feed probe: ${latestPath}`);
 }
 
-main().catch((error) => {
-  console.error(`PumpDev feed probe failed: ${error.stack || error.message}`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(`PumpDev feed probe failed: ${error.stack || error.message}`);
+    process.exit(1);
+  });
+}
+
+module.exports = { parseArgs, sanitizeUrl, classifyMessage, interpretProbe, assessCapacity, runProbe };
