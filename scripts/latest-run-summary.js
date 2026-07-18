@@ -8,6 +8,7 @@ const DEFAULT_OUTPUT = path.join(REPO_ROOT, 'data', 'reports', 'latest-run-summa
 const FILES = {
   battlefield: 'data/reports/run-battlefield-latest.json',
   paidTapeCoverageEpoch: 'data/reports/paid-tape-coverage-epoch-latest.json',
+  runnerWatchFullCoverageEvidence: 'data/reports/runner-watch-full-coverage-evidence-latest.json',
   telemetryPathAudit: 'data/reports/report-telemetry-path-audit-latest.json',
   simpleRuntimeAiEvidence: 'data/reports/simple-runtime-ai-evidence-latest.json',
   liveReadiness: 'data/reports/live-readiness-latest.json',
@@ -997,6 +998,15 @@ function buildPumpPortalHealth(battlefield = {}) {
     ? number(stats.maxMeteredTradeEventsPerSession, 0)
     : null;
   const meteredTradeBudgetReached = stats.meteredTradeBudgetReached === true;
+  const tradeSubscriptionMode = stats.tradeSubscriptionMode || null;
+  const targetedTradeSubscriptionsDeferredAtDiscovery = number(stats.targetedTradeSubscriptionsDeferredAtDiscovery, 0);
+  const targetedTradeSubscriptionCandidates = number(stats.targetedTradeSubscriptionCandidates, 0);
+  const targetedTradeSubscriptionAccepted = number(stats.targetedTradeSubscriptionAccepted, 0);
+  const targetedTradeSubscriptionAlreadyActive = number(stats.targetedTradeSubscriptionAlreadyActive, 0);
+  const targetedTradeSubscriptionSkippedNoApiKey = number(stats.targetedTradeSubscriptionSkippedNoApiKey, 0);
+  const targetedTradeSubscriptionSkippedBudget = number(stats.targetedTradeSubscriptionSkippedBudget, 0);
+  const targetedTradeSubscriptionSkippedMaxActive = number(stats.targetedTradeSubscriptionSkippedMaxActive, 0);
+  const targetedTradeSubscriptionReasonCounts = stats.targetedTradeSubscriptionReasonCounts || {};
   const tokenTradeReconnectResubscribeScheduled = number(stats.tokenTradeReconnectResubscribeScheduled, 0);
   const tokenTradeReconnectResubscribeSent = number(stats.tokenTradeReconnectResubscribeSent, 0);
   const tokenTradeReconnectResubscribeDropped = number(stats.tokenTradeReconnectResubscribeDropped, 0);
@@ -1129,6 +1139,15 @@ function buildPumpPortalHealth(battlefield = {}) {
     accountSubscriptionsSkippedBudget,
     maxMeteredTradeEventsPerSession,
     meteredTradeBudgetReached,
+    tradeSubscriptionMode,
+    targetedTradeSubscriptionsDeferredAtDiscovery,
+    targetedTradeSubscriptionCandidates,
+    targetedTradeSubscriptionAccepted,
+    targetedTradeSubscriptionAlreadyActive,
+    targetedTradeSubscriptionSkippedNoApiKey,
+    targetedTradeSubscriptionSkippedBudget,
+    targetedTradeSubscriptionSkippedMaxActive,
+    targetedTradeSubscriptionReasonCounts,
     tokenTradeReconnectResubscribeScheduled,
     tokenTradeReconnectResubscribeSent,
     tokenTradeReconnectResubscribeDropped,
@@ -2393,6 +2412,7 @@ function buildSummary(docs) {
   const walletConditionedRelaxedGateReplay = docs.preMigrationWalletConditionedRelaxedGateReplay.data || {};
   const walletRelaxedShadowOutcome = docs.preMigrationWalletRelaxedShadowOutcome.data || {};
   const paidTapeCoverageEpoch = docs.paidTapeCoverageEpoch.data || {};
+  const runnerWatchFullCoverageEvidence = docs.runnerWatchFullCoverageEvidence.data || {};
   const walletContextCoverage = docs.preMigrationWalletContextCoverage.data || {};
   const walletContextFollowThrough = docs.preMigrationWalletContextFollowThrough.data || {};
   const walletChannelHealth = docs.preMigrationWalletChannelHealth.data || {};
@@ -3150,8 +3170,13 @@ function buildSummary(docs) {
     : meteredTradeLimit > 0 ? meteredTradeLimit : 'unlimited';
   const estimatedPumpPortalChargeSol = Math.floor((pumpPortalHealth.meteredTradeEvents || 0) / 10000) * 0.01;
   lines.push(`  - metered trade budget: events=${pumpPortalHealth.meteredTradeEvents || 0} (mint=${pumpPortalHealth.trades || 0}, account-only=${pumpPortalHealth.unmatchedAccountTrades || 0}), max=${meteredTradeLimitLabel}, reached=${pumpPortalHealth.meteredTradeBudgetReached === true}, skippedTokenSubscriptions=${pumpPortalHealth.tradeSubscriptionsSkippedBudget || 0}, skippedAccountSubscriptions=${pumpPortalHealth.accountSubscriptionsSkippedBudget || 0}, estimatedCompletedBlockCharge=${fmt(estimatedPumpPortalChargeSol, 4)} SOL`);
+  lines.push(`  - targeted paid tape: mode=${pumpPortalHealth.tradeSubscriptionMode || 'unknown'}, discoveryDeferred=${pumpPortalHealth.targetedTradeSubscriptionsDeferredAtDiscovery || 0}, candidates=${pumpPortalHealth.targetedTradeSubscriptionCandidates || 0}, accepted=${pumpPortalHealth.targetedTradeSubscriptionAccepted || 0}, alreadyActive=${pumpPortalHealth.targetedTradeSubscriptionAlreadyActive || 0}, skippedNoKey/budget/max=${pumpPortalHealth.targetedTradeSubscriptionSkippedNoApiKey || 0}/${pumpPortalHealth.targetedTradeSubscriptionSkippedBudget || 0}/${pumpPortalHealth.targetedTradeSubscriptionSkippedMaxActive || 0}`);
   if (paidTapeCoverageEpoch.coverage) {
     lines.push(`  - paid-tape coverage epoch: ${paidTapeCoverageEpoch.verdict || 'unknown'}; fullPaid=${paidTapeCoverageEpoch.coverage.fullPaidTapeMinutes ?? 'n/a'}m, discoveryRpcOnly=${paidTapeCoverageEpoch.coverage.discoveryRpcOnlyMinutes ?? 'n/a'}m, capAt=${paidTapeCoverageEpoch.coverage.budgetReachedAt || 'none'}`);
+  }
+  if (runnerWatchFullCoverageEvidence.cumulative) {
+    const evidence = runnerWatchFullCoverageEvidence.cumulative;
+    lines.push(`  - runner-watch prereg evidence: ${evidence.verdict || 'unknown'}; validRuns=${evidence.validRuns ?? 0}, episodes=${evidence.realizedUniqueMintEpisodes ?? 0}/20, episodesPerHour=${evidence.episodesPerFullCoverageHour ?? 'n/a'}, median=${evidence.medianEpisodePnlSol ?? 'n/a'} SOL, exTop3=${evidence.pnlAfterRemovingTop3WinnersSol ?? 'n/a'} SOL, live=${evidence.liveAction || 'KEEP_LIVE_DISABLED'}`);
   }
   lines.push(`  - control frames sent / token subscribe / token unsubscribe / account unsubscribe: ${pumpPortalHealth.controlFramesSent || 0} / ${pumpPortalHealth.tokenTradeSubscribeFrames || 0} / ${pumpPortalHealth.tokenTradeUnsubscribeFrames || 0} / ${pumpPortalHealth.accountTradeUnsubscribeFrames || 0}`);
   lines.push(`  - split sockets enabled / backup-only / post-1006 tradestream delay: ${pumpPortalHealth.splitSocketsEnabled === null ? 'unknown' : pumpPortalHealth.splitSocketsEnabled === true} / ${pumpPortalHealth.backupOnly === true} / ${pumpPortalHealth.postCloseTradestreamDelayMs || 0}ms`);

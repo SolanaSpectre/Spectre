@@ -410,6 +410,17 @@ class TradingEngine {
       mode: this.executionModeManager.mode,
       sessionDurationMinutes: this.config.sessionDurationMinutes,
       entryWarmupMs: this.getEffectiveEntryWarmupMs(),
+      pumpPortalPaidTapePlan: {
+        tradeSubscriptionMode: this.config.pumpPortalTradeSubscriptionMode,
+        targetedMinCurveProgress: this.config.pumpPortalTargetedMinCurveProgress,
+        targetedMaxCurveProgress: this.config.pumpPortalTargetedMaxCurveProgress,
+        maxMeteredTradeEventsPerSession: this.config.pumpPortalMaxMeteredTradeEventsPerSession,
+        tokenTradeSubscriptionTtlMs: this.config.pumpPortalTokenTradeSubscriptionTtlMs
+      },
+      strategyPreregistration: {
+        id: 'runner_watch_full_coverage_v1_2026-07-18',
+        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v1.json'
+      },
       replayConfigSnapshot,
       configHash: replayConfigSnapshot.configHash,
       shadowWalletFile: {
@@ -3361,6 +3372,7 @@ class TradingEngine {
       return result;
     }
 
+    this.maybeTargetPumpPortalPaidTape(result);
     this.maybeTargetPumpDevFinalist(result);
 
     const summary = this.launchIntelStore.registerPreMigrationState(result.state);
@@ -3519,6 +3531,31 @@ class TradingEngine {
       score,
       curveProgress
     });
+  }
+
+  maybeTargetPumpPortalPaidTape(result = {}) {
+    if (this.config.pumpPortalTradeSubscriptionMode !== 'targeted_curve') return false;
+    const state = result.state || {};
+    const mint = state.mint;
+    const curveProgress = Number(state.curveProgress);
+    const curveProgressSource = state.curveProgressSource || null;
+    const minCurveProgress = Number(this.config.pumpPortalTargetedMinCurveProgress);
+    const maxCurveProgress = Number(this.config.pumpPortalTargetedMaxCurveProgress);
+    if (
+      !mint
+      || curveProgressSource !== 'pump_bonding_curve_rpc'
+      || state.bondingCurveAccountFound !== true
+      || !Number.isFinite(curveProgress)
+      || curveProgress < minCurveProgress
+      || curveProgress >= maxCurveProgress
+      || state.bondingCurveComplete === true
+    ) return false;
+    return this.pumpPortalListener?.targetMint?.(mint, {
+      reason: 'discovery_rpc_curve_prefilter',
+      curveProgress,
+      curveProgressSource,
+      score: Number(state.score)
+    }) || false;
   }
 
   shouldEmitPreMigrationObservedTelemetry(result = {}) {
@@ -5485,6 +5522,7 @@ class TradingEngine {
 
     if (summary.curveProgress !== null && summary.curveProgress !== undefined) {
       current.curveProgress = summary.curveProgress;
+      if (summary.accountFound) current.curveProgressSource = 'pump_bonding_curve_rpc';
     }
 
     if (summary.bondingStage) {
@@ -5759,7 +5797,12 @@ class TradingEngine {
       current.launchIntelSummary = launchIntelSummary;
       this.latestPumpPortalTokens.set(mint, current);
     }
-    if (!providerCurveSnapshotApplied) {
+    const providerCurveProgress = Number(nextToken.curveProgress);
+    const targetedRpcPrefilterCandidate = this.config.pumpPortalTradeSubscriptionMode === 'targeted_curve'
+      && Number.isFinite(providerCurveProgress)
+      && providerCurveProgress >= Number(this.config.pumpPortalTargetedMinCurveProgress)
+      && providerCurveProgress < Number(this.config.pumpPortalTargetedMaxCurveProgress);
+    if (!providerCurveSnapshotApplied || targetedRpcPrefilterCandidate) {
       await this.syncPumpBondingCurveBeforePreMigrationObservation(
         mint,
         this.latestPumpPortalTokens.get(mint),

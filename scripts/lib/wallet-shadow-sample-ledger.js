@@ -5,6 +5,15 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..', '..');
 const LEDGER_PATH = path.join(ROOT, 'data', 'wallet-shadow-ledgers', 'frozen-slice-samples.jsonl');
+const DISPOSITION_PATH = path.join(ROOT, 'data', 'wallet-shadow-ledgers', 'frozen-slice-disposition.json');
+
+function readDisposition(filePath = DISPOSITION_PATH) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
+  } catch {
+    return null;
+  }
+}
 
 function readJsonl(filePath) {
   if (!fs.existsSync(filePath)) return [];
@@ -98,6 +107,19 @@ function updateWindowDiagnostics(bucket, window, row) {
 }
 
 function appendSamples(samples, ledgerPath = LEDGER_PATH) {
+  const disposition = readDisposition();
+  if (disposition?.closedToFurtherLedgerAppends === true) {
+    const existing = readJsonl(ledgerPath).length;
+    return {
+      ledgerPath,
+      appended: 0,
+      existing,
+      total: existing,
+      closed: true,
+      reason: disposition.disposition,
+      closedBeforeWrite: true
+    };
+  }
   const normalized = (samples || []).map(normalizeSample);
   if (!normalized.length) {
     return {
@@ -248,6 +270,7 @@ function summarizeLedger(filters = {}, ledgerPath = LEDGER_PATH) {
     postFixCleanSamples,
     postFixOutcomeJoined120s,
     postFixTargetAdditionalSamples: 10,
+    checkpointDisposition: readDisposition(),
     qualifyingFirstTouchIntegrity,
     windowDiagnostics,
     preDecisionContextSummary,
@@ -259,8 +282,10 @@ function summarizeLedger(filters = {}, ledgerPath = LEDGER_PATH) {
 }
 
 module.exports = {
+  DISPOSITION_PATH,
   LEDGER_PATH,
   appendSamples,
+  readDisposition,
   readJsonl,
   sampleKey,
   summarizeLedger

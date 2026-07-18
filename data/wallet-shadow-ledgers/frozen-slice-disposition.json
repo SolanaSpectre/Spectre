@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "frozenSlice": "all_low_score_first_sight__tracked_first_touch_buy",
+  "disposition": "FAILED_CLEAN_CHECKPOINT",
+  "closedToFurtherLedgerAppends": true,
+  "cleanSampleTarget": 10,
+  "cleanSamplesEvaluated": 10,
+  "metricsAtDecision": {
+    "wins": 4,
+    "losses": 6,
+    "totalPnlSol": 0.0152995,
+    "medianPnlSol": -0.000560956,
+    "pnlAfterRemovingTop3WinnersSol": -0.006952813,
+    "runsWithTrades": 4,
+    "positiveRuns": 2,
+    "largestRunShareOfTotalPnl": 1.4331
+  },
+  "failedRequirements": [
+    "positiveOrNonNegativeRunsAtLeast3",
+    "positiveRunsAtLeast3",
+    "noSingleRunOver60PctOfTotalPnl"
+  ],
+  "coverageCaveat": {
+    "classification": "REALIZABLE_EXITS_FULL_PAID_TAPE_AUXILIARY_300S_WINDOWS_MIXED",
+    "cappedTelemetryPath": "run-logs/telemetry-2026-07-18T03-38-04-107Z.jsonl",
+    "budgetReachedAt": "2026-07-18T03:51:25.418Z",
+    "cleanSamplesFromCappedRun": 3,
+    "decisionsBeforeCap": 3,
+    "realizableReplayExitsBeforeCap": 3,
+    "nominal300sWindowsCrossingCap": 3,
+    "interpretation": "The terminal verdict uses the frozen realizable replay, whose three capped-run exits occurred before the paid-tape boundary. Post-cap portions of the auxiliary 300-second MFE/curve windows are mixed-coverage context and must not be treated as full paid tape."
+  },
+  "nextAction": "keep_lane_closed; any new wallet hypothesis requires a new pre-registration and future-only evidence"
+}

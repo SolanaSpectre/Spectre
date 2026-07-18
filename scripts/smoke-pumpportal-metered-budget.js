@@ -5,6 +5,7 @@ async function main() {
   const lifecycle = [];
   const listener = new PumpPortalListener({
     pumpPortalApiKey: 'smoke-key',
+    pumpPortalTradeSubscriptionMode: 'all_discovered',
     pumpPortalSplitSockets: true,
     pumpPortalMaxMeteredTradeEventsPerSession: 2,
     pumpPortalMaxSubscribedMints: 10,

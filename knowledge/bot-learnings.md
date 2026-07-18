@@ -48,6 +48,7 @@ These are local lessons from this bot's own paper-trading research.
 ## Decision Discipline
 
 - Capital preservation matters more than forcing trades.
+- MFE and excursion shape at `n=10` predicted nothing for the frozen wallet lane: realizable replay reversed the seductive excursion picture into a median-negative, ex-top-3-negative failure. Never grade a strategy lane on excursions; require realizable exits plus frozen median and ex-top-winner durability checks.
 - A valid response to uncertainty is no trade.
 - One isolated threshold change is better than panic-tuning multiple gates at once.
 - The bot should prefer trustworthy structure over exciting noise.

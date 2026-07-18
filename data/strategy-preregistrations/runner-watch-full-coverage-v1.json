@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "id": "runner_watch_full_coverage_v1_2026-07-18",
+  "preregisteredAt": "2026-07-18T01:28:22.1008379-05:00",
+  "status": "PREREGISTERED_BEFORE_FIRST_VALID_RUN",
+  "mode": "paper_only",
+  "liveBehaviorChanged": false,
+  "question": "Under full paid-tape coverage, does PRE_MIGRATION_RUNNER_WATCH produce at least one independent mint episode per covered hour, and do its realizable runtime outcomes remain durable rather than top-heavy?",
+  "subscriptionPlan": {
+    "mode": "targeted_curve",
+    "freeInputsOnly": [
+      "PumpPortal new-token discovery",
+      "RPC bonding-curve progress"
+    ],
+    "minCurveProgressInclusive": 0.25,
+    "maxCurveProgressExclusive": 0.9,
+    "paidEventBudgetPerSession": 30000,
+    "estimatedMaximumChargeSol": 0.03,
+    "tokenTradeSubscriptionTtlMs": 1800000
+  },
+  "validRunDefinition": {
+    "requestedRunMinutes": 60,
+    "minimumFullPaidTapeMinutes": 55,
+    "pumpPortalBudgetMustNotBeReachedBeforeMinute": 55,
+    "runtimeRpcCurveErrorsMustBeZero": true,
+    "interruptedRunsExcluded": true,
+    "mixedCoverageRowsMustRemainEpochLabeled": true
+  },
+  "episodeIdentity": "telemetry_run|mint; same-mint reentries within a run count as one episode",
+  "throughputCheckpoint": {
+    "minimumUniqueMintEpisodesPerFullCoverageHour": 1,
+    "gradeOn": "cumulative valid full-coverage runtime sessions"
+  },
+  "economicCheckpoint": {
+    "minimumUniqueMintEpisodes": 20,
+    "minimumValidRuns": 5,
+    "requirements": [
+      "total realized paper PnL SOL > 0",
+      "median realized episode PnL SOL > 0",
+      "realized PnL after removing top 3 winning episodes > 0",
+      "at least 3 positive runs",
+      "no single run contributes more than 60% of total positive PnL"
+    ]
+  },
+  "stoppingRule": {
+    "validRuns": 10,
+    "ifEpisodeTargetNotReached": "INSUFFICIENT_THROUGHPUT_FOR_LIVE_GRADUATION",
+    "ifDurabilityFailsAtCheckpoint": "FAILED_RUNTIME_CHECKPOINT",
+    "noGateLooseningFromStarvation": true
+  },
+  "prohibitions": [
+    "No live broadcast enablement from this experiment.",
+    "No entry-gate or exit-rule changes while evidence is collecting.",
+    "No grading on MFE, maximum excursion, or duplicate same-mint reentries.",
+    "Any changed curve floor, budget, entry logic, or exit logic starts a new pre-registration."
+  ]
+}

@@ -22,6 +22,11 @@ const CONFIG_GETTER_ALLOWLIST = [
   'pumpDevReconnectDelayResetAfterStableMs',
   'pumpPortalSplitSockets',
   'pumpPortalMaxSubscribedMints',
+  'pumpPortalTokenTradeSubscriptionTtlMs',
+  'pumpPortalMaxMeteredTradeEventsPerSession',
+  'pumpPortalTradeSubscriptionMode',
+  'pumpPortalTargetedMinCurveProgress',
+  'pumpPortalTargetedMaxCurveProgress',
   'pumpPortalBackupOnly'
 ];
 

@@ -1,5 +1,6 @@
 const POST_RUN_REPORTS = [
   { title: 'Paid-Tape Coverage Epoch', script: 'paid-tape-coverage-epoch-report.js' },
+  { title: 'Runner-Watch Full-Coverage Evidence', script: 'runner-watch-full-coverage-evidence-report.js' },
   { title: 'Macro Posture Report', script: 'macro-posture-report.js' },
   { title: 'Simple Runtime AI Evidence', script: 'simple-runtime-ai-evidence-report.js' },
   { title: 'Battlefield Report', script: 'run-battlefield-report.js' },

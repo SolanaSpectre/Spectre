@@ -28,11 +28,12 @@ class PumpPortalListener {
     this.maxReconnectDelayMs = Number(config.pumpPortalMaxReconnectDelayMs || 60000);
     this.maxSubscribedMints = Number(config.pumpPortalMaxSubscribedMints || 100);
     this.tokenTradeSubscriptionTtlMs = Number(config.pumpPortalTokenTradeSubscriptionTtlMs || 30 * 60 * 1000);
+    this.tradeSubscriptionMode = String(config.pumpPortalTradeSubscriptionMode || 'targeted_curve').trim().toLowerCase();
     const configuredMeteredTradeLimit = config.pumpPortalMaxMeteredTradeEventsPerSession;
     const parsedMeteredTradeLimit = configuredMeteredTradeLimit === undefined
       || configuredMeteredTradeLimit === null
       || configuredMeteredTradeLimit === ''
-      ? 10000
+      ? 30000
       : Number(configuredMeteredTradeLimit);
     this.maxMeteredTradeEventsPerSession = Number.isFinite(parsedMeteredTradeLimit) && parsedMeteredTradeLimit >= 0
       ? parsedMeteredTradeLimit
@@ -103,6 +104,15 @@ class PumpPortalListener {
       tradeSubscriptionsSkippedMaxActive: 0,
       tradeSubscriptionsSkippedBudget: 0,
       accountSubscriptionsSkippedBudget: 0,
+      tradeSubscriptionMode: this.tradeSubscriptionMode,
+      targetedTradeSubscriptionsDeferredAtDiscovery: 0,
+      targetedTradeSubscriptionCandidates: 0,
+      targetedTradeSubscriptionAccepted: 0,
+      targetedTradeSubscriptionAlreadyActive: 0,
+      targetedTradeSubscriptionSkippedNoApiKey: 0,
+      targetedTradeSubscriptionSkippedBudget: 0,
+      targetedTradeSubscriptionSkippedMaxActive: 0,
+      targetedTradeSubscriptionReasonCounts: {},
       meteredTradeBudgetReached: false,
       meteredTradeBudgetReachedAt: null,
       maxMeteredTradeEventsPerSession: this.maxMeteredTradeEventsPerSession,
@@ -643,7 +653,7 @@ class PumpPortalListener {
         this.touchSubscribedMint(mint);
       }
 
-      if (!this.backupOnly && mint && !this.subscribedMints.has(mint)) {
+      if (!this.backupOnly && mint && !this.subscribedMints.has(mint) && this.tradeSubscriptionMode === 'all_discovered') {
         if (this.canUsePaidTradeStreams() && this.meteredTradeBudgetAllowsSubscriptions() && this.reserveMintSubscriptionSlot(mint)) {
           this.subscribeTokenTrade(mint);
         } else if (this.canUsePaidTradeStreams() && !this.meteredTradeBudgetAllowsSubscriptions()) {
@@ -653,6 +663,8 @@ class PumpPortalListener {
           this.subscribedMints.add(mint);
           this.stats.tradeSubscriptionsSkippedNoApiKey = this.skippedPaidStreamMints.size;
         }
+      } else if (!this.backupOnly && mint && !this.subscribedMints.has(mint) && this.tradeSubscriptionMode === 'targeted_curve') {
+        this.stats.targetedTradeSubscriptionsDeferredAtDiscovery += 1;
       }
 
       if (!this.backupOnly && this.handlers.onNewToken) {
@@ -1088,6 +1100,44 @@ class PumpPortalListener {
       this.stats.tokenTradeSubscribeFrames += 1;
       this.stats.tradestream.tokenTradeSubscribeFrames += 1;
     }
+  }
+
+  targetMint(mint, metadata = {}) {
+    if (!mint || this.backupOnly || this.tradeSubscriptionMode !== 'targeted_curve') return false;
+    this.stats.targetedTradeSubscriptionCandidates += 1;
+    if (this.subscribedMints.has(mint)) {
+      this.touchSubscribedMint(mint);
+      this.stats.targetedTradeSubscriptionAlreadyActive += 1;
+      return true;
+    }
+    if (!this.canUsePaidTradeStreams()) {
+      this.stats.targetedTradeSubscriptionSkippedNoApiKey += 1;
+      return false;
+    }
+    if (!this.meteredTradeBudgetAllowsSubscriptions()) {
+      this.stats.targetedTradeSubscriptionSkippedBudget += 1;
+      this.stats.tradeSubscriptionsSkippedBudget += 1;
+      return false;
+    }
+    if (!this.reserveMintSubscriptionSlot(mint)) {
+      this.stats.targetedTradeSubscriptionSkippedMaxActive += 1;
+      return false;
+    }
+    this.subscribeTokenTrade(mint);
+    this.stats.targetedTradeSubscriptionAccepted += 1;
+    const reason = String(metadata.reason || 'curve_prefilter');
+    this.stats.targetedTradeSubscriptionReasonCounts[reason] = (this.stats.targetedTradeSubscriptionReasonCounts[reason] || 0) + 1;
+    this.emitLifecycle('provider.pumpportal.targeted_subscription', {
+      mint,
+      reason,
+      curveProgress: Number.isFinite(Number(metadata.curveProgress)) ? Number(metadata.curveProgress) : null,
+      curveProgressSource: metadata.curveProgressSource || null,
+      score: Number.isFinite(Number(metadata.score)) ? Number(metadata.score) : null,
+      activeSubscriptions: this.subscribedMints.size,
+      meteredTradeEvents: this.stats.meteredTradeEvents,
+      maxMeteredTradeEventsPerSession: this.maxMeteredTradeEventsPerSession
+    });
+    return true;
   }
 
   unsubscribeTokenTrade(mint, reason = 'unknown') {
@@ -1583,6 +1633,7 @@ class PumpPortalListener {
       subscribedAccounts: this.subscribedAccounts.size,
       skippedPaidStreamMints: this.skippedPaidStreamMints.size,
       maxSubscribedMints: this.maxSubscribedMints,
+      tradeSubscriptionMode: this.tradeSubscriptionMode,
       maxMeteredTradeEventsPerSession: this.maxMeteredTradeEventsPerSession,
       meteredTradeBudgetReached: this.meteredTradeBudgetReached,
       maxReconnectDelayMs: this.maxReconnectDelayMs,

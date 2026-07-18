@@ -1372,7 +1372,19 @@ class Config {
   }
 
   static get pumpPortalMaxMeteredTradeEventsPerSession() {
-    return parseInt(process.env.PUMPPORTAL_MAX_METERED_TRADE_EVENTS_PER_SESSION || '10000', 10);
+    return parseInt(process.env.PUMPPORTAL_MAX_METERED_TRADE_EVENTS_PER_SESSION || '30000', 10);
+  }
+
+  static get pumpPortalTradeSubscriptionMode() {
+    return String(process.env.PUMPPORTAL_TRADE_SUBSCRIPTION_MODE || 'targeted_curve').trim().toLowerCase();
+  }
+
+  static get pumpPortalTargetedMinCurveProgress() {
+    return parseFloat(process.env.PUMPPORTAL_TARGETED_MIN_CURVE_PROGRESS || '0.25');
+  }
+
+  static get pumpPortalTargetedMaxCurveProgress() {
+    return parseFloat(process.env.PUMPPORTAL_TARGETED_MAX_CURVE_PROGRESS || '0.90');
   }
 
   static get pumpPortalReconnectResubscribeMaxMints() {
@@ -2565,6 +2577,11 @@ class Config {
       { key: 'launchIntelIndexFlushIntervalMs', value: this.launchIntelIndexFlushIntervalMs, min: 1000 },
       { key: 'preMigrationPaperMaxDecisionLogsPerMinute', value: this.preMigrationPaperMaxDecisionLogsPerMinute, min: 0 },
       { key: 'pumpPortalPostCloseTradestreamDelayMs', value: this.pumpPortalPostCloseTradestreamDelayMs, min: 0 },
+      { key: 'pumpPortalMaxSubscribedMints', value: this.pumpPortalMaxSubscribedMints, min: 1 },
+      { key: 'pumpPortalTokenTradeSubscriptionTtlMs', value: this.pumpPortalTokenTradeSubscriptionTtlMs, min: 1000 },
+      { key: 'pumpPortalMaxMeteredTradeEventsPerSession', value: this.pumpPortalMaxMeteredTradeEventsPerSession, min: 0 },
+      { key: 'pumpPortalTargetedMinCurveProgress', value: this.pumpPortalTargetedMinCurveProgress, min: 0, max: 1 },
+      { key: 'pumpPortalTargetedMaxCurveProgress', value: this.pumpPortalTargetedMaxCurveProgress, min: 0, max: 1 },
       { key: 'pumpPortalEventHandlerConcurrency', value: this.pumpPortalEventHandlerConcurrency, min: 1 },
       { key: 'pumpPortalEventQueueMaxSize', value: this.pumpPortalEventQueueMaxSize, min: 1 },
       { key: 'pumpDevMaxSubscribedMints', value: this.pumpDevMaxSubscribedMints, min: 1 },
@@ -2640,6 +2657,12 @@ class Config {
 
     if (!['processed', 'confirmed', 'finalized'].includes(this.liveDryRunSimulationCommitment)) {
       throw new Error(`Unsupported LIVE_DRY_RUN_SIMULATION_COMMITMENT: ${this.liveDryRunSimulationCommitment}`);
+    }
+    if (!['all_discovered', 'targeted_curve'].includes(this.pumpPortalTradeSubscriptionMode)) {
+      throw new Error(`Unsupported PUMPPORTAL_TRADE_SUBSCRIPTION_MODE: ${this.pumpPortalTradeSubscriptionMode}`);
+    }
+    if (this.pumpPortalTargetedMinCurveProgress >= this.pumpPortalTargetedMaxCurveProgress) {
+      throw new Error('PUMPPORTAL_TARGETED_MIN_CURVE_PROGRESS must be less than PUMPPORTAL_TARGETED_MAX_CURVE_PROGRESS');
     }
 
     // Validate wallet addresses when live/dry-run wallet handling is enabled,

@@ -255,6 +255,11 @@ class PreMigrationWatchLane {
       liquiditySol,
       marketCapSol,
       bondingCurveAddress: token.bondingCurveAddress || bondingCurveState.bondingCurveAddress || existing.bondingCurveAddress || null,
+      bondingCurveAccountFound: Boolean(
+        token.bondingCurveAccountFound
+        || bondingCurveState.accountFound
+        || existing.bondingCurveAccountFound
+      ),
       bondingCurveComplete: Boolean(token.bondingCurveComplete || bondingCurveState.complete || existing.bondingCurveComplete),
       virtualSolReservesSol: token.virtualSolReservesSol ?? bondingCurveState.virtualSolReservesSol ?? existing.virtualSolReservesSol ?? null,
       realSolReservesSol: token.realSolReservesSol ?? bondingCurveState.realSolReservesSol ?? existing.realSolReservesSol ?? null,
@@ -680,6 +685,7 @@ class PreMigrationWatchLane {
       lastFlagType: state.lastFlagType,
       curveProgress: state.curveProgress,
       curveProgressSource: state.curveProgressSource || null,
+      bondingCurveAccountFound: Boolean(state.bondingCurveAccountFound),
       providerCurveProgress: state.providerCurveProgress ?? null,
       providerCurvePriceSol: state.providerCurvePriceSol ?? null,
       providerCurveSnapshotAt: state.providerCurveSnapshotAt || null,
