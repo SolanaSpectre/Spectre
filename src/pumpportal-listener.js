@@ -120,6 +120,7 @@ class PumpPortalListener {
       tokenTradeSubscriptionPrunes: 0,
       tokenTradeTtlPrunes: 0,
       tokenTradeMaxActivePrunes: 0,
+      tokenTradeTerminalPrunes: 0,
       controlFramesSent: 0,
       tokenTradeSubscribeFrames: 0,
       tokenTradeUnsubscribeFrames: 0,
@@ -1141,7 +1142,7 @@ class PumpPortalListener {
   }
 
   unsubscribeTokenTrade(mint, reason = 'unknown') {
-    if (!this.subscribedMints.has(mint)) return;
+    if (!this.subscribedMints.has(mint)) return false;
     this.dropMintSubscription(mint);
     this.stats.tokenTradeUnsubscriptions += 1;
     this.stats.tokenTradeSubscriptionPrunes += 1;
@@ -1150,6 +1151,9 @@ class PumpPortalListener {
     }
     if (reason === 'max_active') {
       this.stats.tokenTradeMaxActivePrunes += 1;
+    }
+    if (reason === 'migration' || reason === 'bonding_curve_complete') {
+      this.stats.tokenTradeTerminalPrunes += 1;
     }
     const state = this.connections.tradestream;
     if (state.ws && state.ws.readyState === WebSocket.OPEN) {
@@ -1162,6 +1166,14 @@ class PumpPortalListener {
         this.stats.tradestream.tokenTradeUnsubscribeFrames += 1;
       }
     }
+    this.emitLifecycle('provider.pumpportal.targeted_unsubscription', {
+      mint,
+      reason,
+      activeSubscriptions: this.subscribedMints.size,
+      meteredTradeEvents: this.stats.meteredTradeEvents,
+      maxMeteredTradeEventsPerSession: this.maxMeteredTradeEventsPerSession
+    });
+    return true;
   }
 
   dropMintSubscription(mint) {

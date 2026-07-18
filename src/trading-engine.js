@@ -3602,7 +3602,14 @@ class TradingEngine {
   scheduleTargetedPumpPortalPrefilterRefresh(token = {}, summary = {}, launchIntelSummary = null) {
     if (this.config.pumpPortalTradeSubscriptionMode !== 'targeted_curve') return false;
     const mint = summary.mint || token.mint;
-    const curveProgress = Number(summary.curveProgress);
+    if (summary.invalidAccountData === true) {
+      if (mint) this.pumpPortalTargetedPrefilterRefreshState.delete(mint);
+      return false;
+    }
+    const rawCurveProgress = summary.curveProgress;
+    const curveProgress = rawCurveProgress === null || rawCurveProgress === undefined || rawCurveProgress === ''
+      ? NaN
+      : Number(rawCurveProgress);
     const minCurveProgress = Number(this.config.pumpPortalTargetedMinCurveProgress);
     if (!mint || !summary.accountFound || !Number.isFinite(curveProgress)) return false;
     if (summary.complete || curveProgress >= minCurveProgress) {
@@ -6438,6 +6445,10 @@ class TradingEngine {
     const source = options.source || event.source || 'pumpportal_migration';
     const telemetryType = options.telemetryType || 'provider.pumpportal.migration';
     const synthetic = Boolean(options.synthetic || event.synthetic);
+    this.pumpPortalListener?.unsubscribeTokenTrade?.(
+      mint,
+      synthetic ? 'bonding_curve_complete' : 'migration'
+    );
     const current = this.latestPumpPortalTokens.get(mint) || {
       mint,
       createdAt: Date.now()

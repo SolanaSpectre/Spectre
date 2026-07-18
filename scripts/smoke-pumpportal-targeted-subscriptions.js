@@ -42,6 +42,14 @@ async function main() {
   assert(frames.some((frame) => frame.method === 'subscribeTokenTrade' && frame.keys.includes('mint-1')));
   assert(lifecycle.some((row) => row.event === 'provider.pumpportal.targeted_subscription'));
 
+  assert.strictEqual(listener.unsubscribeTokenTrade('mint-1', 'migration'), true);
+  assert.strictEqual(listener.subscribedMints.has('mint-1'), false);
+  assert.strictEqual(listener.stats.tokenTradeTerminalPrunes, 1);
+  assert(frames.some((frame) => frame.method === 'unsubscribeTokenTrade' && frame.keys.includes('mint-1')));
+  assert(lifecycle.some((row) => row.event === 'provider.pumpportal.targeted_unsubscription'
+    && row.payload.mint === 'mint-1'
+    && row.payload.reason === 'migration'));
+
   const requested = [];
   const engineTelemetry = [];
   const engineContext = {
@@ -88,6 +96,14 @@ async function main() {
   assert.strictEqual(engineContext.lastQueuedRefresh.mint, 'slow-builder');
   assert.strictEqual(engineContext.lastQueuedRefresh.delayMs, 15000);
   assert.strictEqual(engineContext.lastQueuedRefresh.options.forceVerify, true);
+  engineContext.lastQueuedRefresh = null;
+  assert.strictEqual(TradingEngine.prototype.scheduleTargetedPumpPortalPrefilterRefresh.call(
+    engineContext,
+    { mint: 'invalid-owner' },
+    { mint: 'invalid-owner', accountFound: true, invalidAccountData: true, curveProgress: null }
+  ), false);
+  assert.strictEqual(engineContext.lastQueuedRefresh, null);
+  assert.strictEqual(engineContext.pumpPortalTargetedPrefilterRefreshState.has('invalid-owner'), false);
   assert.strictEqual(TradingEngine.prototype.maybeTargetPumpPortalPaidTape.call(engineContext, {
     state: { mint: 'slow-builder', curveProgress: 0.3, curveProgressSource: 'pump_bonding_curve_rpc', bondingCurveAccountFound: true, score: 30 }
   }), true);
