@@ -143,6 +143,7 @@ function validateRun(prereg, telemetryPath, run, coverage) {
     tokenTradeTtl: number(plan.tokenTradeSubscriptionTtlMs) === expected.tokenTradeSubscriptionTtlMs,
     targetedPrefilterMaxAge: number(plan.targetedPrefilterMaxAgeMs) === expected.belowBandRpcRecheckMaxAgeMs,
     targetedPrefilterCadence: number(plan.targetedPrefilterCadenceMs) === expected.belowBandRpcRecheckCadenceMs,
+    bondingCurveRuntimeRpcEnabled: plan.bondingCurveRuntimeRpcEnabled === expected.bondingCurveRuntimeRpcRequired,
     fullPaidTapeMinutes: number(coverage.fullPaidTapeMinutes, 0) >= requested.minimumFullPaidTapeMinutes,
     runtimeRpcCurveErrors: curveErrors === 0,
     completedLifecycle: run.stopping?.payload?.reason === 'SESSION_DURATION_EXCEEDED'

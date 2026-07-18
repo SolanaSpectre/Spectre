@@ -419,6 +419,7 @@ class TradingEngine {
         targetedMaxCurveProgress: this.config.pumpPortalTargetedMaxCurveProgress,
         targetedPrefilterMaxAgeMs: this.config.pumpPortalTargetedPrefilterMaxAgeMs,
         targetedPrefilterCadenceMs: this.config.pumpBondingCurveRefreshIntervalMs,
+        bondingCurveRuntimeRpcEnabled: this.config.pumpBondingCurveRuntimeRpcEnabled,
         maxMeteredTradeEventsPerSession: this.config.pumpPortalMaxMeteredTradeEventsPerSession,
         tokenTradeSubscriptionTtlMs: this.config.pumpPortalTokenTradeSubscriptionTtlMs
       },

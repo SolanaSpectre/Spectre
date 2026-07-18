@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "runner_watch_full_coverage_v1_2026-07-18",
   "preregisteredAt": "2026-07-18T01:28:22.1008379-05:00",
-  "amendedBeforeFirstValidRunAt": "2026-07-18T02:03:00.3456877-05:00",
-  "amendmentReason": "Measure first-RPC above-band exclusions, bound below-band RPC re-observation, and count expired mints later observed in or above band before the first eligible run; strategy gates and subscription band are unchanged.",
+  "amendedBeforeFirstValidRunAt": "2026-07-18T08:46:05.7433538-05:00",
+  "amendmentReason": "Measure targeted-tape blind spots and require runtime bonding-curve RPC at startup after an interrupted preflight exposed a disabled private override; no eligible run or strategy evidence existed, and strategy gates plus the subscription band are unchanged.",
   "status": "PREREGISTERED_BEFORE_FIRST_VALID_RUN",
   "mode": "paper_only",
   "liveBehaviorChanged": false,
@@ -20,7 +20,8 @@
     "estimatedMaximumChargeSol": 0.03,
     "tokenTradeSubscriptionTtlMs": 1800000,
     "belowBandRpcRecheckMaxAgeMs": 180000,
-    "belowBandRpcRecheckCadenceMs": 15000
+    "belowBandRpcRecheckCadenceMs": 15000,
+    "bondingCurveRuntimeRpcRequired": true
   },
   "validRunDefinition": {
     "requestedRunMinutes": 60,
