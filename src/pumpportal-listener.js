@@ -28,6 +28,16 @@ class PumpPortalListener {
     this.maxReconnectDelayMs = Number(config.pumpPortalMaxReconnectDelayMs || 60000);
     this.maxSubscribedMints = Number(config.pumpPortalMaxSubscribedMints || 100);
     this.tokenTradeSubscriptionTtlMs = Number(config.pumpPortalTokenTradeSubscriptionTtlMs || 30 * 60 * 1000);
+    const configuredMeteredTradeLimit = config.pumpPortalMaxMeteredTradeEventsPerSession;
+    const parsedMeteredTradeLimit = configuredMeteredTradeLimit === undefined
+      || configuredMeteredTradeLimit === null
+      || configuredMeteredTradeLimit === ''
+      ? 10000
+      : Number(configuredMeteredTradeLimit);
+    this.maxMeteredTradeEventsPerSession = Number.isFinite(parsedMeteredTradeLimit) && parsedMeteredTradeLimit >= 0
+      ? parsedMeteredTradeLimit
+      : 10000;
+    this.meteredTradeBudgetReached = false;
     this.reconnectResubscribeMaxMints = Number(config.pumpPortalReconnectResubscribeMaxMints || 25);
     this.reconnectResubscribeBatchSize = Number(config.pumpPortalReconnectResubscribeBatchSize || 10);
     this.reconnectResubscribeBatchDelayMs = Number(config.pumpPortalReconnectResubscribeBatchDelayMs || 1000);
@@ -65,6 +75,8 @@ class PumpPortalListener {
       newTokens: 0,
       trades: 0,
       accountTrades: 0,
+      unmatchedAccountTrades: 0,
+      meteredTradeEvents: 0,
       migrations: 0,
       lastMessageAt: null,
       lastConnectedAt: null,
@@ -89,6 +101,11 @@ class PumpPortalListener {
       tradeSubscriptionsSkippedNoApiKey: 0,
       accountSubscriptionsSkippedNoApiKey: 0,
       tradeSubscriptionsSkippedMaxActive: 0,
+      tradeSubscriptionsSkippedBudget: 0,
+      accountSubscriptionsSkippedBudget: 0,
+      meteredTradeBudgetReached: false,
+      meteredTradeBudgetReachedAt: null,
+      maxMeteredTradeEventsPerSession: this.maxMeteredTradeEventsPerSession,
       tokenTradeUnsubscriptions: 0,
       tokenTradeSubscriptionPrunes: 0,
       tokenTradeTtlPrunes: 0,
@@ -96,6 +113,7 @@ class PumpPortalListener {
       controlFramesSent: 0,
       tokenTradeSubscribeFrames: 0,
       tokenTradeUnsubscribeFrames: 0,
+      accountTradeUnsubscribeFrames: 0,
       pairSolEvents: 0,
       pairUsdcEvents: 0,
       pairUnknownEvents: 0,
@@ -180,6 +198,8 @@ class PumpPortalListener {
       newTokens: 0,
       trades: 0,
       accountTrades: 0,
+      unmatchedAccountTrades: 0,
+      meteredTradeEvents: 0,
       migrations: 0,
       reconnectAttempts: 0,
       closeEvents: 0,
@@ -624,8 +644,10 @@ class PumpPortalListener {
       }
 
       if (!this.backupOnly && mint && !this.subscribedMints.has(mint)) {
-        if (this.canUsePaidTradeStreams() && this.reserveMintSubscriptionSlot(mint)) {
+        if (this.canUsePaidTradeStreams() && this.meteredTradeBudgetAllowsSubscriptions() && this.reserveMintSubscriptionSlot(mint)) {
           this.subscribeTokenTrade(mint);
+        } else if (this.canUsePaidTradeStreams() && !this.meteredTradeBudgetAllowsSubscriptions()) {
+          this.stats.tradeSubscriptionsSkippedBudget += 1;
         } else if (!this.canUsePaidTradeStreams() && !this.skippedPaidStreamMints.has(mint)) {
           this.skippedPaidStreamMints.add(mint);
           this.subscribedMints.add(mint);
@@ -657,12 +679,14 @@ class PumpPortalListener {
       return;
     }
 
-    if (account && this.subscribedAccounts.has(account)) {
+    const isTrackedAccountTrade = Boolean(account && this.subscribedAccounts.has(account));
+    if (isTrackedAccountTrade) {
       this.stats.accountTrades += 1;
       if (this.stats[eventRole]) this.stats[eventRole].accountTrades += 1;
+      if (!mint) this.stats.unmatchedAccountTrades += 1;
     }
 
-      if (mint) {
+    if (mint) {
       this.touchSubscribedMint(mint);
       this.stats.trades += 1;
       if (this.stats[eventRole]) this.stats[eventRole].trades += 1;
@@ -674,6 +698,11 @@ class PumpPortalListener {
           source: 'pumpportal_trade'
         });
       }
+    }
+
+    if (mint || isTrackedAccountTrade) {
+      this.stats.meteredTradeEvents += 1;
+      this.enforceMeteredTradeBudget();
     }
   }
 
@@ -936,6 +965,66 @@ class PumpPortalListener {
     return Boolean(this.config.pumpPortalApiKey);
   }
 
+  meteredTradeBudgetAllowsSubscriptions() {
+    return !this.meteredTradeBudgetReached;
+  }
+
+  enforceMeteredTradeBudget() {
+    const limit = this.maxMeteredTradeEventsPerSession;
+    if (this.meteredTradeBudgetReached || !Number.isFinite(limit) || limit <= 0 || this.stats.meteredTradeEvents < limit) {
+      return false;
+    }
+
+    this.meteredTradeBudgetReached = true;
+    this.stats.meteredTradeBudgetReached = true;
+    this.stats.meteredTradeBudgetReachedAt = Date.now();
+    const subscribedMints = Array.from(this.subscribedMints);
+    const subscribedAccounts = Array.from(this.subscribedAccounts);
+    const tradeState = this.connections.tradestream;
+    const accountState = this.connections.discovery;
+    this.clearResubscribeTimer(tradeState);
+    if (accountState !== tradeState) this.clearResubscribeTimer(accountState);
+
+    let tokenUnsubscribeSent = false;
+    let accountUnsubscribeSent = false;
+    if (subscribedMints.length > 0 && tradeState.ws && tradeState.ws.readyState === WebSocket.OPEN) {
+      this.send({ method: 'unsubscribeTokenTrade', keys: subscribedMints }, 'tradestream');
+      this.stats.tokenTradeUnsubscribeFrames += 1;
+      this.stats.tradestream.tokenTradeUnsubscribeFrames += 1;
+      tokenUnsubscribeSent = true;
+    }
+    if (subscribedAccounts.length > 0 && accountState.ws && accountState.ws.readyState === WebSocket.OPEN) {
+      this.send({ method: 'unsubscribeAccountTrade', keys: subscribedAccounts }, 'discovery');
+      this.stats.accountTradeUnsubscribeFrames += 1;
+      this.stats.discovery.accountTradeUnsubscribeFrames = Number(this.stats.discovery.accountTradeUnsubscribeFrames || 0) + 1;
+      accountUnsubscribeSent = true;
+    }
+
+    this.subscribedMints.clear();
+    this.subscribedMintMeta.clear();
+    this.subscribedAccounts.clear();
+    this.emitLifecycle('provider.pumpportal.metered_budget_reached', {
+      trades: this.stats.trades,
+      meteredTradeEvents: this.stats.meteredTradeEvents,
+      maxMeteredTradeEventsPerSession: limit,
+      estimatedChargeSol: Number((Math.floor(this.stats.meteredTradeEvents / 10000) * 0.01).toFixed(4)),
+      unsubscribedMints: subscribedMints.length,
+      unsubscribedAccounts: subscribedAccounts.length,
+      tokenUnsubscribeSent,
+      accountUnsubscribeSent
+    });
+    this.logger.warn('PumpPortal metered trade-event budget reached; paid streams disabled for this session', {
+      trades: this.stats.trades,
+      meteredTradeEvents: this.stats.meteredTradeEvents,
+      maxMeteredTradeEventsPerSession: limit,
+      unsubscribedMints: subscribedMints.length,
+      unsubscribedAccounts: subscribedAccounts.length,
+      tokenUnsubscribeSent,
+      accountUnsubscribeSent
+    });
+    return true;
+  }
+
   activeMintLimit() {
     return Number.isFinite(this.maxSubscribedMints) && this.maxSubscribedMints > 0
       ? this.maxSubscribedMints
@@ -1116,6 +1205,11 @@ class PumpPortalListener {
       return;
     }
 
+    if (!this.meteredTradeBudgetAllowsSubscriptions()) {
+      this.stats.accountSubscriptionsSkippedBudget += this.config.pumpPortalTrackedAccounts.length;
+      return;
+    }
+
     for (const account of this.config.pumpPortalTrackedAccounts) {
       this.subscribedAccounts.add(account);
       this.send({
@@ -1126,7 +1220,7 @@ class PumpPortalListener {
   }
 
   subscribeTrackedMints() {
-    if (!this.canUsePaidTradeStreams()) {
+    if (!this.canUsePaidTradeStreams() || !this.meteredTradeBudgetAllowsSubscriptions()) {
       return;
     }
 
@@ -1489,6 +1583,8 @@ class PumpPortalListener {
       subscribedAccounts: this.subscribedAccounts.size,
       skippedPaidStreamMints: this.skippedPaidStreamMints.size,
       maxSubscribedMints: this.maxSubscribedMints,
+      maxMeteredTradeEventsPerSession: this.maxMeteredTradeEventsPerSession,
+      meteredTradeBudgetReached: this.meteredTradeBudgetReached,
       maxReconnectDelayMs: this.maxReconnectDelayMs,
       tokenTradeSubscriptionTtlMs: this.tokenTradeSubscriptionTtlMs,
       eventQueueDepth: this.eventQueue.length,

@@ -57,6 +57,8 @@ These lessons come from this bot's own paper-trading outcomes.
 - Treat the first 10 samples as instrumentation-compromised/crossings-only supporting context.
 - The lane disposition is `EXTEND_WITH_CAUSE_AFTER_JOIN_PROVENANCE_FIX`: collect 10 additional clean post-fix samples under the same broad slice before any promotion/kill decision.
 - Do not tighten this frozen lane into a positive/proven-only wallet slice after seeing its OOS mix. A positive/proven-first-touch rule is a new hypothesis and needs its own discovery/pin/confirm cycle.
+- The 10 clean post-fix samples reached their checkpoint on 2026-07-18 and failed the original frozen stability rule under realizable replay: 4 wins, 6 losses, `+0.0152995 SOL` total, median `-0.000560956 SOL`, and ex-top-3 `-0.006952813 SOL`.
+- Only 2 of 4 covered runs were positive/non-negative, and the largest positive run contributed 143% of net PnL because earlier runs lost. The broad tracked-first-touch-buy wallet lane is closed at `FAILED_CLEAN_CHECKPOINT`; fresh replay output cannot reopen it.
 
 ## How To Use Wins And Losses
 

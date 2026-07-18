@@ -6,6 +6,7 @@ const path = require('path');
 const readline = require('readline');
 const { resolveTelemetryPath, telemetryFromReport } = require('./lib/report-telemetry');
 const { appendSamples, summarizeLedger } = require('./lib/wallet-shadow-sample-ledger');
+const { evaluateWalletCheckpoint } = require('./lib/wallet-shadow-checkpoint-evaluator');
 const {
   buildOutcomeWindow,
   buildPreDecisionContext,
@@ -516,8 +517,28 @@ async function main() {
   const outputPath = args.output ? path.resolve(ROOT, args.output) : OUTPUT_PATH;
   const telemetry = await readTelemetry(telemetryPath);
   const outcomes = telemetry.attempts.map((attempt) => addOutcomes(attempt, telemetry.snapshotsByMint));
-  const ledgerAppend = appendSamples(ledgerSamples(outcomes, telemetryPath));
+  const beforeAppendSummary = summarizeLedger({ frozenSlice: FROZEN_WALLET_SLICE });
+  const beforeAppendEvaluation = beforeAppendSummary.postFixCleanSamples >= 10
+    ? evaluateWalletCheckpoint({ ledgerPath: beforeAppendSummary.ledgerPath, frozenSlice: FROZEN_WALLET_SLICE })
+    : null;
+  const terminalBeforeAppend = ['FAILED_CLEAN_CHECKPOINT', 'PASSED_CLEAN_CHECKPOINT_REPORT_ONLY']
+    .includes(beforeAppendEvaluation?.checkpoint?.disposition);
+  const ledgerAppend = terminalBeforeAppend
+    ? {
+      ledgerPath: beforeAppendSummary.ledgerPath,
+      appended: 0,
+      existing: beforeAppendSummary.totalRows,
+      total: beforeAppendSummary.totalRows,
+      closed: true,
+      reason: beforeAppendEvaluation.checkpoint.disposition,
+      closedBeforeWrite: true
+    }
+    : appendSamples(ledgerSamples(outcomes, telemetryPath));
   const ledgerSummary = summarizeLedger({
+    frozenSlice: FROZEN_WALLET_SLICE
+  });
+  const checkpointEvaluation = evaluateWalletCheckpoint({
+    ledgerPath: ledgerSummary.ledgerPath,
     frozenSlice: FROZEN_WALLET_SLICE
   });
   const report = {
@@ -529,6 +550,7 @@ async function main() {
       ...FROZEN_WALLET_RULE
     },
     checkpointDisposition: WALLET_CHECKPOINT_DISPOSITION,
+    checkpointEvaluation,
     sources: {
       telemetryPath: path.relative(ROOT, telemetryPath).replace(/\\/g, '/')
     },

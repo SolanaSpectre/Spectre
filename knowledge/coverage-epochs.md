@@ -25,3 +25,17 @@ features, PumpDev's ACK-confirmed anonymous slots to flagged/finalist depth,
 and Helius/RPC account reads to curve ground truth. New strategy conclusions
 must be based on telemetry collected after that architecture is active and
 validated.
+
+## 2026-07-18: PumpPortal Paid-Tape Cap Epochs
+
+PumpPortal's metered trade-event cap creates a second measurement boundary
+inside a run. Reports must not treat the whole session as one uniform
+provider-coverage period.
+
+- `FULL_PAID_TAPE`: the decision and requested outcome window complete before the cap.
+- `PAID_TAPE_TRUNCATED_BY_CAP`: the decision occurs before the cap, but its requested outcome window crosses the boundary.
+- `DISCOVERY_RPC_ONLY`: the decision occurs after paid token/account streams are disabled; discovery and RPC verification may continue, but funnel rates are not directly comparable with full paid tape.
+
+The boundary is the first `provider.pumpportal.metered_budget_reached` telemetry
+event. A capped run is valid mixed-coverage evidence, not a full-session
+paid-tape run.

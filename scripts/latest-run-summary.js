@@ -7,6 +7,7 @@ const DEFAULT_OUTPUT = path.join(REPO_ROOT, 'data', 'reports', 'latest-run-summa
 
 const FILES = {
   battlefield: 'data/reports/run-battlefield-latest.json',
+  paidTapeCoverageEpoch: 'data/reports/paid-tape-coverage-epoch-latest.json',
   telemetryPathAudit: 'data/reports/report-telemetry-path-audit-latest.json',
   simpleRuntimeAiEvidence: 'data/reports/simple-runtime-ai-evidence-latest.json',
   liveReadiness: 'data/reports/live-readiness-latest.json',
@@ -953,6 +954,8 @@ function buildPumpPortalHealth(battlefield = {}) {
   const messages = number(stats.messages, 0);
   const newTokens = number(stats.newTokens, number(eventCounts['provider.pumpportal.new_token'], 0));
   const trades = number(stats.trades, number(eventCounts['provider.pumpportal.trade'], 0));
+  const meteredTradeEvents = number(stats.meteredTradeEvents, trades);
+  const unmatchedAccountTrades = number(stats.unmatchedAccountTrades, 0);
   const migrations = number(stats.migrations, number(eventCounts['provider.pumpportal.migration'], 0));
   const reconnectAttempts = number(stats.reconnectAttempts, 0);
   const closeEvents = number(stats.closeEvents, 0);
@@ -970,6 +973,7 @@ function buildPumpPortalHealth(battlefield = {}) {
   const controlFramesSent = number(stats.controlFramesSent, 0);
   const tokenTradeSubscribeFrames = number(stats.tokenTradeSubscribeFrames, 0);
   const tokenTradeUnsubscribeFrames = number(stats.tokenTradeUnsubscribeFrames, 0);
+  const accountTradeUnsubscribeFrames = number(stats.accountTradeUnsubscribeFrames, 0);
   const pairSolEvents = number(stats.pairSolEvents, 0);
   const pairUsdcEvents = number(stats.pairUsdcEvents, 0);
   const pairUnknownEvents = number(stats.pairUnknownEvents, 0);
@@ -987,6 +991,12 @@ function buildPumpPortalHealth(battlefield = {}) {
     ? new Date(stats.lastDetectedPairAt).toISOString()
     : null;
   const tradeSubscriptionsSkippedMaxActive = number(stats.tradeSubscriptionsSkippedMaxActive, 0);
+  const tradeSubscriptionsSkippedBudget = number(stats.tradeSubscriptionsSkippedBudget, 0);
+  const accountSubscriptionsSkippedBudget = number(stats.accountSubscriptionsSkippedBudget, 0);
+  const maxMeteredTradeEventsPerSession = Object.prototype.hasOwnProperty.call(stats, 'maxMeteredTradeEventsPerSession')
+    ? number(stats.maxMeteredTradeEventsPerSession, 0)
+    : null;
+  const meteredTradeBudgetReached = stats.meteredTradeBudgetReached === true;
   const tokenTradeReconnectResubscribeScheduled = number(stats.tokenTradeReconnectResubscribeScheduled, 0);
   const tokenTradeReconnectResubscribeSent = number(stats.tokenTradeReconnectResubscribeSent, 0);
   const tokenTradeReconnectResubscribeDropped = number(stats.tokenTradeReconnectResubscribeDropped, 0);
@@ -1080,6 +1090,8 @@ function buildPumpPortalHealth(battlefield = {}) {
     messages,
     newTokens,
     trades,
+    meteredTradeEvents,
+    unmatchedAccountTrades,
     migrations,
     reconnectAttempts,
     closeEvents,
@@ -1097,6 +1109,7 @@ function buildPumpPortalHealth(battlefield = {}) {
     controlFramesSent,
     tokenTradeSubscribeFrames,
     tokenTradeUnsubscribeFrames,
+    accountTradeUnsubscribeFrames,
     pairSolEvents,
     pairUsdcEvents,
     pairUnknownEvents,
@@ -1112,6 +1125,10 @@ function buildPumpPortalHealth(battlefield = {}) {
     lastDetectedPairBase,
     lastDetectedPairAt,
     tradeSubscriptionsSkippedMaxActive,
+    tradeSubscriptionsSkippedBudget,
+    accountSubscriptionsSkippedBudget,
+    maxMeteredTradeEventsPerSession,
+    meteredTradeBudgetReached,
     tokenTradeReconnectResubscribeScheduled,
     tokenTradeReconnectResubscribeSent,
     tokenTradeReconnectResubscribeDropped,
@@ -2375,6 +2392,7 @@ function buildSummary(docs) {
   const freshCurveOverrideShadow = docs.preMigrationFreshCurveOverrideShadow.data || {};
   const walletConditionedRelaxedGateReplay = docs.preMigrationWalletConditionedRelaxedGateReplay.data || {};
   const walletRelaxedShadowOutcome = docs.preMigrationWalletRelaxedShadowOutcome.data || {};
+  const paidTapeCoverageEpoch = docs.paidTapeCoverageEpoch.data || {};
   const walletContextCoverage = docs.preMigrationWalletContextCoverage.data || {};
   const walletContextFollowThrough = docs.preMigrationWalletContextFollowThrough.data || {};
   const walletChannelHealth = docs.preMigrationWalletChannelHealth.data || {};
@@ -3123,7 +3141,19 @@ function buildSummary(docs) {
   lines.push(`  - reconnects / closes / stale reconnects: ${pumpPortalHealth.reconnectAttempts} / ${pumpPortalHealth.closeEvents} / ${pumpPortalHealth.staleReconnects}`);
   lines.push(`  - paid trade streams enabled / skipped mints / skipped accounts: ${pumpPortalHealth.paidTradeStreamsEnabled} / ${pumpPortalHealth.tradeSubscriptionsSkippedNoApiKey || pumpPortalHealth.skippedPaidStreamMints} / ${pumpPortalHealth.accountSubscriptionsSkippedNoApiKey}`);
   lines.push(`  - token trade subscription load: active=${pumpPortalHealth.subscribedMints}, max=${pumpPortalHealth.maxSubscribedMints || 'n/a'}, ttl=${pumpPortalHealth.tokenTradeSubscriptionTtlMs ? `${pumpPortalHealth.tokenTradeSubscriptionTtlMs}ms` : 'n/a'}, pruned=${pumpPortalHealth.tokenTradeSubscriptionPrunes || 0} (ttl=${pumpPortalHealth.tokenTradeTtlPrunes || 0}, max=${pumpPortalHealth.tokenTradeMaxActivePrunes || 0}), skippedMax=${pumpPortalHealth.tradeSubscriptionsSkippedMaxActive || 0}`);
-  lines.push(`  - control frames sent / token subscribe / token unsubscribe: ${pumpPortalHealth.controlFramesSent || 0} / ${pumpPortalHealth.tokenTradeSubscribeFrames || 0} / ${pumpPortalHealth.tokenTradeUnsubscribeFrames || 0}`);
+  const meteredTradeLimitRaw = pumpPortalHealth.maxMeteredTradeEventsPerSession;
+  const meteredTradeLimit = meteredTradeLimitRaw === null || meteredTradeLimitRaw === undefined
+    ? null
+    : Number(meteredTradeLimitRaw);
+  const meteredTradeLimitLabel = meteredTradeLimit === null
+    ? 'unknown'
+    : meteredTradeLimit > 0 ? meteredTradeLimit : 'unlimited';
+  const estimatedPumpPortalChargeSol = Math.floor((pumpPortalHealth.meteredTradeEvents || 0) / 10000) * 0.01;
+  lines.push(`  - metered trade budget: events=${pumpPortalHealth.meteredTradeEvents || 0} (mint=${pumpPortalHealth.trades || 0}, account-only=${pumpPortalHealth.unmatchedAccountTrades || 0}), max=${meteredTradeLimitLabel}, reached=${pumpPortalHealth.meteredTradeBudgetReached === true}, skippedTokenSubscriptions=${pumpPortalHealth.tradeSubscriptionsSkippedBudget || 0}, skippedAccountSubscriptions=${pumpPortalHealth.accountSubscriptionsSkippedBudget || 0}, estimatedCompletedBlockCharge=${fmt(estimatedPumpPortalChargeSol, 4)} SOL`);
+  if (paidTapeCoverageEpoch.coverage) {
+    lines.push(`  - paid-tape coverage epoch: ${paidTapeCoverageEpoch.verdict || 'unknown'}; fullPaid=${paidTapeCoverageEpoch.coverage.fullPaidTapeMinutes ?? 'n/a'}m, discoveryRpcOnly=${paidTapeCoverageEpoch.coverage.discoveryRpcOnlyMinutes ?? 'n/a'}m, capAt=${paidTapeCoverageEpoch.coverage.budgetReachedAt || 'none'}`);
+  }
+  lines.push(`  - control frames sent / token subscribe / token unsubscribe / account unsubscribe: ${pumpPortalHealth.controlFramesSent || 0} / ${pumpPortalHealth.tokenTradeSubscribeFrames || 0} / ${pumpPortalHealth.tokenTradeUnsubscribeFrames || 0} / ${pumpPortalHealth.accountTradeUnsubscribeFrames || 0}`);
   lines.push(`  - split sockets enabled / backup-only / post-1006 tradestream delay: ${pumpPortalHealth.splitSocketsEnabled === null ? 'unknown' : pumpPortalHealth.splitSocketsEnabled === true} / ${pumpPortalHealth.backupOnly === true} / ${pumpPortalHealth.postCloseTradestreamDelayMs || 0}ms`);
   lines.push(`  - pair-base detection total SOL/USDC/unknown: ${pumpPortalHealth.pairSolEvents || 0} / ${pumpPortalHealth.pairUsdcEvents || 0} / ${pumpPortalHealth.pairUnknownEvents || 0}${pumpPortalHealth.lastDetectedPairBase ? ` (last=${pumpPortalHealth.lastDetectedPairBase}${pumpPortalHealth.lastDetectedPairAt ? ` at ${pumpPortalHealth.lastDetectedPairAt}` : ''})` : ''}`);
   lines.push(`  - pair-base by event newToken SOL/USDC/unknown: ${pumpPortalHealth.newTokenPairSolEvents || 0} / ${pumpPortalHealth.newTokenPairUsdcEvents || 0} / ${pumpPortalHealth.newTokenPairUnknownEvents || 0}`);
@@ -5059,6 +5089,7 @@ function buildSummary(docs) {
   const walletShadowSummary = walletRelaxedShadowOutcome.summary || {};
   const walletShadowLedgerSummary = walletRelaxedShadowOutcome.ledger?.summary || {};
   const walletShadowDisposition = walletRelaxedShadowOutcome.checkpointDisposition || {};
+  const walletShadowCheckpoint = walletRelaxedShadowOutcome.checkpointEvaluation || {};
   const walletShadowWindow120 = walletShadowSummary.windowSummary?.['120s'] || {};
   const walletShadowWindow300 = walletShadowSummary.windowSummary?.['300s'] || {};
   const walletShadowTop = topArray(walletRelaxedShadowOutcome.topWouldEnterFollowThrough, 8);
@@ -5068,6 +5099,10 @@ function buildSummary(docs) {
   lines.push('- Mode: report-only; follows prospective wallet-conditioned LOW_SCORE/FIRST_SIGHT shadow would-enter rows. Does not alter runtime gates or live broadcast.');
   if (walletShadowDisposition.disposition) {
     lines.push(`- Checkpoint disposition: ${walletShadowDisposition.disposition}; post-fix target additional samples=${walletShadowDisposition.postFixTargetAdditionalSamples ?? 'n/a'}; clean era=${walletShadowDisposition.postFixSampleEra || 'n/a'}`);
+  }
+  if (walletShadowCheckpoint.checkpoint?.disposition) {
+    lines.push(`- Clean checkpoint verdict: ${walletShadowCheckpoint.checkpoint.disposition}; evaluated=${walletShadowCheckpoint.cleanSamplesEvaluated ?? 'n/a'}/${walletShadowCheckpoint.samplePolicy?.target ?? 'n/a'}, W/L=${walletShadowCheckpoint.summary?.wins ?? 'n/a'}/${walletShadowCheckpoint.summary?.losses ?? 'n/a'}, pnl=${sol(walletShadowCheckpoint.summary?.totalPnlSol ?? 0, 6)}, median=${sol(walletShadowCheckpoint.summary?.medianPnlSol ?? 0, 6)}, exTop3=${sol(walletShadowCheckpoint.summary?.pnlAfterRemovingTop3WinnersSol ?? 0, 6)}`);
+    lines.push(`- Clean checkpoint failed checks: ${(walletShadowCheckpoint.checkpoint.failedChecks || []).join(', ') || 'none'}`);
   }
   lines.push(`- Shadow attempts / would_enter / would_skip / unique would_enter mints: ${walletShadowSummary.attempts ?? 'n/a'} / ${walletShadowSummary.wouldEnter ?? 'n/a'} / ${walletShadowSummary.wouldSkip ?? 'n/a'} / ${walletShadowSummary.uniqueWouldEnterMints ?? 'n/a'}`);
   lines.push(`- Wallet context coverage any/no-touch/qualifying-first-touch/positive-or-proven/avoid: ${walletShadowSummary.contextCoverage?.withAnyWalletTouch ?? 'n/a'} / ${walletShadowSummary.contextCoverage?.withNoWalletTouch ?? 'n/a'} / ${walletShadowSummary.contextCoverage?.withQualifyingFirstTouch ?? 'n/a'} / ${walletShadowSummary.contextCoverage?.withPositiveOrProvenTouch ?? 'n/a'} / ${walletShadowSummary.contextCoverage?.withAvoidTouch ?? 'n/a'}`);

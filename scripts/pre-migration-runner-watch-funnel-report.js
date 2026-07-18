@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { scanTelemetryCoverage, summarizeRows } = require('./lib/paid-tape-coverage-epochs');
 
 const ROOT = path.join(__dirname, '..');
 const REPORT_DIR = path.join(ROOT, 'data', 'reports');
@@ -69,6 +70,7 @@ function buildReport(docs) {
   const entryFunnel = docs.entryFunnel.data?.summary || {};
   const runnerNoEntry = docs.runnerNoEntryAutopsy.data?.summary || {};
   const flaggedReplay = docs.flaggedShadowReplay.data?.summary || {};
+  const flaggedReplayRows = docs.flaggedShadowReplay.data?.rows || [];
   const scorecard = docs.scorecard.data?.summary || {};
   const paper = battlefield.preMigrationPaper || {};
 
@@ -84,6 +86,13 @@ function buildReport(docs) {
     && runnerTelemetryPath
     && normalizedTelemetryPath(canonicalTelemetryPath) === normalizedTelemetryPath(runnerTelemetryPath)
   );
+  const canonicalTelemetryFile = canonicalTelemetryPath ? path.resolve(ROOT, canonicalTelemetryPath) : null;
+  const paidTapeCoverage = canonicalTelemetryFile && fs.existsSync(canonicalTelemetryFile)
+    ? scanTelemetryCoverage(canonicalTelemetryFile)
+    : null;
+  const shadowCoverageEpochs = paidTapeCoverage
+    ? summarizeRows(flaggedReplayRows, paidTapeCoverage.budgetReachedAtMs, 300)
+    : null;
 
   const observedMints = number(entryFunnel.observedMints);
   const flaggedMints = number(entryFunnel.flaggedMints);
@@ -155,10 +164,19 @@ function buildReport(docs) {
       noEntryRunnerMints,
       admissionRates,
       runtimeToSimGap,
+      paidTapeCoverage: paidTapeCoverage ? {
+        paidTapeCapped: paidTapeCoverage.paidTapeCapped,
+        budgetReachedAt: paidTapeCoverage.budgetReachedAt,
+        fullPaidTapeMinutes: paidTapeCoverage.fullPaidTapeMinutes,
+        discoveryRpcOnlyMinutes: paidTapeCoverage.discoveryRpcOnlyMinutes,
+        shadowRows: shadowCoverageEpochs
+      } : null,
       scorecardStatusCounts: scorecard.statusCounts || {},
       liveAction: scorecard.bestAction || 'KEEP_LIVE_DISABLED',
       interpretation: !runnerInputMatches
         ? 'Runner-watch funnel withheld curve60 metrics because its runner-no-entry input belongs to a different telemetry run.'
+        : paidTapeCoverage?.paidTapeCapped
+        ? 'This is a mixed-coverage run. Interpret runtime and shadow funnel rates within their paid-tape epoch; cap-truncated and discovery/RPC-only rows are labeled separately.'
         : enteredMints === 0 && simMeasured > 0
         ? 'The next question is why runner-watch confirmation admitted zero runtime entries while report-only shadow/sim paths still found candidates. Treat the sim as a gap to explain, not as permission to loosen gates.'
         : enteredMints === 0

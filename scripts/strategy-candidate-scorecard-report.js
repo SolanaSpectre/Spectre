@@ -9,6 +9,16 @@ const { summarizeLedger: summarizeRunnerRejectLedger } = require('./lib/runner-r
 const ROOT = path.join(__dirname, '..');
 const REPORT_DIR = path.join(ROOT, 'data', 'reports');
 const OUTPUT_PATH = path.join(REPORT_DIR, 'strategy-candidate-scorecard-latest.json');
+const TERMINAL_STRATEGY_FAMILIES = Object.freeze([
+  {
+    id: 'fixed_stop_high_curve_momentum',
+    disposition: 'FAILED_AT_CHECKPOINT',
+    sourceArtifact: 'runner-reject-runtime-shadow-outcome-latest.json',
+    reason: 'Runtime OOS checkpoint failed median and ex-top-winner durability; fresh replay cannot resurrect the family.',
+    matches: (candidate) => candidate.lane === 'runner_reject_entry_replay'
+      || (candidate.lane === 'runner_reject_runtime_shadow' && candidate.name === 'fast_300s_tp50_sl25_slip3')
+  }
+]);
 
 const REPORTS = {
   liveReadiness: 'live-readiness-latest.json',
@@ -194,6 +204,12 @@ function promotionBlockers(candidate, context) {
   if (winRate !== null && winRate < 0.45) blockers.push(`win rate below 45%: ${(winRate * 100).toFixed(1)}%`);
   if (candidate.outlierDominated) blockers.push('outlier dominated');
   if (context.broadcastBlocked) blockers.push('broadcast path remains report-only');
+  if (candidate.terminalFamily) blockers.push(`terminal strategy family: ${candidate.terminalFamily.id}`);
+  if (
+    candidate.lane === 'wallet_conditioned_relaxed_gate'
+    && candidate.name === context.walletShadowCollectingSlice
+    && context.walletCheckpointDisposition === 'FAILED_CLEAN_CHECKPOINT'
+  ) blockers.push('frozen wallet slice failed its clean runtime checkpoint');
 
   return [...new Set(blockers)];
 }
@@ -220,6 +236,16 @@ function scoreCandidate(candidate, blockers) {
 }
 
 function nextDataNeed(candidate, blockers, context) {
+  if (candidate.terminalFamily) {
+    return ['keep this terminal family closed; any trailing-exit variant requires a new pre-registration and future-only evidence'];
+  }
+  if (
+    candidate.lane === 'wallet_conditioned_relaxed_gate'
+    && candidate.name === context.walletShadowCollectingSlice
+    && context.walletCheckpointDisposition === 'FAILED_CLEAN_CHECKPOINT'
+  ) {
+    return ['keep the broad tracked-first-touch-buy wallet slice closed; any narrower wallet rule is a new hypothesis'];
+  }
   const needs = [];
   const trades = number(candidate.trades, 0);
   const minSample = candidate.lane === 'wallet_conditioned_relaxed_gate' ? 60 : 20;
@@ -248,6 +274,14 @@ function nextDataNeed(candidate, blockers, context) {
 }
 
 function statusFor(candidate, blockers, context) {
+  if (candidate.terminalFamily) return 'REJECTED_TERMINAL_FAMILY';
+  if (
+    candidate.lane === 'wallet_conditioned_relaxed_gate'
+    && candidate.name === context.walletShadowCollectingSlice
+    && context.walletCheckpointDisposition === 'FAILED_CLEAN_CHECKPOINT'
+  ) {
+    return 'REJECTED_AT_CLEAN_CHECKPOINT';
+  }
   if (
     candidate.lane === 'runner_reject_runtime_shadow'
     && candidate.name === context.runnerRejectRuntimeShadowProfile
@@ -342,6 +376,7 @@ function main() {
   const trackedSubstrateFreshness = docs.walletContextCoverage.data?.trackedSubstrateFreshness || {};
   const walletShadowCoverage = walletCoverageRuntime.walletRelaxedShadowCoverage || {};
   const walletRelaxedShadowOutcome = docs.walletRelaxedShadowOutcome.data?.summary || {};
+  const walletCheckpointEvaluation = docs.walletRelaxedShadowOutcome.data?.checkpointEvaluation || {};
   const walletShadowEra = 'wallet_relaxed_shadow_v1_2026-07-08';
   const runnerRejectRuntimeShadowEra = 'runner_reject_shadow_v1_2026-07-10';
   const runnerRejectRuntimeShadowProfile = 'fast_300s_tp50_sl25_slip3';
@@ -370,6 +405,8 @@ function main() {
     walletShadowLedgerSummary,
     walletShadowWouldEnterByCohort: walletRelaxedShadowOutcome.wouldEnterByCohort || {},
     walletShadowOutcomeWindowSummary: walletRelaxedShadowOutcome.windowSummary || {},
+    walletCheckpointEvaluation,
+    walletCheckpointDisposition: walletCheckpointEvaluation.checkpoint?.disposition || null,
     trackedSubstrateVerdict: trackedSubstrateFreshness.verdict || null,
     runnerRejectRuntimeShadowProfile,
     runnerRejectRuntimeShadowCollecting,
@@ -382,10 +419,20 @@ function main() {
   };
 
   const scored = candidates.map((candidate) => {
-    const blockers = promotionBlockers(candidate, context);
-    const status = statusFor(candidate, blockers, context);
-    return {
+    const terminalFamily = TERMINAL_STRATEGY_FAMILIES.find((family) => family.matches(candidate)) || null;
+    const classifiedCandidate = terminalFamily ? {
       ...candidate,
+      terminalFamily: {
+        id: terminalFamily.id,
+        disposition: terminalFamily.disposition,
+        sourceArtifact: terminalFamily.sourceArtifact,
+        reason: terminalFamily.reason
+      }
+    } : candidate;
+    const blockers = promotionBlockers(classifiedCandidate, context);
+    const status = statusFor(classifiedCandidate, blockers, context);
+    return {
+      ...classifiedCandidate,
       status,
       score: scoreCandidate(candidate, blockers),
       nextDataNeed: nextDataNeed(candidate, blockers, context),
@@ -431,9 +478,14 @@ function main() {
       walletShadowCollection: {
         frozenSlice: context.walletShadowCollectingSlice,
         stabilityVerdict: frozenStability.stability?.verdict || null,
-        collecting: context.walletShadowCollectingReady,
+        collecting: context.walletShadowCollectingReady && !['FAILED_CLEAN_CHECKPOINT', 'PASSED_CLEAN_CHECKPOINT_REPORT_ONLY'].includes(context.walletCheckpointDisposition),
         artifact: docs.walletConditionedSliceStability.path,
-        status: context.walletShadowStarved ? 'SHADOW_STARVED' : (context.walletShadowCollectingReady ? 'SHADOW_COLLECTING' : 'NOT_READY'),
+        status: context.walletCheckpointDisposition === 'FAILED_CLEAN_CHECKPOINT'
+          ? 'REJECTED_AT_CLEAN_CHECKPOINT'
+          : (context.walletCheckpointDisposition === 'PASSED_CLEAN_CHECKPOINT_REPORT_ONLY'
+            ? 'CHECKPOINT_PASSED_REPORT_ONLY'
+            : (context.walletShadowStarved ? 'SHADOW_STARVED' : (context.walletShadowCollectingReady ? 'SHADOW_COLLECTING' : 'NOT_READY'))),
+        checkpointEvaluation: context.walletCheckpointEvaluation,
         wouldEnterAccumulated: context.walletShadowWouldEnter,
         wouldEnterLatestRun: number(walletShadowCoverage.wouldEnter, 0),
         wouldEnterTarget: number(trackedSubstrateFreshness.stoppingRule?.targetWouldEnterSamples, 10),
@@ -487,6 +539,7 @@ function main() {
         },
         latestRunSummary: runnerRejectRuntimeShadowSummary
       },
+      terminalStrategyFamilies: TERMINAL_STRATEGY_FAMILIES.map(({ matches, ...family }) => family),
       topBlockers: topBlockers(scored),
       bestCandidateNextDataNeed: scored[0]?.nextDataNeed || [],
       interpretation: promotionEligible.length

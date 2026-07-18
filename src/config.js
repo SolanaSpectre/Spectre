@@ -1371,6 +1371,10 @@ class Config {
     return parseInt(process.env.PUMPPORTAL_TOKEN_TRADE_SUBSCRIPTION_TTL_MS || '1800000', 10);
   }
 
+  static get pumpPortalMaxMeteredTradeEventsPerSession() {
+    return parseInt(process.env.PUMPPORTAL_MAX_METERED_TRADE_EVENTS_PER_SESSION || '10000', 10);
+  }
+
   static get pumpPortalReconnectResubscribeMaxMints() {
     return parseInt(process.env.PUMPPORTAL_RECONNECT_RESUBSCRIBE_MAX_MINTS || '25', 10);
   }
