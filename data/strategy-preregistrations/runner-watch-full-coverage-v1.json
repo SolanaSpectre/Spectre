@@ -2,6 +2,8 @@
   "schemaVersion": 1,
   "id": "runner_watch_full_coverage_v1_2026-07-18",
   "preregisteredAt": "2026-07-18T01:28:22.1008379-05:00",
+  "amendedBeforeFirstValidRunAt": "2026-07-18T01:52:19.9719821-05:00",
+  "amendmentReason": "Measure first-RPC above-band exclusions and bound below-band RPC re-observation before the first eligible run; strategy gates and subscription band are unchanged.",
   "status": "PREREGISTERED_BEFORE_FIRST_VALID_RUN",
   "mode": "paper_only",
   "liveBehaviorChanged": false,
@@ -16,7 +18,9 @@
     "maxCurveProgressExclusive": 0.9,
     "paidEventBudgetPerSession": 30000,
     "estimatedMaximumChargeSol": 0.03,
-    "tokenTradeSubscriptionTtlMs": 1800000
+    "tokenTradeSubscriptionTtlMs": 1800000,
+    "belowBandRpcRecheckMaxAgeMs": 180000,
+    "belowBandRpcRecheckCadenceMs": 15000
   },
   "validRunDefinition": {
     "requestedRunMinutes": 60,

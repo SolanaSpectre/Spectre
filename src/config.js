@@ -1387,6 +1387,10 @@ class Config {
     return parseFloat(process.env.PUMPPORTAL_TARGETED_MAX_CURVE_PROGRESS || '0.90');
   }
 
+  static get pumpPortalTargetedPrefilterMaxAgeMs() {
+    return parseInt(process.env.PUMPPORTAL_TARGETED_PREFILTER_MAX_AGE_MS || '180000', 10);
+  }
+
   static get pumpPortalReconnectResubscribeMaxMints() {
     return parseInt(process.env.PUMPPORTAL_RECONNECT_RESUBSCRIBE_MAX_MINTS || '25', 10);
   }
@@ -2582,6 +2586,7 @@ class Config {
       { key: 'pumpPortalMaxMeteredTradeEventsPerSession', value: this.pumpPortalMaxMeteredTradeEventsPerSession, min: 0 },
       { key: 'pumpPortalTargetedMinCurveProgress', value: this.pumpPortalTargetedMinCurveProgress, min: 0, max: 1 },
       { key: 'pumpPortalTargetedMaxCurveProgress', value: this.pumpPortalTargetedMaxCurveProgress, min: 0, max: 1 },
+      { key: 'pumpPortalTargetedPrefilterMaxAgeMs', value: this.pumpPortalTargetedPrefilterMaxAgeMs, min: 1000 },
       { key: 'pumpPortalEventHandlerConcurrency', value: this.pumpPortalEventHandlerConcurrency, min: 1 },
       { key: 'pumpPortalEventQueueMaxSize', value: this.pumpPortalEventQueueMaxSize, min: 1 },
       { key: 'pumpDevMaxSubscribedMints', value: this.pumpDevMaxSubscribedMints, min: 1 },

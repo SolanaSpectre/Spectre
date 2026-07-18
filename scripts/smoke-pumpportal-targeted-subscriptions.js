@@ -43,14 +43,24 @@ async function main() {
   assert(lifecycle.some((row) => row.event === 'provider.pumpportal.targeted_subscription'));
 
   const requested = [];
+  const engineTelemetry = [];
   const engineContext = {
     config: {
       pumpPortalTradeSubscriptionMode: 'targeted_curve',
       pumpPortalTargetedMinCurveProgress: 0.25,
-      pumpPortalTargetedMaxCurveProgress: 0.9
+      pumpPortalTargetedMaxCurveProgress: 0.9,
+      pumpPortalTargetedPrefilterMaxAgeMs: 180000,
+      pumpBondingCurveRefreshIntervalMs: 15000
     },
+    pumpPortalTargetedFirstRpcObservations: new Map(),
+    pumpPortalTargetedPrefilterRefreshState: new Map(),
+    pumpPortalTargetedPrefilterExpiredMints: new Set(),
+    telemetry: { record(type, payload) { engineTelemetry.push({ type, payload }); } },
     pumpPortalListener: {
       targetMint(mint, metadata) { requested.push({ mint, metadata }); return true; }
+    },
+    enqueuePumpBondingCurveSync(mint, token, launchIntelSummary, delayMs, options) {
+      this.lastQueuedRefresh = { mint, token, launchIntelSummary, delayMs, options };
     }
   };
   assert.strictEqual(TradingEngine.prototype.maybeTargetPumpPortalPaidTape.call(engineContext, {
@@ -66,6 +76,30 @@ async function main() {
     state: { mint: 'too-late', curveProgress: 0.9, curveProgressSource: 'pump_bonding_curve_rpc', bondingCurveAccountFound: true, score: 100 }
   }), false);
   assert.deepStrictEqual(requested.map((row) => row.mint), ['eligible']);
+
+  assert.strictEqual(TradingEngine.prototype.maybeTargetPumpPortalPaidTape.call(engineContext, {
+    state: { mint: 'slow-builder', curveProgress: 0.05, curveProgressSource: 'pump_bonding_curve_rpc', bondingCurveAccountFound: true, score: 5 }
+  }), false);
+  assert.strictEqual(TradingEngine.prototype.scheduleTargetedPumpPortalPrefilterRefresh.call(
+    engineContext,
+    { mint: 'slow-builder' },
+    { mint: 'slow-builder', accountFound: true, complete: false, curveProgress: 0.05 }
+  ), true);
+  assert.strictEqual(engineContext.lastQueuedRefresh.mint, 'slow-builder');
+  assert.strictEqual(engineContext.lastQueuedRefresh.delayMs, 15000);
+  assert.strictEqual(engineContext.lastQueuedRefresh.options.forceVerify, true);
+  assert.strictEqual(TradingEngine.prototype.maybeTargetPumpPortalPaidTape.call(engineContext, {
+    state: { mint: 'slow-builder', curveProgress: 0.3, curveProgressSource: 'pump_bonding_curve_rpc', bondingCurveAccountFound: true, score: 30 }
+  }), true);
+  assert(requested.some((row) => row.mint === 'slow-builder'));
+
+  assert.strictEqual(TradingEngine.prototype.maybeTargetPumpPortalPaidTape.call(engineContext, {
+    state: { mint: 'first-seen-above', curveProgress: 0.95, curveProgressSource: 'pump_bonding_curve_rpc', bondingCurveAccountFound: true, score: 95 }
+  }), false);
+  assert(engineTelemetry.some((row) => row.type === 'provider.pumpportal.targeted_prefilter_first_rpc_observation'
+    && row.payload.mint === 'first-seen-above'
+    && row.payload.classification === 'ABOVE_BAND'
+    && row.payload.coverageShapedExclusion === true));
 
   console.log('PumpPortal targeted subscription smoke passed');
 }

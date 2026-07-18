@@ -42,6 +42,8 @@ function scanRun(telemetryPath) {
   let stopping = null;
   const entries = [];
   const exits = [];
+  const prefilterObservations = [];
+  const paperDecisions = [];
   forEachJsonlSync(telemetryPath, (event) => {
     const payload = event.payload || event.data || {};
     if (event.type === 'session.started') started = { timestamp: event.timestamp, payload };
@@ -51,9 +53,46 @@ function scanRun(telemetryPath) {
       entries.push({ timestamp: event.timestamp, ...payload });
     } else if (event.type === 'pre_migration_paper.exit' && payload.lane === 'PRE_MIGRATION_RUNNER_WATCH') {
       exits.push({ timestamp: event.timestamp, ...payload });
+    } else if (event.type === 'provider.pumpportal.targeted_prefilter_first_rpc_observation') {
+      prefilterObservations.push({ timestamp: event.timestamp, ...payload });
+    } else if (event.type === 'pre_migration_paper.decision') {
+      paperDecisions.push({ timestamp: event.timestamp, ...payload });
     }
   });
-  return { started, stopping, entries, exits };
+  const firstObservedAboveBand = prefilterObservations.filter((row) => row.classification === 'ABOVE_BAND');
+  const aboveBandMints = new Set(firstObservedAboveBand.map((row) => row.mint));
+  const coverageShapedSkips = paperDecisions
+    .filter((row) => aboveBandMints.has(row.mint) && row.decision === 'PAPER_SKIPPED')
+    .map((row) => ({
+      timestamp: row.timestamp,
+      mint: row.mint,
+      symbol: row.symbol || null,
+      reason: row.reason || null,
+      coverageTag: 'FIRST_RPC_OBSERVED_ABOVE_TARGETED_TAPE_BAND'
+    }));
+  const byClassification = prefilterObservations.reduce((counts, row) => {
+    counts[row.classification || 'UNKNOWN'] = (counts[row.classification || 'UNKNOWN'] || 0) + 1;
+    return counts;
+  }, {});
+  const skipReasons = coverageShapedSkips.reduce((counts, row) => {
+    counts[row.reason || 'UNKNOWN'] = (counts[row.reason || 'UNKNOWN'] || 0) + 1;
+    return counts;
+  }, {});
+  return {
+    started,
+    stopping,
+    entries,
+    exits,
+    coverageDiagnostics: {
+      firstRpcObservations: prefilterObservations.length,
+      byClassification,
+      firstObservedAboveBandMints: firstObservedAboveBand.length,
+      firstObservedAboveBand,
+      coverageShapedPaperSkips: coverageShapedSkips.length,
+      coverageShapedPaperSkipReasons: skipReasons,
+      coverageShapedSkips
+    }
+  };
 }
 
 function buildEpisodes(run) {
@@ -82,8 +121,9 @@ function validateRun(prereg, telemetryPath, run, coverage) {
   const rpcFailures = number(stats.solanaRpc?.stats?.primaryFailures, 0) + number(stats.solanaRpc?.stats?.fallbackFailures, 0);
   const expected = prereg.subscriptionPlan;
   const requested = prereg.validRunDefinition;
+  const effectiveRegistrationAt = prereg.amendedBeforeFirstValidRunAt || prereg.preregisteredAt;
   const checks = {
-    postRegistration: Boolean(run.started?.timestamp && new Date(run.started.timestamp) > new Date(prereg.preregisteredAt)),
+    postRegistration: Boolean(run.started?.timestamp && new Date(run.started.timestamp) > new Date(effectiveRegistrationAt)),
     paperMode: run.started?.payload?.mode === 'PAPER',
     requestedDuration: number(run.started?.payload?.sessionDurationMinutes) === requested.requestedRunMinutes,
     targetedMode: plan.tradeSubscriptionMode === expected.mode,
@@ -91,6 +131,8 @@ function validateRun(prereg, telemetryPath, run, coverage) {
     maxCurveProgress: number(plan.targetedMaxCurveProgress) === expected.maxCurveProgressExclusive,
     paidEventBudget: number(plan.maxMeteredTradeEventsPerSession) === expected.paidEventBudgetPerSession,
     tokenTradeTtl: number(plan.tokenTradeSubscriptionTtlMs) === expected.tokenTradeSubscriptionTtlMs,
+    targetedPrefilterMaxAge: number(plan.targetedPrefilterMaxAgeMs) === expected.belowBandRpcRecheckMaxAgeMs,
+    targetedPrefilterCadence: number(plan.targetedPrefilterCadenceMs) === expected.belowBandRpcRecheckCadenceMs,
     fullPaidTapeMinutes: number(coverage.fullPaidTapeMinutes, 0) >= requested.minimumFullPaidTapeMinutes,
     runtimeRpcCurveErrors: curveErrors === 0,
     completedLifecycle: run.stopping?.payload?.reason === 'SESSION_DURATION_EXCEEDED'
@@ -197,6 +239,7 @@ function main() {
     valid: validation.valid,
     failedChecks: validation.failedChecks,
     fullPaidTapeMinutes: coverage.fullPaidTapeMinutes,
+    coverageDiagnostics: run.coverageDiagnostics,
     episodes,
     pnlSol: round(episodes.reduce((sum, episode) => sum + number(episode.pnlSol, 0), 0))
   };
@@ -208,7 +251,7 @@ function main() {
     generatedAt: new Date().toISOString(),
     mode: 'paper_only_preregistered_runner_watch_full_coverage_evidence',
     preregistration: prereg,
-    currentRun: { validation, episodes, ledgerAppended: appended },
+    currentRun: { validation, coverageDiagnostics: run.coverageDiagnostics, episodes, ledgerAppended: appended },
     cumulative,
     ledgerPath: relative(LEDGER_PATH),
     note: 'Only post-registration runs matching the frozen targeted paid-tape plan and full-coverage definition enter the cumulative evidence ledger. Same-mint reentries are one episode per run.',
@@ -221,4 +264,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { buildEpisodes, validateRun, summarizeLedger };
+module.exports = { scanRun, buildEpisodes, validateRun, summarizeLedger };

@@ -174,6 +174,9 @@ class TradingEngine {
     this.pendingPumpBondingCurveSyncs = new Set();
     this.queuedPumpBondingCurveSyncs = new Map();
     this.pumpBondingCurveQueueTimer = null;
+    this.pumpPortalTargetedFirstRpcObservations = new Map();
+    this.pumpPortalTargetedPrefilterRefreshState = new Map();
+    this.pumpPortalTargetedPrefilterExpiredMints = new Set();
     this.pumpDevTargetedCurveParityLastSampleAt = new Map();
     this.pumpDevTargetedCurveParityInFlight = new Set();
     this.pumpDevTargetedCurveParitySkipLogLastAt = new Map();
@@ -414,6 +417,8 @@ class TradingEngine {
         tradeSubscriptionMode: this.config.pumpPortalTradeSubscriptionMode,
         targetedMinCurveProgress: this.config.pumpPortalTargetedMinCurveProgress,
         targetedMaxCurveProgress: this.config.pumpPortalTargetedMaxCurveProgress,
+        targetedPrefilterMaxAgeMs: this.config.pumpPortalTargetedPrefilterMaxAgeMs,
+        targetedPrefilterCadenceMs: this.config.pumpBondingCurveRefreshIntervalMs,
         maxMeteredTradeEventsPerSession: this.config.pumpPortalMaxMeteredTradeEventsPerSession,
         tokenTradeSubscriptionTtlMs: this.config.pumpPortalTokenTradeSubscriptionTtlMs
       },
@@ -3546,7 +3551,25 @@ class TradingEngine {
       || curveProgressSource !== 'pump_bonding_curve_rpc'
       || state.bondingCurveAccountFound !== true
       || !Number.isFinite(curveProgress)
-      || curveProgress < minCurveProgress
+    ) return false;
+    if (!this.pumpPortalTargetedFirstRpcObservations.has(mint)) {
+      const classification = curveProgress < minCurveProgress
+        ? 'BELOW_BAND'
+        : curveProgress >= maxCurveProgress ? 'ABOVE_BAND' : 'IN_BAND';
+      this.pumpPortalTargetedFirstRpcObservations.set(mint, classification);
+      this.telemetry.record('provider.pumpportal.targeted_prefilter_first_rpc_observation', {
+        mint,
+        symbol: state.symbol || null,
+        curveProgress,
+        curveProgressSource,
+        classification,
+        coverageShapedExclusion: classification === 'ABOVE_BAND',
+        minCurveProgress,
+        maxCurveProgress
+      });
+    }
+    if (
+      curveProgress < minCurveProgress
       || curveProgress >= maxCurveProgress
       || state.bondingCurveComplete === true
     ) return false;
@@ -3556,6 +3579,49 @@ class TradingEngine {
       curveProgressSource,
       score: Number(state.score)
     }) || false;
+  }
+
+  scheduleTargetedPumpPortalPrefilterRefresh(token = {}, summary = {}, launchIntelSummary = null) {
+    if (this.config.pumpPortalTradeSubscriptionMode !== 'targeted_curve') return false;
+    const mint = summary.mint || token.mint;
+    const curveProgress = Number(summary.curveProgress);
+    const minCurveProgress = Number(this.config.pumpPortalTargetedMinCurveProgress);
+    if (!mint || !summary.accountFound || !Number.isFinite(curveProgress)) return false;
+    if (summary.complete || curveProgress >= minCurveProgress) {
+      this.pumpPortalTargetedPrefilterRefreshState.delete(mint);
+      return false;
+    }
+    if (this.pumpPortalTargetedPrefilterExpiredMints.has(mint)) return false;
+
+    const now = Date.now();
+    const state = this.pumpPortalTargetedPrefilterRefreshState.get(mint) || {
+      firstScheduledAt: now,
+      attempts: 0
+    };
+    const maxAgeMs = Number(this.config.pumpPortalTargetedPrefilterMaxAgeMs);
+    if (now - state.firstScheduledAt >= maxAgeMs) {
+      this.pumpPortalTargetedPrefilterRefreshState.delete(mint);
+      this.pumpPortalTargetedPrefilterExpiredMints.add(mint);
+      this.telemetry.record('provider.pumpportal.targeted_prefilter_refresh_expired', {
+        mint,
+        curveProgress,
+        attempts: state.attempts,
+        ageMs: now - state.firstScheduledAt,
+        maxAgeMs
+      });
+      return false;
+    }
+
+    state.attempts += 1;
+    this.pumpPortalTargetedPrefilterRefreshState.set(mint, state);
+    this.enqueuePumpBondingCurveSync(
+      mint,
+      token,
+      launchIntelSummary,
+      Number(this.config.pumpBondingCurveRefreshIntervalMs),
+      { forceVerify: true }
+    );
+    return true;
   }
 
   shouldEmitPreMigrationObservedTelemetry(result = {}) {
@@ -5567,6 +5633,12 @@ class TradingEngine {
       await this.handleBondingCurveCompletionMigration(mint, current, summary);
     }
 
+    this.scheduleTargetedPumpPortalPrefilterRefresh(
+      current,
+      summary,
+      options.launchIntelSummary || current.launchIntelSummary || null
+    );
+
     if (options.observeAfterSync && summary.refreshed) {
       this.observePreMigrationToken(current, options.launchIntelSummary || current.launchIntelSummary || null);
     }
@@ -5798,11 +5870,9 @@ class TradingEngine {
       this.latestPumpPortalTokens.set(mint, current);
     }
     const providerCurveProgress = Number(nextToken.curveProgress);
-    const targetedRpcPrefilterCandidate = this.config.pumpPortalTradeSubscriptionMode === 'targeted_curve'
-      && Number.isFinite(providerCurveProgress)
-      && providerCurveProgress >= Number(this.config.pumpPortalTargetedMinCurveProgress)
-      && providerCurveProgress < Number(this.config.pumpPortalTargetedMaxCurveProgress);
-    if (!providerCurveSnapshotApplied || targetedRpcPrefilterCandidate) {
+    const targetedRpcPrefilterObservation = this.config.pumpPortalTradeSubscriptionMode === 'targeted_curve'
+      && Number.isFinite(providerCurveProgress);
+    if (!providerCurveSnapshotApplied || targetedRpcPrefilterObservation) {
       await this.syncPumpBondingCurveBeforePreMigrationObservation(
         mint,
         this.latestPumpPortalTokens.get(mint),
@@ -6739,6 +6809,14 @@ class TradingEngine {
         ...this.pumpBondingCurveLane.getStats(),
         engineQueueSize: this.queuedPumpBondingCurveSyncs.size,
         enginePendingSyncs: this.pendingPumpBondingCurveSyncs.size,
+        targetedPrefilterFirstRpcObservations: this.pumpPortalTargetedFirstRpcObservations.size,
+        targetedPrefilterFirstRpcByClassification: [...this.pumpPortalTargetedFirstRpcObservations.values()]
+          .reduce((counts, classification) => {
+            counts[classification] = (counts[classification] || 0) + 1;
+            return counts;
+          }, {}),
+        targetedPrefilterRefreshesActive: this.pumpPortalTargetedPrefilterRefreshState.size,
+        targetedPrefilterRefreshesExpired: this.pumpPortalTargetedPrefilterExpiredMints.size,
         pumpDevTargetedCurveParitySamples: this.pumpDevTargetedCurveParitySampleCount,
         pumpDevTargetedCurveParityInFlight: this.pumpDevTargetedCurveParityInFlight.size,
         pumpDevTargetedCurveParitySampleWatchEnabled: this.config.pumpDevTargetedCurveParitySampleWatchEnabled === true,

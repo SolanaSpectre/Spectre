@@ -27,6 +27,7 @@ const CONFIG_GETTER_ALLOWLIST = [
   'pumpPortalTradeSubscriptionMode',
   'pumpPortalTargetedMinCurveProgress',
   'pumpPortalTargetedMaxCurveProgress',
+  'pumpPortalTargetedPrefilterMaxAgeMs',
   'pumpPortalBackupOnly'
 ];
 

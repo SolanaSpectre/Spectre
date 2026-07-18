@@ -2,7 +2,10 @@
 'use strict';
 
 const assert = require('assert');
-const { buildEpisodes, summarizeLedger } = require('./runner-watch-full-coverage-evidence-report');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { scanRun, buildEpisodes, summarizeLedger } = require('./runner-watch-full-coverage-evidence-report');
 
 const prereg = {
   throughputCheckpoint: { minimumUniqueMintEpisodesPerFullCoverageHour: 1 },
@@ -28,5 +31,19 @@ assert.strictEqual(summary.realizedUniqueMintEpisodes, 2);
 assert.strictEqual(summary.episodesPerFullCoverageHour, 2);
 assert.strictEqual(summary.economicCheckpointReady, true);
 assert.strictEqual(summary.liveAction, 'KEEP_LIVE_DISABLED');
+
+const telemetryPath = path.join(os.tmpdir(), `spectre-runner-watch-coverage-${process.pid}.jsonl`);
+fs.writeFileSync(telemetryPath, [
+  { type: 'provider.pumpportal.targeted_prefilter_first_rpc_observation', timestamp: '2026-07-18T12:00:00.000Z', payload: { mint: 'FAST', symbol: 'FAST', classification: 'ABOVE_BAND' } },
+  { type: 'pre_migration_paper.decision', timestamp: '2026-07-18T12:00:01.000Z', payload: { mint: 'FAST', symbol: 'FAST', decision: 'PAPER_SKIPPED', reason: 'MISSING_BUY_RATIO' } }
+].map((row) => JSON.stringify(row)).join('\n') + '\n', 'utf8');
+try {
+  const scanned = scanRun(telemetryPath);
+  assert.strictEqual(scanned.coverageDiagnostics.firstObservedAboveBandMints, 1);
+  assert.strictEqual(scanned.coverageDiagnostics.coverageShapedPaperSkips, 1);
+  assert.strictEqual(scanned.coverageDiagnostics.coverageShapedPaperSkipReasons.MISSING_BUY_RATIO, 1);
+} finally {
+  fs.rmSync(telemetryPath, { force: true });
+}
 
 console.log('Runner-watch full-coverage evidence smoke passed');

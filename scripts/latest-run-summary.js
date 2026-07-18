@@ -3177,6 +3177,10 @@ function buildSummary(docs) {
   if (runnerWatchFullCoverageEvidence.cumulative) {
     const evidence = runnerWatchFullCoverageEvidence.cumulative;
     lines.push(`  - runner-watch prereg evidence: ${evidence.verdict || 'unknown'}; validRuns=${evidence.validRuns ?? 0}, episodes=${evidence.realizedUniqueMintEpisodes ?? 0}/20, episodesPerHour=${evidence.episodesPerFullCoverageHour ?? 'n/a'}, median=${evidence.medianEpisodePnlSol ?? 'n/a'} SOL, exTop3=${evidence.pnlAfterRemovingTop3WinnersSol ?? 'n/a'} SOL, live=${evidence.liveAction || 'KEEP_LIVE_DISABLED'}`);
+    const coverageDiagnostics = runnerWatchFullCoverageEvidence.currentRun?.coverageDiagnostics;
+    if (coverageDiagnostics) {
+      lines.push(`  - targeted prefilter coverage: firstRpc=${coverageDiagnostics.firstRpcObservations ?? 0} (below/in/above=${coverageDiagnostics.byClassification?.BELOW_BAND || 0}/${coverageDiagnostics.byClassification?.IN_BAND || 0}/${coverageDiagnostics.byClassification?.ABOVE_BAND || 0}), aboveBandCoverageShapedSkips=${coverageDiagnostics.coverageShapedPaperSkips ?? 0}`);
+    }
   }
   lines.push(`  - control frames sent / token subscribe / token unsubscribe / account unsubscribe: ${pumpPortalHealth.controlFramesSent || 0} / ${pumpPortalHealth.tokenTradeSubscribeFrames || 0} / ${pumpPortalHealth.tokenTradeUnsubscribeFrames || 0} / ${pumpPortalHealth.accountTradeUnsubscribeFrames || 0}`);
   lines.push(`  - split sockets enabled / backup-only / post-1006 tradestream delay: ${pumpPortalHealth.splitSocketsEnabled === null ? 'unknown' : pumpPortalHealth.splitSocketsEnabled === true} / ${pumpPortalHealth.backupOnly === true} / ${pumpPortalHealth.postCloseTradestreamDelayMs || 0}ms`);
