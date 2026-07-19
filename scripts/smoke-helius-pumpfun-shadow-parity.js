@@ -170,6 +170,17 @@ const unexpectedDisconnect = analyzeEvents([
 assert.strictEqual(unexpectedDisconnect.checks.cleanHeliusLifecycle, false);
 assert.strictEqual(unexpectedDisconnect.verdict, PREREGISTERED.failVerdict);
 
+const eventDecodeFailure = analyzeEvents([
+  ...events,
+  event('provider.helius_pumpfun.shadow_decode_error', iso(100_000), {
+    eventType: 'TradeEvent',
+    signature: 'SyntheticDecodeFailure',
+    dataLength: 129
+  })
+]);
+assert.strictEqual(eventDecodeFailure.checks.decoderEventErrors, false);
+assert.strictEqual(eventDecodeFailure.verdict, PREREGISTERED.failVerdict);
+
 const unsupported = analyzeEvents([
   ...events,
   event('provider.helius_pumpfun.shadow_trade', iso(59_000), {

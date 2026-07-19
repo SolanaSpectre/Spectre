@@ -3,9 +3,16 @@
 
 const assert = require('assert');
 const HeliusPumpfunShadowListener = require('../src/helius-pumpfun-shadow-listener');
-const { NATIVE_SOL_MINT, USDC_MINT, WRAPPED_SOL_MINT } = require('../src/lib/pump-trade-event-decoder');
+const {
+  MIN_TRADE_EVENT_BYTES,
+  NATIVE_SOL_MINT,
+  TRADE_EVENT_DISCRIMINATOR,
+  USDC_MINT,
+  WRAPPED_SOL_MINT
+} = require('../src/lib/pump-trade-event-decoder');
 
 const events = [];
+const lifecycleEvents = [];
 const listener = new HeliusPumpfunShadowListener({
   heliusPumpfunShadowEnabled: false,
   heliusStandardWebsocketUrl: 'wss://example.invalid',
@@ -15,6 +22,9 @@ const listener = new HeliusPumpfunShadowListener({
   info() {},
   warn() {}
 }, {
+  onLifecycle(type, payload) {
+    lifecycleEvents.push({ type, payload });
+  },
   onShadowEvent(type, payload) {
     events.push({ type, payload });
   }
@@ -129,5 +139,25 @@ listener.handleDecodedEvent({
 assert.strictEqual(events[0].type, 'provider.helius_pumpfun.shadow_complete');
 assert.strictEqual(events[0].payload.reportOnly, true);
 assert.strictEqual(listener.getStats().strategyConsumptionEnabled, false);
+
+const invalidBoolTrade = Buffer.alloc(MIN_TRADE_EVENT_BYTES);
+TRADE_EVENT_DISCRIMINATOR.copy(invalidBoolTrade, 0);
+invalidBoolTrade[56] = 215;
+listener.handleRawMessage(Buffer.from(JSON.stringify({
+  method: 'logsNotification',
+  params: {
+    result: {
+      context: { slot: 4 },
+      value: {
+        signature: 'InvalidBoolSignature',
+        err: null,
+        logs: [`Program data: ${invalidBoolTrade.toString('base64')}`]
+      }
+    }
+  }
+})));
+assert.strictEqual(listener.getStats().tradeDecodeErrors, 1);
+assert.strictEqual(lifecycleEvents[0].type, 'provider.helius_pumpfun.shadow_decode_error');
+assert.strictEqual(lifecycleEvents[0].payload.dataLength, MIN_TRADE_EVENT_BYTES);
 
 console.log('Helius Pump.fun shadow listener smoke passed');

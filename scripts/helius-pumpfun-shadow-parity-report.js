@@ -35,7 +35,8 @@ const PREREGISTERED = Object.freeze({
   v3FrozenAt: '2026-07-19T19:05:00.000Z',
   v3FailureDisposition: 'failed_21_of_23_amount_cohorts_because_signature_mint_trader_side_can_repeat_for_multiple_trade_events_while_pumpportal_emits_one_aggregate',
   v4VolumeRule: 'sum_all_standard_helius_trade_events_per_signature_mint_trader_side_then_compare_to_the_single_pumpportal_aggregate',
-  v4EvidenceStart: 'first_run_after_v4_grouped_identity_comparator_was_frozen',
+  v4RuntimeAmendment: 'before_first_completed_v4_run_contain_trade_decode_exceptions_and_fail_parity_on_counted_decode_errors',
+  v4EvidenceStart: 'first_completed_run_after_v4_grouped_identity_comparator_and_decoder_exception_containment_were_committed',
   v4FrozenAt: '2026-07-19T19:45:00.000Z',
   duplicatePolicy: 'dedupe_helius_by_signature_mint_log_index_and_amounts_before_parity_aggregation',
   solQuotedMinimumTradesPerMintHour: 20,
@@ -51,6 +52,7 @@ const PREREGISTERED = Object.freeze({
   discoveryMatchMinimum: 20,
   discoveryHeliusLagP90MaximumMs: 2_000,
   decoderTailErrorsMaximum: 0,
+  decoderEventErrorsMaximum: 0,
   quoteLabelCoverageMinimumRate: 1,
   mayhemClassificationCoverageMinimumRate: 1,
   unsupportedQuoteEventsMaximum: 0,
@@ -243,6 +245,7 @@ function createState() {
       connections: 0,
       errors: 0,
       subscriptionErrors: 0,
+      decodeErrors: 0,
       unexpectedDisconnects: 0,
       normalDisconnects: 0
     }
@@ -275,6 +278,10 @@ function ingestEvent(state, event) {
   }
   if (type === 'provider.helius_pumpfun.shadow_subscription_error') {
     state.heliusLifecycle.subscriptionErrors += 1;
+    return;
+  }
+  if (type === 'provider.helius_pumpfun.shadow_decode_error') {
+    state.heliusLifecycle.decodeErrors += 1;
     return;
   }
   if (type === 'provider.helius_pumpfun.shadow_disconnected') {
@@ -671,6 +678,7 @@ function buildReport(state, sourceTelemetry = null) {
     discoveryLatency: Number.isFinite(discoveryStats.p90)
       && discoveryStats.p90 <= PREREGISTERED.discoveryHeliusLagP90MaximumMs,
     decoderTailErrors: decoderTailErrors <= PREREGISTERED.decoderTailErrorsMaximum,
+    decoderEventErrors: state.heliusLifecycle.decodeErrors <= PREREGISTERED.decoderEventErrorsMaximum,
     quoteLabelCoverage: quoteCoverage >= PREREGISTERED.quoteLabelCoverageMinimumRate,
     mayhemClassificationCoverage: mayhemClassificationCoverage >= PREREGISTERED.mayhemClassificationCoverageMinimumRate,
     unsupportedQuoteEvents: unsupportedQuoteEvents <= PREREGISTERED.unsupportedQuoteEventsMaximum
@@ -678,6 +686,7 @@ function buildReport(state, sourceTelemetry = null) {
   const hardAdapterChecksPassed = checks.strategyConsumptionDisabled
     && checks.cleanHeliusLifecycle
     && checks.decoderTailErrors
+    && checks.decoderEventErrors
     && checks.quoteLabelCoverage
     && checks.mayhemClassificationCoverage
     && checks.unsupportedQuoteEvents;

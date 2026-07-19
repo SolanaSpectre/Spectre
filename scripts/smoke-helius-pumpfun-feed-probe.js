@@ -11,6 +11,7 @@ const {
   decodeCompleteEventData,
   decodeCreateEventData,
   decodeMigrationEventData,
+  decodePumpEventLog,
   decodePumpTradeEventData,
   decodePumpTradeEventLog
 } = require('../src/lib/pump-trade-event-decoder');
@@ -46,6 +47,9 @@ assert.strictEqual(decoded.solAmount, '500000000');
 assert.strictEqual(decoded.virtualSolReserves, '30000000000');
 assert.strictEqual(decoded.realTokenReserves, '700000000000000');
 assert.deepStrictEqual(decodePumpTradeEventLog(`Program data: ${data.toString('base64')}`), decoded);
+const invalidBoolTrade = Buffer.from(data);
+invalidBoolTrade[56] = 215;
+assert.strictEqual(decodePumpEventLog(`Program data: ${invalidBoolTrade.toString('base64')}`), null);
 
 const truncatedTailDecoded = decodePumpTradeEventData(Buffer.concat([data, Buffer.alloc(10, 9)]));
 assert.strictEqual(truncatedTailDecoded.tailDecoded, false);

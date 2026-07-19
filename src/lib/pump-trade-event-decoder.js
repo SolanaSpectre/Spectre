@@ -265,7 +265,12 @@ function base64DataFromLog(line) {
 
 function decodePumpEventLog(line) {
   const data = base64DataFromLog(line);
-  return data ? decodePumpEventData(data) : null;
+  if (!data) return null;
+  try {
+    return decodePumpEventData(data);
+  } catch {
+    return null;
+  }
 }
 
 function decodePumpTradeEventLog(line) {

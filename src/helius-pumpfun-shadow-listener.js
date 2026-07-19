@@ -6,7 +6,8 @@ const {
   USDC_MINT,
   WRAPPED_SOL_MINT,
   base64DataFromLog,
-  decodePumpEventLog
+  decodePumpEventLog,
+  isPumpTradeEventLog
 } = require('./lib/pump-trade-event-decoder');
 
 const PUMP_TOKEN_DECIMALS = 6;
@@ -53,6 +54,7 @@ class HeliusPumpfunShadowListener {
       logLines: 0,
       programDataLines: 0,
       unmatchedProgramDataLines: 0,
+      tradeDecodeErrors: 0,
       decodedEvents: 0,
       tradeEvents: 0,
       createEvents: 0,
@@ -240,6 +242,16 @@ class HeliusPumpfunShadowListener {
       const event = decodePumpEventLog(line);
       if (!event) {
         this.stats.unmatchedProgramDataLines += 1;
+        if (isPumpTradeEventLog(line)) {
+          this.stats.tradeDecodeErrors += 1;
+          this.emitLifecycle('provider.helius_pumpfun.shadow_decode_error', {
+            eventType: 'TradeEvent',
+            signature: context.signature,
+            slot: context.slot,
+            logIndex,
+            dataLength: data?.length ?? null
+          });
+        }
         continue;
       }
       this.handleDecodedEvent(event, { ...context, logIndex });
