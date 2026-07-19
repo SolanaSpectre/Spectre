@@ -71,6 +71,31 @@ const nativeSol = listener.normalizeTrade({
 });
 assert.strictEqual(nativeSol.pairBase, 'SOL');
 assert.strictEqual(nativeSol.solAmount, 0.5);
+assert.strictEqual(nativeSol.mayhemMode, null);
+
+const mayhem = listener.normalizeTrade({
+  ...nativeSol,
+  eventType: 'TradeEvent',
+  quoteMint: NATIVE_SOL_MINT,
+  curveModel: 'sol_quote',
+  solAmount: '500000000',
+  virtualSolReserves: '30000000000',
+  virtualTokenReserves: '900000000000000',
+  tokenAmount: '1000000',
+  timestamp: '1700000000',
+  isBuy: true,
+  user: 'Wallet',
+  mint: 'Mint',
+  tailDecoded: true,
+  mayhemMode: true,
+  ixName: 'buy'
+}, {
+  signature: 'MayhemSignature',
+  slot: 3,
+  receivedAt: '2026-07-19T00:00:01.000Z'
+});
+assert.strictEqual(mayhem.mayhemMode, true);
+assert.strictEqual(mayhem.ixName, 'buy');
 
 const usdc = listener.normalizeTrade({
   ...normalized,

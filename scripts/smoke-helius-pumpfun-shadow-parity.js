@@ -46,6 +46,7 @@ for (let mintIndex = 0; mintIndex < 20; mintIndex += 1) {
       curveProgress: 0.5,
       curveModel: 'sol_quote',
       quoteMint: 'So11111111111111111111111111111111111111112',
+      mayhemMode: false,
       tailDecodeError: null
     };
     events.push(event('provider.pumpportal.trade', iso(offsetMs), {
@@ -92,6 +93,7 @@ for (let tradeIndex = 0; tradeIndex < 10; tradeIndex += 1) {
     logIndex: 1,
     curveProgress: 0.2,
     curveModel: 'sol_quote',
+    mayhemMode: false,
     tailDecodeError: null
   }));
 }
@@ -109,6 +111,7 @@ for (let tradeIndex = 0; tradeIndex < 20; tradeIndex += 1) {
     logIndex: 1,
     curveProgress: 0.5,
     curveModel: 'sol_quote',
+    mayhemMode: false,
     tailDecodeError: null
   };
   partialCoverageEvents.push(event('provider.pumpportal.trade', iso(offsetMs), { ...payload, pairBase: 'SOL' }));

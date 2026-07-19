@@ -303,6 +303,10 @@ class HeliusPumpfunShadowListener {
       eventAt: this.eventTimestamp(event.timestamp),
       ...context,
       quoteMint: event.quoteMint || null,
+      ixName: event.ixName || null,
+      mayhemMode: typeof event.mayhemMode === 'boolean' ? event.mayhemMode : null,
+      feeBasisPoints: event.feeBasisPoints || null,
+      creatorFeeBasisPoints: event.creatorFeeBasisPoints || null,
       pairBase: event.curveModel === 'sol_quote' || event.curveModel === 'legacy_sol_quote'
         ? 'SOL'
         : event.curveModel === 'usdc_quote' ? 'USDC' : 'UNKNOWN',

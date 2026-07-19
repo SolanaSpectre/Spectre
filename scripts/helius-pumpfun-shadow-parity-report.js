@@ -11,9 +11,9 @@ const LOG_DIR = path.join(ROOT, 'run-logs');
 const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity');
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity-latest.json');
 
-// Frozen before the first Helius adapter run. This is a report-only evidence gate.
+// V2 was frozen after V1 exposed that Pump mayhem trades need a separate curve/volume model.
 const PREREGISTERED = Object.freeze({
-  id: 'helius_pumpfun_shadow_parity_v1_2026-07-19',
+  id: 'helius_pumpfun_shadow_parity_v2_2026-07-19',
   adapterMode: 'logs_only_report_only',
   strategyConsumptionAllowed: false,
   comparator: 'pumpportal_runtime_telemetry_and_rpc_curve_truth',
@@ -22,6 +22,9 @@ const PREREGISTERED = Object.freeze({
   comparatorCoverageFallbackEdgeToleranceMs: 2_000,
   preregistrationAmendment: 'pre_first_run_coverage_window_fix_after_independent_review',
   lifecycleAmendment: 'pre_first_valid_comparator_run_require_completed_session_lifecycle',
+  v1FailureDisposition: 'failed_on_mixed_standard_and_mayhem_volume_and_curve_comparisons',
+  v2CohortRule: 'count_all_sol_quotes_but_grade_volume_and_curve_only_when_mayhem_mode_is_explicitly_false',
+  v2EvidenceStart: 'first_run_after_mayhem_mode_was_emitted_on_helius_shadow_trade_rows',
   duplicatePolicy: 'dedupe_helius_by_signature_mint_log_index_and_amounts_before_parity_aggregation',
   solQuotedMinimumTradesPerMintHour: 20,
   eligibleMintHourMinimum: 10,
@@ -36,6 +39,7 @@ const PREREGISTERED = Object.freeze({
   discoveryHeliusLagP90MaximumMs: 2_000,
   decoderTailErrorsMaximum: 0,
   quoteLabelCoverageMinimumRate: 1,
+  mayhemClassificationCoverageMinimumRate: 1,
   unsupportedQuoteEventsMaximum: 0,
   processedForkRisk: 'diagnostic_only_signature_overlap',
   diagnosticOnlyMetrics: ['buy_ratio', 'unique_buyers', 'pumpdev_overlap', 'signature_overlap'],
@@ -413,6 +417,7 @@ function buildReport(state, sourceTelemetry = null) {
   }
 
   const mintHours = [];
+  const standardVolumeMintHours = [];
   for (const [key, coverage] of coverageByBucket.entries()) {
     const segments = mergeIntervals(coverage.segments);
     const heliusRows = (heliusTradesByMint.get(coverage.mint) || []).filter((row) => (
@@ -429,8 +434,7 @@ function buildReport(state, sourceTelemetry = null) {
     heliusRows.forEach((row) => addTrade(helius, row.payload));
     portalRows.forEach((row) => addTrade(portal, row.payload));
     const tradeCountRelativeDelta = relativeDelta(helius.trades, portal.trades);
-    const solVolumeRelativeDelta = relativeDelta(helius.solVolume, portal.solVolume);
-    mintHours.push({
+    const rowSummary = {
       key,
       mint: coverage.mint,
       hourIndex: coverage.hourIndex,
@@ -440,14 +444,31 @@ function buildReport(state, sourceTelemetry = null) {
       heliusTrades: helius.trades,
       pumpPortalTrades: portal.trades,
       tradeCountRelativeDelta,
-      heliusSolVolume: Number(helius.solVolume.toFixed(9)),
-      pumpPortalSolVolume: Number(portal.solVolume.toFixed(9)),
-      solVolumeRelativeDelta,
       heliusBuyRatio: ratio(helius.buys, helius.buys + helius.sells),
       pumpPortalBuyRatio: ratio(portal.buys, portal.buys + portal.sells),
       heliusUniqueBuyers: helius.buyers.size,
       pumpPortalUniqueBuyers: portal.buyers.size,
-      countPass: tradeCountRelativeDelta <= PREREGISTERED.tradeCountRelativeDeltaMaximum,
+      countPass: tradeCountRelativeDelta <= PREREGISTERED.tradeCountRelativeDeltaMaximum
+    };
+    mintHours.push(rowSummary);
+
+    const standardHeliusRows = heliusRows.filter((row) => row.payload.mayhemMode === false);
+    const standardSignatures = new Set(standardHeliusRows.map((row) => row.payload.signature).filter(Boolean));
+    const standardPortalRows = portalRows.filter((row) => standardSignatures.has(row.payload.signature));
+    if (standardHeliusRows.length < PREREGISTERED.solQuotedMinimumTradesPerMintHour
+      || standardPortalRows.length < PREREGISTERED.solQuotedMinimumTradesPerMintHour) continue;
+    const standardHelius = createAggregate();
+    const standardPortal = createAggregate();
+    standardHeliusRows.forEach((row) => addTrade(standardHelius, row.payload));
+    standardPortalRows.forEach((row) => addTrade(standardPortal, row.payload));
+    const solVolumeRelativeDelta = relativeDelta(standardHelius.solVolume, standardPortal.solVolume);
+    standardVolumeMintHours.push({
+      ...rowSummary,
+      heliusTrades: standardHelius.trades,
+      pumpPortalTrades: standardPortal.trades,
+      heliusSolVolume: Number(standardHelius.solVolume.toFixed(9)),
+      pumpPortalSolVolume: Number(standardPortal.solVolume.toFixed(9)),
+      solVolumeRelativeDelta,
       volumePass: solVolumeRelativeDelta <= PREREGISTERED.solVolumeRelativeDeltaMaximum
     });
   }
@@ -456,6 +477,9 @@ function buildReport(state, sourceTelemetry = null) {
   const curveComparisons = [];
   let solQuotedTradeEvents = 0;
   let quoteLabeledTradeEvents = 0;
+  let mayhemClassifiedTradeEvents = 0;
+  let mayhemTradeEvents = 0;
+  let standardTradeEvents = 0;
   let unsupportedQuoteEvents = 0;
   let decoderTailErrors = 0;
   for (const row of state.heliusTrades) {
@@ -465,6 +489,10 @@ function buildReport(state, sourceTelemetry = null) {
     if (row.payload.tailDecodeError) decoderTailErrors += 1;
     if (!isSolQuoted(row.payload)) continue;
     solQuotedTradeEvents += 1;
+    if (typeof row.payload.mayhemMode === 'boolean') mayhemClassifiedTradeEvents += 1;
+    if (row.payload.mayhemMode === true) mayhemTradeEvents += 1;
+    if (row.payload.mayhemMode === false) standardTradeEvents += 1;
+    if (row.payload.mayhemMode !== false) continue;
     const heliusCurve = numberOrNull(row.payload.curveProgress);
     if (!Number.isFinite(heliusCurve)) continue;
     const nearest = nearestByTime(
@@ -493,9 +521,10 @@ function buildReport(state, sourceTelemetry = null) {
   }
   const discoveryStats = stats(discoveryLags, 0);
   const countPassRate = ratio(mintHours.filter((row) => row.countPass).length, mintHours.length);
-  const volumePassRate = ratio(mintHours.filter((row) => row.volumePass).length, mintHours.length);
+  const volumePassRate = ratio(standardVolumeMintHours.filter((row) => row.volumePass).length, standardVolumeMintHours.length);
   const curvePassRate = ratio(curveComparisons.filter((row) => row.pass).length, curveComparisons.length);
   const quoteCoverage = ratio(quoteLabeledTradeEvents, state.heliusTrades.length);
+  const mayhemClassificationCoverage = ratio(mayhemClassifiedTradeEvents, solQuotedTradeEvents);
   const heliusSignatures = new Set(state.heliusTrades.map((row) => row.payload.signature).filter(Boolean));
   const portalSignatures = new Set(state.portalTrades.map((row) => row.payload.signature).filter(Boolean));
   const signatureOverlap = [...heliusSignatures].filter((signature) => portalSignatures.has(signature)).length;
@@ -505,6 +534,7 @@ function buildReport(state, sourceTelemetry = null) {
   const strategyConsumptionDisabled = state.sessionStarted?.heliusPumpfunShadowPlan?.strategyConsumptionEnabled === false;
   const completedLifecycle = Boolean(state.sessionStopping);
   const enoughEvidence = mintHours.length >= PREREGISTERED.eligibleMintHourMinimum
+    && standardVolumeMintHours.length >= PREREGISTERED.eligibleMintHourMinimum
     && curveComparisons.length >= PREREGISTERED.curveComparisonMinimum
     && discoveryLags.length >= PREREGISTERED.discoveryMatchMinimum;
   const checks = {
@@ -518,11 +548,13 @@ function buildReport(state, sourceTelemetry = null) {
       && discoveryStats.p90 <= PREREGISTERED.discoveryHeliusLagP90MaximumMs,
     decoderTailErrors: decoderTailErrors <= PREREGISTERED.decoderTailErrorsMaximum,
     quoteLabelCoverage: quoteCoverage >= PREREGISTERED.quoteLabelCoverageMinimumRate,
+    mayhemClassificationCoverage: mayhemClassificationCoverage >= PREREGISTERED.mayhemClassificationCoverageMinimumRate,
     unsupportedQuoteEvents: unsupportedQuoteEvents <= PREREGISTERED.unsupportedQuoteEventsMaximum
   };
   const hardAdapterChecksPassed = checks.strategyConsumptionDisabled
     && checks.decoderTailErrors
     && checks.quoteLabelCoverage
+    && checks.mayhemClassificationCoverage
     && checks.unsupportedQuoteEvents;
 
   let verdict = PREREGISTERED.invalidVerdict;
@@ -549,6 +581,10 @@ function buildReport(state, sourceTelemetry = null) {
       pumpPortalTrades: state.portalTrades.length,
       solQuotedHeliusTrades: solQuotedTradeEvents,
       eligibleMintHours: mintHours.length,
+      standardVolumeMintHours: standardVolumeMintHours.length,
+      mayhemClassifiedTradeEvents,
+      mayhemTradeEvents,
+      standardTradeEvents,
       curveComparisons: curveComparisons.length,
       discoveryMatches: discoveryLags.length,
       decoderTailErrors,
@@ -569,8 +605,9 @@ function buildReport(state, sourceTelemetry = null) {
       mintHourVolumePassRate: volumePassRate,
       curvePassRate,
       quoteLabelCoverage: quoteCoverage,
+      mayhemClassificationCoverage,
       tradeCountRelativeDelta: stats(mintHours.map((row) => row.tradeCountRelativeDelta), 6),
-      solVolumeRelativeDelta: stats(mintHours.map((row) => row.solVolumeRelativeDelta), 6),
+      solVolumeRelativeDelta: stats(standardVolumeMintHours.map((row) => row.solVolumeRelativeDelta), 6),
       curveAbsoluteDelta: stats(curveComparisons.map((row) => row.absoluteDelta), 6),
       curveSignedDelta: stats(curveComparisons.map((row) => row.signedDelta), 6),
       curveMatchAgeMs: stats(curveComparisons.map((row) => row.ageMs), 0),
@@ -594,8 +631,10 @@ function buildReport(state, sourceTelemetry = null) {
       }
     },
     worstMintHours: [...mintHours]
-      .sort((a, b) => Math.max(b.tradeCountRelativeDelta || 0, b.solVolumeRelativeDelta || 0)
-        - Math.max(a.tradeCountRelativeDelta || 0, a.solVolumeRelativeDelta || 0))
+      .sort((a, b) => (b.tradeCountRelativeDelta || 0) - (a.tradeCountRelativeDelta || 0))
+      .slice(0, 25),
+    worstStandardVolumeMintHours: [...standardVolumeMintHours]
+      .sort((a, b) => (b.solVolumeRelativeDelta || 0) - (a.solVolumeRelativeDelta || 0))
       .slice(0, 25),
     worstCurveComparisons: [...curveComparisons]
       .sort((a, b) => b.absoluteDelta - a.absoluteDelta)
