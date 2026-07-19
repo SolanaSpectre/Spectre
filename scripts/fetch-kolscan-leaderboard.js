@@ -18,7 +18,7 @@ function decodeKolscanValue(value) {
 }
 
 function extractLeaderboardEntries(html) {
-  const entryPattern = /\{\\"wallet_address\\":\\"([^"]+)\\",\\"name\\":(null|\\"([^"]*)\\")\,\\"pfp\\":(?:null|\\"[^"]*\\")\,\\"telegram\\":(null|\\"([^"]*)\\")\,\\"twitter\\":(null|\\"([^"]*)\\")\,\\"transactions\\":\[\]\}/g;
+  const entryPattern = /\{\\"wallet_address\\":\\"([^"]+)\\",\\"name\\":(null|\\"([^"]*)\\"),\\"pfp\\":(?:null|\\"[^"]*\\"),\\"telegram\\":(null|\\"([^"]*)\\"),\\"twitter\\":(null|\\"([^"]*)\\"),\\"transactions\\":\[\]\}/g;
   const entries = [];
 
   for (const match of html.matchAll(entryPattern)) {

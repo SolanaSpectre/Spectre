@@ -1064,6 +1064,8 @@ Format your response as JSON with the following structure:
     const attempts = [
       candidate,
       candidate.replace(/,\s*([}\]])/g, '$1'),
+      // JSON forbids these raw control characters; sanitize malformed model output.
+      // eslint-disable-next-line no-control-regex
       candidate.replace(/[\u0000-\u0019]+/g, ' ')
     ];
 
