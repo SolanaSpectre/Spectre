@@ -11,9 +11,9 @@ const LOG_DIR = path.join(ROOT, 'run-logs');
 const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity');
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity-latest.json');
 
-// V2 was frozen after V1 exposed that Pump mayhem trades need a separate curve/volume model.
+// V3 was frozen after V2 proved the decoder but exposed symmetric-coverage and stale-RPC comparator bias.
 const PREREGISTERED = Object.freeze({
-  id: 'helius_pumpfun_shadow_parity_v2_2026-07-19',
+  id: 'helius_pumpfun_shadow_parity_v3_2026-07-19',
   adapterMode: 'logs_only_report_only',
   strategyConsumptionAllowed: false,
   comparator: 'pumpportal_runtime_telemetry_and_rpc_curve_truth',
@@ -25,13 +25,22 @@ const PREREGISTERED = Object.freeze({
   v1FailureDisposition: 'failed_on_mixed_standard_and_mayhem_volume_and_curve_comparisons',
   v2CohortRule: 'count_all_sol_quotes_but_grade_volume_and_curve_only_when_mayhem_mode_is_explicitly_false',
   v2EvidenceStart: 'first_run_after_mayhem_mode_was_emitted_on_helius_shadow_trade_rows',
+  v2FailureDisposition: 'comparator_invalidated_after_exact_signature_amounts_passed_99_90pct_but_symmetric_counts_penalized_extra_helius_coverage_and_trade_to_nearest_rpc_age_median_was_3596ms',
+  v3TradeIdentity: 'signature_mint_trader_side',
+  v3CoverageRule: 'grade_portal_trade_identity_recall_per_covered_mint_hour_instead_of_symmetric_trade_count_delta',
+  v3VolumeRule: 'grade_exact_identity_standard_trade_amount_pairs_only; aggregate_volume_is_diagnostic',
+  v3CurveRule: 'grade_each_rpc_snapshot_against_latest_preceding_standard_helius_trade_within_1000ms',
+  v3LifecycleRule: 'require_connection_and_zero_errors_subscription_errors_or_unexpected_disconnects',
+  v3EvidenceStart: 'first_run_after_v3_comparator_was_frozen',
+  v3FrozenAt: '2026-07-19T19:05:00.000Z',
   duplicatePolicy: 'dedupe_helius_by_signature_mint_log_index_and_amounts_before_parity_aggregation',
   solQuotedMinimumTradesPerMintHour: 20,
   eligibleMintHourMinimum: 10,
-  tradeCountRelativeDeltaMaximum: 0.05,
+  portalTradeIdentityRecallMinimumRate: 0.95,
   solVolumeRelativeDeltaMaximum: 0.05,
+  exactIdentityAmountAgreementMinimumRate: 0.95,
   mintHourAgreementMinimumRate: 0.95,
-  curveRpcMaximumMatchAgeMs: 15_000,
+  curveRpcMaximumPriorAgeMs: 1_000,
   curveAbsoluteDeltaMaximum: 0.02,
   curveAgreementMinimumRate: 0.95,
   curveComparisonMinimum: 100,
@@ -42,7 +51,7 @@ const PREREGISTERED = Object.freeze({
   mayhemClassificationCoverageMinimumRate: 1,
   unsupportedQuoteEventsMaximum: 0,
   processedForkRisk: 'diagnostic_only_signature_overlap',
-  diagnosticOnlyMetrics: ['buy_ratio', 'unique_buyers', 'pumpdev_overlap', 'signature_overlap'],
+  diagnosticOnlyMetrics: ['symmetric_trade_count_delta', 'buy_ratio', 'unique_buyers', 'pumpdev_overlap', 'extra_helius_signatures'],
   passVerdict: 'HELIUS_SHADOW_PARITY_PASSED',
   failVerdict: 'HELIUS_SHADOW_PARITY_FAILED',
   insufficientVerdict: 'HELIUS_SHADOW_PARITY_INSUFFICIENT_EVIDENCE',
@@ -152,6 +161,15 @@ function solAmountOf(payload = {}) {
   return isSolQuoted(payload) && Number.isFinite(raw) ? raw / 1e9 : null;
 }
 
+function tradeIdentity(payload = {}, mint = mintOf(payload)) {
+  const signature = payload.signature || null;
+  const trader = payload.traderPublicKey || payload.trader || payload.user || null;
+  const side = String(payload.txType || '').toLowerCase();
+  return signature && mint && trader && (side === 'buy' || side === 'sell')
+    ? `${signature}|${mint}|${trader}|${side}`
+    : null;
+}
+
 function addTrade(aggregate, payload) {
   aggregate.trades += 1;
   const solAmount = solAmountOf(payload);
@@ -183,6 +201,21 @@ function nearestByTime(sortedRows, targetMs, maximumAgeMs) {
   return best;
 }
 
+function latestAtOrBefore(sortedRows, targetMs, maximumAgeMs) {
+  if (!Array.isArray(sortedRows) || !sortedRows.length || !Number.isFinite(targetMs)) return null;
+  let low = 0;
+  let high = sortedRows.length - 1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    if (sortedRows[middle].receiptMs <= targetMs) low = middle + 1;
+    else high = middle - 1;
+  }
+  const candidate = sortedRows[high];
+  if (!candidate) return null;
+  const ageMs = targetMs - candidate.receiptMs;
+  return ageMs <= maximumAgeMs ? { ...candidate, ageMs } : null;
+}
+
 function createState() {
   return {
     sessionStartMs: null,
@@ -201,7 +234,14 @@ function createState() {
     heliusCreates: new Map(),
     portalCreates: new Map(),
     rpcCurves: new Map(),
-    pumpDevMints: new Set()
+    pumpDevMints: new Set(),
+    heliusLifecycle: {
+      connections: 0,
+      errors: 0,
+      subscriptionErrors: 0,
+      unexpectedDisconnects: 0,
+      normalDisconnects: 0
+    }
   };
 }
 
@@ -218,6 +258,25 @@ function ingestEvent(state, event) {
   }
   if (type === 'session.stopping' || type === 'session.stopped') {
     state.sessionStopping = payload;
+    return;
+  }
+  if (type === 'provider.helius_pumpfun.shadow_connected') {
+    state.heliusLifecycle.connections += 1;
+    return;
+  }
+  if (type === 'provider.helius_pumpfun.shadow_error'
+    || type === 'provider.helius_pumpfun.shadow_config_error') {
+    state.heliusLifecycle.errors += 1;
+    return;
+  }
+  if (type === 'provider.helius_pumpfun.shadow_subscription_error') {
+    state.heliusLifecycle.subscriptionErrors += 1;
+    return;
+  }
+  if (type === 'provider.helius_pumpfun.shadow_disconnected') {
+    const normalStop = Number(payload.code) === 1000 && payload.reason === 'shadow listener stop';
+    if (normalStop) state.heliusLifecycle.normalDisconnects += 1;
+    else state.heliusLifecycle.unexpectedDisconnects += 1;
     return;
   }
   if ((type === 'provider.pumpportal.connected' || type === 'provider.pumpportal.closed')
@@ -428,11 +487,20 @@ function buildReport(state, sourceTelemetry = null) {
       String(row.payload.pairBase || 'SOL').toUpperCase() === 'SOL'
       && inCoverage(row, segments)
     ));
-    if (heliusRows.length < PREREGISTERED.solQuotedMinimumTradesPerMintHour || !portalRows.length) continue;
+    const portalTradeIdentities = new Set(portalRows
+      .map((row) => tradeIdentity(row.payload, row.mint))
+      .filter(Boolean));
+    if (portalTradeIdentities.size < PREREGISTERED.solQuotedMinimumTradesPerMintHour) continue;
     const helius = createAggregate();
     const portal = createAggregate();
     heliusRows.forEach((row) => addTrade(helius, row.payload));
     portalRows.forEach((row) => addTrade(portal, row.payload));
+    const heliusTradeIdentities = new Set(heliusRows
+      .map((row) => tradeIdentity(row.payload, row.mint))
+      .filter(Boolean));
+    const matchedPortalTradeIdentities = [...portalTradeIdentities]
+      .filter((identity) => heliusTradeIdentities.has(identity)).length;
+    const portalTradeIdentityRecall = ratio(matchedPortalTradeIdentities, portalTradeIdentities.size);
     const tradeCountRelativeDelta = relativeDelta(helius.trades, portal.trades);
     const rowSummary = {
       key,
@@ -443,25 +511,50 @@ function buildReport(state, sourceTelemetry = null) {
       coverageDurationMs: segments.reduce((total, segment) => total + Math.max(0, segment.endMs - segment.startMs), 0),
       heliusTrades: helius.trades,
       pumpPortalTrades: portal.trades,
+      portalTradeIdentities: portalTradeIdentities.size,
+      matchedPortalTradeIdentities,
+      portalTradeIdentityRecall,
       tradeCountRelativeDelta,
       heliusBuyRatio: ratio(helius.buys, helius.buys + helius.sells),
       pumpPortalBuyRatio: ratio(portal.buys, portal.buys + portal.sells),
       heliusUniqueBuyers: helius.buyers.size,
       pumpPortalUniqueBuyers: portal.buyers.size,
-      countPass: tradeCountRelativeDelta <= PREREGISTERED.tradeCountRelativeDeltaMaximum
+      countPass: portalTradeIdentityRecall >= PREREGISTERED.portalTradeIdentityRecallMinimumRate
     };
     mintHours.push(rowSummary);
 
     const standardHeliusRows = heliusRows.filter((row) => row.payload.mayhemMode === false);
-    const standardSignatures = new Set(standardHeliusRows.map((row) => row.payload.signature).filter(Boolean));
-    const standardPortalRows = portalRows.filter((row) => standardSignatures.has(row.payload.signature));
-    if (standardHeliusRows.length < PREREGISTERED.solQuotedMinimumTradesPerMintHour
-      || standardPortalRows.length < PREREGISTERED.solQuotedMinimumTradesPerMintHour) continue;
+    const standardHeliusByIdentity = new Map(standardHeliusRows
+      .map((row) => [tradeIdentity(row.payload, row.mint), row])
+      .filter(([identity]) => identity));
+    const standardPairs = portalRows
+      .map((portalRow) => ({
+        identity: tradeIdentity(portalRow.payload, portalRow.mint),
+        portalRow
+      }))
+      .filter((row) => row.identity && standardHeliusByIdentity.has(row.identity))
+      .map((portalRow) => ({
+        heliusRow: standardHeliusByIdentity.get(portalRow.identity),
+        portalRow: portalRow.portalRow
+      }));
+    if (standardPairs.length < PREREGISTERED.solQuotedMinimumTradesPerMintHour) continue;
     const standardHelius = createAggregate();
     const standardPortal = createAggregate();
-    standardHeliusRows.forEach((row) => addTrade(standardHelius, row.payload));
-    standardPortalRows.forEach((row) => addTrade(standardPortal, row.payload));
+    const amountRelativeDeltas = [];
+    for (const pair of standardPairs) {
+      addTrade(standardHelius, pair.heliusRow.payload);
+      addTrade(standardPortal, pair.portalRow.payload);
+      amountRelativeDeltas.push(relativeDelta(
+        solAmountOf(pair.heliusRow.payload),
+        solAmountOf(pair.portalRow.payload)
+      ));
+    }
     const solVolumeRelativeDelta = relativeDelta(standardHelius.solVolume, standardPortal.solVolume);
+    const amountAgreementRate = ratio(
+      amountRelativeDeltas.filter((delta) => Number.isFinite(delta)
+        && delta <= PREREGISTERED.solVolumeRelativeDeltaMaximum).length,
+      amountRelativeDeltas.filter(Number.isFinite).length
+    );
     standardVolumeMintHours.push({
       ...rowSummary,
       heliusTrades: standardHelius.trades,
@@ -469,10 +562,13 @@ function buildReport(state, sourceTelemetry = null) {
       heliusSolVolume: Number(standardHelius.solVolume.toFixed(9)),
       pumpPortalSolVolume: Number(standardPortal.solVolume.toFixed(9)),
       solVolumeRelativeDelta,
-      volumePass: solVolumeRelativeDelta <= PREREGISTERED.solVolumeRelativeDeltaMaximum
+      exactIdentityAmountComparisons: amountRelativeDeltas.filter(Number.isFinite).length,
+      exactIdentityAmountAgreementRate: amountAgreementRate,
+      volumePass: amountAgreementRate >= PREREGISTERED.exactIdentityAmountAgreementMinimumRate
     });
   }
 
+  for (const rows of heliusTradesByMint.values()) rows.sort((a, b) => a.receiptMs - b.receiptMs);
   for (const rows of state.rpcCurves.values()) rows.sort((a, b) => a.atMs - b.atMs);
   const curveComparisons = [];
   let solQuotedTradeEvents = 0;
@@ -493,25 +589,33 @@ function buildReport(state, sourceTelemetry = null) {
     if (row.payload.mayhemMode === true) mayhemTradeEvents += 1;
     if (row.payload.mayhemMode === false) standardTradeEvents += 1;
     if (row.payload.mayhemMode !== false) continue;
-    const heliusCurve = numberOrNull(row.payload.curveProgress);
-    if (!Number.isFinite(heliusCurve)) continue;
-    const nearest = nearestByTime(
-      state.rpcCurves.get(row.mint),
-      row.receiptMs,
-      PREREGISTERED.curveRpcMaximumMatchAgeMs
-    );
-    if (!nearest) continue;
-    const signedDelta = heliusCurve - nearest.curveProgress;
-    const absoluteDelta = Math.abs(signedDelta);
-    curveComparisons.push({
-      mint: row.mint,
-      ageMs: nearest.ageMs,
-      heliusCurveProgress: heliusCurve,
-      rpcCurveProgress: nearest.curveProgress,
-      signedDelta,
-      absoluteDelta,
-      pass: absoluteDelta <= PREREGISTERED.curveAbsoluteDeltaMaximum
-    });
+  }
+  for (const [mint, rpcRows] of state.rpcCurves.entries()) {
+    const standardRows = (heliusTradesByMint.get(mint) || [])
+      .filter((row) => isSolQuoted(row.payload)
+        && row.payload.mayhemMode === false
+        && Number.isFinite(numberOrNull(row.payload.curveProgress)));
+    for (const rpcRow of rpcRows) {
+      const preceding = latestAtOrBefore(
+        standardRows,
+        rpcRow.atMs,
+        PREREGISTERED.curveRpcMaximumPriorAgeMs
+      );
+      if (!preceding) continue;
+      const heliusCurve = numberOrNull(preceding.payload.curveProgress);
+      const signedDelta = heliusCurve - rpcRow.curveProgress;
+      const absoluteDelta = Math.abs(signedDelta);
+      curveComparisons.push({
+        mint,
+        signature: preceding.payload.signature || null,
+        ageMs: preceding.ageMs,
+        heliusCurveProgress: heliusCurve,
+        rpcCurveProgress: rpcRow.curveProgress,
+        signedDelta,
+        absoluteDelta,
+        pass: absoluteDelta <= PREREGISTERED.curveAbsoluteDeltaMaximum
+      });
+    }
   }
 
   const discoveryLags = [];
@@ -533,15 +637,23 @@ function buildReport(state, sourceTelemetry = null) {
   const enabled = state.sessionStarted?.heliusPumpfunShadowPlan?.enabled === true;
   const strategyConsumptionDisabled = state.sessionStarted?.heliusPumpfunShadowPlan?.strategyConsumptionEnabled === false;
   const completedLifecycle = Boolean(state.sessionStopping);
+  const postV3Freeze = Number.isFinite(sessionStartMs)
+    && sessionStartMs >= timestampMs(PREREGISTERED.v3FrozenAt);
+  const cleanHeliusLifecycle = state.heliusLifecycle.connections >= 1
+    && state.heliusLifecycle.errors === 0
+    && state.heliusLifecycle.subscriptionErrors === 0
+    && state.heliusLifecycle.unexpectedDisconnects === 0;
   const enoughEvidence = mintHours.length >= PREREGISTERED.eligibleMintHourMinimum
     && standardVolumeMintHours.length >= PREREGISTERED.eligibleMintHourMinimum
     && curveComparisons.length >= PREREGISTERED.curveComparisonMinimum
     && discoveryLags.length >= PREREGISTERED.discoveryMatchMinimum;
   const checks = {
     runEnabled: enabled,
+    postV3Freeze,
     completedLifecycle,
+    cleanHeliusLifecycle,
     strategyConsumptionDisabled,
-    tradeCountAgreement: countPassRate >= PREREGISTERED.mintHourAgreementMinimumRate,
+    portalTradeIdentityRecall: countPassRate >= PREREGISTERED.mintHourAgreementMinimumRate,
     solVolumeAgreement: volumePassRate >= PREREGISTERED.mintHourAgreementMinimumRate,
     curveAgreement: curvePassRate >= PREREGISTERED.curveAgreementMinimumRate,
     discoveryLatency: Number.isFinite(discoveryStats.p90)
@@ -552,13 +664,14 @@ function buildReport(state, sourceTelemetry = null) {
     unsupportedQuoteEvents: unsupportedQuoteEvents <= PREREGISTERED.unsupportedQuoteEventsMaximum
   };
   const hardAdapterChecksPassed = checks.strategyConsumptionDisabled
+    && checks.cleanHeliusLifecycle
     && checks.decoderTailErrors
     && checks.quoteLabelCoverage
     && checks.mayhemClassificationCoverage
     && checks.unsupportedQuoteEvents;
 
   let verdict = PREREGISTERED.invalidVerdict;
-  if (enabled && strategyConsumptionDisabled && completedLifecycle && state.heliusTrades.length > 0) {
+  if (enabled && postV3Freeze && strategyConsumptionDisabled && completedLifecycle && state.heliusTrades.length > 0) {
     if (!hardAdapterChecksPassed) verdict = PREREGISTERED.failVerdict;
     else if (!enoughEvidence) verdict = PREREGISTERED.insufficientVerdict;
     else verdict = Object.values(checks).every(Boolean)
@@ -585,6 +698,7 @@ function buildReport(state, sourceTelemetry = null) {
       mayhemClassifiedTradeEvents,
       mayhemTradeEvents,
       standardTradeEvents,
+      heliusLifecycle: state.heliusLifecycle,
       curveComparisons: curveComparisons.length,
       discoveryMatches: discoveryLags.length,
       decoderTailErrors,
@@ -601,11 +715,14 @@ function buildReport(state, sourceTelemetry = null) {
       malformedLines: state.malformedLines
     },
     agreement: {
-      mintHourCountPassRate: countPassRate,
+      mintHourPortalTradeIdentityRecallPassRate: countPassRate,
       mintHourVolumePassRate: volumePassRate,
       curvePassRate,
       quoteLabelCoverage: quoteCoverage,
       mayhemClassificationCoverage,
+      portalTradeIdentityRecall: stats(mintHours.map((row) => row.portalTradeIdentityRecall), 6),
+      exactIdentityAmountAgreementRate: stats(standardVolumeMintHours
+        .map((row) => row.exactIdentityAmountAgreementRate), 6),
       tradeCountRelativeDelta: stats(mintHours.map((row) => row.tradeCountRelativeDelta), 6),
       solVolumeRelativeDelta: stats(standardVolumeMintHours.map((row) => row.solVolumeRelativeDelta), 6),
       curveAbsoluteDelta: stats(curveComparisons.map((row) => row.absoluteDelta), 6),
@@ -631,7 +748,7 @@ function buildReport(state, sourceTelemetry = null) {
       }
     },
     worstMintHours: [...mintHours]
-      .sort((a, b) => (b.tradeCountRelativeDelta || 0) - (a.tradeCountRelativeDelta || 0))
+      .sort((a, b) => (a.portalTradeIdentityRecall ?? 1) - (b.portalTradeIdentityRecall ?? 1))
       .slice(0, 25),
     worstStandardVolumeMintHours: [...standardVolumeMintHours]
       .sort((a, b) => (b.solVolumeRelativeDelta || 0) - (a.solVolumeRelativeDelta || 0))
@@ -692,8 +809,10 @@ module.exports = {
   collectEvents,
   createState,
   ingestEvent,
+  latestAtOrBefore,
   nearestByTime,
   relativeDelta,
   stats,
+  tradeIdentity,
   timestampMs
 };

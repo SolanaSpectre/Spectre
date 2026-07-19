@@ -5,11 +5,12 @@ const assert = require('assert');
 const {
   PREREGISTERED,
   analyzeEvents,
+  latestAtOrBefore,
   nearestByTime,
   timestampMs
 } = require('./helius-pumpfun-shadow-parity-report');
 
-const startMs = Date.parse('2026-07-19T12:00:00.000Z');
+const startMs = Date.parse('2026-07-20T12:00:00.000Z');
 const iso = (offsetMs) => new Date(startMs + offsetMs).toISOString();
 const event = (type, timestamp, payload) => ({ type, timestamp, payload });
 const events = [event('session.started', iso(0), {
@@ -20,6 +21,13 @@ const events = [event('session.started', iso(0), {
     commitment: 'processed'
   }
 })];
+events.push(event('provider.helius_pumpfun.shadow_connected', iso(1), {
+  commitment: 'processed'
+}));
+events.push(event('provider.helius_pumpfun.shadow_disconnected', iso(3_598_999), {
+  code: 1000,
+  reason: 'shadow listener stop'
+}));
 events.push(event('session.stopped', iso(3_599_000), { reason: 'SESSION_DURATION_EXCEEDED' }));
 
 for (let mintIndex = 0; mintIndex < 20; mintIndex += 1) {
@@ -73,6 +81,8 @@ assert.strictEqual(report.counts.eligibleMintHours, 20);
 assert.strictEqual(report.counts.curveComparisons, 100);
 assert.strictEqual(report.counts.discoveryMatches, 20);
 assert.strictEqual(report.checks.strategyConsumptionDisabled, true);
+assert.strictEqual(report.checks.cleanHeliusLifecycle, true);
+assert.strictEqual(report.checks.portalTradeIdentityRecall, true);
 assert.strictEqual(report.counts.rawHeliusTradeEvents, 400);
 assert.strictEqual(report.counts.duplicateHeliusTradeEvents, 0);
 
@@ -108,6 +118,7 @@ for (let tradeIndex = 0; tradeIndex < 20; tradeIndex += 1) {
     txType: 'buy',
     solAmount: 0.1,
     signature: `covered-${tradeIndex}`,
+    traderPublicKey: `PartialWallet${tradeIndex}`,
     logIndex: 1,
     curveProgress: 0.5,
     curveModel: 'sol_quote',
@@ -135,6 +146,18 @@ assert.deepStrictEqual(partialCoverage.worstMintHours[0].coverageSources, [
 assert.strictEqual(timestampMs(1_000_000_000_000), 1_000_000_000_000_000);
 assert.strictEqual(timestampMs(1_000_000_000_001), 1_000_000_000_001);
 assert.strictEqual(nearestByTime([{ atMs: 20_000, curveProgress: 0.5 }], 5_000, 15_000).ageMs, 15_000);
+assert.strictEqual(latestAtOrBefore([{ receiptMs: 20_000, payload: {} }], 20_500, 1_000).ageMs, 500);
+assert.strictEqual(latestAtOrBefore([{ receiptMs: 20_000, payload: {} }], 19_999, 1_000), null);
+
+const unexpectedDisconnect = analyzeEvents([
+  ...events,
+  event('provider.helius_pumpfun.shadow_disconnected', iso(100_000), {
+    code: 1006,
+    reason: 'synthetic failure'
+  })
+]);
+assert.strictEqual(unexpectedDisconnect.checks.cleanHeliusLifecycle, false);
+assert.strictEqual(unexpectedDisconnect.verdict, PREREGISTERED.failVerdict);
 
 const unsupported = analyzeEvents([
   ...events,
@@ -150,7 +173,9 @@ assert.strictEqual(unsupported.checks.unsupportedQuoteEvents, false);
 
 const thinDecoderFailure = analyzeEvents([
   events[0],
-  events[1],
+  events.find((row) => row.type === 'provider.helius_pumpfun.shadow_connected'),
+  events.find((row) => row.type === 'provider.helius_pumpfun.shadow_disconnected'),
+  events.find((row) => row.type === 'session.stopped'),
   event('provider.helius_pumpfun.shadow_trade', iso(1000), {
     mint: 'ThinMint',
     receivedAt: iso(1000),
