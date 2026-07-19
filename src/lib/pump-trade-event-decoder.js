@@ -11,6 +11,7 @@ const EVENT_DISCRIMINATORS = Object.freeze({
 });
 const TRADE_EVENT_DISCRIMINATOR = EVENT_DISCRIMINATORS.TradeEvent;
 const MIN_TRADE_EVENT_BYTES = 129;
+const NATIVE_SOL_MINT = '11111111111111111111111111111111';
 const WRAPPED_SOL_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
@@ -96,7 +97,7 @@ function discriminatorName(data) {
 }
 
 function quoteModel(quoteMint, tailDecoded, virtualSolReserves) {
-  if (tailDecoded && quoteMint === WRAPPED_SOL_MINT) return 'sol_quote';
+  if (tailDecoded && (quoteMint === NATIVE_SOL_MINT || quoteMint === WRAPPED_SOL_MINT)) return 'sol_quote';
   if (tailDecoded && quoteMint === USDC_MINT) return 'usdc_quote';
   if (tailDecoded && quoteMint) return 'other_quote';
   if (BigInt(virtualSolReserves || 0) > 0n) return 'legacy_sol_quote';
@@ -281,6 +282,7 @@ module.exports = {
   BorshCursor,
   EVENT_DISCRIMINATORS,
   MIN_TRADE_EVENT_BYTES,
+  NATIVE_SOL_MINT,
   TRADE_EVENT_DISCRIMINATOR,
   USDC_MINT,
   WRAPPED_SOL_MINT,

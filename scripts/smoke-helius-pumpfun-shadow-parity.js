@@ -20,6 +20,7 @@ const events = [event('session.started', iso(0), {
     commitment: 'processed'
   }
 })];
+events.push(event('session.stopped', iso(3_599_000), { reason: 'SESSION_DURATION_EXCEEDED' }));
 
 for (let mintIndex = 0; mintIndex < 20; mintIndex += 1) {
   const mint = `Mint${mintIndex}`;
@@ -146,6 +147,7 @@ assert.strictEqual(unsupported.checks.unsupportedQuoteEvents, false);
 
 const thinDecoderFailure = analyzeEvents([
   events[0],
+  events[1],
   event('provider.helius_pumpfun.shadow_trade', iso(1000), {
     mint: 'ThinMint',
     receivedAt: iso(1000),

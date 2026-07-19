@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { forEachJsonlSync } = require('./lib/jsonl');
+const { NATIVE_SOL_MINT, WRAPPED_SOL_MINT } = require('../src/lib/pump-trade-event-decoder');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
@@ -20,6 +21,7 @@ const PREREGISTERED = Object.freeze({
   comparatorCoverageFallback: 'pumpportal_first_to_last_trade_when_lifecycle_is_unavailable',
   comparatorCoverageFallbackEdgeToleranceMs: 2_000,
   preregistrationAmendment: 'pre_first_run_coverage_window_fix_after_independent_review',
+  lifecycleAmendment: 'pre_first_valid_comparator_run_require_completed_session_lifecycle',
   duplicatePolicy: 'dedupe_helius_by_signature_mint_log_index_and_amounts_before_parity_aggregation',
   solQuotedMinimumTradesPerMintHour: 20,
   eligibleMintHourMinimum: 10,
@@ -132,9 +134,23 @@ function createAggregate() {
   return { trades: 0, solVolume: 0, buys: 0, sells: 0, buyers: new Set(), signatures: new Set() };
 }
 
+function isSolQuoted(payload = {}) {
+  return payload.curveModel === 'sol_quote'
+    || payload.curveModel === 'legacy_sol_quote'
+    || payload.quoteMint === NATIVE_SOL_MINT
+    || payload.quoteMint === WRAPPED_SOL_MINT;
+}
+
+function solAmountOf(payload = {}) {
+  const direct = numberOrNull(payload.solAmount);
+  if (Number.isFinite(direct)) return direct;
+  const raw = numberOrNull(payload.solAmountRaw);
+  return isSolQuoted(payload) && Number.isFinite(raw) ? raw / 1e9 : null;
+}
+
 function addTrade(aggregate, payload) {
   aggregate.trades += 1;
-  const solAmount = numberOrNull(payload.solAmount);
+  const solAmount = solAmountOf(payload);
   if (Number.isFinite(solAmount)) aggregate.solVolume += Math.abs(solAmount);
   const side = String(payload.txType || '').toLowerCase();
   if (side === 'buy') aggregate.buys += 1;
@@ -400,7 +416,7 @@ function buildReport(state, sourceTelemetry = null) {
   for (const [key, coverage] of coverageByBucket.entries()) {
     const segments = mergeIntervals(coverage.segments);
     const heliusRows = (heliusTradesByMint.get(coverage.mint) || []).filter((row) => (
-      (row.payload.curveModel === 'sol_quote' || row.payload.curveModel === 'legacy_sol_quote')
+      isSolQuoted(row.payload)
       && inCoverage(row, segments)
     ));
     const portalRows = (portalTradesByMint.get(coverage.mint) || []).filter((row) => (
@@ -447,7 +463,7 @@ function buildReport(state, sourceTelemetry = null) {
     if (model) quoteLabeledTradeEvents += 1;
     if (model === 'quote_mint_unsupported') unsupportedQuoteEvents += 1;
     if (row.payload.tailDecodeError) decoderTailErrors += 1;
-    if (model !== 'sol_quote' && model !== 'legacy_sol_quote') continue;
+    if (!isSolQuoted(row.payload)) continue;
     solQuotedTradeEvents += 1;
     const heliusCurve = numberOrNull(row.payload.curveProgress);
     if (!Number.isFinite(heliusCurve)) continue;
@@ -487,11 +503,13 @@ function buildReport(state, sourceTelemetry = null) {
   const pumpDevOverlapMints = [...state.pumpDevMints].filter((mint) => heliusMints.has(mint)).length;
   const enabled = state.sessionStarted?.heliusPumpfunShadowPlan?.enabled === true;
   const strategyConsumptionDisabled = state.sessionStarted?.heliusPumpfunShadowPlan?.strategyConsumptionEnabled === false;
+  const completedLifecycle = Boolean(state.sessionStopping);
   const enoughEvidence = mintHours.length >= PREREGISTERED.eligibleMintHourMinimum
     && curveComparisons.length >= PREREGISTERED.curveComparisonMinimum
     && discoveryLags.length >= PREREGISTERED.discoveryMatchMinimum;
   const checks = {
     runEnabled: enabled,
+    completedLifecycle,
     strategyConsumptionDisabled,
     tradeCountAgreement: countPassRate >= PREREGISTERED.mintHourAgreementMinimumRate,
     solVolumeAgreement: volumePassRate >= PREREGISTERED.mintHourAgreementMinimumRate,
@@ -508,7 +526,7 @@ function buildReport(state, sourceTelemetry = null) {
     && checks.unsupportedQuoteEvents;
 
   let verdict = PREREGISTERED.invalidVerdict;
-  if (enabled && strategyConsumptionDisabled && state.heliusTrades.length > 0) {
+  if (enabled && strategyConsumptionDisabled && completedLifecycle && state.heliusTrades.length > 0) {
     if (!hardAdapterChecksPassed) verdict = PREREGISTERED.failVerdict;
     else if (!enoughEvidence) verdict = PREREGISTERED.insufficientVerdict;
     else verdict = Object.values(checks).every(Boolean)
@@ -586,7 +604,9 @@ function buildReport(state, sourceTelemetry = null) {
       ? 'Shadow parity passed its frozen evidence gate. This does not authorize strategy consumption.'
       : verdict === PREREGISTERED.failVerdict
         ? 'Shadow parity failed at least one frozen check. Keep Helius report-only and fix the measured discrepancy.'
-        : 'No strategy decision is allowed from this artifact until the frozen evidence minimum is met.'
+        : verdict === PREREGISTERED.invalidVerdict
+          ? 'Shadow parity is invalid because the required run lifecycle or adapter manifest was incomplete.'
+          : 'No strategy decision is allowed from this artifact until the frozen evidence minimum is met.'
   };
 }
 
@@ -628,6 +648,8 @@ module.exports = {
   PREREGISTERED,
   analyzeEvents,
   buildReport,
+  isSolQuoted,
+  solAmountOf,
   collectEvents,
   createState,
   ingestEvent,

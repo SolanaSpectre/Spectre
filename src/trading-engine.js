@@ -3919,10 +3919,12 @@ class TradingEngine {
       }
 
       this.telemetry.record(event.telemetryType, event.payload || {});
-      this.candidateDossierLedger.recordPaperEvent(
-        event,
-        this.preMigrationWatchLane.getMintSummary(event.payload?.mint) || {}
-      );
+      if (event.telemetryType !== 'pre_migration_paper.guard_attribution') {
+        this.candidateDossierLedger.recordPaperEvent(
+          event,
+          this.preMigrationWatchLane.getMintSummary(event.payload?.mint) || {}
+        );
+      }
       this.outcomeLedger.recordPaperEvent(
         event,
         this.preMigrationWatchLane.getMintSummary(event.payload?.mint) || {},

@@ -2,6 +2,7 @@
 
 const WebSocket = require('ws');
 const {
+  NATIVE_SOL_MINT,
   USDC_MINT,
   WRAPPED_SOL_MINT,
   base64DataFromLog,
@@ -281,7 +282,9 @@ class HeliusPumpfunShadowListener {
 
   normalizeTrade(event, context) {
     const virtualTokenReservesTokens = this.uiAmount(event.virtualTokenReserves, PUMP_TOKEN_DECIMALS);
-    const quoteDecimals = event.quoteMint === WRAPPED_SOL_MINT ? 9 : event.quoteMint === USDC_MINT ? 6 : null;
+    const quoteDecimals = event.quoteMint === NATIVE_SOL_MINT || event.quoteMint === WRAPPED_SOL_MINT
+      ? 9
+      : event.quoteMint === USDC_MINT ? 6 : null;
     const virtualQuoteReservesRaw = event.tailDecoded ? event.virtualQuoteReserves : event.virtualSolReserves;
     const virtualQuoteReservesUi = quoteDecimals === null ? null : this.uiAmount(virtualQuoteReservesRaw, quoteDecimals);
     const quoteAmountRaw = event.tailDecoded ? event.quoteAmount : event.solAmount;
