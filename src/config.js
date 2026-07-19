@@ -118,6 +118,27 @@ class Config {
     return process.env.HELIUS_PARSE_API_KEY;
   }
 
+  static get heliusPumpfunShadowEnabled() {
+    return process.env.HELIUS_PUMPFUN_SHADOW_ENABLED === 'true';
+  }
+
+  static get heliusPumpfunShadowCommitment() {
+    const commitment = String(process.env.HELIUS_PUMPFUN_SHADOW_COMMITMENT || 'processed').trim().toLowerCase();
+    return commitment === 'confirmed' ? 'confirmed' : 'processed';
+  }
+
+  static get heliusPumpfunShadowPingIntervalMs() {
+    return parseInt(process.env.HELIUS_PUMPFUN_SHADOW_PING_INTERVAL_MS || '25000', 10);
+  }
+
+  static get heliusPumpfunShadowReconnectDelayMs() {
+    return parseInt(process.env.HELIUS_PUMPFUN_SHADOW_RECONNECT_DELAY_MS || '1000', 10);
+  }
+
+  static get heliusPumpfunShadowMaxReconnectDelayMs() {
+    return parseInt(process.env.HELIUS_PUMPFUN_SHADOW_MAX_RECONNECT_DELAY_MS || '30000', 10);
+  }
+
   // PumpPortal Configuration
   static get pumpPortalApiKey() {
     return process.env.PUMP_PORTAL_API_KEY;

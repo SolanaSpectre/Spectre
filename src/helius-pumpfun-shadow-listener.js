@@ -1,0 +1,417 @@
+'use strict';
+
+const WebSocket = require('ws');
+const {
+  USDC_MINT,
+  WRAPPED_SOL_MINT,
+  base64DataFromLog,
+  decodePumpEventLog
+} = require('./lib/pump-trade-event-decoder');
+
+const PUMP_TOKEN_DECIMALS = 6;
+const PUMP_TOKEN_TOTAL_SUPPLY = 1_000_000_000;
+const PUMP_VIRTUAL_TO_REAL_TOKEN_OFFSET = 279_900_000;
+
+class HeliusPumpfunShadowListener {
+  constructor(config, logger, handlers = {}) {
+    this.config = config;
+    this.logger = logger;
+    this.handlers = handlers;
+    this.url = config.heliusStandardWebsocketUrl || config.heliusEnhancedWebsocketUrl || null;
+    this.programId = config.pumpBondingCurveProgramId;
+    this.commitment = config.heliusPumpfunShadowCommitment || 'processed';
+    this.pingIntervalMs = Number(config.heliusPumpfunShadowPingIntervalMs || 25000);
+    this.reconnectDelayMs = Number(config.heliusPumpfunShadowReconnectDelayMs || 1000);
+    this.maxReconnectDelayMs = Number(config.heliusPumpfunShadowMaxReconnectDelayMs || 30000);
+    this.currentReconnectDelayMs = this.reconnectDelayMs;
+    this.ws = null;
+    this.running = false;
+    this.pingTimer = null;
+    this.reconnectTimer = null;
+    this.subscriptionRequestId = 7101;
+    this.stats = {
+      enabled: config.heliusPumpfunShadowEnabled === true,
+      reportOnly: true,
+      strategyConsumptionEnabled: false,
+      commitment: this.commitment,
+      connected: false,
+      connectionAttempts: 0,
+      openEvents: 0,
+      closeEvents: 0,
+      reconnects: 0,
+      errorEvents: 0,
+      parseErrors: 0,
+      subscriptionAcks: 0,
+      subscriptionErrors: 0,
+      messages: 0,
+      notifications: 0,
+      successfulNotifications: 0,
+      failedNotifications: 0,
+      bytes: 0,
+      failedNotificationBytes: 0,
+      logLines: 0,
+      programDataLines: 0,
+      unmatchedProgramDataLines: 0,
+      decodedEvents: 0,
+      tradeEvents: 0,
+      createEvents: 0,
+      completeEvents: 0,
+      migrationEvents: 0,
+      tradeTailDecoded: 0,
+      tradeTailDecodeErrors: 0,
+      quoteSolEvents: 0,
+      quoteUsdcEvents: 0,
+      quoteOtherEvents: 0,
+      quoteUnsupportedEvents: 0,
+      pingsSent: 0,
+      pongsReceived: 0,
+      lastConnectedAt: null,
+      lastDisconnectedAt: null,
+      lastMessageAt: null,
+      lastPingAt: null,
+      lastPongAt: null,
+      lastCloseCode: null,
+      lastCloseReason: null,
+      lastErrorAt: null,
+      lastErrorMessage: null,
+      eventByteLengths: {}
+    };
+  }
+
+  async start() {
+    if (!this.config.heliusPumpfunShadowEnabled) {
+      this.logger.info('Helius Pump.fun shadow listener disabled by config');
+      return;
+    }
+    if (!this.url) {
+      this.logger.warn('Helius Pump.fun shadow listener has no websocket URL');
+      this.emitLifecycle('provider.helius_pumpfun.shadow_config_error', { reason: 'MISSING_WEBSOCKET_URL' });
+      return;
+    }
+    if (this.running) return;
+    this.running = true;
+    this.connect();
+  }
+
+  async stop() {
+    this.running = false;
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.stopHeartbeat();
+    const socket = this.ws;
+    this.ws = null;
+    if (!socket) return;
+    if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
+    else if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
+      socket.close(1000, 'shadow listener stop');
+    }
+  }
+
+  connect() {
+    if (!this.running || !this.url) return;
+    this.stats.connectionAttempts += 1;
+    const socket = new WebSocket(this.url, { perMessageDeflate: false, maxPayload: 16 * 1024 * 1024 });
+    this.ws = socket;
+
+    socket.on('open', () => {
+      if (!this.running || this.ws !== socket) return;
+      this.stats.connected = true;
+      this.stats.openEvents += 1;
+      this.stats.lastConnectedAt = new Date().toISOString();
+      this.currentReconnectDelayMs = this.reconnectDelayMs;
+      socket.send(JSON.stringify({
+        jsonrpc: '2.0',
+        id: this.subscriptionRequestId,
+        method: 'logsSubscribe',
+        params: [
+          { mentions: [this.programId] },
+          { commitment: this.commitment }
+        ]
+      }));
+      this.startHeartbeat(socket);
+      this.emitLifecycle('provider.helius_pumpfun.shadow_connected', {
+        commitment: this.commitment,
+        programId: this.programId
+      });
+    });
+
+    socket.on('message', (raw) => this.handleRawMessage(raw));
+    socket.on('pong', () => {
+      this.stats.pongsReceived += 1;
+      this.stats.lastPongAt = new Date().toISOString();
+    });
+    socket.on('error', (error) => {
+      this.stats.errorEvents += 1;
+      this.stats.lastErrorAt = new Date().toISOString();
+      this.stats.lastErrorMessage = error.message;
+      this.emitLifecycle('provider.helius_pumpfun.shadow_error', { errorMessage: error.message });
+    });
+    socket.on('close', (code, reasonBuffer) => {
+      this.stopHeartbeat();
+      this.stats.connected = false;
+      this.stats.closeEvents += 1;
+      this.stats.lastDisconnectedAt = new Date().toISOString();
+      this.stats.lastCloseCode = Number(code || 0) || 0;
+      this.stats.lastCloseReason = reasonBuffer ? reasonBuffer.toString() : '';
+      this.emitLifecycle('provider.helius_pumpfun.shadow_disconnected', {
+        code: this.stats.lastCloseCode,
+        reason: this.stats.lastCloseReason
+      });
+      if (this.running && this.ws === socket) this.scheduleReconnect();
+    });
+  }
+
+  scheduleReconnect() {
+    clearTimeout(this.reconnectTimer);
+    const delayMs = this.currentReconnectDelayMs;
+    this.stats.reconnects += 1;
+    this.currentReconnectDelayMs = Math.min(this.maxReconnectDelayMs, Math.max(1000, delayMs * 2));
+    this.reconnectTimer = setTimeout(() => this.connect(), delayMs);
+  }
+
+  startHeartbeat(socket) {
+    this.stopHeartbeat();
+    this.pingTimer = setInterval(() => {
+      if (!this.running || this.ws !== socket || socket.readyState !== WebSocket.OPEN) return;
+      this.stats.pingsSent += 1;
+      this.stats.lastPingAt = new Date().toISOString();
+      socket.ping();
+    }, this.pingIntervalMs);
+  }
+
+  stopHeartbeat() {
+    clearInterval(this.pingTimer);
+    this.pingTimer = null;
+  }
+
+  handleRawMessage(raw) {
+    const bytes = Buffer.byteLength(raw);
+    this.stats.messages += 1;
+    this.stats.bytes += bytes;
+    this.stats.lastMessageAt = new Date().toISOString();
+    let payload;
+    try {
+      payload = JSON.parse(raw.toString());
+    } catch {
+      this.stats.parseErrors += 1;
+      return;
+    }
+
+    if (payload.id === this.subscriptionRequestId) {
+      if (payload.error) {
+        this.stats.subscriptionErrors += 1;
+        this.emitLifecycle('provider.helius_pumpfun.shadow_subscription_error', {
+          code: payload.error.code ?? null,
+          message: String(payload.error.message || 'unknown subscription error').slice(0, 500)
+        });
+      } else {
+        this.stats.subscriptionAcks += 1;
+      }
+      return;
+    }
+    if (payload.method !== 'logsNotification') return;
+    this.stats.notifications += 1;
+    const result = payload.params?.result;
+    const value = result?.value;
+    if (!value) return;
+    if (value.err !== null && value.err !== undefined) {
+      this.stats.failedNotifications += 1;
+      this.stats.failedNotificationBytes += bytes;
+      return;
+    }
+
+    this.stats.successfulNotifications += 1;
+    const context = {
+      signature: value.signature || null,
+      slot: result?.context?.slot ?? null,
+      receivedAt: new Date().toISOString()
+    };
+    const logs = Array.isArray(value.logs) ? value.logs : [];
+    this.stats.logLines += logs.length;
+    for (const [logIndex, line] of logs.entries()) {
+      if (!String(line).startsWith('Program data:')) continue;
+      this.stats.programDataLines += 1;
+      const data = base64DataFromLog(line);
+      if (data) {
+        const key = String(data.length);
+        this.stats.eventByteLengths[key] = (this.stats.eventByteLengths[key] || 0) + 1;
+      }
+      const event = decodePumpEventLog(line);
+      if (!event) {
+        this.stats.unmatchedProgramDataLines += 1;
+        continue;
+      }
+      this.handleDecodedEvent(event, { ...context, logIndex });
+    }
+  }
+
+  handleDecodedEvent(event, context) {
+    this.stats.decodedEvents += 1;
+    if (event.eventType === 'TradeEvent') {
+      this.stats.tradeEvents += 1;
+      if (event.tailDecoded) this.stats.tradeTailDecoded += 1;
+      if (event.tailDecodeError) this.stats.tradeTailDecodeErrors += 1;
+      this.recordQuoteModel(event.curveModel);
+      this.emitShadowEvent('provider.helius_pumpfun.shadow_trade', this.normalizeTrade(event, context));
+      return;
+    }
+    if (event.eventType === 'CreateEvent') {
+      this.stats.createEvents += 1;
+      this.recordQuoteModel(event.curveModel);
+      this.emitShadowEvent('provider.helius_pumpfun.shadow_new_token', this.normalizeCreate(event, context));
+      return;
+    }
+    if (event.eventType === 'CompleteEvent') {
+      this.stats.completeEvents += 1;
+      this.emitShadowEvent('provider.helius_pumpfun.shadow_complete', this.normalizeLifecycleEvent(event, context));
+      return;
+    }
+    if (event.eventType === 'CompletePumpAmmMigrationEvent') {
+      this.stats.migrationEvents += 1;
+      this.emitShadowEvent('provider.helius_pumpfun.shadow_migration', this.normalizeLifecycleEvent(event, context));
+    }
+  }
+
+  recordQuoteModel(model) {
+    if (model === 'sol_quote' || model === 'legacy_sol_quote') this.stats.quoteSolEvents += 1;
+    else if (model === 'usdc_quote') this.stats.quoteUsdcEvents += 1;
+    else if (model === 'quote_mint_unsupported') this.stats.quoteUnsupportedEvents += 1;
+    else this.stats.quoteOtherEvents += 1;
+  }
+
+  normalizeTrade(event, context) {
+    const virtualTokenReservesTokens = this.uiAmount(event.virtualTokenReserves, PUMP_TOKEN_DECIMALS);
+    const quoteDecimals = event.quoteMint === WRAPPED_SOL_MINT ? 9 : event.quoteMint === USDC_MINT ? 6 : null;
+    const virtualQuoteReservesRaw = event.tailDecoded ? event.virtualQuoteReserves : event.virtualSolReserves;
+    const virtualQuoteReservesUi = quoteDecimals === null ? null : this.uiAmount(virtualQuoteReservesRaw, quoteDecimals);
+    const quoteAmountRaw = event.tailDecoded ? event.quoteAmount : event.solAmount;
+    const quoteAmount = quoteDecimals === null ? null : this.uiAmount(quoteAmountRaw, quoteDecimals);
+    const curveProgress = this.computeCurveProgress(virtualTokenReservesTokens);
+    const priceQuote = Number.isFinite(virtualQuoteReservesUi) && virtualTokenReservesTokens > 0
+      ? virtualQuoteReservesUi / virtualTokenReservesTokens
+      : null;
+    return {
+      provider: 'helius_pumpfun',
+      source: 'helius_logs_trade_shadow',
+      eventType: event.eventType,
+      mint: event.mint,
+      traderPublicKey: event.user,
+      txType: event.isBuy ? 'buy' : 'sell',
+      eventAt: this.eventTimestamp(event.timestamp),
+      ...context,
+      quoteMint: event.quoteMint || null,
+      pairBase: event.curveModel === 'sol_quote' || event.curveModel === 'legacy_sol_quote'
+        ? 'SOL'
+        : event.curveModel === 'usdc_quote' ? 'USDC' : 'UNKNOWN',
+      curveModel: event.curveModel,
+      curveProgress,
+      providerCurveProgress: curveProgress,
+      providerCurveSource: 'helius_pump_trade_event_virtual_token_reserves',
+      tokenAmountRaw: event.tokenAmount,
+      tokenAmount: this.uiAmount(event.tokenAmount, PUMP_TOKEN_DECIMALS),
+      solAmountRaw: event.solAmount,
+      solAmount: event.curveModel === 'sol_quote' || event.curveModel === 'legacy_sol_quote'
+        ? this.uiAmount(event.solAmount, 9)
+        : null,
+      quoteAmountRaw,
+      quoteAmount,
+      virtualTokenReservesRaw: event.virtualTokenReserves,
+      virtualTokenReservesTokens,
+      virtualQuoteReservesRaw,
+      virtualQuoteReservesUi,
+      priceQuote,
+      priceSol: event.curveModel === 'sol_quote' || event.curveModel === 'legacy_sol_quote' ? priceQuote : null,
+      tailDecoded: event.tailDecoded,
+      tailDecodeError: event.tailDecodeError,
+      decodedBytes: event.decodedBytes,
+      totalBytes: event.totalBytes,
+      commitment: this.commitment
+    };
+  }
+
+  normalizeCreate(event, context) {
+    const virtualTokenReservesTokens = this.uiAmount(event.virtualTokenReserves, PUMP_TOKEN_DECIMALS);
+    return {
+      provider: 'helius_pumpfun',
+      source: 'helius_logs_create_shadow',
+      eventType: event.eventType,
+      mint: event.mint,
+      name: event.name,
+      symbol: event.symbol,
+      uri: event.uri,
+      bondingCurve: event.bondingCurve,
+      creator: event.creator,
+      user: event.user,
+      eventAt: this.eventTimestamp(event.timestamp),
+      ...context,
+      quoteMint: event.quoteMint,
+      curveModel: event.curveModel,
+      curveProgress: this.computeCurveProgress(virtualTokenReservesTokens),
+      virtualTokenReservesRaw: event.virtualTokenReserves,
+      virtualTokenReservesTokens,
+      virtualQuoteReservesRaw: event.virtualQuoteReserves,
+      tokenTotalSupplyRaw: event.tokenTotalSupply,
+      isMayhemMode: event.isMayhemMode,
+      isCashbackEnabled: event.isCashbackEnabled,
+      decodedBytes: event.decodedBytes,
+      totalBytes: event.totalBytes,
+      commitment: this.commitment
+    };
+  }
+
+  normalizeLifecycleEvent(event, context) {
+    return {
+      provider: 'helius_pumpfun',
+      source: event.eventType === 'CompleteEvent'
+        ? 'helius_logs_complete_shadow'
+        : 'helius_logs_migration_shadow',
+      ...event,
+      eventAt: this.eventTimestamp(event.timestamp),
+      ...context,
+      commitment: this.commitment
+    };
+  }
+
+  computeCurveProgress(virtualTokenReservesTokens) {
+    if (!Number.isFinite(virtualTokenReservesTokens) || virtualTokenReservesTokens <= 0) return null;
+    const realTokenReservesTokens = virtualTokenReservesTokens - PUMP_VIRTUAL_TO_REAL_TOKEN_OFFSET;
+    const progress = 1 - (realTokenReservesTokens / PUMP_TOKEN_TOTAL_SUPPLY);
+    return Number(Math.max(0, Math.min(progress, 1)).toFixed(6));
+  }
+
+  uiAmount(raw, decimals) {
+    const value = Number(raw);
+    return Number.isFinite(value) ? value / (10 ** decimals) : null;
+  }
+
+  eventTimestamp(seconds) {
+    const value = Number(seconds);
+    return Number.isFinite(value) && value > 0 ? new Date(value * 1000).toISOString() : null;
+  }
+
+  emitLifecycle(type, payload = {}) {
+    try {
+      this.handlers.onLifecycle?.(type, { ...payload, provider: 'helius_pumpfun', reportOnly: true });
+    } catch {
+      // Shadow telemetry must never affect runtime behavior.
+    }
+  }
+
+  emitShadowEvent(type, payload = {}) {
+    try {
+      this.handlers.onShadowEvent?.(type, { ...payload, reportOnly: true });
+    } catch {
+      // Shadow telemetry must never affect runtime behavior.
+    }
+  }
+
+  getStats() {
+    return {
+      ...this.stats,
+      connected: Boolean(this.ws && this.ws.readyState === WebSocket.OPEN),
+      currentReconnectDelayMs: this.currentReconnectDelayMs
+    };
+  }
+}
+
+module.exports = HeliusPumpfunShadowListener;

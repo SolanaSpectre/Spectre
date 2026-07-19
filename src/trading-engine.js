@@ -7,6 +7,7 @@ const CapitalAllocation = require('./capital-allocation');
 const WalletManager = require('./wallet');
 const PumpPortalListener = require('./pumpportal-listener');
 const PumpDevListener = require('./pumpdev-listener');
+const HeliusPumpfunShadowListener = require('./helius-pumpfun-shadow-listener');
 const SafetyGate = require('./lib/safety-gates');
 const ExecutionModeManager = require('./lib/execution-modes');
 const SessionManager = require('./lib/session-manager');
@@ -97,6 +98,22 @@ class TradingEngine {
           this.telemetry.record(type, payload);
         } catch {
           // PumpDev shadow events are observability-only and must never affect decisions.
+        }
+      }
+    });
+    this.heliusPumpfunShadowListener = new HeliusPumpfunShadowListener(config, logger, {
+      onLifecycle: (type, payload) => {
+        try {
+          this.telemetry.record(type, payload);
+        } catch {
+          // Helius lifecycle telemetry is report-only and must not affect intake.
+        }
+      },
+      onShadowEvent: (type, payload) => {
+        try {
+          this.telemetry.record(type, payload);
+        } catch {
+          // Helius shadow events must never enter provider runtime handlers.
         }
       }
     });
@@ -423,6 +440,12 @@ class TradingEngine {
         maxMeteredTradeEventsPerSession: this.config.pumpPortalMaxMeteredTradeEventsPerSession,
         tokenTradeSubscriptionTtlMs: this.config.pumpPortalTokenTradeSubscriptionTtlMs
       },
+      heliusPumpfunShadowPlan: {
+        enabled: this.config.heliusPumpfunShadowEnabled === true,
+        reportOnly: true,
+        strategyConsumptionEnabled: false,
+        commitment: this.config.heliusPumpfunShadowCommitment
+      },
       strategyPreregistration: {
         id: 'runner_watch_full_coverage_v1_2026-07-18',
         path: 'data/strategy-preregistrations/runner-watch-full-coverage-v1.json'
@@ -447,6 +470,7 @@ class TradingEngine {
     this.logger.info('Starting trading engine...');
     await this.pumpPortalListener.start();
     await this.pumpDevListener.start();
+    await this.heliusPumpfunShadowListener.start();
     this.armPumpDevPrimarySilenceWatchdog(sessionStartTime);
     this.entryStartTime = Date.now();
     this.tradingLoop();
@@ -525,7 +549,8 @@ class TradingEngine {
 
     await Promise.all([
       this.pumpPortalListener.stop(),
-      this.pumpDevListener.stop()
+      this.pumpDevListener.stop(),
+      this.heliusPumpfunShadowListener.stop()
     ]);
     this.persistLivePositions();
     this.launchIntelStore.flush(true);
@@ -5917,7 +5942,19 @@ class TradingEngine {
       launchIntelSummary,
       providerCurveSnapshotApplied
     );
-    this.telemetry.record(options.telemetryType || 'provider.pumpportal.new_token', { mint });
+    this.telemetry.record(options.telemetryType || 'provider.pumpportal.new_token', {
+      mint,
+      symbol: event.symbol || null,
+      name: event.name || null,
+      signature: event.signature || event.txSignature || null,
+      eventAt: event.eventAt || event.timestamp || event.createdAt || null,
+      receivedAt: new Date().toISOString(),
+      quoteMint: event.quoteMint || null,
+      pairBase: event.pairBase || null,
+      curveProgress: Number.isFinite(Number(nextToken.curveProgress))
+        ? Number(nextToken.curveProgress)
+        : null
+    });
   }
 
   async handlePumpPortalTrade(event) {
@@ -6025,6 +6062,17 @@ class TradingEngine {
     }
     this.telemetry.record(options.telemetryType || 'provider.pumpportal.trade', {
       mint,
+      signature: event.signature || event.txSignature || null,
+      eventAt: event.eventAt || event.timestamp || event.createdAt || null,
+      receivedAt: new Date().toISOString(),
+      txType: side,
+      solAmount: Number.isFinite(tradeVolumeSol) ? tradeVolumeSol : null,
+      traderPublicKey: trader || null,
+      quoteMint: event.quoteMint || null,
+      pairBase: event.pairBase || 'SOL',
+      curveProgress: Number.isFinite(Number(current.curveProgress))
+        ? Number(current.curveProgress)
+        : null,
       tradeCount: current.tradeCount,
       traderPresent: Boolean(trader),
       trackedAccountMatch,
@@ -6839,6 +6887,7 @@ class TradingEngine {
         primarySilenceElapsedMs: this.pumpDevPrimarySilenceStartedAt ? Date.now() - this.pumpDevPrimarySilenceStartedAt : null,
         primarySilenceTripped: this.pumpDevPrimarySilenceTripped === true
       },
+      heliusPumpfunShadow: this.heliusPumpfunShadowListener.getStats(),
       poolStateLane: this.poolStateLane.getStats(),
       pumpBondingCurveLane: {
         ...this.pumpBondingCurveLane.getStats(),

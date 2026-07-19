@@ -13,6 +13,7 @@ const FILES = {
   simpleRuntimeAiEvidence: 'data/reports/simple-runtime-ai-evidence-latest.json',
   liveReadiness: 'data/reports/live-readiness-latest.json',
   pumpDevCurveParity: 'data/reports/pumpdev-curve-parity-latest.json',
+  heliusPumpfunShadowParity: 'data/reports/helius-pumpfun-shadow-parity-latest.json',
   pumpDevTargetedCurveParity: 'data/reports/pumpdev-targeted-curve-parity-latest.json',
   eventLoopLagDiagnostic: 'data/reports/event-loop-lag-diagnostic-latest.json',
   pumpDevSubscriptionLifecycle: 'data/reports/pumpdev-subscription-lifecycle-latest.json',
@@ -2355,6 +2356,7 @@ function buildSummary(docs) {
   const simpleRuntimeAiEvidence = docs.simpleRuntimeAiEvidence.data || {};
   const liveReadiness = docs.liveReadiness.data || {};
   const pumpDevCurveParity = docs.pumpDevCurveParity.data || {};
+  const heliusPumpfunShadowParity = docs.heliusPumpfunShadowParity.data || {};
   const pumpDevTargetedCurveParity = docs.pumpDevTargetedCurveParity.data || {};
   const eventLoopLagDiagnostic = docs.eventLoopLagDiagnostic.data || {};
   const pumpDevSubscriptionLifecycle = docs.pumpDevSubscriptionLifecycle.data || {};
@@ -3275,6 +3277,16 @@ function buildSummary(docs) {
   if (Array.isArray(pumpDevCurveParity.recommendations) && pumpDevCurveParity.recommendations.length) {
     lines.push(`  - recommendation: ${pumpDevCurveParity.recommendations[0]}`);
   }
+  lines.push('- Helius Pump.fun shadow parity:');
+  lines.push(`  - verdict / enough evidence: ${heliusPumpfunShadowParity.verdict || 'n/a'} / ${heliusPumpfunShadowParity.enoughEvidence === true}`);
+  lines.push(`  - Helius / PumpPortal trades / eligible mint-hours: ${get(heliusPumpfunShadowParity, 'counts.heliusTrades', 0)} / ${get(heliusPumpfunShadowParity, 'counts.pumpPortalTrades', 0)} / ${get(heliusPumpfunShadowParity, 'counts.eligibleMintHours', 0)}`);
+  lines.push(`  - raw / deduped / duplicate Helius trades: ${get(heliusPumpfunShadowParity, 'counts.rawHeliusTradeEvents', 0)} / ${get(heliusPumpfunShadowParity, 'counts.heliusTrades', 0)} / ${get(heliusPumpfunShadowParity, 'counts.duplicateHeliusTradeEvents', 0)}`);
+  lines.push(`  - coverage-window lifecycle fallbacks / tradestream intervals: ${get(heliusPumpfunShadowParity, 'counts.portalCoverageLifecycleFallbackMints', 0)} / ${get(heliusPumpfunShadowParity, 'counts.portalTradestreamConnectionIntervals', 0)}`);
+  lines.push(`  - mint-hour count / volume pass rates: ${fmt(get(heliusPumpfunShadowParity, 'agreement.mintHourCountPassRate', null), 4)} / ${fmt(get(heliusPumpfunShadowParity, 'agreement.mintHourVolumePassRate', null), 4)}`);
+  lines.push(`  - curve comparisons / pass rate / abs delta p90: ${get(heliusPumpfunShadowParity, 'counts.curveComparisons', 0)} / ${fmt(get(heliusPumpfunShadowParity, 'agreement.curvePassRate', null), 4)} / ${fmt(get(heliusPumpfunShadowParity, 'agreement.curveAbsoluteDelta.p90', null), 4)}`);
+  lines.push(`  - discovery matches / Helius-minus-PumpPortal p90: ${get(heliusPumpfunShadowParity, 'counts.discoveryMatches', 0)} / ${fmt(get(heliusPumpfunShadowParity, 'agreement.discoveryHeliusMinusPumpPortalMs.p90', null), 0)}ms`);
+  lines.push(`  - decoder tail errors / unsupported quotes / quote label coverage: ${get(heliusPumpfunShadowParity, 'counts.decoderTailErrors', 0)} / ${get(heliusPumpfunShadowParity, 'counts.unsupportedQuoteEvents', 0)} / ${fmt(get(heliusPumpfunShadowParity, 'agreement.quoteLabelCoverage', null), 4)}`);
+  lines.push('  - mode: report-only; this artifact never authorizes strategy consumption by itself.');
   const targetedParitySummary = pumpDevTargetedCurveParity.summary || {};
   lines.push('- PumpDev targeted curve parity:');
   lines.push(`  - mode: ${pumpDevTargetedCurveParity.mode || 'n/a'}`);
