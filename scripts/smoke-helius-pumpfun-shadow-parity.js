@@ -94,6 +94,7 @@ assert.strictEqual(report.counts.discoveryMatches, 20);
 assert.strictEqual(report.checks.strategyConsumptionDisabled, true);
 assert.strictEqual(report.checks.cleanHeliusLifecycle, true);
 assert.strictEqual(report.checks.portalTradeIdentityRecall, true);
+assert.strictEqual(report.agreement.traderIdentityAgreementRate, 1);
 assert.strictEqual(report.counts.rawHeliusTradeEvents, 401);
 assert.strictEqual(report.counts.duplicateHeliusTradeEvents, 0);
 

@@ -24,10 +24,11 @@ const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-recall-aut
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-recall-autopsy-latest.json');
 
 const METHODOLOGY = Object.freeze({
-  id: 'helius_pumpfun_recall_autopsy_v1_2026-07-19',
+  id: 'helius_pumpfun_recall_autopsy_v2_2026-07-19',
   mode: 'offline_report_only',
   strategyConsumptionAllowed: false,
   cohortRule: `same_as_${PARITY_RULE.id}_failed_identity_recall_mint_hours`,
+  v1Disposition: 'exonerated_coverage_edges; found_24_trader_semantic_residues_and_one_34_signature_selective_loss_cluster',
   missClassificationOrder: [
     'MISSING_IDENTITY_FIELDS',
     'COVERAGE_EDGE',
@@ -39,6 +40,8 @@ const METHODOLOGY = Object.freeze({
   identityResidueDefinition: 'exact_identity_absent_but_same_signature_and_mint_exists_in_helius',
   burstDefinition: 'unique_pumpportal_trade_identities_for_the_same_mint_hour_and_floor(receipt_ms/1000)',
   highBurstDefinition: 'burst_intensity_at_or_above_the_p90_of_all_identifiable_portal_rows_in_failed_cohorts',
+  absentClusterMaximumGapMs: 1_000,
+  absenceFlowClassification: 'decoded_helius_shadow_trade_rows_inside_each_absent_signature_cluster_window',
   promotionAuthority: 'none_diagnostic_only'
 });
 
@@ -99,6 +102,18 @@ function edgeBucket(distanceMs) {
 
 function increment(object, key, amount = 1) {
   object[key] = (object[key] || 0) + amount;
+}
+
+function clusterRows(rows, maximumGapMs = METHODOLOGY.absentClusterMaximumGapMs) {
+  const sorted = [...rows].filter((row) => Number.isFinite(row.receiptMs))
+    .sort((left, right) => left.receiptMs - right.receiptMs);
+  const clusters = [];
+  for (const row of sorted) {
+    const current = clusters[clusters.length - 1];
+    if (!current || row.receiptMs - current[current.length - 1].receiptMs > maximumGapMs) clusters.push([row]);
+    else current.push(row);
+  }
+  return clusters;
 }
 
 function safeSample(row, extra = {}) {
@@ -211,6 +226,7 @@ function buildReport(state, sourceTelemetry = null) {
     const samples = [];
     const missingRows = [];
     const missingReceiptTimes = [];
+    const absentSignatureRows = [];
     for (const [identity, row] of cohort.portalByIdentity.entries()) {
       if (coveredIdentities.has(identity)) continue;
       const parts = payloadIdentityParts(row);
@@ -259,7 +275,9 @@ function buildReport(state, sourceTelemetry = null) {
           sameTraderRows: sameSignature.filter((candidate) => payloadIdentityParts(candidate).trader === parts.trader).length,
           sameSideRows: sameSignature.filter((candidate) => payloadIdentityParts(candidate).side === parts.side).length,
           exactAmountRows: exactAmountRows.length,
-          nearestAmountRelativeDelta: stats(amountDeltas.map((candidate) => candidate.relativeDelta), 9).min
+          nearestAmountRelativeDelta: stats(amountDeltas.map((candidate) => candidate.relativeDelta), 9).min,
+          heliusTraderSamples: [...new Set(sameSignature
+            .map((candidate) => payloadIdentityParts(candidate).trader).filter(Boolean))].slice(0, 5)
         };
       }
       const burstIntensity = burstCounts.get(row.autopsyBurstKey) || 1;
@@ -276,10 +294,45 @@ function buildReport(state, sourceTelemetry = null) {
       increment(aggregateSides, missing.side);
       missingRows.push(missing);
       if (Number.isFinite(row.receiptMs)) missingReceiptTimes.push(row.receiptMs);
+      if (classification === 'HELIUS_SIGNATURE_ABSENT') absentSignatureRows.push(row);
       allMissing.push(missing);
       if (samples.length < 12) samples.push(safeSample(row, missing));
     }
     const unidentifiablePortalRows = cohort.portalRows.filter((row) => !tradeIdentity(row.payload, row.mint));
+    const absentClusters = clusterRows(absentSignatureRows).map((cluster) => {
+      const startMs = cluster[0].receiptMs;
+      const endMs = cluster[cluster.length - 1].receiptMs;
+      const heliusInside = state.heliusTrades.filter((row) => (
+        Number.isFinite(row.receiptMs) && row.receiptMs >= startMs && row.receiptMs <= endMs
+      ));
+      const preceding = state.heliusTrades.filter((row) => row.receiptMs < startMs)
+        .sort((left, right) => right.receiptMs - left.receiptMs)[0] || null;
+      const following = state.heliusTrades.filter((row) => row.receiptMs > endMs)
+        .sort((left, right) => left.receiptMs - right.receiptMs)[0] || null;
+      const precedingSameMint = state.heliusTrades.filter((row) => row.mint === cohort.mint && row.receiptMs < startMs)
+        .sort((left, right) => right.receiptMs - left.receiptMs)[0] || null;
+      const followingSameMint = state.heliusTrades.filter((row) => row.mint === cohort.mint && row.receiptMs > endMs)
+        .sort((left, right) => left.receiptMs - right.receiptMs)[0] || null;
+      const globalFlowTimes = [preceding, ...heliusInside, following]
+        .filter(Boolean).map((row) => row.receiptMs).sort((left, right) => left - right);
+      const globalInterarrival = globalFlowTimes.slice(1)
+        .map((atMs, index) => atMs - globalFlowTimes[index]);
+      return {
+        classification: heliusInside.length ? 'SELECTIVE_LOSS' : 'GLOBAL_SHADOW_TRADE_SILENCE',
+        startAt: new Date(startMs).toISOString(),
+        endAt: new Date(endMs).toISOString(),
+        durationMs: endMs - startMs,
+        missingSignatures: cluster.length,
+        heliusShadowTradesInside: heliusInside.length,
+        sameMintHeliusShadowTradesInside: heliusInside.filter((row) => row.mint === cohort.mint).length,
+        otherMintHeliusShadowTradesInside: heliusInside.filter((row) => row.mint !== cohort.mint).length,
+        globalShadowTradeMaxInterarrivalMs: globalInterarrival.length ? Math.max(...globalInterarrival) : null,
+        surroundingSameMintShadowTradeGapMs: precedingSameMint && followingSameMint
+          ? followingSameMint.receiptMs - precedingSameMint.receiptMs
+          : null,
+        signatureSamples: cluster.map((row) => payloadIdentityParts(row).signature).filter(Boolean).slice(0, 8)
+      };
+    });
     return {
       key: cohort.key,
       mint: cohort.mint,
@@ -305,6 +358,7 @@ function buildReport(state, sourceTelemetry = null) {
       highBurstMissingRate: missingRows.length
         ? missingRows.filter((row) => row.highBurst).length / missingRows.length
         : null,
+      absentSignatureClusters: absentClusters,
       samples
     };
   });
@@ -334,6 +388,11 @@ function buildReport(state, sourceTelemetry = null) {
         + (aggregateClassifications.IDENTITY_RESIDUE || 0))
         / cohorts.reduce((sum, row) => sum + row.portalTradeIdentities, 0)
       : null,
+    absentSignatureClusterClassifications: cohorts.flatMap((row) => row.absentSignatureClusters || [])
+      .reduce((counts, row) => {
+        increment(counts, row.classification);
+        return counts;
+      }, {}),
     sides: aggregateSides,
     coverageEdgeBuckets: aggregateEdgeBuckets,
     burst: {
@@ -385,4 +444,11 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { METHODOLOGY, analyzeEvents, buildReport, edgeBucket, nearestCoverageDistanceMs };
+module.exports = {
+  METHODOLOGY,
+  analyzeEvents,
+  buildReport,
+  clusterRows,
+  edgeBucket,
+  nearestCoverageDistanceMs
+};

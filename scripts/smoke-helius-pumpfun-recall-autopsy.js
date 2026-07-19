@@ -50,10 +50,21 @@ events.push(event('provider.helius_pumpfun.shadow_trade', 25_500, {
 events.push(event('provider.helius_pumpfun.shadow_trade', 2_015, {
   mint: 'AutopsyMint',
   receivedAt: iso(2_015),
-  txType: 'sell',
+  txType: 'buy',
   solAmount: 0.01,
   traderPublicKey: 'DifferentWallet',
   signature: 'Signature1',
+  curveModel: 'sol_quote',
+  mayhemMode: false,
+  logIndex: 1
+}));
+events.push(event('provider.helius_pumpfun.shadow_trade', 2_020, {
+  mint: 'OtherMint',
+  receivedAt: iso(2_020),
+  txType: 'buy',
+  solAmount: 0.01,
+  traderPublicKey: 'OtherWallet',
+  signature: 'OtherSignature',
   curveModel: 'sol_quote',
   mayhemMode: false,
   logIndex: 1
@@ -70,6 +81,7 @@ assert.strictEqual(report.counts.missingPortalTradeIdentities, 3);
 assert.strictEqual(report.classifications.COVERAGE_EDGE, 1);
 assert.strictEqual(report.classifications.IDENTITY_RESIDUE, 1);
 assert.strictEqual(report.classifications.HELIUS_SIGNATURE_ABSENT, 1);
+assert.strictEqual(report.absentSignatureClusterClassifications.SELECTIVE_LOSS, 1);
 assert.strictEqual(report.coverageEdgeBuckets.LE_1S, 1);
 assert.ok(report.burst.thresholdP90 >= 1);
 assert.ok(report.burst.highBurstMissingCount >= 1);
