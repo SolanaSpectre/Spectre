@@ -2690,6 +2690,14 @@ class Config {
     if (this.pumpPortalTargetedMinCurveProgress >= this.pumpPortalTargetedMaxCurveProgress) {
       throw new Error('PUMPPORTAL_TARGETED_MIN_CURVE_PROGRESS must be less than PUMPPORTAL_TARGETED_MAX_CURVE_PROGRESS');
     }
+    if (
+      this.pumpPortalTradeSubscriptionMode === 'targeted_curve'
+      && !this.pumpBondingCurveRuntimeRpcEnabled
+    ) {
+      throw new Error(
+        'PUMPPORTAL_TRADE_SUBSCRIPTION_MODE=targeted_curve requires PUMP_BONDING_CURVE_RUNTIME_RPC_ENABLED=true; targeted subscriptions cannot activate without runtime curve truth.'
+      );
+    }
 
     // Validate wallet addresses when live/dry-run wallet handling is enabled,
     // or when a PAPER run provides a cold wallet explicitly.

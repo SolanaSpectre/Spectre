@@ -22,6 +22,13 @@ function parseArgs(argv) {
   return args;
 }
 
+function coverageVerdict(coverage) {
+  if (coverage.tradeSubscriptionMode === 'targeted_curve' && !coverage.paidTapeActivated) {
+    return 'NO_ACTIVE_TARGETED_PAID_TAPE';
+  }
+  return coverage.paidTapeCapped ? 'MIXED_COVERAGE_PAID_TAPE_CAPPED' : 'FULL_SESSION_PAID_TAPE';
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const telemetryPath = resolveTelemetryPath(ROOT, { telemetry: args.telemetry, reportTelemetry: telemetryFromReport(ROOT, BATTLEFIELD_PATH) });
@@ -33,12 +40,13 @@ function main() {
     mode: 'report_only_paid_tape_coverage_epoch',
     note: 'Separates strategy evidence collected before the PumpPortal paid-event cap from discovery/RPC-only evidence after the cap.',
     telemetryPath: relativeTelemetryPath,
-    verdict: coverage.paidTapeCapped ? 'MIXED_COVERAGE_PAID_TAPE_CAPPED' : 'FULL_SESSION_PAID_TAPE',
+    verdict: coverageVerdict(coverage),
     coverage: { ...coverage, telemetryPath: relativeTelemetryPath },
     evidencePolicy: {
       fullPaidTape: 'Decision and complete outcome window occurred before the paid-event cap.',
       capTruncated: 'Decision occurred before the cap, but the requested outcome window extended beyond it.',
-      discoveryRpcOnly: 'Decision occurred after paid token/account streams were disabled; do not compare it directly with full-tape funnel rates.'
+      discoveryRpcOnly: 'Decision occurred after paid token/account streams were disabled; do not compare it directly with full-tape funnel rates.',
+      noActiveTargetedTape: 'Targeted mode accepted zero subscriptions; elapsed session time is not paid-tape coverage.'
     }
   };
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
@@ -47,3 +55,5 @@ function main() {
 }
 
 if (require.main === module) main();
+
+module.exports = { coverageVerdict };
