@@ -75,7 +75,9 @@ events.push(event('session.stopped', 26_000, {}));
 
 const report = analyzeEvents(events);
 assert.strictEqual(report.verdict, 'FAILED_RECALL_COHORTS_AUTOPSIED');
+assert.strictEqual(report.counts.eligibleMintHourCohorts, 1);
 assert.strictEqual(report.counts.failedMintHourCohorts, 1);
+assert.strictEqual(report.counts.cohortsWithMisses, 1);
 assert.strictEqual(report.counts.portalTradeIdentities, 20);
 assert.strictEqual(report.counts.missingPortalTradeIdentities, 3);
 assert.strictEqual(report.classifications.COVERAGE_EDGE, 1);
@@ -85,5 +87,44 @@ assert.strictEqual(report.absentSignatureClusterClassifications.SELECTIVE_LOSS, 
 assert.strictEqual(report.coverageEdgeBuckets.LE_1S, 1);
 assert.ok(report.burst.thresholdP90 >= 1);
 assert.ok(report.burst.highBurstMissingCount >= 1);
+
+const passingEvents = [
+  event('session.started', 0, {}),
+  event('provider.pumpportal.connected', 0, { role: 'tradestream' }),
+  event('provider.pumpportal.targeted_subscription', 500, { mint: 'PassingMint' })
+];
+for (let index = 0; index < 40; index += 1) {
+  const offsetMs = 1_000 + index * 500;
+  const payload = {
+    mint: 'PassingMint',
+    receivedAt: iso(offsetMs),
+    pairBase: 'SOL',
+    txType: index % 2 ? 'sell' : 'buy',
+    solAmount: 0.01,
+    traderPublicKey: `PassingWallet${index}`,
+    signature: `PassingSignature${index}`
+  };
+  passingEvents.push(event('provider.pumpportal.trade', offsetMs, payload));
+  if (index !== 17) {
+    passingEvents.push(event('provider.helius_pumpfun.shadow_trade', offsetMs + 5, {
+      ...payload,
+      receivedAt: iso(offsetMs + 5),
+      curveModel: 'sol_quote',
+      mayhemMode: false,
+      logIndex: 1
+    }));
+  }
+}
+passingEvents.push(event('provider.pumpportal.targeted_unsubscription', 22_000, { mint: 'PassingMint' }));
+passingEvents.push(event('provider.pumpportal.closed', 22_000, { role: 'tradestream' }));
+passingEvents.push(event('session.stopped', 23_000, {}));
+
+const passingReport = analyzeEvents(passingEvents, 'passing-synthetic');
+assert.strictEqual(passingReport.verdict, 'PASSING_RECALL_MISSES_AUTOPSIED');
+assert.strictEqual(passingReport.counts.eligibleMintHourCohorts, 1);
+assert.strictEqual(passingReport.counts.failedMintHourCohorts, 0);
+assert.strictEqual(passingReport.counts.cohortsWithMisses, 1);
+assert.strictEqual(passingReport.counts.missingPortalTradeIdentities, 1);
+assert.strictEqual(passingReport.cohorts[0].recallGatePassed, true);
 
 console.log('Helius Pump.fun recall autopsy smoke passed');

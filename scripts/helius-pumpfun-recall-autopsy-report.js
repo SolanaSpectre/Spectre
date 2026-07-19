@@ -24,11 +24,12 @@ const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-recall-aut
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-recall-autopsy-latest.json');
 
 const METHODOLOGY = Object.freeze({
-  id: 'helius_pumpfun_recall_autopsy_v2_2026-07-19',
+  id: 'helius_pumpfun_recall_autopsy_v3_2026-07-19',
   mode: 'offline_report_only',
   strategyConsumptionAllowed: false,
-  cohortRule: `same_as_${PARITY_RULE.id}_failed_identity_recall_mint_hours`,
+  cohortRule: `same_as_${PARITY_RULE.id}_eligible_identity_recall_mint_hours_with_any_residual_miss`,
   v1Disposition: 'exonerated_coverage_edges; found_24_trader_semantic_residues_and_one_34_signature_selective_loss_cluster',
+  v2Disposition: 'failed_to_characterize_residual_misses_inside_passing_recall_cohorts',
   missClassificationOrder: [
     'MISSING_IDENTITY_FIELDS',
     'COVERAGE_EDGE',
@@ -39,7 +40,7 @@ const METHODOLOGY = Object.freeze({
   coverageEdgeBucketsMs: [250, 1_000, 2_000],
   identityResidueDefinition: 'exact_identity_absent_but_same_signature_and_mint_exists_in_helius',
   burstDefinition: 'unique_pumpportal_trade_identities_for_the_same_mint_hour_and_floor(receipt_ms/1000)',
-  highBurstDefinition: 'burst_intensity_at_or_above_the_p90_of_all_identifiable_portal_rows_in_failed_cohorts',
+  highBurstDefinition: 'burst_intensity_at_or_above_the_p90_of_all_identifiable_portal_rows_in_all_eligible_cohorts',
   absentClusterMaximumGapMs: 1_000,
   absenceFlowClassification: 'decoded_helius_shadow_trade_rows_inside_each_absent_signature_cluster_window',
   promotionAuthority: 'none_diagnostic_only'
@@ -154,7 +155,7 @@ function buildReport(state, sourceTelemetry = null) {
     coverageBuckets.set(key, bucket);
   }
 
-  const failed = [];
+  const eligible = [];
   for (const bucket of coverageBuckets.values()) {
     const segments = mergeIntervals(bucket.segments);
     const portalRows = (portalByMint.get(bucket.mint) || []).filter((row) => inCoverage(row, segments));
@@ -168,8 +169,7 @@ function buildReport(state, sourceTelemetry = null) {
     const heliusIdentities = new Set(heliusRows.map((row) => tradeIdentity(row.payload, row.mint)).filter(Boolean));
     const matched = [...portalByIdentity.keys()].filter((identity) => heliusIdentities.has(identity)).length;
     const recall = matched / portalByIdentity.size;
-    if (recall >= PARITY_RULE.portalTradeIdentityRecallMinimumRate) continue;
-    failed.push({
+    eligible.push({
       ...bucket,
       segments,
       portalRows,
@@ -180,8 +180,13 @@ function buildReport(state, sourceTelemetry = null) {
     });
   }
 
+  const failed = eligible.filter((cohort) => (
+    cohort.recall < PARITY_RULE.portalTradeIdentityRecallMinimumRate
+  ));
+  const analysisCohorts = eligible.filter((cohort) => cohort.matched < cohort.portalByIdentity.size);
+
   const burstCounts = new Map();
-  for (const cohort of failed) {
+  for (const cohort of eligible) {
     for (const [identity, row] of cohort.portalByIdentity.entries()) {
       const burstKey = `${cohort.key}|${Math.floor(row.receiptMs / 1_000)}`;
       burstCounts.set(burstKey, (burstCounts.get(burstKey) || 0) + 1);
@@ -189,7 +194,7 @@ function buildReport(state, sourceTelemetry = null) {
       row.autopsyBurstKey = burstKey;
     }
   }
-  const allPortalBurstIntensities = failed.flatMap((cohort) => (
+  const allPortalBurstIntensities = eligible.flatMap((cohort) => (
     [...cohort.portalByIdentity.values()].map((row) => burstCounts.get(row.autopsyBurstKey) || 1)
   ));
   const burstThreshold = stats(allPortalBurstIntensities, 3).p90;
@@ -199,7 +204,7 @@ function buildReport(state, sourceTelemetry = null) {
   const aggregateEdgeBuckets = {};
   const allMissing = [];
 
-  const cohorts = failed.map((cohort) => {
+  const cohorts = analysisCohorts.map((cohort) => {
     const globalHeliusRows = heliusByMint.get(cohort.mint) || [];
     const globalByIdentity = new Map();
     const globalBySignature = new Map();
@@ -344,6 +349,7 @@ function buildReport(state, sourceTelemetry = null) {
       matchedPortalTradeIdentities: cohort.matched,
       missingPortalTradeIdentities: cohort.portalByIdentity.size - cohort.matched,
       portalTradeIdentityRecall: Number(cohort.recall.toFixed(6)),
+      recallGatePassed: cohort.recall >= PARITY_RULE.portalTradeIdentityRecallMinimumRate,
       signaturePresenceRecall: Number(((cohort.matched
         + (classifications.IDENTITY_RESIDUE || 0)) / cohort.portalByIdentity.size).toFixed(6)),
       unidentifiablePortalRows: unidentifiablePortalRows.length,
@@ -369,24 +375,32 @@ function buildReport(state, sourceTelemetry = null) {
   const lowerBurstPortalCount = allPortalBurstIntensities.length - highBurstPortalCount;
   const lowerBurstMissingCount = allMissing.length - highBurstMissingCount;
 
+  const eligiblePortalTradeIdentities = eligible.reduce((sum, row) => sum + row.portalByIdentity.size, 0);
+  const eligibleMatchedPortalTradeIdentities = eligible.reduce((sum, row) => sum + row.matched, 0);
+  const verdict = failed.length
+    ? 'FAILED_RECALL_COHORTS_AUTOPSIED'
+    : (cohorts.length ? 'PASSING_RECALL_MISSES_AUTOPSIED' : 'NO_RECALL_MISSES');
+
   return {
     generatedAt: new Date().toISOString(),
     sourceTelemetry,
     methodology: METHODOLOGY,
-    verdict: cohorts.length ? 'FAILED_RECALL_COHORTS_AUTOPSIED' : 'NO_FAILED_RECALL_COHORTS',
+    verdict,
     counts: {
-      failedMintHourCohorts: cohorts.length,
-      portalTradeIdentities: cohorts.reduce((sum, row) => sum + row.portalTradeIdentities, 0),
-      matchedPortalTradeIdentities: cohorts.reduce((sum, row) => sum + row.matchedPortalTradeIdentities, 0),
+      eligibleMintHourCohorts: eligible.length,
+      failedMintHourCohorts: failed.length,
+      cohortsWithMisses: cohorts.length,
+      portalTradeIdentities: eligiblePortalTradeIdentities,
+      matchedPortalTradeIdentities: eligibleMatchedPortalTradeIdentities,
       missingPortalTradeIdentities: allMissing.length,
       malformedTelemetryLines: state.malformedLines || 0
     },
     classifications: aggregateClassifications,
     identityResidueSubtypes: aggregateResidueSubtypes,
     diagnosticSignaturePresenceRecall: allMissing.length
-      ? (cohorts.reduce((sum, row) => sum + row.matchedPortalTradeIdentities, 0)
+      ? (eligibleMatchedPortalTradeIdentities
         + (aggregateClassifications.IDENTITY_RESIDUE || 0))
-        / cohorts.reduce((sum, row) => sum + row.portalTradeIdentities, 0)
+        / eligiblePortalTradeIdentities
       : null,
     absentSignatureClusterClassifications: cohorts.flatMap((row) => row.absentSignatureClusters || [])
       .reduce((counts, row) => {
@@ -407,7 +421,7 @@ function buildReport(state, sourceTelemetry = null) {
       lowerBurstMissRate: lowerBurstPortalCount ? lowerBurstMissingCount / lowerBurstPortalCount : null
     },
     cohorts,
-    interpretation: 'Diagnostic only. Use the miss classes to decide whether the next action is a comparator fix or an unchanged V4 replication run.'
+    interpretation: 'Diagnostic only. Residual misses are characterized even when the frozen V5 recall gate passes; use the miss classes and burst differential to choose the next adapter experiment.'
   };
 }
 
