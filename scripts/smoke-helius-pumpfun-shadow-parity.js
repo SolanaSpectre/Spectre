@@ -61,10 +61,21 @@ for (let mintIndex = 0; mintIndex < 20; mintIndex += 1) {
       ...tradePayload,
       pairBase: 'SOL'
     }));
+    const repeatedIdentity = mintIndex === 0 && tradeIndex === 0;
     events.push(event('provider.helius_pumpfun.shadow_trade', iso(offsetMs + 5), {
       ...tradePayload,
+      solAmount: repeatedIdentity ? 0.04 : tradePayload.solAmount,
+      logIndex: repeatedIdentity ? 10 : 1,
       receivedAt: iso(offsetMs + 5)
     }));
+    if (repeatedIdentity) {
+      events.push(event('provider.helius_pumpfun.shadow_trade', iso(offsetMs + 5), {
+        ...tradePayload,
+        solAmount: 0.06,
+        logIndex: 20,
+        receivedAt: iso(offsetMs + 5)
+      }));
+    }
     if (mintIndex < 5) {
       events.push(event('pump_bonding_curve.updated', iso(offsetMs + 6), {
         mint,
@@ -83,12 +94,12 @@ assert.strictEqual(report.counts.discoveryMatches, 20);
 assert.strictEqual(report.checks.strategyConsumptionDisabled, true);
 assert.strictEqual(report.checks.cleanHeliusLifecycle, true);
 assert.strictEqual(report.checks.portalTradeIdentityRecall, true);
-assert.strictEqual(report.counts.rawHeliusTradeEvents, 400);
+assert.strictEqual(report.counts.rawHeliusTradeEvents, 401);
 assert.strictEqual(report.counts.duplicateHeliusTradeEvents, 0);
 
 const duplicateReport = analyzeEvents([...events, events.find((row) => row.type === 'provider.helius_pumpfun.shadow_trade')]);
-assert.strictEqual(duplicateReport.counts.rawHeliusTradeEvents, 401);
-assert.strictEqual(duplicateReport.counts.heliusTrades, 400);
+assert.strictEqual(duplicateReport.counts.rawHeliusTradeEvents, 402);
+assert.strictEqual(duplicateReport.counts.heliusTrades, 401);
 assert.strictEqual(duplicateReport.counts.duplicateHeliusTradeEvents, 1);
 
 const partialCoverageEvents = [events[0]];

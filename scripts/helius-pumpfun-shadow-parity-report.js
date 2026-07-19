@@ -11,9 +11,9 @@ const LOG_DIR = path.join(ROOT, 'run-logs');
 const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity');
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity-latest.json');
 
-// V3 was frozen after V2 proved the decoder but exposed symmetric-coverage and stale-RPC comparator bias.
+// V4 was frozen after V3 exposed that PumpPortal aggregates repeated same-identity TradeEvents.
 const PREREGISTERED = Object.freeze({
-  id: 'helius_pumpfun_shadow_parity_v3_2026-07-19',
+  id: 'helius_pumpfun_shadow_parity_v4_2026-07-19',
   adapterMode: 'logs_only_report_only',
   strategyConsumptionAllowed: false,
   comparator: 'pumpportal_runtime_telemetry_and_rpc_curve_truth',
@@ -33,6 +33,10 @@ const PREREGISTERED = Object.freeze({
   v3LifecycleRule: 'require_connection_and_zero_errors_subscription_errors_or_unexpected_disconnects',
   v3EvidenceStart: 'first_run_after_v3_comparator_was_frozen',
   v3FrozenAt: '2026-07-19T19:05:00.000Z',
+  v3FailureDisposition: 'failed_21_of_23_amount_cohorts_because_signature_mint_trader_side_can_repeat_for_multiple_trade_events_while_pumpportal_emits_one_aggregate',
+  v4VolumeRule: 'sum_all_standard_helius_trade_events_per_signature_mint_trader_side_then_compare_to_the_single_pumpportal_aggregate',
+  v4EvidenceStart: 'first_run_after_v4_grouped_identity_comparator_was_frozen',
+  v4FrozenAt: '2026-07-19T19:45:00.000Z',
   duplicatePolicy: 'dedupe_helius_by_signature_mint_log_index_and_amounts_before_parity_aggregation',
   solQuotedMinimumTradesPerMintHour: 20,
   eligibleMintHourMinimum: 10,
@@ -524,9 +528,14 @@ function buildReport(state, sourceTelemetry = null) {
     mintHours.push(rowSummary);
 
     const standardHeliusRows = heliusRows.filter((row) => row.payload.mayhemMode === false);
-    const standardHeliusByIdentity = new Map(standardHeliusRows
-      .map((row) => [tradeIdentity(row.payload, row.mint), row])
-      .filter(([identity]) => identity));
+    const standardHeliusByIdentity = new Map();
+    for (const row of standardHeliusRows) {
+      const identity = tradeIdentity(row.payload, row.mint);
+      if (!identity) continue;
+      const group = standardHeliusByIdentity.get(identity) || [];
+      group.push(row);
+      standardHeliusByIdentity.set(identity, group);
+    }
     const standardPairs = portalRows
       .map((portalRow) => ({
         identity: tradeIdentity(portalRow.payload, portalRow.mint),
@@ -534,7 +543,7 @@ function buildReport(state, sourceTelemetry = null) {
       }))
       .filter((row) => row.identity && standardHeliusByIdentity.has(row.identity))
       .map((portalRow) => ({
-        heliusRow: standardHeliusByIdentity.get(portalRow.identity),
+        heliusRows: standardHeliusByIdentity.get(portalRow.identity),
         portalRow: portalRow.portalRow
       }));
     if (standardPairs.length < PREREGISTERED.solQuotedMinimumTradesPerMintHour) continue;
@@ -542,10 +551,13 @@ function buildReport(state, sourceTelemetry = null) {
     const standardPortal = createAggregate();
     const amountRelativeDeltas = [];
     for (const pair of standardPairs) {
-      addTrade(standardHelius, pair.heliusRow.payload);
+      pair.heliusRows.forEach((row) => addTrade(standardHelius, row.payload));
       addTrade(standardPortal, pair.portalRow.payload);
+      const heliusAmount = pair.heliusRows.reduce((total, row) => (
+        total + Math.abs(solAmountOf(row.payload) || 0)
+      ), 0);
       amountRelativeDeltas.push(relativeDelta(
-        solAmountOf(pair.heliusRow.payload),
+        heliusAmount,
         solAmountOf(pair.portalRow.payload)
       ));
     }
@@ -637,8 +649,8 @@ function buildReport(state, sourceTelemetry = null) {
   const enabled = state.sessionStarted?.heliusPumpfunShadowPlan?.enabled === true;
   const strategyConsumptionDisabled = state.sessionStarted?.heliusPumpfunShadowPlan?.strategyConsumptionEnabled === false;
   const completedLifecycle = Boolean(state.sessionStopping);
-  const postV3Freeze = Number.isFinite(sessionStartMs)
-    && sessionStartMs >= timestampMs(PREREGISTERED.v3FrozenAt);
+  const postV4Freeze = Number.isFinite(sessionStartMs)
+    && sessionStartMs >= timestampMs(PREREGISTERED.v4FrozenAt);
   const cleanHeliusLifecycle = state.heliusLifecycle.connections >= 1
     && state.heliusLifecycle.errors === 0
     && state.heliusLifecycle.subscriptionErrors === 0
@@ -649,7 +661,7 @@ function buildReport(state, sourceTelemetry = null) {
     && discoveryLags.length >= PREREGISTERED.discoveryMatchMinimum;
   const checks = {
     runEnabled: enabled,
-    postV3Freeze,
+    postV4Freeze,
     completedLifecycle,
     cleanHeliusLifecycle,
     strategyConsumptionDisabled,
@@ -671,7 +683,7 @@ function buildReport(state, sourceTelemetry = null) {
     && checks.unsupportedQuoteEvents;
 
   let verdict = PREREGISTERED.invalidVerdict;
-  if (enabled && postV3Freeze && strategyConsumptionDisabled && completedLifecycle && state.heliusTrades.length > 0) {
+  if (enabled && postV4Freeze && strategyConsumptionDisabled && completedLifecycle && state.heliusTrades.length > 0) {
     if (!hardAdapterChecksPassed) verdict = PREREGISTERED.failVerdict;
     else if (!enoughEvidence) verdict = PREREGISTERED.insufficientVerdict;
     else verdict = Object.values(checks).every(Boolean)
