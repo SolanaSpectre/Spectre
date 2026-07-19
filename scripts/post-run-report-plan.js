@@ -8,6 +8,7 @@ const POST_RUN_REPORTS = [
   { title: 'Report Telemetry Path Audit', script: 'report-telemetry-path-audit.js' },
   { title: 'PumpDev Curve Parity Report', script: 'pumpdev-curve-parity-report.js' },
   { title: 'Helius Pump.fun Shadow Parity', script: 'helius-pumpfun-shadow-parity-report.js' },
+  { title: 'Helius Pump.fun Recall Autopsy', script: 'helius-pumpfun-recall-autopsy-report.js' },
   { title: 'PumpDev Targeted Curve Parity Report', script: 'pumpdev-targeted-curve-parity-report.js' },
   { title: 'Event Loop Lag Diagnostic', script: 'event-loop-lag-diagnostic-report.js' },
   { title: 'PumpDev Subscription Lifecycle', script: 'pumpdev-subscription-lifecycle-report.js' },

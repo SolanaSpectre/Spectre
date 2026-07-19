@@ -14,6 +14,7 @@ const FILES = {
   liveReadiness: 'data/reports/live-readiness-latest.json',
   pumpDevCurveParity: 'data/reports/pumpdev-curve-parity-latest.json',
   heliusPumpfunShadowParity: 'data/reports/helius-pumpfun-shadow-parity-latest.json',
+  heliusPumpfunRecallAutopsy: 'data/reports/helius-pumpfun-recall-autopsy-latest.json',
   pumpDevTargetedCurveParity: 'data/reports/pumpdev-targeted-curve-parity-latest.json',
   eventLoopLagDiagnostic: 'data/reports/event-loop-lag-diagnostic-latest.json',
   pumpDevSubscriptionLifecycle: 'data/reports/pumpdev-subscription-lifecycle-latest.json',
@@ -2357,6 +2358,7 @@ function buildSummary(docs) {
   const liveReadiness = docs.liveReadiness.data || {};
   const pumpDevCurveParity = docs.pumpDevCurveParity.data || {};
   const heliusPumpfunShadowParity = docs.heliusPumpfunShadowParity.data || {};
+  const heliusPumpfunRecallAutopsy = docs.heliusPumpfunRecallAutopsy.data || {};
   const pumpDevTargetedCurveParity = docs.pumpDevTargetedCurveParity.data || {};
   const eventLoopLagDiagnostic = docs.eventLoopLagDiagnostic.data || {};
   const pumpDevSubscriptionLifecycle = docs.pumpDevSubscriptionLifecycle.data || {};
@@ -3287,6 +3289,11 @@ function buildSummary(docs) {
   lines.push(`  - discovery matches / Helius-minus-PumpPortal p90: ${get(heliusPumpfunShadowParity, 'counts.discoveryMatches', 0)} / ${fmt(get(heliusPumpfunShadowParity, 'agreement.discoveryHeliusMinusPumpPortalMs.p90', null), 0)}ms`);
   lines.push(`  - decoder tail errors / unsupported quotes / quote label coverage: ${get(heliusPumpfunShadowParity, 'counts.decoderTailErrors', 0)} / ${get(heliusPumpfunShadowParity, 'counts.unsupportedQuoteEvents', 0)} / ${fmt(get(heliusPumpfunShadowParity, 'agreement.quoteLabelCoverage', null), 4)}`);
   lines.push('  - mode: report-only; this artifact never authorizes strategy consumption by itself.');
+  lines.push('- Helius Pump.fun recall autopsy:');
+  lines.push(`  - verdict / failed cohorts / missing identities: ${heliusPumpfunRecallAutopsy.verdict || 'n/a'} / ${get(heliusPumpfunRecallAutopsy, 'counts.failedMintHourCohorts', 0)} / ${get(heliusPumpfunRecallAutopsy, 'counts.missingPortalTradeIdentities', 0)}`);
+  lines.push(`  - coverage edge / identity residue / signature absent: ${get(heliusPumpfunRecallAutopsy, 'classifications.COVERAGE_EDGE', 0)} / ${get(heliusPumpfunRecallAutopsy, 'classifications.IDENTITY_RESIDUE', 0)} / ${get(heliusPumpfunRecallAutopsy, 'classifications.HELIUS_SIGNATURE_ABSENT', 0)}`);
+  lines.push(`  - diagnostic signature-presence recall: ${fmt(heliusPumpfunRecallAutopsy.diagnosticSignaturePresenceRecall, 4)}`);
+  lines.push(`  - burst p90 / high-burst miss rate / lower-burst miss rate: ${get(heliusPumpfunRecallAutopsy, 'burst.thresholdP90', 'n/a')} / ${fmt(get(heliusPumpfunRecallAutopsy, 'burst.highBurstMissRate', null), 4)} / ${fmt(get(heliusPumpfunRecallAutopsy, 'burst.lowerBurstMissRate', null), 4)}`);
   const targetedParitySummary = pumpDevTargetedCurveParity.summary || {};
   lines.push('- PumpDev targeted curve parity:');
   lines.push(`  - mode: ${pumpDevTargetedCurveParity.mode || 'n/a'}`);
