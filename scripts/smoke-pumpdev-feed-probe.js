@@ -48,4 +48,16 @@ const observedShortfall = assessCapacity({
 });
 assert.strictEqual(observedShortfall.verdict, 'OBSERVED_CAPACITY_BELOW_REQUIREMENT');
 
+const omittedDeclaredLimits = assessCapacity({
+  knownMints: 200,
+  requestedTokenTrades: 162,
+  acknowledgedTokenTrades: 162,
+  subscriptionErrors: []
+}, {
+  requiredSubscriptions: 162
+});
+assert.strictEqual(omittedDeclaredLimits.verdict, 'ACKNOWLEDGED_CAPACITY_MEETS_REQUIREMENT');
+assert.strictEqual(omittedDeclaredLimits.expectedPlanSubscriptions, null);
+assert.strictEqual(omittedDeclaredLimits.expectedMonthlyTradeQuota, null);
+
 console.log('PumpDev feed probe smoke passed');

@@ -300,8 +300,14 @@ function runProbe({ url, durationMs, sampleTokenTrades, pingIntervalMs }) {
 
 function assessCapacity(stats, requirements = {}) {
   const requiredSubscriptions = Math.max(1, Number(requirements.requiredSubscriptions || 162));
-  const expectedPlanSubscriptions = Number(requirements.expectedPlanSubscriptions);
-  const expectedMonthlyTradeQuota = Number(requirements.expectedMonthlyTradeQuota);
+  const expectedPlanSubscriptions = requirements.expectedPlanSubscriptions === null
+    || requirements.expectedPlanSubscriptions === undefined
+    ? null
+    : Number(requirements.expectedPlanSubscriptions);
+  const expectedMonthlyTradeQuota = requirements.expectedMonthlyTradeQuota === null
+    || requirements.expectedMonthlyTradeQuota === undefined
+    ? null
+    : Number(requirements.expectedMonthlyTradeQuota);
   const requiredTradeMessagesPerHour = Math.max(1, Number(requirements.requiredTradeMessagesPerHour || 96000));
   const capacityError = stats.subscriptionErrors.find((message) => /subscription|tier|limit|capacity/i.test(message)) || null;
   const observedEnoughCandidates = Number(stats.knownMints || 0) >= requiredSubscriptions;
