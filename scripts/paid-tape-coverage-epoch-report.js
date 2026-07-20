@@ -24,6 +24,15 @@ function parseArgs(argv) {
 
 function coverageVerdict(coverage) {
   if (coverage.tradeSubscriptionMode === 'targeted_curve' && !coverage.paidTapeActivated) {
+    if (coverage.targetedTradeSubscriptionRejections > 0) {
+      return 'TARGETED_PAID_TAPE_REJECTED';
+    }
+    if (coverage.targetedTradeSubscriptionsAccepted > 0 && coverage.targetedTradeSubscriptionAcks === 0) {
+      return 'TARGETED_PAID_TAPE_UNACKNOWLEDGED';
+    }
+    if (coverage.targetedTradeSubscriptionAcks > 0 && coverage.pumpPortalTradeEvents === 0) {
+      return 'TARGETED_PAID_TAPE_NO_DELIVERY';
+    }
     return 'NO_ACTIVE_TARGETED_PAID_TAPE';
   }
   return coverage.paidTapeCapped ? 'MIXED_COVERAGE_PAID_TAPE_CAPPED' : 'FULL_SESSION_PAID_TAPE';
@@ -46,7 +55,7 @@ function main() {
       fullPaidTape: 'Decision and complete outcome window occurred before the paid-event cap.',
       capTruncated: 'Decision occurred before the cap, but the requested outcome window extended beyond it.',
       discoveryRpcOnly: 'Decision occurred after paid token/account streams were disabled; do not compare it directly with full-tape funnel rates.',
-      noActiveTargetedTape: 'Targeted mode accepted zero subscriptions; elapsed session time is not paid-tape coverage.'
+      noActiveTargetedTape: 'Targeted mode did not produce acknowledged subscriptions and delivered trades; elapsed session time is not paid-tape coverage.'
     }
   };
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });

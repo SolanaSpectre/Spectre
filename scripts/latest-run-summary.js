@@ -1005,6 +1005,10 @@ function buildPumpPortalHealth(battlefield = {}) {
   const targetedTradeSubscriptionsDeferredAtDiscovery = number(stats.targetedTradeSubscriptionsDeferredAtDiscovery, 0);
   const targetedTradeSubscriptionCandidates = number(stats.targetedTradeSubscriptionCandidates, 0);
   const targetedTradeSubscriptionAccepted = number(stats.targetedTradeSubscriptionAccepted, 0);
+  const targetedTradeSubscriptionSendFailed = number(stats.targetedTradeSubscriptionSendFailed, 0);
+  const targetedTradeSubscriptionAcked = number(stats.targetedTradeSubscriptionAcked, 0);
+  const targetedTradeSubscriptionRejected = number(stats.targetedTradeSubscriptionRejected, 0);
+  const paidTapeSilentAlerts = number(stats.paidTapeSilentAlerts, 0);
   const targetedTradeSubscriptionAlreadyActive = number(stats.targetedTradeSubscriptionAlreadyActive, 0);
   const targetedTradeSubscriptionSkippedNoApiKey = number(stats.targetedTradeSubscriptionSkippedNoApiKey, 0);
   const targetedTradeSubscriptionSkippedBudget = number(stats.targetedTradeSubscriptionSkippedBudget, 0);
@@ -1065,6 +1069,13 @@ function buildPumpPortalHealth(battlefield = {}) {
     if (messages === 0 && newTokens === 0 && trades === 0) {
       status = 'outage';
       interpretation = 'No PumpPortal feed data was captured; treat PumpPortal-dependent evidence as unavailable.';
+    } else if (targetedTradeSubscriptionRejected > 0) {
+      status = 'degraded_trade_stream';
+      interpretation = `PumpPortal explicitly rejected ${targetedTradeSubscriptionRejected} paid trade subscription request(s); paid-tape evidence is invalid.`;
+    } else if (paidTapeSilentAlerts > 0
+      || (targetedTradeSubscriptionAccepted > 0 && targetedTradeSubscriptionAcked === 0 && meteredTradeEvents === 0)) {
+      status = 'degraded_trade_stream';
+      interpretation = 'Targeted token-trade subscription frames were sent, but no acknowledgement or paid trade delivery was observed; paid-tape evidence is invalid.';
     } else if (closeEvents >= 20 || reconnectAttempts >= 20 || lastErrorMessage) {
       const tradeStreamSparse = newTokens > 0 && trades <= Math.max(2, Math.floor(newTokens * 0.02));
       status = tradeStreamSparse ? 'degraded_trade_stream' : 'degraded';
@@ -1146,6 +1157,10 @@ function buildPumpPortalHealth(battlefield = {}) {
     targetedTradeSubscriptionsDeferredAtDiscovery,
     targetedTradeSubscriptionCandidates,
     targetedTradeSubscriptionAccepted,
+    targetedTradeSubscriptionSendFailed,
+    targetedTradeSubscriptionAcked,
+    targetedTradeSubscriptionRejected,
+    paidTapeSilentAlerts,
     targetedTradeSubscriptionAlreadyActive,
     targetedTradeSubscriptionSkippedNoApiKey,
     targetedTradeSubscriptionSkippedBudget,
@@ -3176,7 +3191,7 @@ function buildSummary(docs) {
     : meteredTradeLimit > 0 ? meteredTradeLimit : 'unlimited';
   const estimatedPumpPortalChargeSol = Math.floor((pumpPortalHealth.meteredTradeEvents || 0) / 10000) * 0.01;
   lines.push(`  - metered trade budget: events=${pumpPortalHealth.meteredTradeEvents || 0} (mint=${pumpPortalHealth.trades || 0}, account-only=${pumpPortalHealth.unmatchedAccountTrades || 0}), max=${meteredTradeLimitLabel}, reached=${pumpPortalHealth.meteredTradeBudgetReached === true}, skippedTokenSubscriptions=${pumpPortalHealth.tradeSubscriptionsSkippedBudget || 0}, skippedAccountSubscriptions=${pumpPortalHealth.accountSubscriptionsSkippedBudget || 0}, estimatedCompletedBlockCharge=${fmt(estimatedPumpPortalChargeSol, 4)} SOL`);
-  lines.push(`  - targeted paid tape: mode=${pumpPortalHealth.tradeSubscriptionMode || 'unknown'}, discoveryDeferred=${pumpPortalHealth.targetedTradeSubscriptionsDeferredAtDiscovery || 0}, candidates=${pumpPortalHealth.targetedTradeSubscriptionCandidates || 0}, accepted=${pumpPortalHealth.targetedTradeSubscriptionAccepted || 0}, alreadyActive=${pumpPortalHealth.targetedTradeSubscriptionAlreadyActive || 0}, skippedNoKey/budget/max=${pumpPortalHealth.targetedTradeSubscriptionSkippedNoApiKey || 0}/${pumpPortalHealth.targetedTradeSubscriptionSkippedBudget || 0}/${pumpPortalHealth.targetedTradeSubscriptionSkippedMaxActive || 0}`);
+  lines.push(`  - targeted paid tape: mode=${pumpPortalHealth.tradeSubscriptionMode || 'unknown'}, discoveryDeferred=${pumpPortalHealth.targetedTradeSubscriptionsDeferredAtDiscovery || 0}, candidates=${pumpPortalHealth.targetedTradeSubscriptionCandidates || 0}, sent=${pumpPortalHealth.targetedTradeSubscriptionAccepted || 0}, sendFailed=${pumpPortalHealth.targetedTradeSubscriptionSendFailed || 0}, acked=${pumpPortalHealth.targetedTradeSubscriptionAcked || 0}, rejected=${pumpPortalHealth.targetedTradeSubscriptionRejected || 0}, alreadyActive=${pumpPortalHealth.targetedTradeSubscriptionAlreadyActive || 0}, silentAlerts=${pumpPortalHealth.paidTapeSilentAlerts || 0}, skippedNoKey/budget/max=${pumpPortalHealth.targetedTradeSubscriptionSkippedNoApiKey || 0}/${pumpPortalHealth.targetedTradeSubscriptionSkippedBudget || 0}/${pumpPortalHealth.targetedTradeSubscriptionSkippedMaxActive || 0}`);
   if (paidTapeCoverageEpoch.coverage) {
     lines.push(`  - paid-tape coverage epoch: ${paidTapeCoverageEpoch.verdict || 'unknown'}; fullPaid=${paidTapeCoverageEpoch.coverage.fullPaidTapeMinutes ?? 'n/a'}m, discoveryRpcOnly=${paidTapeCoverageEpoch.coverage.discoveryRpcOnlyMinutes ?? 'n/a'}m, capAt=${paidTapeCoverageEpoch.coverage.budgetReachedAt || 'none'}`);
   }

@@ -361,6 +361,13 @@ function runProbe({
 }
 
 function interpretProbe(stats) {
+  const paidSubscriptionRejections = Object.entries(stats.messageTextCounts || {})
+    .filter(([message]) => /subscribeTokenTrade|subscribeAccountTrade/i.test(message)
+      && /only available|funded|api key/i.test(message))
+    .reduce((sum, [, count]) => sum + Number(count || 0), 0);
+  if (paidSubscriptionRejections > 0) {
+    return `provider rejected ${paidSubscriptionRejections} paid trade subscription request(s)`;
+  }
   if (!stats.openEvents) {
     return 'websocket did not open; check endpoint, API key, IP/rate-limit, or provider availability';
   }

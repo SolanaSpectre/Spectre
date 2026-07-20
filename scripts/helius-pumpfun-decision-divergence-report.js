@@ -102,7 +102,9 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     'decisionShadowEnabled',
     'strategyConsumptionDisabled',
     'completedLifecycle',
-    'sameTelemetryAsParity'
+    'sameTelemetryAsParity',
+    'concurrentV5ParityPassed',
+    'cleanHeliusLifecycle'
   ];
   const validityPassed = validityChecks.every((key) => checks[key]);
   const evidenceReady = checks.minimumComparableGateEvaluations

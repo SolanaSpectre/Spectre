@@ -249,7 +249,9 @@ class HeliusPumpfunShadowListener {
             signature: context.signature,
             slot: context.slot,
             logIndex,
-            dataLength: data?.length ?? null
+            dataLength: data?.length ?? null,
+            rawDataBase64: data ? data.subarray(0, 512).toString('base64') : null,
+            rawDataTruncated: Boolean(data && data.length > 512)
           });
         }
         continue;

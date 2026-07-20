@@ -159,5 +159,7 @@ listener.handleRawMessage(Buffer.from(JSON.stringify({
 assert.strictEqual(listener.getStats().tradeDecodeErrors, 1);
 assert.strictEqual(lifecycleEvents[0].type, 'provider.helius_pumpfun.shadow_decode_error');
 assert.strictEqual(lifecycleEvents[0].payload.dataLength, MIN_TRADE_EVENT_BYTES);
+assert.strictEqual(lifecycleEvents[0].payload.rawDataBase64, invalidBoolTrade.toString('base64'));
+assert.strictEqual(lifecycleEvents[0].payload.rawDataTruncated, false);
 
 console.log('Helius Pump.fun shadow listener smoke passed');

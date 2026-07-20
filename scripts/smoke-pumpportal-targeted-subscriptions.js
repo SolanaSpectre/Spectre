@@ -39,8 +39,29 @@ async function main() {
   assert.strictEqual(targeted, true);
   assert.strictEqual(listener.subscribedMints.has('mint-1'), true);
   assert.strictEqual(listener.stats.targetedTradeSubscriptionAccepted, 1);
+  assert.strictEqual(listener.stats.targetedTradeSubscriptionSendFailed, 0);
   assert(frames.some((frame) => frame.method === 'subscribeTokenTrade' && frame.keys.includes('mint-1')));
   assert(lifecycle.some((row) => row.event === 'provider.pumpportal.targeted_subscription'));
+
+  listener.recordSubscriptionAck({ message: 'Successfully subscribed to keys.' }, 'tradestream');
+  assert.strictEqual(listener.stats.targetedTradeSubscriptionAcked, 1);
+  assert.strictEqual(listener.stats.tokenTradeSubscriptionAcks, 1);
+  assert.strictEqual(listener.stats.lastSubscriptionAckKind, 'token_trade');
+  assert(lifecycle.some((row) => row.event === 'provider.pumpportal.targeted_subscription_ack'));
+
+  const rejectionMessage = "'subscribeTokenTrade' and 'subscribeAccountTrade' methods are only available when connecting with an API key funded with at least 0.02 SOL.";
+  assert.strictEqual(listener.recordSubscriptionRejection({ message: rejectionMessage }), true);
+  assert.strictEqual(listener.stats.targetedTradeSubscriptionRejected, 1);
+  assert(lifecycle.some((row) => row.event === 'provider.pumpportal.targeted_subscription_rejected'));
+
+  listener.stats.targetedTradeSubscriptionAccepted = 50;
+  listener.stats.targetedTradeSubscriptionFirstSentAt = 1_000;
+  listener.stats.meteredTradeEvents = 0;
+  assert.strictEqual(listener.checkPaidTapeSilence(601_000), false);
+  listener.stats.targetedTradeSubscriptionAcked = 0;
+  assert.strictEqual(listener.checkPaidTapeSilence(601_000), true);
+  assert.strictEqual(listener.checkPaidTapeSilence(602_000), false);
+  assert(lifecycle.some((row) => row.event === 'provider.pumpportal.paid_tape_silent'));
 
   assert.strictEqual(listener.unsubscribeTokenTrade('mint-1', 'migration'), true);
   assert.strictEqual(listener.subscribedMints.has('mint-1'), false);
@@ -49,6 +70,17 @@ async function main() {
   assert(lifecycle.some((row) => row.event === 'provider.pumpportal.targeted_unsubscription'
     && row.payload.mint === 'mint-1'
     && row.payload.reason === 'migration'));
+
+  const disconnected = new PumpPortalListener({
+    pumpPortalApiKey: 'smoke-key',
+    pumpPortalTradeSubscriptionMode: 'targeted_curve',
+    pumpPortalMaxSubscribedMints: 10,
+    pumpPortalTrackedAccounts: []
+  }, { info() {}, warn() {}, error() {}, debug() {} });
+  assert.strictEqual(disconnected.targetMint('mint-send-fails'), false);
+  assert.strictEqual(disconnected.stats.targetedTradeSubscriptionAccepted, 0);
+  assert.strictEqual(disconnected.stats.targetedTradeSubscriptionSendFailed, 1);
+  assert.strictEqual(disconnected.subscribedMints.has('mint-send-fails'), false);
 
   const requested = [];
   const engineTelemetry = [];

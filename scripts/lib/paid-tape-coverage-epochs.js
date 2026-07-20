@@ -25,6 +25,8 @@ function scanTelemetryCoverage(filePath) {
   let budgetPayload = null;
   let tradeSubscriptionMode = null;
   let targetedTradeSubscriptionsAccepted = 0;
+  let targetedTradeSubscriptionAcks = 0;
+  let targetedTradeSubscriptionRejections = 0;
   let pumpPortalTradeEvents = 0;
   let malformedLines = 0;
   const visit = (rawLine) => {
@@ -42,6 +44,9 @@ function scanTelemetryCoverage(filePath) {
     if (type === 'provider.pumpportal.targeted_subscription') {
       targetedTradeSubscriptionsAccepted += 1;
     }
+    if (type === 'provider.pumpportal.targeted_subscription_rejected') {
+      targetedTradeSubscriptionRejections += 1;
+    }
     if (type === 'provider.pumpportal.trade') {
       pumpPortalTradeEvents += 1;
     }
@@ -51,6 +56,14 @@ function scanTelemetryCoverage(filePath) {
       targetedTradeSubscriptionsAccepted = Math.max(
         targetedTradeSubscriptionsAccepted,
         Number(pumpPortalStats?.targetedTradeSubscriptionAccepted || 0)
+      );
+      targetedTradeSubscriptionAcks = Math.max(
+        targetedTradeSubscriptionAcks,
+        Number(pumpPortalStats?.targetedTradeSubscriptionAcked || pumpPortalStats?.tokenTradeSubscriptionAcks || 0)
+      );
+      targetedTradeSubscriptionRejections = Math.max(
+        targetedTradeSubscriptionRejections,
+        Number(pumpPortalStats?.targetedTradeSubscriptionRejected || 0)
       );
       pumpPortalTradeEvents = Math.max(pumpPortalTradeEvents, Number(pumpPortalStats?.trades || 0));
     }
@@ -76,7 +89,9 @@ function scanTelemetryCoverage(filePath) {
   const durationMinutes = Number.isFinite(startMs) && Number.isFinite(endMs) ? (endMs - startMs) / 60000 : null;
   const uncappedPaidTapeMinutes = Number.isFinite(startMs) && Number.isFinite(budgetReachedAtMs) ? Math.max(0, (budgetReachedAtMs - startMs) / 60000) : durationMinutes;
   const targetedTapeRequired = tradeSubscriptionMode === 'targeted_curve';
-  const paidTapeActivated = !targetedTapeRequired || targetedTradeSubscriptionsAccepted > 0;
+  const paidTapeDeliveryQualified = !targetedTapeRequired
+    || (targetedTradeSubscriptionsAccepted > 0 && targetedTradeSubscriptionAcks > 0 && pumpPortalTradeEvents > 0);
+  const paidTapeActivated = paidTapeDeliveryQualified;
   const fullPaidTapeMinutes = paidTapeActivated ? uncappedPaidTapeMinutes : 0;
   const discoveryRpcOnlyMinutes = Number.isFinite(endMs) && Number.isFinite(budgetReachedAtMs) ? Math.max(0, (endMs - budgetReachedAtMs) / 60000) : 0;
   return {
@@ -87,7 +102,10 @@ function scanTelemetryCoverage(filePath) {
     paidTapeCapped: budgetReachedAtMs !== null,
     tradeSubscriptionMode,
     targetedTradeSubscriptionsAccepted,
+    targetedTradeSubscriptionAcks,
+    targetedTradeSubscriptionRejections,
     pumpPortalTradeEvents,
+    paidTapeDeliveryQualified,
     paidTapeActivated,
     budgetReachedAt: budgetReachedAtMs === null ? null : new Date(budgetReachedAtMs).toISOString(),
     budgetReachedAtMs,

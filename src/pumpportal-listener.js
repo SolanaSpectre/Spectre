@@ -42,6 +42,8 @@ class PumpPortalListener {
     this.reconnectResubscribeMaxMints = Number(config.pumpPortalReconnectResubscribeMaxMints || 25);
     this.reconnectResubscribeBatchSize = Number(config.pumpPortalReconnectResubscribeBatchSize || 10);
     this.reconnectResubscribeBatchDelayMs = Number(config.pumpPortalReconnectResubscribeBatchDelayMs || 1000);
+    this.paidTapeSilentFrameThreshold = Number(config.pumpPortalPaidTapeSilentFrameThreshold || 50);
+    this.paidTapeSilentAfterMs = Number(config.pumpPortalPaidTapeSilentAfterMs || 10 * 60 * 1000);
     for (const state of Object.values(this.connections)) {
       state.currentReconnectDelayMs = this.reconnectDelayMs;
     }
@@ -108,6 +110,13 @@ class PumpPortalListener {
       targetedTradeSubscriptionsDeferredAtDiscovery: 0,
       targetedTradeSubscriptionCandidates: 0,
       targetedTradeSubscriptionAccepted: 0,
+      targetedTradeSubscriptionSendFailed: 0,
+      targetedTradeSubscriptionAcked: 0,
+      targetedTradeSubscriptionRejected: 0,
+      lastTargetedTradeSubscriptionRejection: null,
+      targetedTradeSubscriptionFirstSentAt: null,
+      paidTapeSilentAlerts: 0,
+      paidTapeSilentAlertAt: null,
       targetedTradeSubscriptionAlreadyActive: 0,
       targetedTradeSubscriptionSkippedNoApiKey: 0,
       targetedTradeSubscriptionSkippedBudget: 0,
@@ -643,6 +652,7 @@ class PumpPortalListener {
     }
 
     this.recordSubscriptionAck(payload, eventRole);
+    this.recordSubscriptionRejection(payload);
 
     if (method === 'newToken' || method === 'subscribeNewToken' || payload.txType === 'create') {
       this.stats.newTokens += 1;
@@ -778,6 +788,13 @@ class PumpPortalListener {
       if (this.stats[targetRole]) this.stats[targetRole].migrationSubscriptionAcks += 1;
     } else if (kind === 'token_trade') {
       this.stats.tokenTradeSubscriptionAcks += 1;
+      if (this.tradeSubscriptionMode === 'targeted_curve') {
+        this.stats.targetedTradeSubscriptionAcked += 1;
+        this.emitLifecycle('provider.pumpportal.targeted_subscription_ack', {
+          ackCount: this.stats.targetedTradeSubscriptionAcked,
+          message
+        });
+      }
       if (this.stats[targetRole]) this.stats[targetRole].tokenTradeSubscriptionAcks += 1;
     } else if (kind === 'account_trade') {
       this.stats.accountTradeSubscriptionAcks += 1;
@@ -786,6 +803,22 @@ class PumpPortalListener {
       this.stats.unknownSubscriptionAcks += 1;
       if (this.stats[targetRole]) this.stats[targetRole].unknownSubscriptionAcks += 1;
     }
+  }
+
+  recordSubscriptionRejection(payload = {}) {
+    const message = typeof payload.message === 'string' ? payload.message : '';
+    if (!message || !/subscribeTokenTrade|subscribeAccountTrade/i.test(message)
+      || !/only available|funded|api key/i.test(message)) {
+      return false;
+    }
+    this.stats.targetedTradeSubscriptionRejected += 1;
+    this.stats.lastTargetedTradeSubscriptionRejection = message;
+    this.emitLifecycle('provider.pumpportal.targeted_subscription_rejected', {
+      rejectionCount: this.stats.targetedTradeSubscriptionRejected,
+      message
+    });
+    this.logger.warn('PumpPortal rejected a paid trade subscription', { message });
+    return true;
   }
 
   buildConnectionStats(role = 'unknown') {
@@ -1101,6 +1134,7 @@ class PumpPortalListener {
       this.stats.tokenTradeSubscribeFrames += 1;
       this.stats.tradestream.tokenTradeSubscribeFrames += 1;
     }
+    return sent;
   }
 
   targetMint(mint, metadata = {}) {
@@ -1124,8 +1158,22 @@ class PumpPortalListener {
       this.stats.targetedTradeSubscriptionSkippedMaxActive += 1;
       return false;
     }
-    this.subscribeTokenTrade(mint);
+    const sent = this.subscribeTokenTrade(mint);
+    if (!sent) {
+      this.dropMintSubscription(mint);
+      this.stats.targetedTradeSubscriptionSendFailed += 1;
+      this.emitLifecycle('provider.pumpportal.targeted_subscription_send_failed', {
+        mint,
+        reason: metadata.reason || null,
+        activeSubscriptions: this.subscribedMints.size
+      });
+      return false;
+    }
+    // Accepted means the frame was handed to the open socket, not acknowledged by PumpPortal.
     this.stats.targetedTradeSubscriptionAccepted += 1;
+    if (!this.stats.targetedTradeSubscriptionFirstSentAt) {
+      this.stats.targetedTradeSubscriptionFirstSentAt = Date.now();
+    }
     const reason = String(metadata.reason || 'curve_prefilter');
     this.stats.targetedTradeSubscriptionReasonCounts[reason] = (this.stats.targetedTradeSubscriptionReasonCounts[reason] || 0) + 1;
     this.emitLifecycle('provider.pumpportal.targeted_subscription', {
@@ -1138,6 +1186,31 @@ class PumpPortalListener {
       meteredTradeEvents: this.stats.meteredTradeEvents,
       maxMeteredTradeEventsPerSession: this.maxMeteredTradeEventsPerSession
     });
+    return true;
+  }
+
+  checkPaidTapeSilence(now = Date.now()) {
+    if (this.tradeSubscriptionMode !== 'targeted_curve' || this.stats.paidTapeSilentAlertAt) return false;
+    const firstSentAt = Number(this.stats.targetedTradeSubscriptionFirstSentAt || 0);
+    if (!firstSentAt
+      || this.stats.targetedTradeSubscriptionAccepted < this.paidTapeSilentFrameThreshold
+      || now - firstSentAt < this.paidTapeSilentAfterMs
+      || this.stats.targetedTradeSubscriptionAcked > 0
+      || this.stats.meteredTradeEvents > 0) {
+      return false;
+    }
+    this.stats.paidTapeSilentAlerts += 1;
+    this.stats.paidTapeSilentAlertAt = now;
+    const payload = {
+      sentSubscriptions: this.stats.targetedTradeSubscriptionAccepted,
+      acknowledgedSubscriptions: this.stats.targetedTradeSubscriptionAcked,
+      meteredTradeEvents: this.stats.meteredTradeEvents,
+      silentForMs: now - firstSentAt,
+      thresholdFrames: this.paidTapeSilentFrameThreshold,
+      thresholdMs: this.paidTapeSilentAfterMs
+    };
+    this.emitLifecycle('provider.pumpportal.paid_tape_silent', payload);
+    this.logger.warn('PumpPortal paid tape is silent after targeted subscription frames', payload);
     return true;
   }
 
@@ -1449,6 +1522,10 @@ class PumpPortalListener {
   checkConnectionHealth(state) {
     if (!this.running || !state?.ws || state.ws.readyState !== WebSocket.OPEN) {
       return;
+    }
+
+    if (state.role === 'tradestream' || state.role === 'combined') {
+      this.checkPaidTapeSilence();
     }
 
     const staleConnectionMs = this.staleConnectionThresholdMs(state);

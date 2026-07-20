@@ -94,4 +94,12 @@ for (let index = 1; index < 6; index += 1) {
 const failed = analyzeEvents(failedEvents, preregistration, parity, sourceTelemetry);
 assert.strictEqual(failed.verdict, 'HELIUS_DECISION_SHADOW_FAILED');
 
+const invalidParity = analyzeEvents(events, preregistration, {
+  ...parity,
+  verdict: 'HELIUS_SHADOW_PARITY_FAILED',
+  checks: { cleanHeliusLifecycle: false }
+}, sourceTelemetry);
+assert.strictEqual(invalidParity.verdict, 'HELIUS_DECISION_SHADOW_INVALID_RUN');
+assert.strictEqual(invalidParity.checks.concurrentV5ParityPassed, false);
+
 console.log('Helius Pump.fun decision divergence smoke passed');
