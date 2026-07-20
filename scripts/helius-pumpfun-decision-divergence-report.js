@@ -7,7 +7,7 @@ const { forEachJsonlSync } = require('./lib/jsonl');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
-const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v2.json');
+const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v3.json');
 const PARITY_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity-latest.json');
 const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence');
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence-latest.json');
@@ -84,6 +84,7 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     paperMode: state.sessionStarted?.payload?.mode === 'PAPER',
     decisionShadowEnabled: plan.decisionShadowEnabled === true,
     correctPreregistrationPlan: plan.decisionShadowPreregistrationId === preregistration.id,
+    correctGateDecisionComparator: plan.gateDecisionComparator === preregistration.gateDecisionComparator.name,
     correctExecutedActionComparator: plan.executedActionComparator === preregistration.executedActionComparator.name,
     correctMaximumStateAge: Number(plan.decisionShadowMaximumStateAgeMs) === preregistration.maximumShadowStateAgeMs,
     strategyConsumptionDisabled: plan.strategyConsumptionEnabled === false,
@@ -116,6 +117,7 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     'paperMode',
     'decisionShadowEnabled',
     'correctPreregistrationPlan',
+    'correctGateDecisionComparator',
     'correctExecutedActionComparator',
     'correctMaximumStateAge',
     'strategyConsumptionDisabled',

@@ -27,6 +27,23 @@ lane.evaluateEntryDecision = (_state, _preset, guards, _timestamp, context) => (
   reason: guards.passed && context.presetEntries === 2 ? 'PAPER_ENTERED' : 'ENTRY_REJECTED'
 });
 
+const gate = lane.evaluateCounterfactualGateDecision({
+  state: { mint: 'Mint', priceSol: 0.0000016 },
+  timestamp: '2026-07-20T11:00:30.000Z',
+  presetName: preset.name,
+  flagged: true,
+  context: {
+    history: [{ timestamp: '2026-07-20T11:00:00.000Z', curveProgress: 0.7 }],
+    activePosition: { presetName: 'strictMigration' },
+    badExitCooldown: { active: false },
+    sameMintCooldown: { active: false },
+    presetEntries: { [preset.name]: 2 }
+  }
+});
+assert.strictEqual(gate.wouldEnter, true);
+assert.strictEqual(gate.action, 'WOULD_ENTER');
+assert.strictEqual(gate.comparable, true);
+
 const entry = lane.evaluateCounterfactualExecutedAction({
   action: 'ENTRY',
   state: { mint: 'Mint', priceSol: 0.0000016 },

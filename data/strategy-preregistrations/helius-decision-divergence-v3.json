@@ -1,0 +1,56 @@
+{
+  "id": "helius_pumpfun_decision_divergence_v3_2026-07-20",
+  "frozenAt": "2026-07-20T13:37:51.8371216Z",
+  "mode": "paper_only_report_only_same_instant_counterfactual",
+  "question": "Would the unchanged paper lane make the same gate and executed-action choices from fresh Helius market state when evaluated with the actual lane's position, cooldown, cap, and pre-decision history context?",
+  "oracle": "PumpPortal remains the sole runtime decision input; Helius is a report-only same-instant counterfactual.",
+  "maximumShadowStateAgeMs": 1000,
+  "minimumComparableGateEvaluations": 500,
+  "minimumComparableEvaluationCoverageRate": 0.9,
+  "minimumGateActionAgreementRate": 0.99,
+  "minimumExecutedEntries": 1,
+  "minimumExecutedExits": 1,
+  "minimumComparableExecutedActionCoverageRate": 0.9,
+  "executedActionAgreementRequired": 1,
+  "gateDecisionComparator": {
+    "name": "same_instant_helius_state_with_actual_lane_context",
+    "context": ["pre-decision observation history", "same-mint cooldown", "bad-exit cooldown", "preset entry count"],
+    "positionSemantics": "An active position does not suppress a PAPER_SHADOWED gate pass; gate agreement measures WOULD_ENTER versus WOULD_SKIP, while executed-action agreement handles actual entry availability.",
+    "reason": "V2 still used an independent stateful shadow paper lane for gate decisions. Its private positions suppressed 45 of 46 reported gate divergences, so the first V2 run was not a valid test of the frozen question."
+  },
+  "executedActionComparator": {
+    "name": "same_instant_helius_state_with_actual_lane_context",
+    "entryContext": ["pre-decision observation history", "active position", "same-mint cooldown", "bad-exit cooldown", "preset entry count"],
+    "exitContext": ["actual pre-observation position", "entry price", "entry time", "peak return", "exit profile"]
+  },
+  "supersedes": {
+    "id": "helius_pumpfun_decision_divergence_v2_2026-07-20",
+    "disposition": "INVALID_GATE_COMPARATOR_IMPLEMENTATION",
+    "evidenceReuseAllowed": false,
+    "invalidRun": "run-logs/telemetry-2026-07-20T11-18-02-525Z.jsonl",
+    "observedDefect": "45/46 gate divergences had shadowDecisionMissing=true because V2 gate comparison still depended on an independent stateful shadow paper lane."
+  },
+  "walletRule": {
+    "rawWalletFeatureAgreementRequired": false,
+    "required": "Every comparable gate evaluation carries explicit Portal-vs-Helius wallet feature and tracked-address accounting."
+  },
+  "concurrentRequirements": {
+    "heliusV5ParityVerdict": "HELIUS_SHADOW_PARITY_PASSED",
+    "cleanHeliusLifecycle": true,
+    "completedPaperLifecycle": true,
+    "strategyConsumptionAllowed": false
+  },
+  "passVerdict": "HELIUS_DECISION_SHADOW_V3_PASSED_REPORT_ONLY",
+  "failVerdict": "HELIUS_DECISION_SHADOW_V3_FAILED",
+  "insufficientVerdict": "HELIUS_DECISION_SHADOW_V3_INSUFFICIENT_EVIDENCE",
+  "invalidVerdict": "HELIUS_DECISION_SHADOW_V3_INVALID_RUN",
+  "prohibitions": [
+    "No Helius shadow state may feed runtime strategy decisions.",
+    "No live enablement, procurement switch, or gate loosening may follow from this experiment alone.",
+    "A state snapshot older than 1000 ms is non-comparable, never a mismatch.",
+    "V1 and V2 rows cannot count toward V3 evidence.",
+    "Comparator semantics and thresholds are frozen before the first V3 run."
+  ],
+  "nextIfPass": "Repeat the report-only result on another eligible full-coverage session before proposing any procurement change.",
+  "nextIfFail": "Autopsy fresh-state divergences without changing strategy gates or live settings."
+}

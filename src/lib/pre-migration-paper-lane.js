@@ -3162,6 +3162,49 @@ class PreMigrationPaperLane {
     };
   }
 
+  evaluateCounterfactualGateDecision({
+    state = {},
+    timestamp = new Date().toISOString(),
+    presetName,
+    flagged = false,
+    context = {}
+  } = {}) {
+    const preset = this.presets.find((row) => row.name === presetName) || null;
+    if (!preset) {
+      return { comparable: false, wouldEnter: false, action: 'WOULD_SKIP', reason: 'PRESET_NOT_FOUND' };
+    }
+    if (!flagged) {
+      return { comparable: true, wouldEnter: false, action: 'WOULD_SKIP', reason: 'NOT_FLAGGED' };
+    }
+    if (preset.delayedConfirmationOnly === true) {
+      return {
+        comparable: false,
+        wouldEnter: false,
+        action: 'WOULD_SKIP',
+        reason: 'DELAYED_CONFIRMATION_COUNTERFACTUAL_NOT_IMPLEMENTED'
+      };
+    }
+    if (context.badExitCooldown?.active) {
+      return { comparable: true, wouldEnter: false, action: 'WOULD_SKIP', reason: 'RECENT_BAD_EXIT_COOLDOWN' };
+    }
+    if (context.sameMintCooldown?.active) {
+      return { comparable: true, wouldEnter: false, action: 'WOULD_SKIP', reason: 'RECENT_SAME_MINT_EXIT_COOLDOWN' };
+    }
+
+    const guards = this.evaluateEntryGuards(state, context.history || [], timestamp);
+    const decision = this.evaluateEntryDecision(state, preset, guards, timestamp, {
+      presetEntries: context.presetEntries?.[presetName]
+    });
+    return {
+      comparable: true,
+      wouldEnter: decision.passed === true,
+      action: decision.passed === true ? 'WOULD_ENTER' : 'WOULD_SKIP',
+      reason: decision.reason || (decision.passed ? 'PAPER_ENTERED' : 'ENTRY_REJECTED'),
+      decision,
+      entryGuards: guards
+    };
+  }
+
   evaluateCounterfactualExecutedAction({
     action,
     state = {},

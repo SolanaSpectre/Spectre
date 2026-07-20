@@ -51,7 +51,7 @@ const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
   'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
 ]);
-const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v2_2026-07-20';
+const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v3_2026-07-20';
 const HELIUS_DECISION_SHADOW_MAX_STATE_AGE_MS = 1000;
 
 function validProviderBondingCurveAddress(value) {
@@ -460,6 +460,7 @@ class TradingEngine {
           && this.config.heliusPumpfunDecisionShadowEnabled !== false,
         decisionShadowPreregistrationId: HELIUS_DECISION_SHADOW_PREREGISTRATION_ID,
         decisionShadowMaximumStateAgeMs: HELIUS_DECISION_SHADOW_MAX_STATE_AGE_MS,
+        gateDecisionComparator: 'same_instant_helius_state_with_actual_lane_context',
         executedActionComparator: 'same_instant_helius_state_with_actual_lane_context'
       },
       strategyPreregistration: {
@@ -3604,7 +3605,6 @@ class TradingEngine {
       ? 'HELIUS_SHADOW_STATE_STALE'
       : snapshot.reason;
     let shadowState = null;
-    let shadowEvents = [];
     if (shadowStateFresh) {
       const shadowWatch = this.heliusDecisionShadowWatchLane.observeToken(
         snapshot.state,
@@ -3612,22 +3612,22 @@ class TradingEngine {
         snapshot.walletContext
       );
       shadowState = shadowWatch.state || snapshot.state;
-      shadowEvents = this.heliusDecisionShadowPaperLane.observe(shadowState, {
-        ...paperLaneOptions,
-        flagged: Boolean(result.flagged),
-        walletClassificationContext: snapshot.walletContext
-      });
     }
 
     const actualDecisions = actualEvents.filter((event) => event.telemetryType === 'pre_migration_paper.decision');
-    const shadowDecisions = shadowEvents.filter((event) => event.telemetryType === 'pre_migration_paper.decision');
     for (const actual of actualDecisions) {
-      const shadow = shadowDecisions.find((event) => event.payload?.preset === actual.payload?.preset) || null;
+      const counterfactual = shadowStateFresh
+        ? this.preMigrationPaperLane.evaluateCounterfactualGateDecision({
+          state: shadowState,
+          timestamp,
+          presetName: actual.payload?.preset,
+          flagged: Boolean(result.flagged),
+          context: actualLaneContext || {}
+        })
+        : null;
+      const comparable = Boolean(shadowStateFresh && counterfactual?.comparable !== false);
       const actualAction = this.normalizePaperDecisionAction(actual.payload?.decision);
-      const shadowAction = shadow
-        ? this.normalizePaperDecisionAction(shadow.payload?.decision)
-        : (shadowStateFresh ? 'NO_SHADOW_DECISION' : null);
-      const comparable = shadowStateFresh;
+      const shadowAction = comparable ? counterfactual.action : null;
       const walletComparison = this.compareDecisionShadowWalletContext(portalWalletContext, snapshot.walletContext);
       this.telemetry.record('helius_pumpfun.decision_shadow.evaluation', {
         preregistrationId: HELIUS_DECISION_SHADOW_PREREGISTRATION_ID,
@@ -3639,19 +3639,21 @@ class TradingEngine {
         preset: actual.payload?.preset || null,
         lane: actual.payload?.lane || null,
         comparable,
-        unavailableReason: comparable ? null : unavailableReason,
-        shadowDecisionMissing: Boolean(comparable && !shadow),
+        unavailableReason: comparable ? null : (counterfactual?.reason || unavailableReason),
+        shadowDecisionMissing: false,
         shadowStateAgeMs: snapshot.ageMs ?? null,
         actualDecision: actual.payload?.decision || null,
         actualAction,
         actualReason: actual.payload?.reason || null,
-        shadowDecision: shadow?.payload?.decision || null,
+        shadowDecision: comparable
+          ? (counterfactual?.wouldEnter === true ? 'PAPER_ELIGIBLE' : 'PAPER_SKIPPED')
+          : null,
         shadowAction,
-        shadowReason: shadow?.payload?.reason || null,
+        shadowReason: counterfactual?.reason || null,
         actionAgreement: comparable ? actualAction === shadowAction : null,
-        reasonAgreement: comparable && shadow
-          ? String(actual.payload?.reason || '') === String(shadow?.payload?.reason || '')
-          : (comparable ? false : null),
+        reasonAgreement: comparable
+          ? String(actual.payload?.reason || '') === String(counterfactual?.reason || '')
+          : null,
         portalMarket: this.decisionShadowMarket(result.state),
         heliusMarket: snapshot.market || null,
         walletComparison

@@ -2,13 +2,13 @@
 'use strict';
 
 const assert = require('assert');
-const preregistration = require('../data/strategy-preregistrations/helius-decision-divergence-v2.json');
+const preregistration = require('../data/strategy-preregistrations/helius-decision-divergence-v3.json');
 const { analyzeEvents } = require('./helius-pumpfun-decision-divergence-report');
 
 const sourceTelemetry = 'run-logs/synthetic-decision-shadow.jsonl';
 const events = [{
   type: 'session.started',
-  timestamp: '2026-07-20T11:00:00.000Z',
+    timestamp: '2026-07-20T14:00:00.000Z',
   payload: {
     mode: 'PAPER',
     heliusPumpfunShadowPlan: {
@@ -17,6 +17,7 @@ const events = [{
       decisionShadowEnabled: true,
       decisionShadowPreregistrationId: preregistration.id,
       decisionShadowMaximumStateAgeMs: preregistration.maximumShadowStateAgeMs,
+      gateDecisionComparator: preregistration.gateDecisionComparator.name,
       executedActionComparator: preregistration.executedActionComparator.name
     }
   }
@@ -25,7 +26,7 @@ const events = [{
 for (let index = 0; index < 500; index += 1) {
   events.push({
     type: 'helius_pumpfun.decision_shadow.evaluation',
-    timestamp: new Date(Date.parse('2026-07-20T11:00:01.000Z') + index).toISOString(),
+    timestamp: new Date(Date.parse('2026-07-20T14:00:01.000Z') + index).toISOString(),
     payload: {
       preregistrationId: preregistration.id,
       comparable: true,
@@ -44,7 +45,7 @@ for (let index = 0; index < 500; index += 1) {
 for (const action of ['ENTRY', 'EXIT']) {
   events.push({
     type: 'helius_pumpfun.decision_shadow.executed_action',
-    timestamp: '2026-07-20T11:10:00.000Z',
+    timestamp: '2026-07-20T14:10:00.000Z',
     payload: {
       preregistrationId: preregistration.id,
       action,
@@ -58,7 +59,7 @@ for (const action of ['ENTRY', 'EXIT']) {
 }
 events.push({
   type: 'session.stopped',
-  timestamp: '2026-07-20T12:00:00.000Z',
+  timestamp: '2026-07-20T15:00:00.000Z',
   payload: { reason: 'SESSION_DURATION_EXCEEDED' }
 });
 
@@ -74,7 +75,7 @@ const parity = {
   }
 };
 const report = analyzeEvents(events, preregistration, parity, sourceTelemetry);
-assert.strictEqual(report.verdict, 'HELIUS_DECISION_SHADOW_V2_PASSED_REPORT_ONLY');
+assert.strictEqual(report.verdict, preregistration.passVerdict);
 assert.strictEqual(report.counts.comparableGateEvaluations, 500);
 assert.strictEqual(report.agreement.gateActionAgreementRate, 1);
 assert.strictEqual(report.agreement.executedActionAgreementRate, 1);
@@ -88,7 +89,7 @@ for (const event of staleEvents) {
   }
 }
 const stale = analyzeEvents(staleEvents, preregistration, parity, sourceTelemetry);
-assert.strictEqual(stale.verdict, 'HELIUS_DECISION_SHADOW_V2_INSUFFICIENT_EVIDENCE');
+assert.strictEqual(stale.verdict, preregistration.insufficientVerdict);
 assert.strictEqual(stale.counts.comparableGateEvaluations, 0);
 assert.strictEqual(stale.counts.comparableExecutedActions, 0);
 
@@ -98,7 +99,7 @@ const entryOnly = analyzeEvents(
   parity,
   sourceTelemetry
 );
-assert.strictEqual(entryOnly.verdict, 'HELIUS_DECISION_SHADOW_V2_INSUFFICIENT_EVIDENCE');
+assert.strictEqual(entryOnly.verdict, preregistration.insufficientVerdict);
 assert.strictEqual(entryOnly.checks.minimumExecutedEntries, true);
 assert.strictEqual(entryOnly.checks.minimumExecutedExits, false);
 
@@ -109,14 +110,14 @@ for (let index = 1; index < 6; index += 1) {
   failedEvents.filter((event) => event.type === 'helius_pumpfun.decision_shadow.evaluation')[index].payload.actionAgreement = false;
 }
 const failed = analyzeEvents(failedEvents, preregistration, parity, sourceTelemetry);
-assert.strictEqual(failed.verdict, 'HELIUS_DECISION_SHADOW_V2_FAILED');
+assert.strictEqual(failed.verdict, preregistration.failVerdict);
 
 const invalidParity = analyzeEvents(events, preregistration, {
   ...parity,
   verdict: 'HELIUS_SHADOW_PARITY_FAILED',
   checks: { cleanHeliusLifecycle: false }
 }, sourceTelemetry);
-assert.strictEqual(invalidParity.verdict, 'HELIUS_DECISION_SHADOW_V2_INVALID_RUN');
+assert.strictEqual(invalidParity.verdict, preregistration.invalidVerdict);
 assert.strictEqual(invalidParity.checks.concurrentV5ParityPassed, false);
 
 console.log('Helius Pump.fun decision divergence smoke passed');
