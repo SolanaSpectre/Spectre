@@ -7,7 +7,7 @@ const { forEachJsonlSync } = require('./lib/jsonl');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
-const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v1.json');
+const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v2.json');
 const PARITY_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity-latest.json');
 const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence');
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence-latest.json');
@@ -72,9 +72,10 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
   const trackedAddressMatches = walletCharacterized.filter((row) => row.walletComparison.trackedAddressAgreement === true);
   const divergences = comparable.filter((row) => row.actionAgreement !== true);
   const executed = state.executedActions.filter((row) => row.preregistrationId === preregistration.id);
-  const executedMatches = executed.filter((row) => row.comparable === true && row.actionAgreement === true);
-  const entryActions = executed.filter((row) => row.action === 'ENTRY');
-  const exitActions = executed.filter((row) => row.action === 'EXIT');
+  const comparableExecuted = executed.filter((row) => row.comparable === true);
+  const executedMatches = comparableExecuted.filter((row) => row.actionAgreement === true);
+  const entryActions = comparableExecuted.filter((row) => row.action === 'ENTRY');
+  const exitActions = comparableExecuted.filter((row) => row.action === 'EXIT');
   const sourceMatches = !sourceTelemetry || parity.sourceTelemetry === sourceTelemetry;
   const plan = state.sessionStarted?.payload?.heliusPumpfunShadowPlan || {};
   const startMs = Date.parse(state.sessionStarted?.timestamp || '');
@@ -82,6 +83,9 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     postRegistration: Number.isFinite(startMs) && startMs > Date.parse(preregistration.frozenAt),
     paperMode: state.sessionStarted?.payload?.mode === 'PAPER',
     decisionShadowEnabled: plan.decisionShadowEnabled === true,
+    correctPreregistrationPlan: plan.decisionShadowPreregistrationId === preregistration.id,
+    correctExecutedActionComparator: plan.executedActionComparator === preregistration.executedActionComparator.name,
+    correctMaximumStateAge: Number(plan.decisionShadowMaximumStateAgeMs) === preregistration.maximumShadowStateAgeMs,
     strategyConsumptionDisabled: plan.strategyConsumptionEnabled === false,
     completedLifecycle: state.sessionStopped?.payload?.reason === 'SESSION_DURATION_EXCEEDED',
     sameTelemetryAsParity: sourceMatches,
@@ -92,14 +96,28 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       >= preregistration.minimumComparableEvaluationCoverageRate,
     gateActionAgreement: ratio(actionMatches.length, comparable.length) >= preregistration.minimumGateActionAgreementRate,
     walletDivergenceCharacterized: walletCharacterized.length === comparable.length,
+    freshComparableGateState: comparable.every((row) => (
+      Number.isFinite(Number(row.shadowStateAgeMs))
+      && Number(row.shadowStateAgeMs) <= preregistration.maximumShadowStateAgeMs
+    )),
+    comparableExecutedActionCoverage: ratio(comparableExecuted.length, executed.length)
+      >= preregistration.minimumComparableExecutedActionCoverageRate,
     minimumExecutedEntries: entryActions.length >= preregistration.minimumExecutedEntries,
     minimumExecutedExits: exitActions.length >= preregistration.minimumExecutedExits,
-    executedActionAgreement: ratio(executedMatches.length, executed.length) === preregistration.executedActionAgreementRequired
+    freshComparableExecutedState: comparableExecuted.every((row) => (
+      Number.isFinite(Number(row.shadowStateAgeMs))
+      && Number(row.shadowStateAgeMs) <= preregistration.maximumShadowStateAgeMs
+    )),
+    executedActionAgreement: ratio(executedMatches.length, comparableExecuted.length)
+      === preregistration.executedActionAgreementRequired
   };
   const validityChecks = [
     'postRegistration',
     'paperMode',
     'decisionShadowEnabled',
+    'correctPreregistrationPlan',
+    'correctExecutedActionComparator',
+    'correctMaximumStateAge',
     'strategyConsumptionDisabled',
     'completedLifecycle',
     'sameTelemetryAsParity',
@@ -138,6 +156,8 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       walletFeatureMatches: walletFeatureMatches.length,
       trackedAddressMatches: trackedAddressMatches.length,
       executedActions: executed.length,
+      comparableExecutedActions: comparableExecuted.length,
+      unavailableExecutedActions: executed.length - comparableExecuted.length,
       executedActionMatches: executedMatches.length,
       executedEntries: entryActions.length,
       executedExits: exitActions.length
@@ -148,7 +168,8 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       gateReasonAgreementRate: ratio(reasonMatches.length, comparable.length),
       walletFeatureAgreementRate: ratio(walletFeatureMatches.length, walletCharacterized.length),
       trackedAddressAgreementRate: ratio(trackedAddressMatches.length, walletCharacterized.length),
-      executedActionAgreementRate: ratio(executedMatches.length, executed.length),
+      executedActionAgreementRate: ratio(executedMatches.length, comparableExecuted.length),
+      comparableExecutedActionCoverageRate: ratio(comparableExecuted.length, executed.length),
       shadowStateAgeMs: stats(comparable.map((row) => row.shadowStateAgeMs))
     },
     divergenceByReason,

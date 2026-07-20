@@ -878,12 +878,12 @@ class PreMigrationPaperLane {
     };
   }
 
-  evaluateEntryDecision(state, preset, entryGuards, timestamp = new Date().toISOString()) {
+  evaluateEntryDecision(state, preset, entryGuards, timestamp = new Date().toISOString(), context = {}) {
     if (preset.name === 'curveFalseNegativeWalletBridge') {
-      return this.evaluateCurveFalseNegativeWalletBridgeDecision(state, preset, entryGuards, timestamp);
+      return this.evaluateCurveFalseNegativeWalletBridgeDecision(state, preset, entryGuards, timestamp, context);
     }
 
-    const capDecision = this.evaluatePresetEntryCap(preset);
+    const capDecision = this.evaluatePresetEntryCap(preset, context.presetEntries);
     if (!capDecision.passed) {
       return capDecision;
     }
@@ -967,13 +967,15 @@ class PreMigrationPaperLane {
     };
   }
 
-  evaluatePresetEntryCap(preset = {}) {
+  evaluatePresetEntryCap(preset = {}, entryCountOverride = null) {
     const maxEntries = Number(preset.maxEntriesPerRun);
     if (!Number.isFinite(maxEntries) || maxEntries < 0) {
       return { passed: true };
     }
 
-    const entries = Number(this.stats.presets[preset.name]?.entries || 0);
+    const entries = Number.isFinite(Number(entryCountOverride))
+      ? Number(entryCountOverride)
+      : Number(this.stats.presets[preset.name]?.entries || 0);
     if (entries >= maxEntries) {
       return {
         passed: false,
@@ -986,7 +988,13 @@ class PreMigrationPaperLane {
     return { passed: true };
   }
 
-  evaluateCurveFalseNegativeWalletBridgeDecision(state, preset, entryGuards, timestamp = new Date().toISOString()) {
+  evaluateCurveFalseNegativeWalletBridgeDecision(
+    state,
+    preset,
+    entryGuards,
+    timestamp = new Date().toISOString(),
+    context = {}
+  ) {
     if (entryGuards?.passed) {
       return {
         passed: false,
@@ -1022,12 +1030,14 @@ class PreMigrationPaperLane {
       };
     }
 
-    const capDecision = this.evaluatePresetEntryCap(preset);
+    const capDecision = this.evaluatePresetEntryCap(preset, context.presetEntries);
     if (!capDecision.passed) {
       return capDecision;
     }
 
-    const history = this.observationHistory.get(state.mint) || [];
+    const history = Array.isArray(context.history)
+      ? context.history
+      : (this.observationHistory.get(state.mint) || []);
     const recovery = this.curveFalseNegativeBridgeRequireRecoveryForEntries
       ? this.evaluateCurveRecoveryConfirmation(history, timestamp)
       : { passed: true };
@@ -3123,6 +3133,116 @@ class PreMigrationPaperLane {
       .find((position) => position.mint === mint) || null;
   }
 
+  captureCounterfactualContext(mint, timestamp = new Date().toISOString()) {
+    const positionsByPreset = {};
+    for (const position of this.openPositions.values()) {
+      if (position.mint !== mint) continue;
+      positionsByPreset[position.presetName] = {
+        ...position,
+        exitProfile: position.exitProfile ? { ...position.exitProfile } : null,
+        walletClassificationContext: position.walletClassificationContext
+          ? { ...position.walletClassificationContext }
+          : null
+      };
+    }
+    return {
+      mint,
+      capturedAt: timestamp,
+      history: (this.observationHistory.get(mint) || []).map((row) => ({ ...row })),
+      positionsByPreset,
+      activePosition: this.getActivePositionForMint(mint)
+        ? { ...this.getActivePositionForMint(mint) }
+        : null,
+      badExitCooldown: { ...this.getBadExitCooldown(mint, timestamp) },
+      sameMintCooldown: { ...this.getSameMintExitCooldown(mint, timestamp) },
+      presetEntries: Object.fromEntries(this.presets.map((preset) => [
+        preset.name,
+        Number(this.stats.presets[preset.name]?.entries || 0)
+      ]))
+    };
+  }
+
+  evaluateCounterfactualExecutedAction({
+    action,
+    state = {},
+    timestamp = new Date().toISOString(),
+    presetName,
+    flagged = false,
+    context = {}
+  } = {}) {
+    const preset = this.presets.find((row) => row.name === presetName) || null;
+    if (!preset) {
+      return { comparable: false, wouldExecute: false, action: `NO_${action}`, reason: 'PRESET_NOT_FOUND' };
+    }
+
+    if (action === 'ENTRY') {
+      if (!flagged) return { wouldExecute: false, action: 'NO_ENTRY', reason: 'NOT_FLAGGED' };
+      if (preset.delayedConfirmationOnly === true) {
+        return {
+          comparable: false,
+          wouldExecute: false,
+          action: 'NO_ENTRY',
+          reason: 'DELAYED_CONFIRMATION_COUNTERFACTUAL_NOT_IMPLEMENTED'
+        };
+      }
+      if (context.activePosition) {
+        return { wouldExecute: false, action: 'NO_ENTRY', reason: 'ACTIVE_PRE_MIGRATION_POSITION' };
+      }
+      if (context.badExitCooldown?.active) {
+        return { wouldExecute: false, action: 'NO_ENTRY', reason: 'RECENT_BAD_EXIT_COOLDOWN' };
+      }
+      if (context.sameMintCooldown?.active) {
+        return { wouldExecute: false, action: 'NO_ENTRY', reason: 'RECENT_SAME_MINT_EXIT_COOLDOWN' };
+      }
+      const guards = this.evaluateEntryGuards(state, context.history || [], timestamp);
+      const decision = this.evaluateEntryDecision(state, preset, guards, timestamp, {
+        presetEntries: context.presetEntries?.[presetName]
+      });
+      return {
+        comparable: true,
+        wouldExecute: decision.passed === true,
+        action: decision.passed === true ? 'ENTRY' : 'NO_ENTRY',
+        reason: decision.reason || (decision.passed ? 'PAPER_ENTERED' : 'ENTRY_REJECTED'),
+        decision,
+        entryGuards: guards
+      };
+    }
+
+    if (action === 'EXIT') {
+      const position = context.positionsByPreset?.[presetName] || null;
+      if (!position) {
+        return {
+          comparable: false,
+          wouldExecute: false,
+          action: 'NO_EXIT',
+          reason: 'ACTUAL_POSITION_CONTEXT_MISSING'
+        };
+      }
+      const price = this.getPrice(state);
+      if (!Number.isFinite(price) || price <= 0) {
+        return { comparable: false, wouldExecute: false, action: 'NO_EXIT', reason: 'HELIUS_PRICE_MISSING' };
+      }
+      const clonedPosition = {
+        ...position,
+        exitProfile: position.exitProfile ? { ...position.exitProfile } : null
+      };
+      const reason = this.evaluateExitReason(clonedPosition, state, timestamp, price);
+      return {
+        comparable: true,
+        wouldExecute: Boolean(reason),
+        action: reason ? 'EXIT' : 'NO_EXIT',
+        reason: reason || 'EXIT_CONDITION_NOT_MET'
+      };
+    }
+
+    return {
+      comparable: false,
+      wouldExecute: false,
+      action: `NO_${action || 'ACTION'}`,
+      reason: 'UNSUPPORTED_ACTION'
+    };
+  }
+
   buildShadowDecision(details = {}, activePosition = {}) {
     return {
       ...details,
@@ -3140,6 +3260,11 @@ class PreMigrationPaperLane {
   }
 
   evaluateExit(position, state, timestamp, price) {
+    const reason = this.evaluateExitReason(position, state, timestamp, price);
+    return reason ? this.exitPosition(position, timestamp, price, reason, state) : null;
+  }
+
+  evaluateExitReason(position, state, timestamp, price) {
     position.lastPriceSol = price;
     position.maxPriceSol = Math.max(position.maxPriceSol || price, price);
     position.minPriceSol = Math.min(position.minPriceSol || price, price);
@@ -3161,7 +3286,7 @@ class PreMigrationPaperLane {
       && Number(position.peakReturnPct || 0) >= Number(exitProfile.trailingActivationPct)
       && Number(position.peakReturnPct || 0) - returnPct >= Number(exitProfile.trailingGivebackPct)
     ) {
-      return this.exitPosition(position, timestamp, price, 'TRAILING_GIVEBACK', state);
+      return 'TRAILING_GIVEBACK';
     }
 
     if (
@@ -3169,7 +3294,7 @@ class PreMigrationPaperLane {
       && Number(position.peakReturnPct || 0) >= Number(exitProfile.breakevenActivationPct)
       && returnPct <= Number(exitProfile.breakevenStopPct)
     ) {
-      return this.exitPosition(position, timestamp, price, 'BREAKEVEN_STOP', state);
+      return 'BREAKEVEN_STOP';
     }
 
     if (
@@ -3179,7 +3304,7 @@ class PreMigrationPaperLane {
     ) {
       const buyRatio = this.computeBuyRatio(state);
       if (Number.isFinite(buyRatio) && buyRatio <= Number(exitProfile.sellPressureBuyRatioThreshold)) {
-        return this.exitPosition(position, timestamp, price, 'SELL_PRESSURE_FLIP', state);
+        return 'SELL_PRESSURE_FLIP';
       }
     }
 
@@ -3194,20 +3319,20 @@ class PreMigrationPaperLane {
         ? maxProgress - entryProgress
         : null;
       if (Number.isFinite(progressAdvance) && progressAdvance < Number(exitProfile.curveStallMinProgressAdvance)) {
-        return this.exitPosition(position, timestamp, price, 'CURVE_STALL', state);
+        return 'CURVE_STALL';
       }
     }
 
     if (returnPct >= strategy.takeProfitPct) {
-      return this.exitPosition(position, timestamp, price, 'TAKE_PROFIT', state);
+      return 'TAKE_PROFIT';
     }
 
     if (returnPct <= -strategy.stopLossPct) {
-      return this.exitPosition(position, timestamp, price, 'STOP_LOSS', state);
+      return 'STOP_LOSS';
     }
 
     if (Number.isFinite(holdSeconds) && holdSeconds >= strategy.maxHoldSeconds) {
-      return this.exitPosition(position, timestamp, price, 'TIME_LIMIT', state);
+      return 'TIME_LIMIT';
     }
 
     return null;

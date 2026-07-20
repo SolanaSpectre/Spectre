@@ -53,6 +53,9 @@ class HeliusPumpfunShadowListener {
       failedNotificationBytes: 0,
       logLines: 0,
       programDataLines: 0,
+      pumpProgramDataLines: 0,
+      foreignProgramDataLines: 0,
+      tradeDiscriminatorCollisions: 0,
       unmatchedProgramDataLines: 0,
       tradeDecodeErrors: 0,
       decodedEvents: 0,
@@ -231,7 +234,19 @@ class HeliusPumpfunShadowListener {
     };
     const logs = Array.isArray(value.logs) ? value.logs : [];
     this.stats.logLines += logs.length;
+    const invocationStack = [];
     for (const [logIndex, line] of logs.entries()) {
+      const invokeMatch = String(line).match(/^Program\s+(\S+)\s+invoke\s+\[\d+\]$/);
+      if (invokeMatch) {
+        invocationStack.push(invokeMatch[1]);
+        continue;
+      }
+      const returnMatch = String(line).match(/^Program\s+(\S+)\s+(?:success|failed:.*)$/);
+      if (returnMatch) {
+        const matchingIndex = invocationStack.lastIndexOf(returnMatch[1]);
+        if (matchingIndex >= 0) invocationStack.splice(matchingIndex);
+        continue;
+      }
       if (!String(line).startsWith('Program data:')) continue;
       this.stats.programDataLines += 1;
       const data = base64DataFromLog(line);
@@ -239,6 +254,24 @@ class HeliusPumpfunShadowListener {
         const key = String(data.length);
         this.stats.eventByteLengths[key] = (this.stats.eventByteLengths[key] || 0) + 1;
       }
+      const emittingProgramId = invocationStack[invocationStack.length - 1] || null;
+      if (emittingProgramId !== this.programId) {
+        this.stats.foreignProgramDataLines += 1;
+        if (isPumpTradeEventLog(line)) {
+          this.stats.tradeDiscriminatorCollisions += 1;
+          this.emitLifecycle('provider.helius_pumpfun.shadow_discriminator_collision_ignored', {
+            eventType: 'TradeEvent',
+            signature: context.signature,
+            slot: context.slot,
+            logIndex,
+            emittingProgramId,
+            expectedProgramId: this.programId,
+            dataLength: data?.length ?? null
+          });
+        }
+        continue;
+      }
+      this.stats.pumpProgramDataLines += 1;
       const event = decodePumpEventLog(line);
       if (!event) {
         this.stats.unmatchedProgramDataLines += 1;

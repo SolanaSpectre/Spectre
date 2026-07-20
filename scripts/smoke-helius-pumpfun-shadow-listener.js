@@ -151,7 +151,11 @@ listener.handleRawMessage(Buffer.from(JSON.stringify({
       value: {
         signature: 'InvalidBoolSignature',
         err: null,
-        logs: [`Program data: ${invalidBoolTrade.toString('base64')}`]
+        logs: [
+          'Program PumpProgram invoke [1]',
+          `Program data: ${invalidBoolTrade.toString('base64')}`,
+          'Program PumpProgram success'
+        ]
       }
     }
   }
@@ -161,5 +165,31 @@ assert.strictEqual(lifecycleEvents[0].type, 'provider.helius_pumpfun.shadow_deco
 assert.strictEqual(lifecycleEvents[0].payload.dataLength, MIN_TRADE_EVENT_BYTES);
 assert.strictEqual(lifecycleEvents[0].payload.rawDataBase64, invalidBoolTrade.toString('base64'));
 assert.strictEqual(lifecycleEvents[0].payload.rawDataTruncated, false);
+
+const capturedForeignCollision = 'vdt/007mYe6tPHB4hrHrMVE/eGnGi2C/82Qd6gfKkWZsUGQoVywdJAB4xftR0QIA3nQOPunPAwDXrzD8BgAAABb6w2pqqQAAo2yidwEAAABYN7lWXcIAAL+KtbwBAAAAt8LORQAAAABCPfXr8hgAAEqtLAAAAAAA3AeGAAAAAAB17wgAAAAAAAAAAAAAAAAAAAAB';
+listener.handleRawMessage(Buffer.from(JSON.stringify({
+  method: 'logsNotification',
+  params: {
+    result: {
+      context: { slot: 5 },
+      value: {
+        signature: 'QJUfcA66PfnoubgE68V21dSxHWHSg7j17Hxy93x9vmiCYowvBbBJyvcT7tNZ6Bx16j1oC4V9GN7uTfbUtfEou4H',
+        err: null,
+        logs: [
+          'Program PumpProgram invoke [1]',
+          'Program LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj invoke [2]',
+          `Program data: ${capturedForeignCollision}`,
+          'Program LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj success',
+          'Program PumpProgram success'
+        ]
+      }
+    }
+  }
+})));
+assert.strictEqual(listener.getStats().tradeDecodeErrors, 1);
+assert.strictEqual(listener.getStats().tradeDiscriminatorCollisions, 1);
+assert.strictEqual(listener.getStats().foreignProgramDataLines, 1);
+assert.strictEqual(lifecycleEvents[1].type, 'provider.helius_pumpfun.shadow_discriminator_collision_ignored');
+assert.strictEqual(lifecycleEvents[1].payload.emittingProgramId, 'LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj');
 
 console.log('Helius Pump.fun shadow listener smoke passed');
