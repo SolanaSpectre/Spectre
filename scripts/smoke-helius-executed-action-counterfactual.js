@@ -2,7 +2,27 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const PreMigrationPaperLane = require('../src/lib/pre-migration-paper-lane');
+
+const engineSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'trading-engine.js'), 'utf8');
+const observationMethodStart = engineSource.indexOf('  observePreMigrationToken(token, launchIntelSummary = null) {');
+const contextCaptureIndex = engineSource.indexOf(
+  'this.preMigrationPaperLane.captureCounterfactualContext(',
+  observationMethodStart
+);
+const paperObserveIndex = engineSource.indexOf(
+  'this.preMigrationPaperLane.observe(result.state, paperLaneOptions)',
+  observationMethodStart
+);
+assert(observationMethodStart >= 0, 'observePreMigrationToken must exist');
+assert(contextCaptureIndex >= 0, 'counterfactual context capture must exist');
+assert(paperObserveIndex >= 0, 'paper lane observation must exist');
+assert(
+  contextCaptureIndex < paperObserveIndex,
+  'counterfactual context must be captured before paper lane observation mutates state'
+);
 
 const lane = Object.create(PreMigrationPaperLane.prototype);
 const preset = {
