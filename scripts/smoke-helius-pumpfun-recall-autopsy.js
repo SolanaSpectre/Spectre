@@ -127,4 +127,11 @@ assert.strictEqual(passingReport.counts.cohortsWithMisses, 1);
 assert.strictEqual(passingReport.counts.missingPortalTradeIdentities, 1);
 assert.strictEqual(passingReport.cohorts[0].recallGatePassed, true);
 
+const emptyReport = analyzeEvents([
+  event('session.started', 0, {}),
+  event('session.stopped', 1_000, {})
+], 'empty-synthetic');
+assert.strictEqual(emptyReport.verdict, 'NO_ELIGIBLE_RECALL_COHORTS');
+assert.strictEqual(emptyReport.counts.eligibleMintHourCohorts, 0);
+
 console.log('Helius Pump.fun recall autopsy smoke passed');

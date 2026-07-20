@@ -139,6 +139,10 @@ class Config {
     return parseInt(process.env.HELIUS_PUMPFUN_SHADOW_MAX_RECONNECT_DELAY_MS || '30000', 10);
   }
 
+  static get heliusPumpfunDecisionShadowEnabled() {
+    return process.env.HELIUS_PUMPFUN_DECISION_SHADOW_ENABLED !== 'false';
+  }
+
   // PumpPortal Configuration
   static get pumpPortalApiKey() {
     return process.env.PUMP_PORTAL_API_KEY;

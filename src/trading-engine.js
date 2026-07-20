@@ -8,6 +8,7 @@ const WalletManager = require('./wallet');
 const PumpPortalListener = require('./pumpportal-listener');
 const PumpDevListener = require('./pumpdev-listener');
 const HeliusPumpfunShadowListener = require('./helius-pumpfun-shadow-listener');
+const HeliusDecisionShadowState = require('./lib/helius-decision-shadow-state');
 const SafetyGate = require('./lib/safety-gates');
 const ExecutionModeManager = require('./lib/execution-modes');
 const SessionManager = require('./lib/session-manager');
@@ -111,6 +112,11 @@ class TradingEngine {
       },
       onShadowEvent: (type, payload) => {
         try {
+          this.heliusDecisionShadowState?.ingest?.(type, payload, new Date().toISOString());
+        } catch {
+          // Decision-shadow state is report-only and must not suppress raw provider telemetry.
+        }
+        try {
           this.telemetry.record(type, payload);
         } catch {
           // Helius shadow events must never enter provider runtime handlers.
@@ -150,6 +156,9 @@ class TradingEngine {
     this.poolStateLane = new PoolStateLane(config, logger);
     this.preMigrationWatchLane = new PreMigrationWatchLane(config, logger);
     this.preMigrationPaperLane = new PreMigrationPaperLane(config, logger);
+    this.heliusDecisionShadowState = new HeliusDecisionShadowState(config);
+    this.heliusDecisionShadowWatchLane = new PreMigrationWatchLane(config, logger);
+    this.heliusDecisionShadowPaperLane = new PreMigrationPaperLane(config, logger);
     this.pumpBondingCurveLane = new PumpBondingCurveLane(config, logger, this.connection);
     this.finalistAccountVerifier = new FinalistAccountVerifier(config, logger, {
       connection: this.connection.getSubscriptionConnection?.(),
@@ -444,7 +453,10 @@ class TradingEngine {
         enabled: this.config.heliusPumpfunShadowEnabled === true,
         reportOnly: true,
         strategyConsumptionEnabled: false,
-        commitment: this.config.heliusPumpfunShadowCommitment
+        commitment: this.config.heliusPumpfunShadowCommitment,
+        decisionShadowEnabled: this.config.heliusPumpfunShadowEnabled === true
+          && this.config.heliusPumpfunDecisionShadowEnabled !== false,
+        decisionShadowPreregistrationId: 'helius_pumpfun_decision_divergence_v1_2026-07-19'
       },
       strategyPreregistration: {
         id: 'runner_watch_full_coverage_v1_2026-07-18',
@@ -3505,7 +3517,15 @@ class TradingEngine {
       walletClassificationContext
     };
     this.recordPreMigrationLaneInput(result.state, paperLaneOptions);
-    this.recordPreMigrationPaperEvents(this.preMigrationPaperLane.observe(result.state, paperLaneOptions));
+    const paperEvents = this.preMigrationPaperLane.observe(result.state, paperLaneOptions);
+    this.recordHeliusDecisionDivergenceShadow({
+      result,
+      portalToken: observedToken,
+      launchIntelSummary: summary || launchIntelSummary,
+      paperLaneOptions,
+      actualEvents: paperEvents
+    });
+    this.recordPreMigrationPaperEvents(paperEvents);
 
     if (
       this.config.pumpDevTargetedCurveParitySampleWatchEnabled
@@ -3539,6 +3559,200 @@ class TradingEngine {
     }
 
     return result;
+  }
+
+  recordHeliusDecisionDivergenceShadow({
+    result = {},
+    portalToken = {},
+    launchIntelSummary = null,
+    paperLaneOptions = {},
+    actualEvents = []
+  } = {}) {
+    if (
+      this.config.heliusPumpfunShadowEnabled !== true
+      || this.config.heliusPumpfunDecisionShadowEnabled === false
+      || !this.executionModeManager?.isPaper?.()
+      || !result.state?.mint
+    ) return;
+
+    const timestamp = paperLaneOptions.timestamp || new Date().toISOString();
+    const portalWalletContext = paperLaneOptions.walletClassificationContext
+      || result.state.walletClassificationContext
+      || null;
+    const snapshot = this.heliusDecisionShadowState.snapshot({
+      portalToken,
+      portalState: result.state,
+      timestamp,
+      resolveWallet: (wallet) => this.resolveHeliusDecisionShadowWallet(wallet)
+    });
+    let shadowState = null;
+    let shadowEvents = [];
+    if (snapshot.available) {
+      const shadowWatch = this.heliusDecisionShadowWatchLane.observeToken(
+        snapshot.state,
+        this.sanitizeLaunchIntelForHeliusDecisionShadow(launchIntelSummary),
+        snapshot.walletContext
+      );
+      shadowState = shadowWatch.state || snapshot.state;
+      shadowEvents = this.heliusDecisionShadowPaperLane.observe(shadowState, {
+        ...paperLaneOptions,
+        flagged: Boolean(result.flagged),
+        walletClassificationContext: snapshot.walletContext
+      });
+    }
+
+    const actualDecisions = actualEvents.filter((event) => event.telemetryType === 'pre_migration_paper.decision');
+    const shadowDecisions = shadowEvents.filter((event) => event.telemetryType === 'pre_migration_paper.decision');
+    for (const actual of actualDecisions) {
+      const shadow = shadowDecisions.find((event) => event.payload?.preset === actual.payload?.preset) || null;
+      const actualAction = this.normalizePaperDecisionAction(actual.payload?.decision);
+      const shadowAction = shadow
+        ? this.normalizePaperDecisionAction(shadow.payload?.decision)
+        : (snapshot.available ? 'NO_SHADOW_DECISION' : null);
+      const comparable = Boolean(snapshot.available);
+      const walletComparison = this.compareDecisionShadowWalletContext(portalWalletContext, snapshot.walletContext);
+      this.telemetry.record('helius_pumpfun.decision_shadow.evaluation', {
+        preregistrationId: 'helius_pumpfun_decision_divergence_v1_2026-07-19',
+        reportOnly: true,
+        strategyConsumptionAllowed: false,
+        mint: result.state.mint,
+        symbol: result.state.symbol || null,
+        timestamp,
+        preset: actual.payload?.preset || null,
+        lane: actual.payload?.lane || null,
+        comparable,
+        unavailableReason: comparable ? null : snapshot.reason,
+        shadowDecisionMissing: Boolean(comparable && !shadow),
+        shadowStateAgeMs: snapshot.ageMs ?? null,
+        actualDecision: actual.payload?.decision || null,
+        actualAction,
+        actualReason: actual.payload?.reason || null,
+        shadowDecision: shadow?.payload?.decision || null,
+        shadowAction,
+        shadowReason: shadow?.payload?.reason || null,
+        actionAgreement: comparable ? actualAction === shadowAction : null,
+        reasonAgreement: comparable && shadow
+          ? String(actual.payload?.reason || '') === String(shadow?.payload?.reason || '')
+          : (comparable ? false : null),
+        portalMarket: this.decisionShadowMarket(result.state),
+        heliusMarket: snapshot.market || null,
+        walletComparison
+      });
+    }
+
+    const executedTypes = new Set(['pre_migration_paper.entry', 'pre_migration_paper.exit']);
+    for (const actual of actualEvents.filter((event) => executedTypes.has(event.telemetryType))) {
+      const shadow = shadowEvents.find((event) => (
+        event.telemetryType === actual.telemetryType
+        && event.payload?.preset === actual.payload?.preset
+      )) || null;
+      this.telemetry.record('helius_pumpfun.decision_shadow.executed_action', {
+        preregistrationId: 'helius_pumpfun_decision_divergence_v1_2026-07-19',
+        reportOnly: true,
+        strategyConsumptionAllowed: false,
+        mint: result.state.mint,
+        symbol: result.state.symbol || null,
+        timestamp,
+        preset: actual.payload?.preset || null,
+        lane: actual.payload?.lane || null,
+        action: actual.telemetryType === 'pre_migration_paper.entry' ? 'ENTRY' : 'EXIT',
+        comparable: snapshot.available,
+        actionAgreement: Boolean(snapshot.available && shadow),
+        actualReason: actual.payload?.reason || null,
+        shadowReason: shadow?.payload?.reason || null,
+        reasonAgreement: shadow
+          ? String(actual.payload?.reason || '') === String(shadow.payload?.reason || '')
+          : false,
+        portalPriceSol: this.extractProviderPriceForParity(result.state),
+        heliusPriceSol: snapshot.market?.priceSol ?? null,
+        portalCurveProgress: this.extractProviderCurveProgressForParity(result.state),
+        heliusCurveProgress: snapshot.market?.curveProgress ?? null
+      });
+    }
+  }
+
+  resolveHeliusDecisionShadowWallet(wallet) {
+    if (!wallet) return null;
+    const walletProfile = this.launchIntelStore.buildKolWalletSummary(wallet);
+    const trackedAccounts = Array.isArray(this.config.pumpPortalTrackedAccounts)
+      ? this.config.pumpPortalTrackedAccounts
+      : [];
+    const tracked = trackedAccounts.includes(wallet);
+    return {
+      watched: tracked || Boolean(walletProfile),
+      tracked,
+      walletProfile,
+      classification: this.walletEventLedger?.walletStats?.get?.(wallet)?.classification || null,
+      promotion: this.getWalletPromotionReview(wallet, walletProfile?.name) || null
+    };
+  }
+
+  sanitizeLaunchIntelForHeliusDecisionShadow(summary = null) {
+    if (!summary) return null;
+    const heuristics = summary.heuristics || {};
+    return {
+      ...summary,
+      uniqueBuyerCount: null,
+      heuristics: {
+        ...heuristics,
+        sniperWalletCount: null,
+        repeatedEarlyBuyerCount: 0,
+        bundlerCandidate: false,
+        kolOverlap: {
+          firstWaveCount: 0,
+          trustedCount: 0
+        }
+      }
+    };
+  }
+
+  normalizePaperDecisionAction(decision) {
+    if (['PAPER_ELIGIBLE', 'PAPER_ENTERED', 'PAPER_SHADOWED'].includes(decision)) return 'WOULD_ENTER';
+    if (decision === 'PAPER_SKIPPED') return 'WOULD_SKIP';
+    return decision || null;
+  }
+
+  decisionShadowMarket(state = {}) {
+    return {
+      score: Number.isFinite(Number(state.score)) ? Number(state.score) : null,
+      curveProgress: this.extractProviderCurveProgressForParity(state),
+      priceSol: this.extractProviderPriceForParity(state),
+      recentBuys: Number.isFinite(Number(state.recentBuys)) ? Number(state.recentBuys) : null,
+      recentSells: Number.isFinite(Number(state.recentSells)) ? Number(state.recentSells) : null,
+      recentTradeCount: Number.isFinite(Number(state.recentTradeCount)) ? Number(state.recentTradeCount) : null,
+      recentVolumeSol: Number.isFinite(Number(state.recentVolumeSol)) ? Number(state.recentVolumeSol) : null,
+      tradeVelocityPerMin: Number.isFinite(Number(state.tradeVelocityPerMin)) ? Number(state.tradeVelocityPerMin) : null,
+      uniqueBuyerCount: Number.isFinite(Number(state.uniqueBuyerCount)) ? Number(state.uniqueBuyerCount) : null
+    };
+  }
+
+  compareDecisionShadowWalletContext(portal = null, helius = null) {
+    const summarize = (context) => ({
+      touched: context?.touched === true,
+      shadowTouched: context?.shadowTouched === true,
+      untrustedTouched: context?.untrustedTouched === true,
+      observedNonShadowWalletTradeCount: Number(context?.observedNonShadowWalletTradeCount || 0),
+      observedShadowWalletTradeCount: Number(context?.observedShadowWalletTradeCount || 0),
+      observedUntrustedWalletTradeCount: Number(context?.observedUntrustedWalletTradeCount || 0),
+      walletAddresses: (context?.wallets || []).map((row) => row.wallet).filter(Boolean).sort(),
+      shadowWalletAddresses: (context?.shadowWallets || []).map((row) => row.wallet).filter(Boolean).sort(),
+      earliestTouchAt: context?.earliestTouchAt || null,
+      earliestBuyAt: context?.earliestBuyAt || null
+    });
+    const portalSummary = summarize(portal);
+    const heliusSummary = summarize(helius);
+    const portalAddresses = JSON.stringify(portalSummary.walletAddresses);
+    const heliusAddresses = JSON.stringify(heliusSummary.walletAddresses);
+    return {
+      portal: portalSummary,
+      helius: heliusSummary,
+      touchedAgreement: portalSummary.touched === heliusSummary.touched,
+      trackedAddressAgreement: portalAddresses === heliusAddresses,
+      featureAgreement: portalSummary.touched === heliusSummary.touched
+        && portalSummary.shadowTouched === heliusSummary.shadowTouched
+        && portalSummary.untrustedTouched === heliusSummary.untrustedTouched
+        && portalAddresses === heliusAddresses
+    };
   }
 
   maybeTargetPumpDevFinalist(result = {}) {

@@ -377,9 +377,11 @@ function buildReport(state, sourceTelemetry = null) {
 
   const eligiblePortalTradeIdentities = eligible.reduce((sum, row) => sum + row.portalByIdentity.size, 0);
   const eligibleMatchedPortalTradeIdentities = eligible.reduce((sum, row) => sum + row.matched, 0);
-  const verdict = failed.length
-    ? 'FAILED_RECALL_COHORTS_AUTOPSIED'
-    : (cohorts.length ? 'PASSING_RECALL_MISSES_AUTOPSIED' : 'NO_RECALL_MISSES');
+  const verdict = !eligible.length
+    ? 'NO_ELIGIBLE_RECALL_COHORTS'
+    : (failed.length
+      ? 'FAILED_RECALL_COHORTS_AUTOPSIED'
+      : (cohorts.length ? 'PASSING_RECALL_MISSES_AUTOPSIED' : 'NO_RECALL_MISSES'));
 
   return {
     generatedAt: new Date().toISOString(),

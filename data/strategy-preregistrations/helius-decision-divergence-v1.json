@@ -1,0 +1,36 @@
+{
+  "id": "helius_pumpfun_decision_divergence_v1_2026-07-19",
+  "frozenAt": "2026-07-20T00:28:37.447Z",
+  "mode": "paper_only_report_only_dual_computation",
+  "question": "Do paper gate decisions computed from Helius shadow state agree with the unchanged PumpPortal decision lane closely enough to justify a later Helius-backed evidence path?",
+  "oracle": "PumpPortal remains the sole runtime decision input during this experiment.",
+  "minimumComparableGateEvaluations": 500,
+  "minimumComparableEvaluationCoverageRate": 0.9,
+  "minimumGateActionAgreementRate": 0.99,
+  "minimumExecutedEntries": 1,
+  "minimumExecutedExits": 1,
+  "executedActionAgreementRequired": 1,
+  "walletRule": {
+    "rawWalletFeatureAgreementRequired": false,
+    "reason": "On-chain ground truth showed Helius event user is canonical while sampled PumpPortal traderPublicKey values matched neither event user nor fee payer.",
+    "required": "Every comparable evaluation must carry explicit Portal-vs-Helius wallet feature and tracked-address accounting; executed action divergence remains a hard failure regardless of cause."
+  },
+  "concurrentRequirements": {
+    "heliusV5ParityVerdict": "HELIUS_SHADOW_PARITY_PASSED",
+    "cleanHeliusLifecycle": true,
+    "completedPaperLifecycle": true,
+    "strategyConsumptionAllowed": false
+  },
+  "passVerdict": "HELIUS_DECISION_SHADOW_PASSED_REPORT_ONLY",
+  "failVerdict": "HELIUS_DECISION_SHADOW_FAILED",
+  "insufficientVerdict": "HELIUS_DECISION_SHADOW_INSUFFICIENT_EVIDENCE",
+  "invalidVerdict": "HELIUS_DECISION_SHADOW_INVALID_RUN",
+  "prohibitions": [
+    "No Helius shadow state may feed runtime strategy decisions.",
+    "No live enablement or gate loosening may follow from this experiment alone.",
+    "Thresholds and identity semantics are frozen before the first eligible run.",
+    "A failure cannot be repaired by changing the comparator key inside the same evidence era."
+  ],
+  "nextIfPass": "Build a Helius-backed full-coverage evidence path and validate it alongside paid PumpPortal tape for one eligible session before retiring the paid-tape requirement.",
+  "nextIfFail": "Autopsy divergence by market features, wallet identity, state age, and executed action before changing any procurement route."
+}

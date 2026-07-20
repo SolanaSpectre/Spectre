@@ -26,14 +26,22 @@ const episodes = buildEpisodes({
 assert.strictEqual(episodes.length, 2, 'same-mint reentries must collapse to one episode');
 assert.strictEqual(episodes.find((row) => row.mint === 'A').pnlSol, 0.015);
 
-const summary = summarizeLedger([{
-  valid: true,
-  telemetryPath: 'run-logs/test.jsonl',
-  fullPaidTapeMinutes: 60,
-  pnlSol: 0.025,
-  episodes
-}], prereg);
+const summary = summarizeLedger([
+  {
+    valid: true,
+    telemetryPath: 'run-logs/test.jsonl',
+    fullPaidTapeMinutes: 60,
+    pnlSol: 0.025,
+    episodes
+  },
+  {
+    recordType: 'coverage_annotation',
+    telemetryPath: 'run-logs/test.jsonl',
+    comparatorCoverage: { budgetTruncated: false }
+  }
+], prereg);
 assert.strictEqual(summary.realizedUniqueMintEpisodes, 2);
+assert.strictEqual(summary.excludedRuns, 0, 'coverage annotations must not count as excluded runs');
 assert.strictEqual(summary.episodesPerFullCoverageHour, 2);
 assert.strictEqual(summary.economicCheckpointReady, true);
 assert.strictEqual(summary.liveAction, 'KEEP_LIVE_DISABLED');

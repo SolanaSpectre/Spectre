@@ -15,6 +15,7 @@ const FILES = {
   pumpDevCurveParity: 'data/reports/pumpdev-curve-parity-latest.json',
   heliusPumpfunShadowParity: 'data/reports/helius-pumpfun-shadow-parity-latest.json',
   heliusPumpfunRecallAutopsy: 'data/reports/helius-pumpfun-recall-autopsy-latest.json',
+  heliusPumpfunDecisionDivergence: 'data/reports/helius-pumpfun-decision-divergence-latest.json',
   pumpDevTargetedCurveParity: 'data/reports/pumpdev-targeted-curve-parity-latest.json',
   eventLoopLagDiagnostic: 'data/reports/event-loop-lag-diagnostic-latest.json',
   pumpDevSubscriptionLifecycle: 'data/reports/pumpdev-subscription-lifecycle-latest.json',
@@ -2359,6 +2360,7 @@ function buildSummary(docs) {
   const pumpDevCurveParity = docs.pumpDevCurveParity.data || {};
   const heliusPumpfunShadowParity = docs.heliusPumpfunShadowParity.data || {};
   const heliusPumpfunRecallAutopsy = docs.heliusPumpfunRecallAutopsy.data || {};
+  const heliusPumpfunDecisionDivergence = docs.heliusPumpfunDecisionDivergence.data || {};
   const pumpDevTargetedCurveParity = docs.pumpDevTargetedCurveParity.data || {};
   const eventLoopLagDiagnostic = docs.eventLoopLagDiagnostic.data || {};
   const pumpDevSubscriptionLifecycle = docs.pumpDevSubscriptionLifecycle.data || {};
@@ -3284,7 +3286,7 @@ function buildSummary(docs) {
   lines.push(`  - Helius / PumpPortal trades / eligible mint-hours: ${get(heliusPumpfunShadowParity, 'counts.heliusTrades', 0)} / ${get(heliusPumpfunShadowParity, 'counts.pumpPortalTrades', 0)} / ${get(heliusPumpfunShadowParity, 'counts.eligibleMintHours', 0)}`);
   lines.push(`  - raw / deduped / duplicate Helius trades: ${get(heliusPumpfunShadowParity, 'counts.rawHeliusTradeEvents', 0)} / ${get(heliusPumpfunShadowParity, 'counts.heliusTrades', 0)} / ${get(heliusPumpfunShadowParity, 'counts.duplicateHeliusTradeEvents', 0)}`);
   lines.push(`  - coverage-window lifecycle fallbacks / tradestream intervals: ${get(heliusPumpfunShadowParity, 'counts.portalCoverageLifecycleFallbackMints', 0)} / ${get(heliusPumpfunShadowParity, 'counts.portalTradestreamConnectionIntervals', 0)}`);
-  lines.push(`  - mint-hour count / volume pass rates: ${fmt(get(heliusPumpfunShadowParity, 'agreement.mintHourCountPassRate', null), 4)} / ${fmt(get(heliusPumpfunShadowParity, 'agreement.mintHourVolumePassRate', null), 4)}`);
+  lines.push(`  - mint-hour recall / volume pass rates: ${fmt(get(heliusPumpfunShadowParity, 'agreement.mintHourPortalTradeIdentityRecallPassRate', null), 4)} / ${fmt(get(heliusPumpfunShadowParity, 'agreement.mintHourVolumePassRate', null), 4)}`);
   lines.push(`  - curve comparisons / pass rate / abs delta p90: ${get(heliusPumpfunShadowParity, 'counts.curveComparisons', 0)} / ${fmt(get(heliusPumpfunShadowParity, 'agreement.curvePassRate', null), 4)} / ${fmt(get(heliusPumpfunShadowParity, 'agreement.curveAbsoluteDelta.p90', null), 4)}`);
   lines.push(`  - discovery matches / Helius-minus-PumpPortal p90: ${get(heliusPumpfunShadowParity, 'counts.discoveryMatches', 0)} / ${fmt(get(heliusPumpfunShadowParity, 'agreement.discoveryHeliusMinusPumpPortalMs.p90', null), 0)}ms`);
   lines.push(`  - trader identity matches / comparisons / diagnostic agreement: ${get(heliusPumpfunShadowParity, 'counts.traderIdentityMatches', 0)} / ${get(heliusPumpfunShadowParity, 'counts.traderIdentityComparisons', 0)} / ${fmt(get(heliusPumpfunShadowParity, 'agreement.traderIdentityAgreementRate', null), 4)}`);
@@ -3296,6 +3298,11 @@ function buildSummary(docs) {
   lines.push(`  - diagnostic signature-presence recall: ${fmt(heliusPumpfunRecallAutopsy.diagnosticSignaturePresenceRecall, 4)}`);
   lines.push(`  - absent-signature selective / global-silence clusters: ${get(heliusPumpfunRecallAutopsy, 'absentSignatureClusterClassifications.SELECTIVE_LOSS', 0)} / ${get(heliusPumpfunRecallAutopsy, 'absentSignatureClusterClassifications.GLOBAL_SHADOW_TRADE_SILENCE', 0)}`);
   lines.push(`  - burst p90 / high-burst miss rate / lower-burst miss rate: ${get(heliusPumpfunRecallAutopsy, 'burst.thresholdP90', 'n/a')} / ${fmt(get(heliusPumpfunRecallAutopsy, 'burst.highBurstMissRate', null), 4)} / ${fmt(get(heliusPumpfunRecallAutopsy, 'burst.lowerBurstMissRate', null), 4)}`);
+  lines.push('- Helius Pump.fun decision divergence:');
+  lines.push(`  - verdict / comparable evaluations: ${heliusPumpfunDecisionDivergence.verdict || 'n/a'} / ${get(heliusPumpfunDecisionDivergence, 'counts.comparableGateEvaluations', 0)}`);
+  lines.push(`  - gate action / reason agreement: ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.gateActionAgreementRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.gateReasonAgreementRate', null), 4)}`);
+  lines.push(`  - executed actions / agreement: ${get(heliusPumpfunDecisionDivergence, 'counts.executedActions', 0)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.executedActionAgreementRate', null), 4)}`);
+  lines.push(`  - wallet feature / tracked-address agreement (diagnostic): ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.walletFeatureAgreementRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.trackedAddressAgreementRate', null), 4)}`);
   const targetedParitySummary = pumpDevTargetedCurveParity.summary || {};
   lines.push('- PumpDev targeted curve parity:');
   lines.push(`  - mode: ${pumpDevTargetedCurveParity.mode || 'n/a'}`);

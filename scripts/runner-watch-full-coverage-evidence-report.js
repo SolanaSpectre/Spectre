@@ -195,14 +195,27 @@ function readLedger() {
 
 function appendRun(row) {
   const rows = readLedger();
-  if (rows.some((item) => item.telemetryPath === row.telemetryPath)) return { appended: false, rows };
+  if (rows.some((item) => item.recordType !== 'coverage_annotation' && item.telemetryPath === row.telemetryPath)) {
+    return { appended: false, rows };
+  }
+  fs.mkdirSync(path.dirname(LEDGER_PATH), { recursive: true });
+  fs.appendFileSync(LEDGER_PATH, `${JSON.stringify(row)}\n`, 'utf8');
+  return { appended: true, rows: [...rows, row] };
+}
+
+function appendCoverageAnnotation(row) {
+  const rows = readLedger();
+  if (rows.some((item) => item.recordType === 'coverage_annotation' && item.telemetryPath === row.telemetryPath)) {
+    return { appended: false, rows };
+  }
   fs.mkdirSync(path.dirname(LEDGER_PATH), { recursive: true });
   fs.appendFileSync(LEDGER_PATH, `${JSON.stringify(row)}\n`, 'utf8');
   return { appended: true, rows: [...rows, row] };
 }
 
 function summarizeLedger(rows, prereg) {
-  const validRuns = rows.filter((row) => row.valid);
+  const runRows = rows.filter((row) => row.recordType !== 'coverage_annotation');
+  const validRuns = runRows.filter((row) => row.valid);
   const episodes = validRuns.flatMap((row) => row.episodes.map((episode) => ({ ...episode, telemetryPath: row.telemetryPath })))
     .filter((episode) => episode.exits > 0);
   const pnlValues = episodes.map((episode) => number(episode.pnlSol, 0));
@@ -236,7 +249,7 @@ function summarizeLedger(rows, prereg) {
   return {
     verdict,
     validRuns: validRuns.length,
-    excludedRuns: rows.length - validRuns.length,
+    excludedRuns: runRows.length - validRuns.length,
     realizedUniqueMintEpisodes: episodes.length,
     fullPaidTapeHours: round(fullHours, 4),
     episodesPerFullCoverageHour: round(episodesPerFullCoverageHour, 6),
@@ -267,6 +280,14 @@ function main() {
     valid: validation.valid,
     failedChecks: validation.failedChecks,
     fullPaidTapeMinutes: coverage.fullPaidTapeMinutes,
+    comparatorCoverage: {
+      budgetTruncated: coverage.paidTapeCapped === true,
+      fullPaidTapeMinutes: coverage.fullPaidTapeMinutes,
+      discoveryRpcOnlyMinutes: coverage.discoveryRpcOnlyMinutes,
+      annotation: coverage.paidTapeCapped === true
+        ? 'PumpPortal comparator evidence is limited to the paid-tape epoch; later Helius operation is not comparator-covered.'
+        : 'PumpPortal comparator remained available for the requested evidence window.'
+    },
     coverageDiagnostics: run.coverageDiagnostics,
     episodes,
     pnlSol: round(episodes.reduce((sum, episode) => sum + number(episode.pnlSol, 0), 0))
@@ -274,12 +295,28 @@ function main() {
   let ledgerRows = readLedger();
   let appended = false;
   if (validation.checks.postRegistration) ({ rows: ledgerRows, appended } = appendRun(runRow));
+  let coverageAnnotationAppended = false;
+  if (validation.checks.postRegistration && coverage.paidTapeCapped === true) {
+    ({ rows: ledgerRows, appended: coverageAnnotationAppended } = appendCoverageAnnotation({
+      recordType: 'coverage_annotation',
+      telemetryPath: relative(telemetryPath),
+      annotatedAt: new Date().toISOString(),
+      comparatorCoverage: runRow.comparatorCoverage
+    }));
+  }
   const cumulative = summarizeLedger(ledgerRows, prereg);
   const report = {
     generatedAt: new Date().toISOString(),
     mode: 'paper_only_preregistered_runner_watch_full_coverage_evidence',
     preregistration: prereg,
-    currentRun: { validation, coverageDiagnostics: run.coverageDiagnostics, episodes, ledgerAppended: appended },
+    currentRun: {
+      validation,
+      comparatorCoverage: runRow.comparatorCoverage,
+      coverageDiagnostics: run.coverageDiagnostics,
+      episodes,
+      ledgerAppended: appended,
+      coverageAnnotationAppended
+    },
     cumulative,
     ledgerPath: relative(LEDGER_PATH),
     note: 'Only post-registration runs matching the frozen targeted paid-tape plan and full-coverage definition enter the cumulative evidence ledger. Same-mint reentries are one episode per run.',
@@ -292,4 +329,11 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { resolveTelemetryPath, scanRun, buildEpisodes, validateRun, summarizeLedger };
+module.exports = {
+  resolveTelemetryPath,
+  scanRun,
+  buildEpisodes,
+  validateRun,
+  summarizeLedger,
+  appendCoverageAnnotation
+};

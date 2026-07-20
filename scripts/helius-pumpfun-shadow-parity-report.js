@@ -702,6 +702,7 @@ function buildReport(state, sourceTelemetry = null) {
   const traderIdentityAgreementRate = ratio(traderIdentityMatches, traderIdentityComparisons);
   const volumePassRate = ratio(standardVolumeMintHours.filter((row) => row.volumePass).length, standardVolumeMintHours.length);
   const curvePassRate = ratio(curveComparisons.filter((row) => row.pass).length, curveComparisons.length);
+  const curveOutliers = curveComparisons.filter((row) => !row.pass);
   const quoteCoverage = ratio(quoteLabeledTradeEvents, state.heliusTrades.length);
   const mayhemClassificationCoverage = ratio(mayhemClassifiedTradeEvents, solQuotedTradeEvents);
   const heliusSignatures = new Set(state.heliusTrades.map((row) => row.payload.signature).filter(Boolean));
@@ -821,6 +822,15 @@ function buildReport(state, sourceTelemetry = null) {
         row.heliusUniqueBuyers,
         row.pumpPortalUniqueBuyers
       )), 6),
+      curveOutlierAutopsy: {
+        count: curveOutliers.length,
+        uniqueMints: new Set(curveOutliers.map((row) => row.mint)).size,
+        positiveSignedDelta: curveOutliers.filter((row) => row.signedDelta > 0).length,
+        negativeSignedDelta: curveOutliers.filter((row) => row.signedDelta < 0).length,
+        matchAgeMs: stats(curveOutliers.map((row) => row.ageMs), 0),
+        absoluteDelta: stats(curveOutliers.map((row) => row.absoluteDelta), 6),
+        interpretation: 'Diagnostic only. Large deltas inside the causal window may reflect intervening burst trades; they do not alter the frozen aggregate curve gate.'
+      },
       processedForkRisk: {
         commitment: state.sessionStarted?.heliusPumpfunShadowPlan?.commitment || null,
         signatureOverlapIsDiagnosticOnly: true,
