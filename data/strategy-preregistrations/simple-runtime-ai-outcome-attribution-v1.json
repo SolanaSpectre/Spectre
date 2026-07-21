@@ -1,0 +1,83 @@
+{
+  "id": "simple_runtime_ai_outcome_attribution_v1_2026-07-21",
+  "frozenAt": "2026-07-21T01:27:11.8760416-05:00",
+  "mode": "paper_only_report_only_future_attribution",
+  "implementationStatus": "METHODOLOGY_FROZEN_REPORT_CODE_DEFERRED_UNTIL_AFTER_FIRST_TRIAL",
+  "question": "Do Qwen inline-auditor ENTER, WATCH, and REJECT judgments separate realizable PAPER outcomes after deterministic candidate selection without confusing infrastructure failures with model judgment?",
+  "model": "qwen2.5:7b-instruct",
+  "promptVersion": "simple_runtime_guard_v2",
+  "schemaVersion": "simple_runtime_review_v1",
+  "joinKeys": {
+    "reviewLifecycle": "attemptId",
+    "signalDecision": "signalId",
+    "marketOutcome": "mint plus decision timestamp, restricted to snapshots at or after the persisted review_started timestamp",
+    "requiredProvenance": [
+      "telemetryPath",
+      "attemptId",
+      "signalId",
+      "mint",
+      "model",
+      "promptVersion",
+      "schemaVersion",
+      "packetHash",
+      "reviewedPacketHash"
+    ]
+  },
+  "cohorts": {
+    "approvedAndEntered": {
+      "outcomeType": "realized_paper_outcome",
+      "gradeAsModelJudgment": true
+    },
+    "completedWatchOrReject": {
+      "outcomeType": "counterfactual_shadow_outcome",
+      "gradeAsModelJudgment": true,
+      "label": "exploratory_simulated_fill"
+    },
+    "timeoutBusyOrFallback": {
+      "outcomeType": "infrastructure_only",
+      "gradeAsModelJudgment": false
+    },
+    "dedupedJoin": {
+      "outcomeType": "shared_primary_result",
+      "gradeAsIndependentJudgment": false
+    }
+  },
+  "outcomeDefinition": {
+    "entryReference": "decision-instant quote persisted in the immutable review packet",
+    "snapshotRule": "Only tape snapshots at or after the decision timestamp may influence the outcome.",
+    "exitMethod": "Use the existing realizable PAPER exit simulation family and its frozen costs; never grade from MFE or peak excursion alone.",
+    "reportSeparately": [
+      "realized approved entries",
+      "counterfactual WATCH or REJECT candidates",
+      "infrastructure failures and deterministic PAPER fallbacks"
+    ],
+    "poolingAcrossCohortsAllowed": false
+  },
+  "stoppingRules": {
+    "operational": {
+      "minimumCompletedAcquiredReviews": 50,
+      "minimumPaperRuns": 2,
+      "requiredPacketEvidenceCoverage": 1,
+      "abortIfTimeoutRateAbove": 0.05,
+      "abortOnAnyMalformedJson": true,
+      "maximumBusyRateForDecisionQuality": 0.3,
+      "busyRateDefinition": "busy_rejected / (acquired + deduped_joined + busy_rejected) guarded requests; dedup joins remain in the denominator because they received a disclosed shared model answer"
+    },
+    "judgmentAttribution": {
+      "minimumVetoedCandidateCounterfactuals": 10,
+      "minimumApprovedRealizedOutcomes": 20,
+      "requireExactModelAndPromptVersion": true,
+      "busyRateAboveMaximumDisposition": "BURST_CENSORED_REQUIRE_ADDITIONAL_RUN"
+    }
+  },
+  "prohibitions": [
+    "Do not treat operational reliability as trading-edge evidence.",
+    "Do not count busy rejects, timeouts, deterministic fallbacks, or same-mint dedup joins as independent model judgments.",
+    "Do not use lookahead snapshots or MFE-only grading.",
+    "Do not pool realized fills with counterfactual simulated fills.",
+    "Do not change deterministic gates, strategy thresholds, or exit policy from this attribution report without a new pre-registration.",
+    "Do not enable LIVE, set AI_REQUIRED_FOR_TRADE=true, or promote Qwen from this evidence alone."
+  ],
+  "passMeaning": "The auditor produced operationally valid, attributable PAPER judgments at the frozen sample floors; this does not prove trading edge or authorize live use.",
+  "nextImplementation": "After the first eligible PAPER trial, extend or consume simple-runtime-ai-evidence-report lifecycle joins and reuse existing realizable-exit simulation machinery."
+}

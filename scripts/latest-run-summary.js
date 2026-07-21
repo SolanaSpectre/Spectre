@@ -3158,7 +3158,7 @@ function buildSummary(docs) {
   lines.push(`- Simple Runtime AI string evidence in logs (legacy/warmup included): ${summarizeEvidencePaths(aiEvidence)}`);
   lines.push(`- Historical Simple Runtime AI lifecycle attempts/completed/failed/dangling: ${aiHistoricalSummary.reviewAttempts ?? 'n/a'} / ${aiHistoricalSummary.completedAttempts ?? 'n/a'} / ${aiHistoricalSummary.failedAttempts ?? 'n/a'} / ${aiHistoricalSummary.danglingAttempts ?? 'n/a'}`);
   lines.push(`- Historical Simple Runtime AI legacy telemetry / positive-confidence / live failures: ${aiHistoricalSummary.telemetryEvidenceRows ?? 'n/a'} / ${aiHistoricalSummary.positiveConfidenceRows ?? 'n/a'} / ${aiHistoricalSummary.liveIssueFailureRows ?? 'n/a'}`);
-  lines.push(`- Qwen PAPER trial verdict: ${qwenPaperTrial.verdict || 'n/a'}; completed=${qwenPaperTrial.completedReviews ?? 'n/a'}/50; runs=${qwenPaperTrial.paperRuns ?? 'n/a'}/2; timeout rate=${qwenPaperTrial.timeoutRate ?? 'n/a'}; packet coverage=${qwenPaperTrial.packetEvidenceCoverage ?? 'n/a'}`);
+  lines.push(`- Qwen PAPER trial verdict: ${qwenPaperTrial.verdict || 'n/a'}; completed=${qwenPaperTrial.completedReviews ?? 'n/a'}/50; runs=${qwenPaperTrial.paperRuns ?? 'n/a'}/2; timeout rate=${qwenPaperTrial.timeoutRate ?? 'n/a'}; busy rate=${qwenPaperTrial.busyRate ?? 'n/a'}; packet coverage=${qwenPaperTrial.packetEvidenceCoverage ?? 'n/a'}`);
   lines.push('- AI path reachability:');
   lines.push(`  - runner/scalper signals generated/executed: ${aiReachability.generatedSignals} / ${aiReachability.executedSignals}`);
   lines.push(`  - trade rejects before signal execution: ${aiReachability.rejectedTrades}`);

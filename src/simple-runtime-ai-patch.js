@@ -128,6 +128,27 @@ function sha256Text(value) {
   return crypto.createHash('sha256').update(String(value || ''), 'utf8').digest('hex');
 }
 
+function buildFailureDecision(instance, failure, errorMessage = null) {
+  return {
+    approved: false,
+    confidence: 0,
+    reason: failure.reason,
+    primaryStrategy: 'NONE',
+    convergenceScore: 0,
+    action: 'WATCH',
+    timeout: failure.failureType === 'timeout',
+    strategyScores: instance.buildEmptyStrategyScores(),
+    contradictions: [`simple runtime AI ${failure.failureType}`],
+    executionProfile: instance.buildDefaultExecutionProfile(),
+    simpleRuntime: {
+      model: RUNTIME_MODEL,
+      risk: 'HIGH',
+      error: errorMessage,
+      failureType: failure.failureType
+    }
+  };
+}
+
 function timeoutError(timeoutMs) {
   const error = new Error(`timeout of ${timeoutMs}ms exceeded`);
   error.code = 'ECONNABORTED';
@@ -313,6 +334,18 @@ function patchAIAgent(AIAgent) {
     constructor(config, logger) {
       super(config, logger);
       this.model = RUNTIME_MODEL;
+      this.simpleRuntimeInFlight = null;
+      this.simpleRuntimeGuardState = {
+        activeRequests: 0,
+        singleFlightAcquisitions: 0,
+        dedupJoins: 0,
+        busyRejects: 0,
+        maxObservedConcurrentRequests: 0
+      };
+    }
+
+    simpleRuntimeGuardSnapshot() {
+      return { ...this.simpleRuntimeGuardState };
     }
 
     async warmup() {
@@ -364,10 +397,17 @@ function patchAIAgent(AIAgent) {
       const attemptType = options.lightweight ? 'lightweight_retry' : 'primary';
       const packet = buildSimplePacket(this, tokenInfo, signal);
       const packetJson = JSON.stringify(packet);
+      const packetHash = sha256Text(packetJson);
+      const mint = mintOf(tokenInfo, signal);
+      this.simpleRuntimeGuardState.activeRequests += 1;
+      this.simpleRuntimeGuardState.maxObservedConcurrentRequests = Math.max(
+        this.simpleRuntimeGuardState.maxObservedConcurrentRequests,
+        this.simpleRuntimeGuardState.activeRequests
+      );
       const baseTelemetry = {
         attemptId: id,
         signalId: signal?.id || signal?.signalId || null,
-        mint: mintOf(tokenInfo, signal),
+        mint,
         symbol: tokenInfo?.symbol || null,
         source: tokenInfo?.source || signal?.source || 'unknown',
         attemptType,
@@ -375,67 +415,155 @@ function patchAIAgent(AIAgent) {
         promptVersion: PROMPT_VERSION,
         promptHash: sha256Text(simpleSystemPrompt()),
         schemaVersion: SCHEMA_VERSION,
-        packetHash: sha256Text(packetJson),
+        packetHash,
         packet,
         timeoutMs: RUNTIME_TIMEOUT_MS,
         outerTimeoutMs: Number(this.config?.aiTimeoutMs || 0) || null
       };
       const terminalTelemetry = { ...baseTelemetry };
       delete terminalTelemetry.packet;
-      emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_started', baseTelemetry);
 
       try {
-        const { review: result, rawResponseHash } = await callSimpleRuntimeReview(this, tokenInfo, signal, packet);
-        const latencyMs = Date.now() - startedAt;
-        emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_completed', {
-          ...terminalTelemetry,
-          latencyMs,
-          action: result.action || null,
-          approved: result.approved === true,
-          confidence: result.confidence ?? null,
-          risk: result.simpleRuntime?.risk || null,
-          reason: result.reason || null,
-          convergenceScore: result.convergenceScore ?? null,
-          rawResponseHash,
-          normalizedReview: result
-        });
-        this.logger.info(`Simple runtime AI review ${result.action} ${result.confidence}% ${result.simpleRuntime.risk} (${Date.now() - startedAt}ms)`);
-        return result;
-      } catch (error) {
-        const failure = classifyRuntimeError(error);
-        emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_failed', {
-          ...terminalTelemetry,
-          latencyMs: Date.now() - startedAt,
-          failureType: failure.failureType,
-          reason: failure.reason,
-          rawResponseHash: error.rawResponseHash || null,
-          errorMessage: error.message,
-          errorCode: error.code || null,
-          httpStatus: Number(error?.response?.status || 0) || null
-        });
-        this.logger.warn('Simple runtime AI review failed', {
-          failureType: failure.failureType,
-          reason: failure.reason,
-          message: error.message
-        });
-        return {
-          approved: false,
-          confidence: 0,
-          reason: failure.reason,
-          primaryStrategy: 'NONE',
-          convergenceScore: 0,
-          action: 'WATCH',
-          timeout: failure.failureType === 'timeout',
-          strategyScores: this.buildEmptyStrategyScores(),
-          contradictions: [`simple runtime AI ${failure.failureType}`],
-          executionProfile: this.buildDefaultExecutionProfile(),
-          simpleRuntime: {
-            model: RUNTIME_MODEL,
-            risk: 'HIGH',
-            error: error.message,
-            failureType: failure.failureType
+        const existing = this.simpleRuntimeInFlight;
+        if (existing) {
+          const sameMint = Boolean(mint && existing.mint && mint === existing.mint);
+          if (!sameMint) {
+            this.simpleRuntimeGuardState.busyRejects += 1;
+            const failure = { failureType: 'busy', reason: 'SIMPLE_RUNTIME_AI_BUSY' };
+            const guard = {
+              guardOutcome: 'busy_rejected',
+              inFlightAttemptId: existing.attemptId,
+              reviewedPacketHash: null,
+              waitedMs: 0,
+              modelReviewed: false,
+              guardCounters: this.simpleRuntimeGuardSnapshot()
+            };
+            emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_started', { ...baseTelemetry, ...guard });
+            emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_failed', {
+              ...terminalTelemetry,
+              ...guard,
+              latencyMs: Date.now() - startedAt,
+              failureType: failure.failureType,
+              reason: failure.reason,
+              rawResponseHash: null,
+              errorMessage: 'Simple Runtime AI single-flight guard is busy with another mint.',
+              errorCode: 'SIMPLE_RUNTIME_AI_BUSY',
+              httpStatus: null
+            });
+            return buildFailureDecision(this, failure, 'single-flight guard busy');
           }
+
+          this.simpleRuntimeGuardState.dedupJoins += 1;
+          const guardStarted = {
+            guardOutcome: 'deduped_joined',
+            inFlightAttemptId: existing.attemptId,
+            reviewedPacketHash: existing.packetHash,
+            waitedMs: 0,
+            modelReviewed: false,
+            guardCounters: this.simpleRuntimeGuardSnapshot()
+          };
+          emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_started', { ...baseTelemetry, ...guardStarted });
+          try {
+            const { review: result, rawResponseHash } = await existing.promise;
+            const waitedMs = Date.now() - startedAt;
+            emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_completed', {
+              ...terminalTelemetry,
+              ...guardStarted,
+              waitedMs,
+              latencyMs: waitedMs,
+              action: result.action || null,
+              approved: result.approved === true,
+              confidence: result.confidence ?? null,
+              risk: result.simpleRuntime?.risk || null,
+              reason: result.reason || null,
+              convergenceScore: result.convergenceScore ?? null,
+              rawResponseHash,
+              normalizedReview: result,
+              guardCounters: this.simpleRuntimeGuardSnapshot()
+            });
+            return result;
+          } catch (error) {
+            const failure = classifyRuntimeError(error);
+            const waitedMs = Date.now() - startedAt;
+            emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_failed', {
+              ...terminalTelemetry,
+              ...guardStarted,
+              waitedMs,
+              latencyMs: waitedMs,
+              failureType: failure.failureType,
+              reason: failure.reason,
+              rawResponseHash: error.rawResponseHash || null,
+              errorMessage: error.message,
+              errorCode: error.code || null,
+              httpStatus: Number(error?.response?.status || 0) || null,
+              guardCounters: this.simpleRuntimeGuardSnapshot()
+            });
+            return buildFailureDecision(this, failure, error.message);
+          }
+        }
+
+        this.simpleRuntimeGuardState.singleFlightAcquisitions += 1;
+        const guard = {
+          guardOutcome: 'acquired',
+          inFlightAttemptId: null,
+          reviewedPacketHash: packetHash,
+          waitedMs: 0,
+          modelReviewed: true,
+          guardCounters: this.simpleRuntimeGuardSnapshot()
         };
+        emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_started', { ...baseTelemetry, ...guard });
+        const reviewPromise = callSimpleRuntimeReview(this, tokenInfo, signal, packet);
+        this.simpleRuntimeInFlight = { attemptId: id, mint, packetHash, promise: reviewPromise };
+
+        try {
+          const { review: result, rawResponseHash } = await reviewPromise;
+          const latencyMs = Date.now() - startedAt;
+          emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_completed', {
+            ...terminalTelemetry,
+            ...guard,
+            latencyMs,
+            action: result.action || null,
+            approved: result.approved === true,
+            confidence: result.confidence ?? null,
+            risk: result.simpleRuntime?.risk || null,
+            reason: result.reason || null,
+            convergenceScore: result.convergenceScore ?? null,
+            rawResponseHash,
+            normalizedReview: result,
+            guardCounters: this.simpleRuntimeGuardSnapshot()
+          });
+          this.logger.info(`Simple runtime AI review ${result.action} ${result.confidence}% ${result.simpleRuntime.risk} (${latencyMs}ms)`);
+          return result;
+        } catch (error) {
+          const failure = classifyRuntimeError(error);
+          emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_failed', {
+            ...terminalTelemetry,
+            ...guard,
+            latencyMs: Date.now() - startedAt,
+            failureType: failure.failureType,
+            reason: failure.reason,
+            rawResponseHash: error.rawResponseHash || null,
+            errorMessage: error.message,
+            errorCode: error.code || null,
+            httpStatus: Number(error?.response?.status || 0) || null,
+            guardCounters: this.simpleRuntimeGuardSnapshot()
+          });
+          this.logger.warn('Simple runtime AI review failed', {
+            failureType: failure.failureType,
+            reason: failure.reason,
+            message: error.message
+          });
+          return buildFailureDecision(this, failure, error.message);
+        } finally {
+          if (this.simpleRuntimeInFlight?.attemptId === id) {
+            this.simpleRuntimeInFlight = null;
+          }
+        }
+      } finally {
+        this.simpleRuntimeGuardState.activeRequests = Math.max(
+          0,
+          this.simpleRuntimeGuardState.activeRequests - 1
+        );
       }
     }
   }

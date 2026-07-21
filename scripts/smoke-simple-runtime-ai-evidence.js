@@ -5,14 +5,28 @@ process.env.SIMPLE_RUNTIME_AI_TIMEOUT_MS = '3000';
 const axios = require('axios');
 const originalPost = axios.post;
 let responseContent = '{"action":"ENTER","confidence":85,"risk":"LOW","reason":"clean fixture"}';
-axios.post = async () => ({
-  data: {
-    message: {
-      content: responseContent
-    }
-  }
+let postHandler = async () => ({
+  data: { message: { content: responseContent } }
 });
+axios.post = (...args) => postHandler(...args);
 
+function deferredResponse(content) {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = () => done({
+      data: {
+        message: { content }
+      }
+    });
+  });
+  return { promise, resolve };
+}
+
+function findLifecycle(events, type, signalId) {
+  return events.find((row) => (
+    row.type === type && row.payload.signalId === signalId
+  ));
+}
 const runtimePatch = require('../src/simple-runtime-ai-patch');
 const AIAgent = require('../src/ai-agent');
 const TradingEngine = require('../src/trading-engine');
@@ -94,6 +108,82 @@ async function main() {
     throw new Error('Failed telemetry duplicated the full review packet.');
   }
 
+  responseContent = '{"action":"ENTER","confidence":85,"risk":"LOW","reason":"concurrency fixture"}';
+  const deferred = deferredResponse(responseContent);
+  postHandler = () => deferred.promise;
+  const primarySignal = { ...signal, id: 'fixture-guard-primary' };
+  const dedupSignal = { ...signal, id: 'fixture-guard-dedup' };
+  const busyToken = {
+    ...tokenInfo,
+    mintAddress: 'BusyMint1111111111111111111111111111111111',
+    symbol: 'BUSY'
+  };
+  const busySignal = { ...signal, id: 'fixture-guard-busy', token: busyToken.mintAddress };
+  const primaryPromise = agent.reviewTrade(tokenInfo, primarySignal);
+  const dedupPromise = agent.reviewTrade(tokenInfo, dedupSignal);
+  const busyResult = await agent.reviewTrade(busyToken, busySignal);
+
+  if (busyResult.simpleRuntime?.failureType !== 'busy' || busyResult.reason !== 'SIMPLE_RUNTIME_AI_BUSY') {
+    throw new Error('Distinct-mint concurrent review did not fail as BUSY.');
+  }
+  deferred.resolve();
+  const [primaryResult, dedupResult] = await Promise.all([primaryPromise, dedupPromise]);
+  if (primaryResult.reason !== dedupResult.reason || primaryResult.action !== dedupResult.action) {
+    throw new Error('Same-mint concurrent review did not share the primary result.');
+  }
+
+  const primaryStarted = findLifecycle(events, 'simple_runtime_ai.review_started', primarySignal.id);
+  const dedupStarted = findLifecycle(events, 'simple_runtime_ai.review_started', dedupSignal.id);
+  const dedupCompleted = findLifecycle(events, 'simple_runtime_ai.review_completed', dedupSignal.id);
+  const busyFailure = findLifecycle(events, 'simple_runtime_ai.review_failed', busySignal.id);
+  if (primaryStarted?.payload?.guardOutcome !== 'acquired') {
+    throw new Error('Primary review did not record guard acquisition.');
+  }
+  if (
+    dedupStarted?.payload?.guardOutcome !== 'deduped_joined' ||
+    dedupStarted.payload.inFlightAttemptId !== primaryStarted.payload.attemptId ||
+    dedupCompleted?.payload?.modelReviewed !== false ||
+    dedupCompleted?.payload?.reviewedPacketHash !== primaryStarted.payload.packetHash
+  ) {
+    throw new Error('Same-mint dedup telemetry lost primary-attempt provenance.');
+  }
+  if (
+    busyFailure?.payload?.guardOutcome !== 'busy_rejected' ||
+    busyFailure.payload.failureType !== 'busy' ||
+    busyFailure.payload.inFlightAttemptId !== primaryStarted.payload.attemptId
+  ) {
+    throw new Error('BUSY telemetry did not preserve single-flight provenance.');
+  }
+  if (Number(primaryStarted.payload.guardCounters?.maxObservedConcurrentRequests || 0) !== 1) {
+    throw new Error('Primary guard telemetry did not start at one active request.');
+  }
+  if (Number(busyFailure.payload.guardCounters?.maxObservedConcurrentRequests || 0) < 3) {
+    throw new Error('Guard telemetry did not record peak concurrent demand.');
+  }
+
+  postHandler = async () => ({ data: { message: { content: responseContent } } });
+  const releasedResult = await agent.reviewTrade(busyToken, { ...busySignal, id: 'fixture-guard-released' });
+  const releasedStarted = findLifecycle(events, 'simple_runtime_ai.review_started', 'fixture-guard-released');
+  if (releasedResult.action !== 'ENTER' || releasedStarted?.payload?.guardOutcome !== 'acquired') {
+    throw new Error('Single-flight guard did not release after the primary review completed.');
+  }
+
+  const timeoutError = new Error('fixture timeout');
+  timeoutError.code = 'ECONNABORTED';
+  postHandler = async () => {
+    throw timeoutError;
+  };
+  const timeoutResult = await agent.reviewTrade(tokenInfo, { ...signal, id: 'fixture-guard-timeout' });
+  if (timeoutResult.simpleRuntime?.failureType !== 'timeout') {
+    throw new Error('Timeout fixture did not preserve timeout failure classification.');
+  }
+  postHandler = async () => ({ data: { message: { content: responseContent } } });
+  const postTimeoutResult = await agent.reviewTrade(busyToken, { ...busySignal, id: 'fixture-guard-post-timeout' });
+  const postTimeoutStarted = findLifecycle(events, 'simple_runtime_ai.review_started', 'fixture-guard-post-timeout');
+  if (postTimeoutResult.action !== 'ENTER' || postTimeoutStarted?.payload?.guardOutcome !== 'acquired') {
+    throw new Error('Single-flight guard did not release after a timeout failure.');
+  }
+
   const fallbackContext = {
     config: {
       minLiquidityUsd: 5000,
@@ -131,6 +221,21 @@ async function main() {
     fallbackDecision.fallbackTrigger !== 'unavailable'
   ) {
     throw new Error('Non-timeout Simple Runtime failure did not use deterministic PAPER fallback.');
+  }
+
+  const busyFallbackDecision = TradingEngine.prototype.applyAiDecisionGuards.call(
+    fallbackContext,
+    {
+      action: 'WATCH',
+      reason: 'SIMPLE_RUNTIME_AI_BUSY',
+      confidence: 0,
+      strategyScores: {},
+      simpleRuntime: { failureType: 'busy', risk: 'HIGH' }
+    },
+    { ...signal, tokenInfo }
+  );
+  if (busyFallbackDecision.action !== 'ENTER' || busyFallbackDecision.fallbackTrigger !== 'busy') {
+    throw new Error('BUSY did not inherit the guarded deterministic PAPER fallback.');
   }
 
   console.log('SIMPLE_RUNTIME_AI_EVIDENCE_SMOKE_OK');

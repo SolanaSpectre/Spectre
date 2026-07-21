@@ -654,6 +654,13 @@ function buildReport(events, dossiers, options = {}) {
         attempts: simpleRuntimeStarted.length,
         completed: simpleRuntimeCompleted.length,
         failed: simpleRuntimeFailed.length,
+        guardOutcomes: countBy(simpleRuntimeStarted, (event) => payloadOf(event).guardOutcome || 'legacy_unclassified'),
+        busyRejects: simpleRuntimeFailed.filter((event) => payloadOf(event).failureType === 'busy').length,
+        dedupJoins: simpleRuntimeStarted.filter((event) => payloadOf(event).guardOutcome === 'deduped_joined').length,
+        maxObservedConcurrentRequests: Math.max(
+          0,
+          ...simpleRuntimeStarted.map((event) => Number(payloadOf(event).guardCounters?.maxObservedConcurrentRequests || 0))
+        ),
         attemptsExceedingOuterTimeout: aiAttemptsExceedingOuterTimeout,
         completedLatencyMs: numericStats(aiCompletedLatencyMs, 0),
         failedLatencyMs: numericStats(aiFailureLatencyMs, 0),

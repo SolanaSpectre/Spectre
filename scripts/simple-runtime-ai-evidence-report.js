@@ -101,6 +101,12 @@ function collectTelemetryEvidence() {
           schemaVersion: payload.schemaVersion || null,
           packetHash: payload.packetHash || null,
           packet: payload.packet || null,
+          guardOutcome: payload.guardOutcome || null,
+          inFlightAttemptId: payload.inFlightAttemptId || null,
+          reviewedPacketHash: payload.reviewedPacketHash || null,
+          waitedMs: num(payload.waitedMs),
+          modelReviewed: payload.modelReviewed !== false,
+          guardCounters: payload.guardCounters || null,
           timeoutMs: num(payload.timeoutMs),
           outerTimeoutMs: num(payload.outerTimeoutMs),
           latencyMs: num(payload.latencyMs),
@@ -211,8 +217,15 @@ function buildReport() {
   const uniqueTokens = new Set(telemetryRows.map((row) => row.token).filter(Boolean));
   const filesWithTelemetryEvidence = new Set(telemetryRows.map((row) => row.telemetryPath));
   const qwenTrialAttempts = attempts.filter((row) => (
+    row.model === 'qwen2.5:7b-instruct' &&
+    row.promptVersion === 'simple_runtime_guard_v2' &&
+    (!row.guardOutcome || row.guardOutcome === 'acquired')
+  ));
+  const qwenTrialRequests = attempts.filter((row) => (
     row.model === 'qwen2.5:7b-instruct' && row.promptVersion === 'simple_runtime_guard_v2'
   ));
+  const qwenTrialBusy = qwenTrialRequests.filter((row) => row.guardOutcome === 'busy_rejected');
+  const qwenTrialDedup = qwenTrialRequests.filter((row) => row.guardOutcome === 'deduped_joined');
   const qwenTrialCompleted = qwenTrialAttempts.filter((row) => row.outcome === 'completed');
   const qwenTrialFailures = qwenTrialAttempts.filter((row) => row.outcome === 'failed');
   const qwenTrialTimeouts = qwenTrialFailures.filter((row) => row.failureType === 'timeout');
@@ -224,6 +237,10 @@ function buildReport() {
   const qwenTrialPacketCoverage = qwenTrialAttempts.length
     ? qwenTrialAttempts.filter((row) => row.packet && row.packetHash).length / qwenTrialAttempts.length
     : 0;
+  const qwenTrialBusyRate = qwenTrialRequests.length
+    ? qwenTrialBusy.length / qwenTrialRequests.length
+    : 0;
+  const qwenTrialBurstCensored = qwenTrialBusyRate > 0.3;
   const qwenAbortReasons = [];
   if (qwenTrialAttempts.length && qwenTrialTimeoutRate > 0.05) qwenAbortReasons.push('TIMEOUT_RATE_GT_5_PERCENT');
   if (qwenTrialMalformed.length) qwenAbortReasons.push('MALFORMED_JSON_OBSERVED');
@@ -234,7 +251,9 @@ function buildReport() {
   const qwenTrialVerdict = qwenAbortReasons.length
     ? 'ABORT_QWEN_PAPER_TRIAL'
     : qwenTrialEvidenceComplete
-      ? 'QWEN_PAPER_EVIDENCE_CHECKPOINT_REACHED'
+      ? qwenTrialBurstCensored
+        ? 'QWEN_PAPER_TRIAL_BURST_CENSORED'
+        : 'QWEN_PAPER_EVIDENCE_CHECKPOINT_REACHED'
       : 'COLLECT_QWEN_PAPER_EVIDENCE';
 
   return {
@@ -264,6 +283,11 @@ function buildReport() {
       },
       attemptTypeCounts: countBy(attempts, (row) => row.attemptType),
       attemptOutcomeCounts: countBy(attempts, (row) => row.outcome),
+      guardOutcomeCounts: countBy(attempts, (row) => row.guardOutcome || 'legacy_unclassified'),
+      maximumObservedConcurrentRequests: Math.max(
+        0,
+        ...lifecycleRows.map((row) => num(row.guardCounters?.maxObservedConcurrentRequests, 0))
+      ),
       completedActionCounts: countBy(completedAttempts, (row) => row.action),
       completedRiskCounts: countBy(completedAttempts, (row) => row.risk),
       failedFailureTypeCounts: countBy(failedAttempts, (row) => row.failureType),
@@ -286,9 +310,16 @@ function buildReport() {
       minimumPaperRuns: 2,
       abortIfTimeoutRateAbove: 0.05,
       abortOnAnyMalformedJson: true,
+      maximumBusyRateForDecisionQuality: 0.3,
+      busyRateDefinition: 'busy_rejected / (acquired + deduped_joined + busy_rejected) guarded requests',
       requirePacketEvidenceCoverage: 1,
+      totalGuardedRequests: qwenTrialRequests.length,
       attempts: qwenTrialAttempts.length,
       completedReviews: qwenTrialCompleted.length,
+      busyRejects: qwenTrialBusy.length,
+      dedupJoins: qwenTrialDedup.length,
+      busyRate: compact(qwenTrialBusyRate, 4),
+      burstCensored: qwenTrialBurstCensored,
       paperRuns: qwenTrialRuns.size,
       timeoutRate: compact(qwenTrialTimeoutRate, 4),
       malformedJsonFailures: qwenTrialMalformed.length,
@@ -303,7 +334,7 @@ function buildReport() {
     aiDecisionRows,
     telemetryRows,
     liveIssueRows,
-    note: 'Report-only Simple Runtime AI evidence audit across historical telemetry and live-terminal issue logs. Lifecycle attempts are counted from simple_runtime_ai.review_started. consumerObservedOuterTimeout is only set when the attempt started before a matching OLLAMA_TIMEOUT decision for the same signalId, so lightweight retries caused by that timeout are not mislabeled as pre-timeout attempts. Legacy telemetry rows show emitted AI outcomes; live issue rows show runtime review failures that may not be represented as structured telemetry failure types. It does not invoke AI, alter decisions, or change runtime behavior.'
+    note: 'Report-only Simple Runtime AI evidence audit across historical telemetry and live-terminal issue logs. Lifecycle requests are counted from simple_runtime_ai.review_started; Qwen completed-review stopping rules count only guard acquisitions, never busy rejects or same-mint dedup joins. BUSY is reported separately and does not count as timeout or malformed output. Busy rate is busy_rejected divided by all guarded requests (acquired + deduped_joined + busy_rejected); dedup joins remain in the denominator because they received a disclosed shared answer. consumerObservedOuterTimeout is only set when the attempt started before a matching OLLAMA_TIMEOUT decision for the same signalId, so lightweight retries caused by that timeout are not mislabeled as pre-timeout attempts. Legacy telemetry rows show emitted AI outcomes; live issue rows show runtime review failures that may not be represented as structured telemetry failure types. It does not invoke AI, alter decisions, or change runtime behavior.'
   };
 }
 

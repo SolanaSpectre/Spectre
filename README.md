@@ -372,6 +372,8 @@ npm run report:runtime-model-readiness
 
 The readiness report can nominate a model for a PAPER inline-auditor trial only. This is not shadow mode: `WATCH` and `REJECT` block main-lane PAPER trades, although the pre-migration V4 and runner-watch evidence lanes bypass this review path. It does not prove trading edge or enable live trading. On the local RTX 3070 Ti evaluation, `qwen2.5:7b-instruct` was the only model that cleanly separated the preregistered enter/watch/reject fixtures; use a 90-second warmup allowance because its cold load can exceed 30 seconds.
 
+The local auditor uses a no-queue single-flight guard. Concurrent reviews for the same mint join the active promise; a distinct mint receives `SIMPLE_RUNTIME_AI_BUSY` and may use only the existing guarded PAPER failure fallback. Busy rejects and dedup joins are reported separately and never count as independent model reviews.
+
 ### Runner Baseline
 
 The current `RUNNER_HUNTER` paper-trading baseline is:
