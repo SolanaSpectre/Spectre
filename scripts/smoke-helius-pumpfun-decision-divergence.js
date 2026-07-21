@@ -2,21 +2,28 @@
 'use strict';
 
 const assert = require('assert');
-const preregistration = require('../data/strategy-preregistrations/helius-decision-divergence-v3.json');
+const preregistration = require('../data/strategy-preregistrations/helius-decision-divergence-v4.json');
 const { analyzeEvents } = require('./helius-pumpfun-decision-divergence-report');
 
 const sourceTelemetry = 'run-logs/synthetic-decision-shadow.jsonl';
 const events = [{
   type: 'session.started',
-    timestamp: '2026-07-20T14:00:00.000Z',
+    timestamp: '2026-07-21T03:00:00.000Z',
   payload: {
     mode: 'PAPER',
+    pumpPortalPaidTapePlan: {
+      tradeSubscriptionMode: preregistration.paidTapePlan.tradeSubscriptionMode,
+      maxMeteredTradeEventsPerSession: preregistration.paidTapePlan.maxMeteredTradeEventsPerSession
+    },
     heliusPumpfunShadowPlan: {
       enabled: true,
       strategyConsumptionEnabled: false,
       decisionShadowEnabled: true,
       decisionShadowPreregistrationId: preregistration.id,
       decisionShadowMaximumStateAgeMs: preregistration.maximumShadowStateAgeMs,
+      decisionShadowRecentTradeCap: preregistration.semanticAlignment.recentTradeCap,
+      decisionShadowAccountStateEnrichment: 'finalist_account_verifier_latest_update',
+      decisionShadowWalletIdentityAlignment: 'pumpportal_signature_alias_then_helius_event_user',
       gateDecisionComparator: preregistration.gateDecisionComparator.name,
       executedActionComparator: preregistration.executedActionComparator.name
     }
@@ -26,18 +33,20 @@ const events = [{
 for (let index = 0; index < 500; index += 1) {
   events.push({
     type: 'helius_pumpfun.decision_shadow.evaluation',
-    timestamp: new Date(Date.parse('2026-07-20T14:00:01.000Z') + index).toISOString(),
+    timestamp: new Date(Date.parse('2026-07-21T03:00:01.000Z') + index).toISOString(),
     payload: {
       preregistrationId: preregistration.id,
       comparable: true,
       actionAgreement: true,
       reasonAgreement: true,
       shadowStateAgeMs: 25,
+      shadowCurveStateSource: 'finalist_account_verifier',
+      shadowAccountEnriched: true,
       walletComparison: {
         portal: { touched: false },
         helius: { touched: false },
-        featureAgreement: index % 10 !== 0,
-        trackedAddressAgreement: index % 20 !== 0
+        featureAgreement: true,
+        trackedAddressAgreement: true
       }
     }
   });
@@ -45,7 +54,7 @@ for (let index = 0; index < 500; index += 1) {
 for (const action of ['ENTRY', 'EXIT']) {
   events.push({
     type: 'helius_pumpfun.decision_shadow.executed_action',
-    timestamp: '2026-07-20T14:10:00.000Z',
+    timestamp: '2026-07-21T03:10:00.000Z',
     payload: {
       preregistrationId: preregistration.id,
       action,
@@ -53,13 +62,15 @@ for (const action of ['ENTRY', 'EXIT']) {
       actionAgreement: true,
       reasonAgreement: true,
       shadowStateAgeMs: 25,
-      comparator: 'same_instant_helius_state_with_actual_lane_context'
+      shadowCurveStateSource: 'finalist_account_verifier',
+      shadowAccountEnriched: true,
+      comparator: preregistration.executedActionComparator.name
     }
   });
 }
 events.push({
   type: 'session.stopped',
-  timestamp: '2026-07-20T15:00:00.000Z',
+  timestamp: '2026-07-21T04:00:00.000Z',
   payload: { reason: 'SESSION_DURATION_EXCEEDED' }
 });
 
@@ -79,7 +90,9 @@ assert.strictEqual(report.verdict, preregistration.passVerdict);
 assert.strictEqual(report.counts.comparableGateEvaluations, 500);
 assert.strictEqual(report.agreement.gateActionAgreementRate, 1);
 assert.strictEqual(report.agreement.executedActionAgreementRate, 1);
-assert.ok(report.agreement.walletFeatureAgreementRate < 1);
+assert.strictEqual(report.agreement.walletFeatureAgreementRate, 1);
+assert.strictEqual(report.checks.correctPaidTapeBudget, true);
+assert.strictEqual(report.counts.accountEnrichedGateEvaluations, 500);
 
 const staleEvents = events.map((event) => ({ ...event, payload: { ...(event.payload || {}) } }));
 for (const event of staleEvents) {

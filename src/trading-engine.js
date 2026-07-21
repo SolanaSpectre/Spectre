@@ -51,8 +51,9 @@ const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
   'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
 ]);
-const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v3_2026-07-20';
+const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v4_2026-07-20';
 const HELIUS_DECISION_SHADOW_MAX_STATE_AGE_MS = 1000;
+const HELIUS_DECISION_SHADOW_RECENT_TRADE_CAP = 201;
 
 function validProviderBondingCurveAddress(value) {
   if (!value) return null;
@@ -460,8 +461,11 @@ class TradingEngine {
           && this.config.heliusPumpfunDecisionShadowEnabled !== false,
         decisionShadowPreregistrationId: HELIUS_DECISION_SHADOW_PREREGISTRATION_ID,
         decisionShadowMaximumStateAgeMs: HELIUS_DECISION_SHADOW_MAX_STATE_AGE_MS,
-        gateDecisionComparator: 'same_instant_helius_state_with_actual_lane_context',
-        executedActionComparator: 'same_instant_helius_state_with_actual_lane_context'
+        decisionShadowRecentTradeCap: HELIUS_DECISION_SHADOW_RECENT_TRADE_CAP,
+        decisionShadowAccountStateEnrichment: 'finalist_account_verifier_latest_update',
+        decisionShadowWalletIdentityAlignment: 'pumpportal_signature_alias_then_helius_event_user',
+        gateDecisionComparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context',
+        executedActionComparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context'
       },
       strategyPreregistration: {
         id: 'runner_watch_full_coverage_v1_2026-07-18',
@@ -3593,6 +3597,7 @@ class TradingEngine {
     const snapshot = this.heliusDecisionShadowState.snapshot({
       portalToken,
       portalState: result.state,
+      accountState: this.finalistAccountVerifier?.getLatestUpdate?.(result.state.mint) || null,
       timestamp,
       resolveWallet: (wallet) => this.resolveHeliusDecisionShadowWallet(wallet)
     });
@@ -3642,6 +3647,13 @@ class TradingEngine {
         unavailableReason: comparable ? null : (counterfactual?.reason || unavailableReason),
         shadowDecisionMissing: false,
         shadowStateAgeMs: snapshot.ageMs ?? null,
+        shadowCurveStateSource: snapshot.curveStateSource || null,
+        shadowCurveStateAt: snapshot.curveStateAt || null,
+        shadowAccountEnriched: snapshot.accountEnriched === true,
+        shadowAccountStateAgeMs: snapshot.accountStateAgeMs ?? null,
+        shadowTradeStateAgeMs: snapshot.tradeStateAgeMs ?? null,
+        shadowRecentTapeCaptured: snapshot.recentTapeCaptured === true,
+        shadowRecentTradeCap: snapshot.recentTradeCap ?? null,
         actualDecision: actual.payload?.decision || null,
         actualAction,
         actualReason: actual.payload?.reason || null,
@@ -3679,7 +3691,7 @@ class TradingEngine {
         preregistrationId: HELIUS_DECISION_SHADOW_PREREGISTRATION_ID,
         reportOnly: true,
         strategyConsumptionAllowed: false,
-        comparator: 'same_instant_helius_state_with_actual_lane_context',
+        comparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context',
         mint: result.state.mint,
         symbol: result.state.symbol || null,
         timestamp,
@@ -3691,6 +3703,13 @@ class TradingEngine {
           ? null
           : (counterfactual?.reason || unavailableReason),
         shadowStateAgeMs: snapshot.ageMs ?? null,
+        shadowCurveStateSource: snapshot.curveStateSource || null,
+        shadowCurveStateAt: snapshot.curveStateAt || null,
+        shadowAccountEnriched: snapshot.accountEnriched === true,
+        shadowAccountStateAgeMs: snapshot.accountStateAgeMs ?? null,
+        shadowTradeStateAgeMs: snapshot.tradeStateAgeMs ?? null,
+        shadowRecentTapeCaptured: snapshot.recentTapeCaptured === true,
+        shadowRecentTradeCap: snapshot.recentTradeCap ?? null,
         actionAgreement: comparable ? counterfactual?.wouldExecute === true : null,
         actualReason,
         shadowAction: counterfactual?.action || null,
@@ -3769,6 +3788,9 @@ class TradingEngine {
       observedNonShadowWalletTradeCount: Number(context?.observedNonShadowWalletTradeCount || 0),
       observedShadowWalletTradeCount: Number(context?.observedShadowWalletTradeCount || 0),
       observedUntrustedWalletTradeCount: Number(context?.observedUntrustedWalletTradeCount || 0),
+      portalSignatureAliasTradeCount: Number(context?.portalSignatureAliasTradeCount || 0),
+      heliusEventUserTradeCount: Number(context?.heliusEventUserTradeCount || 0),
+      contextSource: context?.contextSource || null,
       walletAddresses: (context?.wallets || []).map((row) => row.wallet).filter(Boolean).sort(),
       shadowWalletAddresses: (context?.shadowWallets || []).map((row) => row.wallet).filter(Boolean).sort(),
       earliestTouchAt: context?.earliestTouchAt || null,
@@ -6276,6 +6298,12 @@ class TradingEngine {
     });
 
     const trader = this.extractProviderTradeWallet(event);
+    this.heliusDecisionShadowState?.ingestPortalTradeIdentity?.({
+      mint,
+      signature: event.signature || event.txSignature || event.transactionSignature || null,
+      trader,
+      receivedAt: current.lastTradeAt
+    });
     const trackedAccounts = Array.isArray(this.config.pumpPortalTrackedAccounts)
       ? this.config.pumpPortalTrackedAccounts
       : [];

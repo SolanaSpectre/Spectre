@@ -1,0 +1,100 @@
+{
+  "id": "helius_pumpfun_decision_divergence_v4_2026-07-20",
+  "frozenAt": "2026-07-20T21:21:36.0543428-05:00",
+  "mode": "paper_only_report_only_semantically_aligned_counterfactual",
+  "question": "After account-state enrichment, Portal-window normalization, and same-signature wallet aliasing, would the unchanged paper lane make the same gate and executed-action choices from Helius state at the same decision instant?",
+  "oracle": "PumpPortal remains the sole runtime decision input; Helius and account-state enrichment remain report-only.",
+  "maximumShadowStateAgeMs": 1000,
+  "minimumComparableGateEvaluations": 500,
+  "minimumComparableEvaluationCoverageRate": 0.9,
+  "minimumGateActionAgreementRate": 0.99,
+  "minimumWalletFeatureAgreementRate": 0.99,
+  "minimumTrackedAddressAgreementRate": 0.99,
+  "minimumExecutedEntries": 1,
+  "minimumExecutedExits": 1,
+  "minimumComparableExecutedActionCoverageRate": 0.9,
+  "executedActionAgreementRequired": 1,
+  "comparablePopulation": {
+    "definition": "All V4 paper decision evaluations with curve progress and price from either a finalist account snapshot or Helius trade state no older than 1000 ms at the decision instant.",
+    "quietMintTreatment": "A fresh account snapshot makes curve/price comparable even when the aligned Helius trade window is empty; empty tape is represented as zero trades, not missing state.",
+    "staleTreatment": "State older than 1000 ms is non-comparable, never a mismatch.",
+    "noPostHocFiltering": true
+  },
+  "semanticAlignment": {
+    "recentTradeWindowMsSource": "PUMP_MOMENTUM_WINDOW_MS",
+    "recentTradeCap": 201,
+    "recentTradeCapReason": "Portal retains the last 200 prior rows and appends the current trade, producing a maximum decision-time window of 201 rows.",
+    "curveAndPriceSourceOrder": [
+      "freshest finalist account verifier update at or before the decision instant",
+      "Helius trade-event virtual reserves"
+    ],
+    "walletIdentity": "For matching signatures, use the PumpPortal trader identity so the counterfactual reproduces Portal's runtime wallet semantics; otherwise retain the on-chain Helius TradeEvent user and report alias coverage.",
+    "strategyConsumptionAllowed": false
+  },
+  "paidTapePlan": {
+    "tradeSubscriptionMode": "targeted_curve",
+    "maxMeteredTradeEventsPerSession": 72000,
+    "estimatedMaximumChargeSol": 0.072,
+    "requestedRunMinutes": 60,
+    "minimumPaidTapeMinutesIfBudgetReached": 55,
+    "reason": "The prior 50,000-event run exhausted paid tape after 41.78 minutes; 72,000 is frozen before V4 evidence to target a full PAPER60 without changing the targeted subscription policy."
+  },
+  "gateDecisionComparator": {
+    "name": "same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context",
+    "context": [
+      "pre-decision observation history",
+      "same-mint cooldown",
+      "bad-exit cooldown",
+      "preset entry count"
+    ],
+    "positionSemantics": "An active position does not suppress a PAPER_SHADOWED gate pass; gate agreement measures WOULD_ENTER versus WOULD_SKIP, while executed-action agreement handles actual entry availability."
+  },
+  "executedActionComparator": {
+    "name": "same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context",
+    "entryContext": [
+      "pre-decision observation history",
+      "active position",
+      "same-mint cooldown",
+      "bad-exit cooldown",
+      "preset entry count"
+    ],
+    "exitContext": [
+      "actual pre-observation position",
+      "entry price",
+      "entry time",
+      "peak return",
+      "exit profile"
+    ]
+  },
+  "supersedes": {
+    "id": "helius_pumpfun_decision_divergence_v3_2026-07-20",
+    "disposition": "FAILED_PROVIDER_SEMANTIC_ALIGNMENT",
+    "evidenceReuseAllowed": false,
+    "failedRun": "run-logs/telemetry-2026-07-20T23-00-23-045Z.jsonl",
+    "observedDefects": [
+      "Trade-driven freshness made the 90% gate coverage floor structurally unreachable for quiet mints.",
+      "Helius used every trade in the time window while Portal capped the incremental window at 201 rows.",
+      "Portal trader identities and on-chain TradeEvent users differed for wallet-conditioned decisions."
+    ],
+    "rpcAutopsy": "Six RPC timeouts occurred: four coincided with 34.5-35.1 second event-loop stalls and are classified as timer starvation; two were ordinary 10 second RPC timeouts. This is recorded context, not V4 strategy evidence."
+  },
+  "concurrentRequirements": {
+    "heliusV5ParityVerdict": "HELIUS_SHADOW_PARITY_PASSED",
+    "cleanHeliusLifecycle": true,
+    "completedPaperLifecycle": true,
+    "strategyConsumptionAllowed": false
+  },
+  "passVerdict": "HELIUS_DECISION_SHADOW_V4_PASSED_REPORT_ONLY",
+  "failVerdict": "HELIUS_DECISION_SHADOW_V4_FAILED",
+  "insufficientVerdict": "HELIUS_DECISION_SHADOW_V4_INSUFFICIENT_EVIDENCE",
+  "invalidVerdict": "HELIUS_DECISION_SHADOW_V4_INVALID_RUN",
+  "prohibitions": [
+    "No Helius or account-verifier shadow state may feed runtime strategy decisions.",
+    "No live enablement, procurement switch, or gate loosening may follow from this experiment alone.",
+    "V1, V2, and V3 rows cannot count toward V4 evidence.",
+    "No post-hoc population filtering, freshness relaxation, or wallet-feature exclusion is allowed.",
+    "Comparator semantics, thresholds, targeted subscription policy, and paid-event budget are frozen before the first V4 run."
+  ],
+  "nextIfPass": "Repeat V4 report-only parity on another eligible full-coverage session before proposing any procurement change.",
+  "nextIfFail": "Autopsy V4 source, window, wallet-alias, and action divergences without changing strategy gates or live settings."
+}

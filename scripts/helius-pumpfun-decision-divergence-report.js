@@ -7,7 +7,7 @@ const { forEachJsonlSync } = require('./lib/jsonl');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
-const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v3.json');
+const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v4.json');
 const PARITY_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity-latest.json');
 const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence');
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence-latest.json');
@@ -48,11 +48,13 @@ function stats(values = []) {
 }
 
 function collect(events = []) {
-  const state = { sessionStarted: null, sessionStopped: null, evaluations: [], executedActions: [] };
+  const state = { sessionStarted: null, sessionStopped: null, budgetReached: null, evaluations: [], executedActions: [] };
   for (const event of events) {
     if (event.type === 'session.started') state.sessionStarted = { timestamp: event.timestamp, payload: event.payload || {} };
     else if (event.type === 'session.stopping' || event.type === 'session.stopped') {
       state.sessionStopped = { timestamp: event.timestamp, payload: event.payload || {} };
+    } else if (event.type === 'provider.pumpportal.metered_budget_reached') {
+      state.budgetReached = { timestamp: event.timestamp, payload: event.payload || {} };
     } else if (event.type === 'helius_pumpfun.decision_shadow.evaluation') {
       state.evaluations.push({ timestamp: event.timestamp, ...(event.payload || {}) });
     } else if (event.type === 'helius_pumpfun.decision_shadow.executed_action') {
@@ -70,6 +72,15 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
   const walletCharacterized = comparable.filter((row) => row.walletComparison?.portal && row.walletComparison?.helius);
   const walletFeatureMatches = walletCharacterized.filter((row) => row.walletComparison.featureAgreement === true);
   const trackedAddressMatches = walletCharacterized.filter((row) => row.walletComparison.trackedAddressAgreement === true);
+  const accountEnriched = comparable.filter((row) => row.shadowAccountEnriched === true);
+  const aliasedWalletTrades = comparable.reduce(
+    (sum, row) => sum + Number(row.walletComparison?.helius?.portalSignatureAliasTradeCount || 0),
+    0
+  );
+  const rawHeliusWalletTrades = comparable.reduce(
+    (sum, row) => sum + Number(row.walletComparison?.helius?.heliusEventUserTradeCount || 0),
+    0
+  );
   const divergences = comparable.filter((row) => row.actionAgreement !== true);
   const executed = state.executedActions.filter((row) => row.preregistrationId === preregistration.id);
   const comparableExecuted = executed.filter((row) => row.comparable === true);
@@ -78,7 +89,12 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
   const exitActions = comparableExecuted.filter((row) => row.action === 'EXIT');
   const sourceMatches = !sourceTelemetry || parity.sourceTelemetry === sourceTelemetry;
   const plan = state.sessionStarted?.payload?.heliusPumpfunShadowPlan || {};
+  const paidTapePlan = state.sessionStarted?.payload?.pumpPortalPaidTapePlan || {};
   const startMs = Date.parse(state.sessionStarted?.timestamp || '');
+  const budgetReachedMs = Date.parse(state.budgetReached?.timestamp || '');
+  const budgetReachedAfterMinutes = Number.isFinite(startMs) && Number.isFinite(budgetReachedMs)
+    ? (budgetReachedMs - startMs) / 60_000
+    : null;
   const checks = {
     postRegistration: Number.isFinite(startMs) && startMs > Date.parse(preregistration.frozenAt),
     paperMode: state.sessionStarted?.payload?.mode === 'PAPER',
@@ -87,6 +103,14 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     correctGateDecisionComparator: plan.gateDecisionComparator === preregistration.gateDecisionComparator.name,
     correctExecutedActionComparator: plan.executedActionComparator === preregistration.executedActionComparator.name,
     correctMaximumStateAge: Number(plan.decisionShadowMaximumStateAgeMs) === preregistration.maximumShadowStateAgeMs,
+    correctRecentTradeCap: Number(plan.decisionShadowRecentTradeCap) === preregistration.semanticAlignment.recentTradeCap,
+    accountStateEnrichmentEnabled: plan.decisionShadowAccountStateEnrichment === 'finalist_account_verifier_latest_update',
+    walletIdentityAlignmentEnabled: plan.decisionShadowWalletIdentityAlignment === 'pumpportal_signature_alias_then_helius_event_user',
+    correctPaidTapeSubscriptionMode: paidTapePlan.tradeSubscriptionMode === preregistration.paidTapePlan.tradeSubscriptionMode,
+    correctPaidTapeBudget: Number(paidTapePlan.maxMeteredTradeEventsPerSession)
+      === preregistration.paidTapePlan.maxMeteredTradeEventsPerSession,
+    paidTapeCoverageDuration: budgetReachedAfterMinutes === null
+      || budgetReachedAfterMinutes >= preregistration.paidTapePlan.minimumPaidTapeMinutesIfBudgetReached,
     strategyConsumptionDisabled: plan.strategyConsumptionEnabled === false,
     completedLifecycle: state.sessionStopped?.payload?.reason === 'SESSION_DURATION_EXCEEDED',
     sameTelemetryAsParity: sourceMatches,
@@ -97,6 +121,10 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       >= preregistration.minimumComparableEvaluationCoverageRate,
     gateActionAgreement: ratio(actionMatches.length, comparable.length) >= preregistration.minimumGateActionAgreementRate,
     walletDivergenceCharacterized: walletCharacterized.length === comparable.length,
+    walletFeatureAgreement: ratio(walletFeatureMatches.length, walletCharacterized.length)
+      >= preregistration.minimumWalletFeatureAgreementRate,
+    trackedAddressAgreement: ratio(trackedAddressMatches.length, walletCharacterized.length)
+      >= preregistration.minimumTrackedAddressAgreementRate,
     freshComparableGateState: comparable.every((row) => (
       Number.isFinite(Number(row.shadowStateAgeMs))
       && Number(row.shadowStateAgeMs) <= preregistration.maximumShadowStateAgeMs
@@ -120,6 +148,12 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     'correctGateDecisionComparator',
     'correctExecutedActionComparator',
     'correctMaximumStateAge',
+    'correctRecentTradeCap',
+    'accountStateEnrichmentEnabled',
+    'walletIdentityAlignmentEnabled',
+    'correctPaidTapeSubscriptionMode',
+    'correctPaidTapeBudget',
+    'paidTapeCoverageDuration',
     'strategyConsumptionDisabled',
     'completedLifecycle',
     'sameTelemetryAsParity',
@@ -157,6 +191,9 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       walletCharacterizedEvaluations: walletCharacterized.length,
       walletFeatureMatches: walletFeatureMatches.length,
       trackedAddressMatches: trackedAddressMatches.length,
+      accountEnrichedGateEvaluations: accountEnriched.length,
+      portalSignatureAliasedWalletTrades: aliasedWalletTrades,
+      rawHeliusEventUserWalletTrades: rawHeliusWalletTrades,
       executedActions: executed.length,
       comparableExecutedActions: comparableExecuted.length,
       unavailableExecutedActions: executed.length - comparableExecuted.length,
@@ -173,6 +210,22 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       executedActionAgreementRate: ratio(executedMatches.length, comparableExecuted.length),
       comparableExecutedActionCoverageRate: ratio(comparableExecuted.length, executed.length),
       shadowStateAgeMs: stats(comparable.map((row) => row.shadowStateAgeMs))
+    },
+    stateSources: comparable.reduce((counts, row) => {
+      const key = row.shadowCurveStateSource || 'unknown';
+      counts[key] = (counts[key] || 0) + 1;
+      return counts;
+    }, {}),
+    unavailableReasons: evaluations.filter((row) => row.comparable !== true).reduce((counts, row) => {
+      const key = row.unavailableReason || 'UNKNOWN';
+      counts[key] = (counts[key] || 0) + 1;
+      return counts;
+    }, {}),
+    paidTapeCoverage: {
+      budgetReached: Boolean(state.budgetReached),
+      budgetReachedAfterMinutes,
+      meteredTradeEvents: state.budgetReached?.payload?.meteredTradeEvents ?? null,
+      configuredBudget: paidTapePlan.maxMeteredTradeEventsPerSession ?? null
     },
     divergenceByReason,
     divergenceSamples: divergences.slice(0, 50),

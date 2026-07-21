@@ -60,4 +60,70 @@ assert.strictEqual(snapshot.walletContext.touched, true);
 assert.deepStrictEqual(snapshot.walletContext.wallets.map((row) => row.wallet), ['TrackedWallet']);
 assert.strictEqual(snapshot.walletContext.untrustedWallets.length, 1);
 
+const accountEnriched = state.snapshot({
+  portalToken: { mint: 'DecisionMint' },
+  portalState: { mint: 'DecisionMint', score: 70 },
+  accountState: {
+    receivedAtMs: Date.parse('2026-07-20T01:01:24.500Z'),
+    curveProgress: 0.72,
+    priceSol: 0.0000018
+  },
+  timestamp: '2026-07-20T01:01:25.000Z'
+});
+assert.strictEqual(accountEnriched.available, true);
+assert.strictEqual(accountEnriched.accountEnriched, true);
+assert.strictEqual(accountEnriched.curveStateSource, 'finalist_account_verifier');
+assert.strictEqual(accountEnriched.ageMs, 500);
+assert.strictEqual(accountEnriched.state.curveProgress, 0.72);
+assert.strictEqual(accountEnriched.state.recentTradeCount, 0);
+assert.strictEqual(accountEnriched.recentTapeCaptured, false);
+
+state.ingestPortalTradeIdentity({
+  mint: 'DecisionMint',
+  signature: 'aliased-signature',
+  trader: 'PortalRuntimeWallet',
+  receivedAt: '2026-07-20T01:01:29.000Z'
+});
+state.ingest('provider.helius_pumpfun.shadow_trade', {
+  mint: 'DecisionMint',
+  signature: 'aliased-signature',
+  receivedAt: '2026-07-20T01:01:30.000Z',
+  txType: 'buy',
+  solAmount: 0.5,
+  traderPublicKey: 'OnchainEventUser',
+  curveProgress: 0.73,
+  priceSol: 0.0000019,
+  pairBase: 'SOL'
+});
+const aliased = state.snapshot({
+  portalToken: { mint: 'DecisionMint' },
+  portalState: { mint: 'DecisionMint', score: 70 },
+  timestamp: '2026-07-20T01:01:31.000Z',
+  resolveWallet: (wallet) => ({ watched: wallet === 'PortalRuntimeWallet' })
+});
+assert.deepStrictEqual(aliased.walletContext.wallets.map((row) => row.wallet), ['PortalRuntimeWallet']);
+assert.strictEqual(aliased.walletContext.portalSignatureAliasTradeCount, 1);
+
+const capped = new HeliusDecisionShadowState({ pumpMomentumWindowMs: 60_000 });
+for (let index = 0; index < 250; index += 1) {
+  capped.ingest('provider.helius_pumpfun.shadow_trade', {
+    mint: 'CapMint',
+    signature: `cap-${index}`,
+    receivedAt: Date.parse('2026-07-20T02:00:00.000Z') + index,
+    txType: index % 2 ? 'sell' : 'buy',
+    solAmount: 0.01,
+    traderPublicKey: `Wallet${index}`,
+    curveProgress: 0.5,
+    priceSol: 0.000001,
+    pairBase: 'SOL'
+  });
+}
+const cappedSnapshot = capped.snapshot({
+  portalToken: { mint: 'CapMint' },
+  portalState: { mint: 'CapMint' },
+  timestamp: Date.parse('2026-07-20T02:00:01.000Z')
+});
+assert.strictEqual(cappedSnapshot.state.recentTradeCount, 201);
+assert.strictEqual(cappedSnapshot.recentTradeCap, 201);
+
 console.log('Helius Pump.fun decision shadow state smoke passed');
