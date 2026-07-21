@@ -3,6 +3,8 @@
   "frozenAt": "2026-07-20T21:21:36.0543428-05:00",
   "amendedBeforeFirstV4RunAt": "2026-07-20T22:04:11.2558352-05:00",
   "amendmentReason": "A zero-cost V3 overlap check found that only 2002/2887 stale evaluation rows (69.35%) had an active finalist-verifier subscription. Even perfect freshness on those rows would project only about 80.46% total comparable coverage, below V4's frozen 90% floor. Before any V4 run, report-only subscriptions were therefore broadened to every decision-shadow candidate; population, freshness, agreement bars, strategy behavior, and budget are unchanged.",
+  "capacityAmendedBeforeFirstV4RunAt": "2026-07-20T22:28:33.0321950-05:00",
+  "capacityAmendmentReason": "A second zero-cost V3 demand check found a peak of 70 distinct decision-shadow mints in one 120-second verifier TTL window. Before any V4 run, the report-only subscription capacity floor was raised to 100 so the broadened policy is not structurally rejected at burst; population, freshness, agreement bars, strategy behavior, and budget remain unchanged.",
   "mode": "paper_only_report_only_semantically_aligned_counterfactual",
   "question": "After account-state enrichment, Portal-window normalization, and same-signature wallet aliasing, would the unchanged paper lane make the same gate and executed-action choices from Helius state at the same decision instant?",
   "oracle": "PumpPortal remains the sole runtime decision input; Helius and account-state enrichment remain report-only.",
@@ -37,6 +39,9 @@
     "policy": "Subscribe every paper mint that reaches the Helius decision-shadow comparison.",
     "selectionClass": "decision_shadow_candidate",
     "reportOnly": true,
+    "minimumMaxSubscriptions": 100,
+    "measuredPeakDistinctDecisionMintsPerTtlWindow": 70,
+    "measuredTtlWindowMs": 120000,
     "v3OfflineOverlap": {
       "sourceTelemetry": "run-logs/telemetry-2026-07-20T23-00-23-045Z.jsonl",
       "staleEvaluationRows": 2887,

@@ -262,7 +262,7 @@ class Config {
   }
 
   static get finalistAccountVerifierMaxSubscriptions() {
-    return parseInt(process.env.FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS || '12', 10);
+    return parseInt(process.env.FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS || '100', 10);
   }
 
   static get finalistAccountVerifierTtlMs() {
@@ -2700,6 +2700,16 @@ class Config {
     ) {
       throw new Error(
         'PUMPPORTAL_TRADE_SUBSCRIPTION_MODE=targeted_curve requires PUMP_BONDING_CURVE_RUNTIME_RPC_ENABLED=true; targeted subscriptions cannot activate without runtime curve truth.'
+      );
+    }
+    if (
+      this.executionMode === 'PAPER'
+      && this.heliusPumpfunShadowEnabled
+      && this.heliusPumpfunDecisionShadowEnabled
+      && this.finalistAccountVerifierMaxSubscriptions < 100
+    ) {
+      throw new Error(
+        'Helius decision-shadow V4 requires FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS>=100; measured two-minute decision-mint demand peaked at 70.'
       );
     }
 

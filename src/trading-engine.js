@@ -463,6 +463,7 @@ class TradingEngine {
         decisionShadowMaximumStateAgeMs: HELIUS_DECISION_SHADOW_MAX_STATE_AGE_MS,
         decisionShadowRecentTradeCap: HELIUS_DECISION_SHADOW_RECENT_TRADE_CAP,
         decisionShadowAccountStateEnrichment: 'finalist_account_verifier_latest_update',
+        decisionShadowAccountVerifierMaxSubscriptions: this.config.finalistAccountVerifierMaxSubscriptions,
         decisionShadowWalletIdentityAlignment: 'pumpportal_signature_alias_then_helius_event_user',
         gateDecisionComparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context',
         executedActionComparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context'

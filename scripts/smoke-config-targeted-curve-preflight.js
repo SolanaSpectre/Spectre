@@ -8,6 +8,9 @@ const original = {
   executionMode: process.env.EXECUTION_MODE,
   subscriptionMode: process.env.PUMPPORTAL_TRADE_SUBSCRIPTION_MODE,
   runtimeRpcEnabled: process.env.PUMP_BONDING_CURVE_RUNTIME_RPC_ENABLED,
+  heliusShadowEnabled: process.env.HELIUS_PUMPFUN_SHADOW_ENABLED,
+  heliusDecisionShadowEnabled: process.env.HELIUS_PUMPFUN_DECISION_SHADOW_ENABLED,
+  finalistMaxSubscriptions: process.env.FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS,
   coldWalletAddress: process.env.COLD_WALLET_ADDRESS
 };
 
@@ -20,6 +23,7 @@ try {
   process.env.EXECUTION_MODE = 'PAPER';
   process.env.PUMPPORTAL_TRADE_SUBSCRIPTION_MODE = 'targeted_curve';
   process.env.PUMP_BONDING_CURVE_RUNTIME_RPC_ENABLED = 'false';
+  process.env.HELIUS_PUMPFUN_SHADOW_ENABLED = 'false';
   delete process.env.COLD_WALLET_ADDRESS;
 
   assert.throws(
@@ -34,10 +38,26 @@ try {
   process.env.PUMPPORTAL_TRADE_SUBSCRIPTION_MODE = 'all_discovered';
   process.env.PUMP_BONDING_CURVE_RUNTIME_RPC_ENABLED = 'false';
   assert.doesNotThrow(() => Config.validate());
+
+  process.env.PUMPPORTAL_TRADE_SUBSCRIPTION_MODE = 'targeted_curve';
+  process.env.PUMP_BONDING_CURVE_RUNTIME_RPC_ENABLED = 'true';
+  process.env.HELIUS_PUMPFUN_SHADOW_ENABLED = 'true';
+  process.env.HELIUS_PUMPFUN_DECISION_SHADOW_ENABLED = 'true';
+  process.env.FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS = '99';
+  assert.throws(
+    () => Config.validate(),
+    /FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS>=100/,
+    'Helius V4 must refuse PAPER startup below measured subscription-capacity headroom'
+  );
+  process.env.FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS = '100';
+  assert.doesNotThrow(() => Config.validate());
 } finally {
   restore('EXECUTION_MODE', original.executionMode);
   restore('PUMPPORTAL_TRADE_SUBSCRIPTION_MODE', original.subscriptionMode);
   restore('PUMP_BONDING_CURVE_RUNTIME_RPC_ENABLED', original.runtimeRpcEnabled);
+  restore('HELIUS_PUMPFUN_SHADOW_ENABLED', original.heliusShadowEnabled);
+  restore('HELIUS_PUMPFUN_DECISION_SHADOW_ENABLED', original.heliusDecisionShadowEnabled);
+  restore('FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS', original.finalistMaxSubscriptions);
   restore('COLD_WALLET_ADDRESS', original.coldWalletAddress);
 }
 

@@ -48,13 +48,25 @@ function stats(values = []) {
 }
 
 function collect(events = []) {
-  const state = { sessionStarted: null, sessionStopped: null, budgetReached: null, evaluations: [], executedActions: [] };
+  const state = {
+    sessionStarted: null,
+    sessionStopped: null,
+    budgetReached: null,
+    evaluations: [],
+    executedActions: [],
+    accountVerifierMaxSubscriptionSkips: []
+  };
   for (const event of events) {
     if (event.type === 'session.started') state.sessionStarted = { timestamp: event.timestamp, payload: event.payload || {} };
     else if (event.type === 'session.stopping' || event.type === 'session.stopped') {
       state.sessionStopped = { timestamp: event.timestamp, payload: event.payload || {} };
     } else if (event.type === 'provider.pumpportal.metered_budget_reached') {
       state.budgetReached = { timestamp: event.timestamp, payload: event.payload || {} };
+    } else if (
+      event.type === 'finalist_account_verifier.skipped'
+      && event.payload?.reason === 'MAX_SUBSCRIPTIONS'
+    ) {
+      state.accountVerifierMaxSubscriptionSkips.push({ timestamp: event.timestamp, ...(event.payload || {}) });
     } else if (event.type === 'helius_pumpfun.decision_shadow.evaluation') {
       state.evaluations.push({ timestamp: event.timestamp, ...(event.payload || {}) });
     } else if (event.type === 'helius_pumpfun.decision_shadow.executed_action') {
@@ -97,7 +109,9 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
   const budgetReachedAfterMinutes = Number.isFinite(startMs) && Number.isFinite(budgetReachedMs)
     ? (budgetReachedMs - startMs) / 60_000
     : null;
-  const effectiveRegistrationAt = preregistration.amendedBeforeFirstV4RunAt || preregistration.frozenAt;
+  const effectiveRegistrationAt = preregistration.capacityAmendedBeforeFirstV4RunAt
+    || preregistration.amendedBeforeFirstV4RunAt
+    || preregistration.frozenAt;
   const checks = {
     postRegistration: Number.isFinite(startMs) && startMs > Date.parse(effectiveRegistrationAt),
     paperMode: state.sessionStarted?.payload?.mode === 'PAPER',
@@ -108,6 +122,9 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     correctMaximumStateAge: Number(plan.decisionShadowMaximumStateAgeMs) === preregistration.maximumShadowStateAgeMs,
     correctRecentTradeCap: Number(plan.decisionShadowRecentTradeCap) === preregistration.semanticAlignment.recentTradeCap,
     accountStateEnrichmentEnabled: plan.decisionShadowAccountStateEnrichment === 'finalist_account_verifier_latest_update',
+    sufficientAccountVerifierCapacity: Number(plan.decisionShadowAccountVerifierMaxSubscriptions)
+      >= preregistration.accountVerifierSelection.minimumMaxSubscriptions,
+    noAccountVerifierCapacitySkips: state.accountVerifierMaxSubscriptionSkips.length === 0,
     walletIdentityAlignmentEnabled: plan.decisionShadowWalletIdentityAlignment === 'pumpportal_signature_alias_then_helius_event_user',
     correctPaidTapeSubscriptionMode: paidTapePlan.tradeSubscriptionMode === preregistration.paidTapePlan.tradeSubscriptionMode,
     correctPaidTapeBudget: Number(paidTapePlan.maxMeteredTradeEventsPerSession)
@@ -153,6 +170,8 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     'correctMaximumStateAge',
     'correctRecentTradeCap',
     'accountStateEnrichmentEnabled',
+    'sufficientAccountVerifierCapacity',
+    'noAccountVerifierCapacitySkips',
     'walletIdentityAlignmentEnabled',
     'correctPaidTapeSubscriptionMode',
     'correctPaidTapeBudget',
@@ -197,6 +216,7 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       accountEnrichedGateEvaluations: accountEnriched.length,
       accountVerifierSubscribedEvaluations: verifierSubscribed.length,
       accountVerifierUpdatedEvaluations: verifierUpdated.length,
+      accountVerifierMaxSubscriptionSkips: state.accountVerifierMaxSubscriptionSkips.length,
       portalSignatureAliasedWalletTrades: aliasedWalletTrades,
       rawHeliusEventUserWalletTrades: rawHeliusWalletTrades,
       executedActions: executed.length,
