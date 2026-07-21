@@ -36,6 +36,8 @@
     "report:no-prior-follow-through": "node scripts/no-prior-follow-through-report.js",
     "report:no-prior-delayed-entry": "node scripts/no-prior-delayed-entry-replay.js",
     "benchmark:runtime-models": "node scripts/benchmark-runtime-models.js",
+    "report:runtime-model-readiness": "node scripts/runtime-model-readiness-report.js",
+    "test:ai-model-benchmark": "node scripts/smoke-runtime-model-benchmark.js && node scripts/smoke-simple-runtime-ai-evidence.js",
     "check:pump-live-readiness": "node scripts/check-pump-live-readiness.js",
     "check:live-safety-defaults": "node scripts/check-live-safety-defaults.js",
     "report:live-readiness": "node scripts/live-readiness-report.js",

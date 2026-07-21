@@ -955,6 +955,7 @@ class TradingEngine {
         convergenceScore: aiDecision.convergenceScore,
         strategyScores: aiDecision.strategyScores,
         simpleRuntime: aiDecision.simpleRuntime || null,
+        fallbackTrigger: aiDecision.fallbackTrigger || null,
         timeout: aiDecision.timeout === true
       });
       this.emitCandidateSnapshot({
@@ -983,6 +984,7 @@ class TradingEngine {
         convergenceScore: aiDecision.convergenceScore,
         strategyScores: aiDecision.strategyScores,
         simpleRuntime: aiDecision.simpleRuntime || null,
+        fallbackTrigger: aiDecision.fallbackTrigger || null,
         timeout: aiDecision.timeout === true
       });
       this.emitCandidateSnapshot({
@@ -1037,6 +1039,7 @@ class TradingEngine {
         aiPrimaryStrategy: aiDecision.primaryStrategy,
         aiConvergenceScore: aiDecision.convergenceScore,
         aiAction: aiDecision.action,
+        aiFallbackTrigger: aiDecision.fallbackTrigger || null,
         aiExecutionProfile: aiDecision.executionProfile
       });
       this.strategyLedger.record('trade.entry', {
@@ -1051,6 +1054,7 @@ class TradingEngine {
         strategy: aiDecision.primaryStrategy,
         convergenceScore: aiDecision.convergenceScore,
         aiConfidence: aiDecision.confidence,
+        aiFallbackTrigger: aiDecision.fallbackTrigger || null,
         executionProfile: aiDecision.executionProfile,
         source: signal.tokenInfo?.source || signal.source || 'unknown'
       });
@@ -1407,11 +1411,13 @@ class TradingEngine {
       qualityScore >= strongQualityFloor &&
       momentumScore >= strongMomentumFloor;
     const manualParseFallback = reason.includes('manual_parse_fallback');
+    const simpleRuntimeFailureType = aiDecision.simpleRuntime?.failureType || null;
     const aiReviewFailure =
       reason.includes('ai_review_failed') ||
       reason.includes('ai_review_timeout') ||
       reason.includes('ollama_timeout') ||
       reason.includes('simple_runtime_ai_timeout') ||
+      Boolean(simpleRuntimeFailureType) ||
       aiDecision.timeout === true;
 
     if (aiReviewFailure && this.config.aiTimeoutFallbackEnabled) {
@@ -1426,7 +1432,8 @@ class TradingEngine {
         momentumScore >= fallbackMomentumFloor;
 
       if (paperFallbackAllowed && fallbackDeterministicStrength) {
-        this.logger.warn(`AI timeout fallback allowed deterministic PAPER entry for ${signal.token}`, {
+        const fallbackTrigger = simpleRuntimeFailureType || aiDecision.reason || 'AI_REVIEW_FAILURE';
+        this.logger.warn(`AI failure fallback allowed deterministic PAPER entry for ${signal.token}`, {
           liquidityUsd,
           minLiquidityUsd,
           qualityScore,
@@ -1441,7 +1448,8 @@ class TradingEngine {
           approved: true,
           action: 'ENTER',
           confidence: Math.max(Number(aiDecision.confidence || 0), 38),
-          reason: `AI_TIMEOUT_FALLBACK_ALLOW:${aiDecision.reason || 'AI_REVIEW_TIMEOUT'}`,
+          reason: `AI_FAILURE_FALLBACK_ALLOW:${aiDecision.reason || 'AI_REVIEW_FAILURE'}`,
+          fallbackTrigger,
           primaryStrategy: signal.tokenInfo?.source?.startsWith?.('pumpportal')
             ? 'RUNNER_HUNTER'
             : (aiDecision.primaryStrategy || 'SNIPER'),
@@ -1454,24 +1462,25 @@ class TradingEngine {
           },
           contradictions: Array.from(new Set([
             ...(Array.isArray(aiDecision.contradictions) ? aiDecision.contradictions : []),
-            'AI timed out; deterministic PAPER fallback allowed because quality, momentum, liquidity, safety, and quote gates already passed'
+            'AI review failed; deterministic PAPER fallback allowed because quality, momentum, liquidity, safety, and quote gates already passed'
           ]))
         };
       }
 
       const fallbackReason = paperFallbackAllowed
-        ? 'AI_TIMEOUT_FALLBACK_REJECT:DETERMINISTIC_STRENGTH_BELOW_FLOOR'
-        : 'AI_TIMEOUT_FALLBACK_REJECT:NOT_PAPER_MODE';
+        ? 'AI_FAILURE_FALLBACK_REJECT:DETERMINISTIC_STRENGTH_BELOW_FLOOR'
+        : 'AI_FAILURE_FALLBACK_REJECT:NOT_PAPER_MODE';
 
       return {
         ...aiDecision,
         approved: false,
         action: 'REJECT',
         confidence: Math.min(Number(aiDecision.confidence || 0), 20),
-        reason: `${fallbackReason}:${aiDecision.reason || 'AI_REVIEW_TIMEOUT'}`,
+        reason: `${fallbackReason}:${aiDecision.reason || 'AI_REVIEW_FAILURE'}`,
+        fallbackTrigger: simpleRuntimeFailureType || aiDecision.reason || 'AI_REVIEW_FAILURE',
         contradictions: Array.from(new Set([
           ...(Array.isArray(aiDecision.contradictions) ? aiDecision.contradictions : []),
-          'AI timeout fallback rejected because deterministic fallback conditions were not met'
+          'AI failure fallback rejected because deterministic fallback conditions were not met'
         ]))
       };
     }

@@ -700,7 +700,10 @@ function buildAiReachability(battlefield = {}) {
   const aiDecisionEvents = number(eventCounts['signal.ai_decision'], 0)
     + number(eventCounts['ai.veto'], 0)
     + number(eventCounts['ai.caution'], 0);
-  const aiTimeoutFallbacks = Array.isArray(runner.aiTimeoutFallback) ? runner.aiTimeoutFallback.length : 0;
+  const fallbackRows = Array.isArray(runner.aiFailureFallback)
+    ? runner.aiFailureFallback
+    : (Array.isArray(runner.aiTimeoutFallback) ? runner.aiTimeoutFallback : []);
+  const aiFailureFallbacks = fallbackRows.length;
   const nearMiss = runner.nearMissDiagnostic || {};
   const aiFailureTypes = nearMiss.aiFailureTypes || {};
   const aiFailureReasons = nearMiss.aiFailureReasons || {};
@@ -731,7 +734,7 @@ function buildAiReachability(battlefield = {}) {
     lifecycleFailedLatencyMs,
     aiRejects,
     aiDecisionEvents,
-    aiTimeoutFallbacks,
+    aiFailureFallbacks,
     aiFailureTypes,
     aiFailureReasons,
     interpretation
@@ -2539,6 +2542,7 @@ function buildSummary(docs) {
   const aiEvidence = collectSimpleRuntimeEvidence();
   const aiReachability = buildAiReachability(battlefield);
   const aiHistoricalSummary = simpleRuntimeAiEvidence.summary || {};
+  const qwenPaperTrial = simpleRuntimeAiEvidence.qwenPaperTrial || {};
   const pumpPortalHealth = buildPumpPortalHealth(battlefield);
   const pumpDevHealth = buildPumpDevHealth(battlefield);
   const bondingCurvePressure = buildBondingCurvePressure(battlefield);
@@ -3154,6 +3158,7 @@ function buildSummary(docs) {
   lines.push(`- Simple Runtime AI string evidence in logs (legacy/warmup included): ${summarizeEvidencePaths(aiEvidence)}`);
   lines.push(`- Historical Simple Runtime AI lifecycle attempts/completed/failed/dangling: ${aiHistoricalSummary.reviewAttempts ?? 'n/a'} / ${aiHistoricalSummary.completedAttempts ?? 'n/a'} / ${aiHistoricalSummary.failedAttempts ?? 'n/a'} / ${aiHistoricalSummary.danglingAttempts ?? 'n/a'}`);
   lines.push(`- Historical Simple Runtime AI legacy telemetry / positive-confidence / live failures: ${aiHistoricalSummary.telemetryEvidenceRows ?? 'n/a'} / ${aiHistoricalSummary.positiveConfidenceRows ?? 'n/a'} / ${aiHistoricalSummary.liveIssueFailureRows ?? 'n/a'}`);
+  lines.push(`- Qwen PAPER trial verdict: ${qwenPaperTrial.verdict || 'n/a'}; completed=${qwenPaperTrial.completedReviews ?? 'n/a'}/50; runs=${qwenPaperTrial.paperRuns ?? 'n/a'}/2; timeout rate=${qwenPaperTrial.timeoutRate ?? 'n/a'}; packet coverage=${qwenPaperTrial.packetEvidenceCoverage ?? 'n/a'}`);
   lines.push('- AI path reachability:');
   lines.push(`  - runner/scalper signals generated/executed: ${aiReachability.generatedSignals} / ${aiReachability.executedSignals}`);
   lines.push(`  - trade rejects before signal execution: ${aiReachability.rejectedTrades}`);
@@ -3165,7 +3170,7 @@ function buildSummary(docs) {
     lines.push(`  - Simple Runtime latency failed median/p90/max: ${ms(failedLatency.median)} / ${ms(failedLatency.p90)} / ${ms(failedLatency.max)}`);
     lines.push(`  - Simple Runtime attempts exceeding outer timeout: ${runnerLifecycle.attemptsExceedingOuterTimeout ?? 'n/a'}`);
   }
-  lines.push(`  - AI decision events / AI rejects / timeout fallbacks: ${aiReachability.aiDecisionEvents} / ${aiReachability.aiRejects} / ${aiReachability.aiTimeoutFallbacks}`);
+  lines.push(`  - AI decision events / AI rejects / failure fallbacks: ${aiReachability.aiDecisionEvents} / ${aiReachability.aiRejects} / ${aiReachability.aiFailureFallbacks}`);
   if (signalExecutionLatency.count) {
     lines.push(`  - signal->execution latency median/p90/max: ${ms(signalExecutionLatency.median)} / ${ms(signalExecutionLatency.p90)} / ${ms(signalExecutionLatency.max)}`);
   }

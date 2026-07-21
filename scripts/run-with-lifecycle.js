@@ -76,9 +76,10 @@ function buildChildEnv() {
   if (env.SIMPLE_RUNTIME_AI_ENABLED !== 'false') {
     const preload = '--require ./src/simple-runtime-ai-patch.js';
     env.SIMPLE_RUNTIME_AI_ENABLED = env.SIMPLE_RUNTIME_AI_ENABLED || 'true';
-    env.SIMPLE_RUNTIME_AI_MODEL = env.SIMPLE_RUNTIME_AI_MODEL || env.RUNTIME_AI_MODEL || 'llama3.2:3b';
+    env.SIMPLE_RUNTIME_AI_MODEL = env.SIMPLE_RUNTIME_AI_MODEL || env.RUNTIME_AI_MODEL || env.OLLAMA_MODEL || 'llama3.2:3b';
     env.SIMPLE_RUNTIME_AI_TIMEOUT_MS = env.SIMPLE_RUNTIME_AI_TIMEOUT_MS || env.AI_TIMEOUT_MS || '4000';
     env.SIMPLE_RUNTIME_AI_NUM_PREDICT = env.SIMPLE_RUNTIME_AI_NUM_PREDICT || '80';
+    env.SIMPLE_RUNTIME_AI_WARMUP_TIMEOUT_MS = env.SIMPLE_RUNTIME_AI_WARMUP_TIMEOUT_MS || env.AI_WARMUP_TIMEOUT_MS || '90000';
     env.NODE_OPTIONS = String(env.NODE_OPTIONS || '').includes('simple-runtime-ai-patch.js')
       ? env.NODE_OPTIONS
       : `${env.NODE_OPTIONS || ''} ${preload}`.trim();

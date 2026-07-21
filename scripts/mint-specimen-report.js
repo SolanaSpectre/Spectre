@@ -391,7 +391,12 @@ function buildReport(mint, events, dossiers, files) {
         .filter((event) => eventType(event) === 'signal.quote_passed')
         .map(summarizeEvent),
       aiDecisions: mintEvents
-        .filter((event) => eventType(event).startsWith('ai.') || JSON.stringify(event).includes('AI_TIMEOUT_FALLBACK'))
+        .filter((event) => {
+          const serialized = JSON.stringify(event);
+          return eventType(event).startsWith('ai.')
+            || serialized.includes('AI_FAILURE_FALLBACK')
+            || serialized.includes('AI_TIMEOUT_FALLBACK');
+        })
         .map(summarizeEvent),
       rejections: mintEvents
         .filter((event) => eventType(event) === 'trade.rejected')

@@ -349,7 +349,7 @@ function buildLessons(battlefield, continuationPaper, continuationSpecimens, tra
       evidence: {
         generated: runner.generated || [],
         rejectionReasons: runner.rejectionReasons || {},
-        aiTimeoutFallback: runner.aiTimeoutFallback || []
+        aiFailureFallback: runner.aiFailureFallback || runner.aiTimeoutFallback || []
       }
     });
   }
@@ -501,7 +501,7 @@ function buildReport(args = {}) {
         rejectionReasons: battlefield.runnerLane?.rejectionReasons || {},
         pumpGateFailures: battlefield.runnerLane?.pumpGateFailures || {},
         scalperDiagnostics: battlefield.runnerLane?.scalperDiagnostics || {},
-        aiTimeoutFallback: battlefield.runnerLane?.aiTimeoutFallback || []
+        aiFailureFallback: battlefield.runnerLane?.aiFailureFallback || battlefield.runnerLane?.aiTimeoutFallback || []
       },
       continuationPaperSummary: continuationPaper.summary || {},
       continuationSpecimenSummary: continuationSpecimens.summary || {},

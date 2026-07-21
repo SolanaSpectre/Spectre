@@ -1,12 +1,10 @@
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
-
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_OUTPUT_PATH = path.join(REPO_ROOT, 'data', 'reports', 'runtime-model-benchmark-latest.json');
-const DEFAULT_MODELS = ['qwen2.5-coder:7b', 'qwen2.5:7b-instruct', 'llama3.1:8b', 'mistral:7b'];
+const DEFAULT_MODELS = ['qwen2.5:7b-instruct', 'llama3.1:8b', 'llama3.2:3b'];
 const ACTIONS = ['ENTER', 'WATCH', 'REJECT'];
 const RISKS = ['LOW', 'MEDIUM', 'HIGH'];
 const STRATEGIES = ['RUNNER_HUNTER', 'SNIPER', 'SCALPER', 'MIGRATION_HUNTER', 'WALLET_FLOW'];
@@ -174,9 +172,12 @@ Return this exact shape with valid values:
 {"approved":true,"confidence":80,"reason":"short","primaryStrategy":"RUNNER_HUNTER","convergenceScore":0.8,"action":"ENTER","strategyScores":{"RUNNER_HUNTER":0.8,"SNIPER":0.2,"SCALPER":0.3,"MIGRATION_HUNTER":0.1,"WALLET_FLOW":0.5},"contradictions":[],"executionProfile":{"entryUrgency":"high","expectedHold":"short_to_medium","exitStyle":"trailing_runner"}}`;
 }
 
-function buildCandidate(index, schema) {
+function buildSyntheticCase(index, schema) {
   const candidates = [
     {
+      id: 'synthetic:runner',
+      category: 'winner_like',
+      acceptableActions: ['ENTER'],
       token: { mint: 'BenchRunner111111111111111111111111111111111', symbol: 'RUN', source: 'pumpportal_new_token', bondingStage: 'mid_curve' },
       market: { liquidityUsd: 22000, minLiquidityUsd: 15000, recentTradeCount: 86, recentBuys: 67, recentSells: 19, recentVolumeSol: 92, tradeVelocityPerMin: 46, buyRatio: 0.7791, tokenAgeSeconds: 240 },
       preMigration: { score: 88, flagged: true, reasons: ['HIGH_TRADE_VELOCITY', 'BUY_PRESSURE', 'CURVE_ADVANCING'], curveProgress: 0.82 },
@@ -184,6 +185,9 @@ function buildCandidate(index, schema) {
       walletFlow: { supportTier: 'TRUSTED_FLOW', learningSignals: ['trusted active rotator touched early'], cautionSignals: [] }
     },
     {
+      id: 'synthetic:watch',
+      category: 'ambiguous',
+      acceptableActions: ['WATCH'],
       token: { mint: 'BenchWatch222222222222222222222222222222222', symbol: 'MID', source: 'pumpportal_trade', bondingStage: 'early_curve' },
       market: { liquidityUsd: 17000, minLiquidityUsd: 15000, recentTradeCount: 32, recentBuys: 18, recentSells: 14, recentVolumeSol: 18, tradeVelocityPerMin: 9, buyRatio: 0.5625, tokenAgeSeconds: 420 },
       preMigration: { score: 66, flagged: true, reasons: ['MIXED_FLOW', 'SLOW_CURVE'], curveProgress: 0.44 },
@@ -191,6 +195,9 @@ function buildCandidate(index, schema) {
       walletFlow: { supportTier: 'MIXED_FLOW', learningSignals: ['some repeated buyers'], cautionSignals: ['one avoid wallet overlap'] }
     },
     {
+      id: 'synthetic:reject',
+      category: 'reject_like',
+      acceptableActions: ['REJECT'],
       token: { mint: 'BenchReject3333333333333333333333333333333', symbol: 'BAD', source: 'pumpportal_new_token', bondingStage: 'early_curve' },
       market: { liquidityUsd: 9000, minLiquidityUsd: 15000, recentTradeCount: 20, recentBuys: 7, recentSells: 13, recentVolumeSol: 8, tradeVelocityPerMin: 6, buyRatio: 0.35, tokenAgeSeconds: 180 },
       preMigration: { score: 41, flagged: false, reasons: ['SELL_PRESSURE', 'LOW_LIQUIDITY'], curveProgress: 0.22 },
@@ -199,32 +206,100 @@ function buildCandidate(index, schema) {
     }
   ];
 
-  const candidate = candidates[index % candidates.length];
-  if (schema !== 'simple') return candidate;
+  const selected = candidates[index % candidates.length];
+  const { id, category, acceptableActions, ...candidate } = selected;
+  if (schema !== 'simple') return { id, category, acceptableActions, candidate };
 
-  return {
+  return { id, category, acceptableActions, candidate: {
     token: candidate.token,
     market: candidate.market,
     preMigration: candidate.preMigration,
     deterministicSignal: candidate.deterministicSignal,
     walletSupportTier: candidate.walletFlow.supportTier,
     walletCautions: candidate.walletFlow.cautionSignals
+  } };
+}
+
+function replayCaseToBenchmarkCase(item, schema) {
+  const signal = item.deterministicSignal || {};
+  const category = String(item.category || 'unknown');
+  const acceptableActions = category === 'winner'
+    ? ['ENTER']
+    : ['WATCH', 'REJECT'];
+  const fullCandidate = {
+    token: {
+      mint: item.token || null,
+      symbol: null,
+      source: signal.source || 'unknown',
+      bondingStage: null
+    },
+    market: {
+      liquidityUsd: null,
+      recentTradeCount: null,
+      recentVolumeSol: null,
+      tradeVelocityPerMin: null,
+      buyRatio: null
+    },
+    preMigration: null,
+    deterministicSignal: {
+      action: 'BUY',
+      amountSol: signal.amountSol ?? 0,
+      qualityScore: signal.qualityScore ?? 0,
+      momentumScore: signal.momentumScore ?? 0,
+      rankScore: signal.rankScore ?? 0,
+      reasoning: 'Historical candidate reconstructed from decision-time telemetry.'
+    }
+  };
+
+  const candidate = schema === 'simple'
+    ? {
+        token: fullCandidate.token,
+        market: fullCandidate.market,
+        preMigration: fullCandidate.preMigration,
+        deterministicSignal: fullCandidate.deterministicSignal,
+        walletSupportTier: null,
+        walletCautions: []
+      }
+    : fullCandidate;
+
+  return {
+    id: item.id || `replay:${item.runStamp || 'unknown'}:${item.token || 'unknown'}`,
+    category,
+    acceptableActions,
+    candidate,
+    labelSource: category === 'winner' || category === 'loser'
+      ? 'realized_paper_outcome'
+      : 'historical_deterministic_rejection'
   };
 }
 
-function buildPrompt(iteration, schema) {
-  return `Review this Spectre runtime candidate. Return JSON only.\n\nCandidate JSON:\n${JSON.stringify(buildCandidate(iteration, schema))}`;
+function loadReplayCases(filePath, schema) {
+  if (!filePath) return [];
+  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  return (Array.isArray(parsed.cases) ? parsed.cases : [])
+    .map((item) => replayCaseToBenchmarkCase(item, schema));
 }
 
-async function callOllama({ host, model, timeoutMs, iteration, numPredict, useJsonMode, schema }) {
+function benchmarkCaseAt(iteration, schema, replayCases = []) {
+  if (replayCases.length) return replayCases[iteration % replayCases.length];
+  return buildSyntheticCase(iteration, schema);
+}
+
+function buildPrompt(benchmarkCase) {
+  return `Review this Spectre runtime candidate. Return JSON only.\n\nCandidate JSON:\n${JSON.stringify(benchmarkCase.candidate)}`;
+}
+
+async function callOllama({ host, model, timeoutMs, benchmarkCase, numPredict, useJsonMode, schema, keepAlive }) {
   const startedAt = Date.now();
   const body = {
     model,
     stream: false,
     messages: [
       { role: 'system', content: buildSystemPrompt(schema) },
-      { role: 'user', content: buildPrompt(iteration, schema) }
+      { role: 'user', content: buildPrompt(benchmarkCase) }
     ],
+    think: false,
+    keep_alive: keepAlive,
     options: {
       temperature: 0,
       num_predict: numPredict
@@ -259,7 +334,13 @@ async function warmupModel(model, options) {
   for (let i = 0; i < attempts; i += 1) {
     const startedAt = Date.now();
     try {
-      await callOllama({ ...options, model, timeoutMs: options.warmupTimeoutMs, iteration: i, numPredict: Math.min(options.numPredict, 96) });
+      await callOllama({
+        ...options,
+        model,
+        timeoutMs: options.warmupTimeoutMs,
+        benchmarkCase: benchmarkCaseAt(i, options.schema, options.replayCases),
+        numPredict: Math.min(options.numPredict, 96)
+      });
       const latencyMs = Date.now() - startedAt;
       warmups.push({ ok: true, latencyMs });
       console.log(`${model} warmup ${i + 1}/${attempts}: ok ${latencyMs}ms`);
@@ -278,9 +359,14 @@ async function benchmarkModel(model, options) {
   const runs = [];
 
   for (let iteration = 0; iteration < options.runs; iteration += 1) {
+    const benchmarkCase = benchmarkCaseAt(iteration, options.schema, options.replayCases);
     const result = {
       iteration,
       model,
+      caseId: benchmarkCase.id,
+      category: benchmarkCase.category,
+      acceptableActions: benchmarkCase.acceptableActions,
+      labelSource: benchmarkCase.labelSource || 'synthetic_preregistered',
       ok: false,
       validJson: false,
       schemaValid: false,
@@ -293,7 +379,7 @@ async function benchmarkModel(model, options) {
     };
 
     try {
-      const response = await callOllama({ ...options, model, iteration });
+      const response = await callOllama({ ...options, model, benchmarkCase });
       Object.assign(result, {
         latencyMs: response.latencyMs,
         tokPerSec: response.tokPerSec,
@@ -308,6 +394,9 @@ async function benchmarkModel(model, options) {
       const parsed = extractJsonObject(response.text);
       result.validJson = true;
       result.action = parsed.action || null;
+      result.decisionMatch = benchmarkCase.acceptableActions.includes(result.action);
+      result.falseVeto = ['winner', 'winner_like'].includes(benchmarkCase.category) && result.action !== 'ENTER';
+      result.unsafeEnter = !['winner', 'winner_like'].includes(benchmarkCase.category) && result.action === 'ENTER';
       result.schemaErrors = validateSchema(parsed, options.schema);
       result.schemaValid = result.schemaErrors.length === 0;
       result.ok = result.validJson && result.schemaValid && !result.extraCommentary;
@@ -335,6 +424,18 @@ function summarizeModel(model, runs, warmups = []) {
   const schemaValidCount = runs.filter((run) => run.schemaValid).length;
   const timeoutCount = runs.filter((run) => String(run.error || '').startsWith('TIMEOUT')).length;
   const extraCommentaryCount = runs.filter((run) => run.extraCommentary).length;
+  const scoredRuns = runs.filter((run) => run.schemaValid && Array.isArray(run.acceptableActions));
+  const decisionMatchCount = scoredRuns.filter((run) => run.decisionMatch).length;
+  const winnerRuns = scoredRuns.filter((run) => ['winner', 'winner_like'].includes(run.category));
+  const nonWinnerRuns = scoredRuns.filter((run) => !['winner', 'winner_like'].includes(run.category));
+  const falseVetoCount = winnerRuns.filter((run) => run.action !== 'ENTER').length;
+  const unsafeEnterCount = nonWinnerRuns.filter((run) => run.action === 'ENTER').length;
+  const actionsByCase = new Map();
+  for (const run of scoredRuns) {
+    if (!actionsByCase.has(run.caseId)) actionsByCase.set(run.caseId, new Set());
+    actionsByCase.get(run.caseId).add(run.action);
+  }
+  const inconsistentCaseCount = Array.from(actionsByCase.values()).filter((actions) => actions.size > 1).length;
 
   return {
     model,
@@ -352,6 +453,14 @@ function summarizeModel(model, runs, warmups = []) {
       timeoutRate: numberOrNull(timeoutCount / Math.max(runs.length, 1), 4),
       extraCommentaryCount,
       extraCommentaryRate: numberOrNull(extraCommentaryCount / Math.max(runs.length, 1), 4),
+      decisionMatchRate: numberOrNull(decisionMatchCount / Math.max(scoredRuns.length, 1), 4),
+      falseVetoCount,
+      falseVetoRate: numberOrNull(falseVetoCount / Math.max(winnerRuns.length, 1), 4),
+      unsafeEnterCount,
+      unsafeEnterRate: numberOrNull(unsafeEnterCount / Math.max(nonWinnerRuns.length, 1), 4),
+      uniqueCases: actionsByCase.size,
+      inconsistentCaseCount,
+      consistentCaseRate: numberOrNull((actionsByCase.size - inconsistentCaseCount) / Math.max(actionsByCase.size, 1), 4),
       avgLatencyMs: avg(latencies),
       p50LatencyMs: percentile(latencies, 50),
       p95LatencyMs: percentile(latencies, 95),
@@ -375,6 +484,9 @@ function summarizeModel(model, runs, warmups = []) {
 function rankResults(results) {
   return results.slice().sort((a, b) => {
     if (b.summary.okRate !== a.summary.okRate) return b.summary.okRate - a.summary.okRate;
+    if (a.summary.unsafeEnterRate !== b.summary.unsafeEnterRate) return a.summary.unsafeEnterRate - b.summary.unsafeEnterRate;
+    if (a.summary.falseVetoRate !== b.summary.falseVetoRate) return a.summary.falseVetoRate - b.summary.falseVetoRate;
+    if (b.summary.decisionMatchRate !== a.summary.decisionMatchRate) return b.summary.decisionMatchRate - a.summary.decisionMatchRate;
     if (a.summary.timeoutRate !== b.summary.timeoutRate) return a.summary.timeoutRate - b.summary.timeoutRate;
     return (a.summary.p95LatencyMs || Infinity) - (b.summary.p95LatencyMs || Infinity);
   });
@@ -399,6 +511,11 @@ async function main() {
   const outputPath = resolveRepoPath(args.output, DEFAULT_OUTPUT_PATH);
   const keepResponses = args.keepResponses === true || args.keepResponses === 'true';
   const useJsonMode = !toBool(args.noJsonMode || process.env.MODEL_BENCHMARK_DISABLE_JSON_MODE, false);
+  const keepAlive = String(args.keepAlive || process.env.OLLAMA_KEEP_ALIVE || '2h');
+  const replayPath = args.replay
+    ? resolveRepoPath(args.replay)
+    : null;
+  const replayCases = loadReplayCases(replayPath, schema);
 
   console.log('Runtime Model Benchmark');
   console.log(`Host: ${host}`);
@@ -410,12 +527,26 @@ async function main() {
   console.log(`Warmup timeout: ${warmupTimeoutMs}ms`);
   console.log(`Num predict: ${numPredict}`);
   console.log(`Ollama JSON mode: ${useJsonMode ? 'on' : 'off'}`);
+  console.log(`Keep alive: ${keepAlive}`);
+  console.log(`Case source: ${replayCases.length ? `${replayCases.length} replay cases from ${replayPath}` : '3 preregistered synthetic cases'}`);
   console.log('');
 
   const results = [];
   for (const model of models) {
     console.log(`--- ${model} ---`);
-    results.push(await benchmarkModel(model, { host, runs, timeoutMs, warmupRuns, warmupTimeoutMs, numPredict, keepResponses, useJsonMode, schema }));
+    results.push(await benchmarkModel(model, {
+      host,
+      runs,
+      timeoutMs,
+      warmupRuns,
+      warmupTimeoutMs,
+      numPredict,
+      keepResponses,
+      useJsonMode,
+      schema,
+      keepAlive,
+      replayCases
+    }));
     console.log('');
   }
 
@@ -430,6 +561,12 @@ async function main() {
     warmupTimeoutMs,
     numPredict,
     useJsonMode,
+    keepAlive,
+    caseSource: replayCases.length ? 'historical_replay_seed' : 'preregistered_synthetic',
+    replayPath,
+    replayQualityWarning: replayCases.length
+      ? 'Exploratory only: historical full AI packets were not persisted, and rejected cases use prior deterministic decisions as labels.'
+      : null,
     ranking: ranked.map((item, index) => ({ rank: index + 1, model: item.model, ...item.summary })),
     results
   };
@@ -437,12 +574,21 @@ async function main() {
   writeJson(outputPath, report);
   console.log('Ranking:');
   report.ranking.forEach((row) => {
-    console.log(`${row.rank}. ${row.model} ok=${row.okRate} json=${row.validJsonRate} schema=${row.schemaValidRate} timeout=${row.timeoutRate} p95=${row.p95LatencyMs}ms`);
+    console.log(`${row.rank}. ${row.model} ok=${row.okRate} match=${row.decisionMatchRate} falseVeto=${row.falseVetoRate} unsafeEnter=${row.unsafeEnterRate} timeout=${row.timeoutRate} p95=${row.p95LatencyMs}ms`);
   });
   console.log(`\nWrote ${outputPath}`);
 }
 
-main().catch((error) => {
+if (require.main === module) main().catch((error) => {
   console.error(`[ERROR] Runtime model benchmark failed: ${error.message}`);
   process.exit(1);
 });
+
+module.exports = {
+  benchmarkCaseAt,
+  buildSyntheticCase,
+  loadReplayCases,
+  replayCaseToBenchmarkCase,
+  summarizeModel,
+  validateSchema
+};

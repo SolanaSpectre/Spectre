@@ -357,6 +357,21 @@ npm run report:mint -- --mint <MINT>
 
 The mint report reconstructs first/last sightings, curve and score movement, watch flags, pre-migration paper decisions, runner-lane signals/rejections, AI fallback decisions, and continuation verdicts. Use `--all --limitRuns 10` to search recent historical runs instead of only the newest run.
 
+### Local Runtime AI
+
+`npm start` loads the compact JSON-only auditor through `src/simple-runtime-ai-patch.js`. Its model selection order is `SIMPLE_RUNTIME_AI_MODEL`, `RUNTIME_AI_MODEL`, then `OLLAMA_MODEL`. Keep `AI_REQUIRED_FOR_TRADE=false` while evaluating a model in PAPER.
+
+Build a bounded replay seed, benchmark the exact runtime schema, and grade the results with:
+
+```bash
+npm run build:model-benchmark-replay -- --limit 36 --limitPairs 12
+npm run benchmark:runtime-models -- --models qwen2.5:7b-instruct,llama3.1:8b,llama3.2:3b --schema simple --runs 12 --timeoutMs 3000 --warmupTimeoutMs 90000 --output data/reports/runtime-model-benchmark-synthetic-latest.json
+npm run benchmark:runtime-models -- --models qwen2.5:7b-instruct,llama3.1:8b,llama3.2:3b --schema simple --runs 17 --timeoutMs 3000 --warmupTimeoutMs 90000 --replay data/model-benchmark/latest.json --output data/reports/runtime-model-benchmark-replay-latest.json
+npm run report:runtime-model-readiness
+```
+
+The readiness report can nominate a model for a PAPER inline-auditor trial only. This is not shadow mode: `WATCH` and `REJECT` block main-lane PAPER trades, although the pre-migration V4 and runner-watch evidence lanes bypass this review path. It does not prove trading edge or enable live trading. On the local RTX 3070 Ti evaluation, `qwen2.5:7b-instruct` was the only model that cleanly separated the preregistered enter/watch/reject fixtures; use a 90-second warmup allowance because its cold load can exceed 30 seconds.
+
 ### Runner Baseline
 
 The current `RUNNER_HUNTER` paper-trading baseline is:
@@ -376,9 +391,9 @@ MIN_QUALITY_SCORE=0.42
 Important baseline behavior:
 
 - keep the current AI timeout retry and JSON repair logic enabled
-- keep fast runner review enabled for PumpPortal momentum candidates so Hermes receives a compact packet instead of the full doctrine pack during time-sensitive entries
-- keep `AI_TIMEOUT_FALLBACK_ENABLED=true` for paper runs so strong deterministic candidates are not hard-vetoed solely because local Ollama timed out
-- keep `AI_TIMEOUT_FALLBACK_PAPER_ONLY=true` unless we deliberately promote the fallback after paper evidence
+- keep the compact Simple Runtime AI review enabled for PumpPortal momentum candidates so the local model receives a bounded packet instead of the full doctrine pack during time-sensitive entries
+- keep `AI_TIMEOUT_FALLBACK_ENABLED=true` for paper runs so strong deterministic candidates are not hard-vetoed solely because local Ollama review fails; the legacy environment-variable name is retained for compatibility
+- keep `AI_TIMEOUT_FALLBACK_PAPER_ONLY=true` unless we deliberately promote this failure fallback after paper evidence
 - keep the current AI liquidity-above-floor guard behavior enabled
 - keep wallet, Telegram, knowledge-pack, and Rick context enabled
 - do not loosen momentum further unless later evidence clearly points back to it

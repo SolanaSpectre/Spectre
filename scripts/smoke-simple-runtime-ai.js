@@ -84,7 +84,8 @@ async function main() {
   console.log(`OLLAMA_HOST=${config.ollamaHost}`);
   console.log(`OLLAMA_MODEL=${config.ollamaModel}`);
   console.log(`SIMPLE_RUNTIME_AI_ENABLED=${process.env.SIMPLE_RUNTIME_AI_ENABLED || 'true/default'}`);
-  console.log(`SIMPLE_RUNTIME_AI_MODEL=${process.env.SIMPLE_RUNTIME_AI_MODEL || process.env.RUNTIME_AI_MODEL || 'llama3.2:3b/default'}`);
+  const expectedModel = process.env.SIMPLE_RUNTIME_AI_MODEL || process.env.RUNTIME_AI_MODEL || process.env.OLLAMA_MODEL || 'llama3.2:3b';
+  console.log(`SIMPLE_RUNTIME_AI_MODEL=${expectedModel}`);
   console.log('');
 
   const agent = new AIAgent(config, logger);
@@ -102,7 +103,7 @@ async function main() {
     throw new Error('Simple runtime patch did not handle reviewTrade(); result.simpleRuntime missing');
   }
 
-  if (result.simpleRuntime.model !== (process.env.SIMPLE_RUNTIME_AI_MODEL || process.env.RUNTIME_AI_MODEL || 'llama3.2:3b')) {
+  if (result.simpleRuntime.model !== expectedModel) {
     throw new Error(`Unexpected simple runtime model: ${result.simpleRuntime.model}`);
   }
 

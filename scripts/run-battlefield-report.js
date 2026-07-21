@@ -575,6 +575,7 @@ function buildReport(events, dossiers, options = {}) {
   const aiEvents = events.filter((event) => {
     const haystack = JSON.stringify(event);
     return eventType(event).startsWith('ai.')
+      || haystack.includes('AI_FAILURE_FALLBACK')
       || haystack.includes('AI_TIMEOUT_FALLBACK')
       || haystack.includes('AI_REVIEW_TIMEOUT')
       || haystack.includes('AI_REVIEW_FAILED')
@@ -665,8 +666,11 @@ function buildReport(events, dossiers, options = {}) {
       liveExitProfiles: countBy(runnerLiveClosed, (event) => payloadOf(event).liveExitProfile?.profileName || 'unknown'),
       generated: signalGenerated.map(summarizeSignal),
       executed: signalExecuted.map(summarizeSignal),
-      aiTimeoutFallback: uniqueBy(aiEvents
-        .filter((event) => JSON.stringify(event).includes('AI_TIMEOUT_FALLBACK'))
+      aiFailureFallback: uniqueBy(aiEvents
+        .filter((event) => {
+          const serialized = JSON.stringify(event);
+          return serialized.includes('AI_FAILURE_FALLBACK') || serialized.includes('AI_TIMEOUT_FALLBACK');
+        })
         .map((event) => ({
           timestamp: event.timestamp,
           type: eventType(event),
@@ -903,9 +907,9 @@ function printReport(report) {
       console.log(`    ${signal.mint}`);
     }
   }
-  if (report.runnerLane.aiTimeoutFallback.length > 0) {
-    console.log('  AI timeout fallback:');
-    for (const item of report.runnerLane.aiTimeoutFallback) {
+  if (report.runnerLane.aiFailureFallback.length > 0) {
+    console.log('  AI failure fallback:');
+    for (const item of report.runnerLane.aiFailureFallback) {
       console.log(`  ${item.type}: ${item.reason}`);
       if (item.mint) console.log(`    ${item.mint}`);
     }

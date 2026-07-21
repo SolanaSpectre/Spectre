@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const readline = require('readline');
 
 const RUN_LOGS_DIR = path.join(__dirname, '..', 'run-logs');
 const OUTPUT_DIR = path.join(__dirname, '..', 'data', 'model-benchmark');
@@ -79,23 +80,24 @@ function getLogPairs() {
     .sort((a, b) => a.stamp.localeCompare(b.stamp));
 }
 
-function readJsonl(filePath) {
+async function forEachJsonl(filePath, onRow) {
   if (!filePath || !fs.existsSync(filePath)) {
-    return [];
+    return;
   }
 
-  return fs.readFileSync(filePath, 'utf8')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch (error) {
-        return null;
-      }
-    })
-    .filter(Boolean);
+  const input = fs.createReadStream(filePath, { encoding: 'utf8' });
+  const lines = readline.createInterface({ input, crlfDelay: Infinity });
+
+  for await (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    try {
+      onRow(JSON.parse(trimmed));
+    } catch {
+      // A malformed telemetry line should not invalidate the remaining replay seed.
+    }
+  }
 }
 
 function ensureTokenBucket(map, token) {
@@ -137,15 +139,15 @@ function incrementReasonMap(map, reason, payload = {}) {
   map.set(key, existing);
 }
 
-function hydrateTelemetryBuckets(events) {
+async function hydrateTelemetryBuckets(filePath) {
   const tokens = new Map();
 
-  for (const event of events) {
+  await forEachJsonl(filePath, (event) => {
     const type = event.type;
     const payload = event.payload || {};
     const token = payload.token || payload.mint;
     if (!token) {
-      continue;
+      return;
     }
 
     const bucket = ensureTokenBucket(tokens, token);
@@ -160,63 +162,63 @@ function hydrateTelemetryBuckets(events) {
 
     if (type === 'signal.generated' && !bucket.signal) {
       bucket.signal = payload;
-      continue;
+      return;
     }
 
     if (type === 'trade.executed' && !bucket.tradeExecuted) {
       bucket.tradeExecuted = payload;
-      continue;
+      return;
     }
 
     if (type === 'paper.position.closed' && !bucket.paperClosed) {
       bucket.paperClosed = payload;
-      continue;
+      return;
     }
 
     if (type === 'ai.caution' && !bucket.aiCaution) {
       bucket.aiCaution = payload;
-      continue;
+      return;
     }
 
     if (type === 'ai.veto' && !bucket.aiVeto) {
       bucket.aiVeto = payload;
-      continue;
+      return;
     }
 
     if (type === 'trade.rejected') {
       incrementReasonMap(bucket.rejectionReasons, payload.reason, payload);
-      continue;
+      return;
     }
 
     if (type === 'pump.momentum_gate_failed') {
       incrementReasonMap(bucket.pumpFailureReasons, payload.reason, payload);
     }
-  }
+  });
 
   return tokens;
 }
 
-function buildLedgerMaps(events) {
+async function buildLedgerMaps(filePath) {
   const entries = new Map();
   const exits = new Map();
 
-  for (const event of events) {
+  await forEachJsonl(filePath, (event) => {
     const type = event.type;
     const payload = event.payload || {};
     const token = payload.token;
     if (!token) {
-      continue;
+      return;
     }
 
     if (type === 'trade.entry' && !entries.has(token)) {
       entries.set(token, payload);
-      continue;
+      return;
     }
 
     if (type === 'trade.exit' && !exits.has(token)) {
       exits.set(token, payload);
     }
-  }
+  });
 
   return { entries, exits };
 }
@@ -362,15 +364,13 @@ function pickBalancedCases(tradeCases, rejectedCases, limit) {
     .sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')));
 }
 
-function buildReplaySeed(pairs, limit) {
+async function buildReplaySeed(pairs, limit) {
   const tradeCases = [];
   const rejectedCases = [];
 
   for (const pair of pairs) {
-    const telemetryEvents = readJsonl(pair.telemetryPath);
-    const ledgerEvents = readJsonl(pair.ledgerPath);
-    const telemetryBuckets = hydrateTelemetryBuckets(telemetryEvents);
-    const { entries, exits } = buildLedgerMaps(ledgerEvents);
+    const telemetryBuckets = await hydrateTelemetryBuckets(pair.telemetryPath);
+    const { entries, exits } = await buildLedgerMaps(pair.ledgerPath);
 
     for (const [token, bucket] of telemetryBuckets.entries()) {
       const ledgerEntry = entries.get(token) || null;
@@ -425,16 +425,20 @@ function buildReplaySeed(pairs, limit) {
   };
 }
 
-function main() {
+async function main() {
   const args = parseArgs(process.argv.slice(2));
   const limit = clamp(parseInt(args.limit || args._[0] || '36', 10), 12, 80);
-  const pairs = getLogPairs();
+  const allPairs = getLogPairs();
+  const limitPairs = clamp(parseInt(args.limitPairs || '12', 10), 1, 100);
+  const pairs = allPairs.slice(-limitPairs);
 
   if (pairs.length === 0) {
     throw new Error('No run-log pairs found.');
   }
 
-  const payload = buildReplaySeed(pairs, limit);
+  const payload = await buildReplaySeed(pairs, limit);
+  payload.logPairsAvailable = allPairs.length;
+  payload.logPairsScanned = pairs.length;
 
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -451,9 +455,7 @@ function main() {
   );
 }
 
-try {
-  main();
-} catch (error) {
+main().catch((error) => {
   console.error(`Failed to build model benchmark replay seed: ${error.message}`);
   process.exit(1);
-}
+});

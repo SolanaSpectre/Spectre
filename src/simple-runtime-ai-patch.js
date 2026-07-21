@@ -4,10 +4,12 @@ const crypto = require('crypto');
 
 const ORIGINAL_LOAD = Module._load;
 const ENABLED = process.env.SIMPLE_RUNTIME_AI_ENABLED !== 'false';
-const RUNTIME_MODEL = process.env.SIMPLE_RUNTIME_AI_MODEL || process.env.RUNTIME_AI_MODEL || 'llama3.2:3b';
+const RUNTIME_MODEL = process.env.SIMPLE_RUNTIME_AI_MODEL || process.env.RUNTIME_AI_MODEL || process.env.OLLAMA_MODEL || 'llama3.2:3b';
 const RUNTIME_TIMEOUT_MS = Number(process.env.SIMPLE_RUNTIME_AI_TIMEOUT_MS || process.env.AI_TIMEOUT_MS || 4000);
 const RUNTIME_NUM_PREDICT = Number(process.env.SIMPLE_RUNTIME_AI_NUM_PREDICT || 80);
 const RUNTIME_CONFIDENCE_ENTER_MIN = Number(process.env.SIMPLE_RUNTIME_AI_ENTER_CONFIDENCE_MIN || 60);
+const PROMPT_VERSION = 'simple_runtime_guard_v2';
+const SCHEMA_VERSION = 'simple_runtime_review_v1';
 
 function mergeNodeOptions() {
   const preloadArg = '--require ./src/simple-runtime-ai-patch.js';
@@ -122,6 +124,10 @@ function attemptId() {
   return `simple_runtime_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+function sha256Text(value) {
+  return crypto.createHash('sha256').update(String(value || ''), 'utf8').digest('hex');
+}
+
 function timeoutError(timeoutMs) {
   const error = new Error(`timeout of ${timeoutMs}ms exceeded`);
   error.code = 'ECONNABORTED';
@@ -230,11 +236,12 @@ function buildSimplePacket(instance, tokenInfo = {}, signal = {}) {
 }
 
 function normalizeSimpleReview(parsed = {}) {
-  const action = normalizeAction(parsed.action);
-  const confidence = clampNumber(parsed.confidence, 0, 100, action === 'ENTER' ? 60 : 35);
-  const risk = normalizeRisk(parsed.risk, action, confidence);
+  const requestedAction = normalizeAction(parsed.action);
+  const confidence = clampNumber(parsed.confidence, 0, 100, 0);
+  const risk = normalizeRisk(parsed.risk, requestedAction, confidence);
+  const approved = requestedAction === 'ENTER' && confidence >= RUNTIME_CONFIDENCE_ENTER_MIN && risk !== 'HIGH';
+  const action = requestedAction === 'ENTER' && !approved ? 'WATCH' : requestedAction;
   const reason = String(parsed.reason || `AI_${action}`).trim().slice(0, 96) || `AI_${action}`;
-  const approved = action === 'ENTER' && confidence >= RUNTIME_CONFIDENCE_ENTER_MIN && risk !== 'HIGH';
   const riskPenalty = risk === 'LOW' ? 0 : risk === 'MEDIUM' ? 0.15 : 0.35;
   const convergenceScore = Number(Math.max(0, Math.min(1, (confidence / 100) - riskPenalty)).toFixed(4));
 
@@ -260,13 +267,14 @@ function normalizeSimpleReview(parsed = {}) {
     },
     simpleRuntime: {
       model: RUNTIME_MODEL,
-      risk
+      risk,
+      requestedAction
     }
   };
 }
 
-async function callSimpleRuntimeReview(instance, tokenInfo, signal) {
-  const packet = buildSimplePacket(instance, tokenInfo, signal);
+async function callSimpleRuntimeReview(instance, tokenInfo, signal, packet = null) {
+  const reviewPacket = packet || buildSimplePacket(instance, tokenInfo, signal);
   const response = await postWithHardTimeout(instance.apiEndpoint, {
     model: RUNTIME_MODEL,
     stream: false,
@@ -275,7 +283,7 @@ async function callSimpleRuntimeReview(instance, tokenInfo, signal) {
     keep_alive: instance.config?.ollamaKeepAlive || '30m',
     messages: [
       { role: 'system', content: simpleSystemPrompt() },
-      { role: 'user', content: `Review this Spectre runtime candidate. Return JSON only.\n\nCandidate JSON:\n${JSON.stringify(packet)}` }
+      { role: 'user', content: `Review this Spectre runtime candidate. Return JSON only.\n\nCandidate JSON:\n${JSON.stringify(reviewPacket)}` }
     ],
     options: {
       temperature: 0,
@@ -286,7 +294,16 @@ async function callSimpleRuntimeReview(instance, tokenInfo, signal) {
   }, RUNTIME_TIMEOUT_MS);
 
   const text = response.data?.message?.content || response.data?.response || '';
-  return normalizeSimpleReview(extractJsonObject(text));
+  const rawResponseHash = sha256Text(text);
+  try {
+    return {
+      review: normalizeSimpleReview(extractJsonObject(text)),
+      rawResponseHash
+    };
+  } catch (error) {
+    error.rawResponseHash = rawResponseHash;
+    throw error;
+  }
 }
 
 function patchAIAgent(AIAgent) {
@@ -295,14 +312,17 @@ function patchAIAgent(AIAgent) {
   class SimpleRuntimeAIAgent extends AIAgent {
     constructor(config, logger) {
       super(config, logger);
-      if (process.env.SIMPLE_RUNTIME_AI_MODEL || process.env.RUNTIME_AI_MODEL || process.env.OLLAMA_MODEL === undefined) {
-        this.model = RUNTIME_MODEL;
-      }
+      this.model = RUNTIME_MODEL;
     }
 
     async warmup() {
       if (!ENABLED) return super.warmup();
       const startedAt = Date.now();
+      const warmupTimeoutMs = Number(
+        process.env.SIMPLE_RUNTIME_AI_WARMUP_TIMEOUT_MS ||
+        this.config?.aiWarmupTimeoutMs ||
+        90000
+      );
       try {
         await postWithHardTimeout(this.apiEndpoint, {
           model: RUNTIME_MODEL,
@@ -316,8 +336,8 @@ function patchAIAgent(AIAgent) {
           ],
           options: { temperature: 0, num_predict: 48 }
         }, {
-          timeout: Number(process.env.SIMPLE_RUNTIME_AI_WARMUP_TIMEOUT_MS || 20000)
-        }, Number(process.env.SIMPLE_RUNTIME_AI_WARMUP_TIMEOUT_MS || 20000));
+          timeout: warmupTimeoutMs
+        }, warmupTimeoutMs);
         this.logger.info(`Simple runtime AI warmed: ${RUNTIME_MODEL} (${Date.now() - startedAt}ms)`);
         return true;
       } catch (error) {
@@ -342,6 +362,8 @@ function patchAIAgent(AIAgent) {
       const id = attemptId();
       const startedAt = Date.now();
       const attemptType = options.lightweight ? 'lightweight_retry' : 'primary';
+      const packet = buildSimplePacket(this, tokenInfo, signal);
+      const packetJson = JSON.stringify(packet);
       const baseTelemetry = {
         attemptId: id,
         signalId: signal?.id || signal?.signalId || null,
@@ -350,33 +372,43 @@ function patchAIAgent(AIAgent) {
         source: tokenInfo?.source || signal?.source || 'unknown',
         attemptType,
         model: RUNTIME_MODEL,
+        promptVersion: PROMPT_VERSION,
+        promptHash: sha256Text(simpleSystemPrompt()),
+        schemaVersion: SCHEMA_VERSION,
+        packetHash: sha256Text(packetJson),
+        packet,
         timeoutMs: RUNTIME_TIMEOUT_MS,
         outerTimeoutMs: Number(this.config?.aiTimeoutMs || 0) || null
       };
+      const terminalTelemetry = { ...baseTelemetry };
+      delete terminalTelemetry.packet;
       emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_started', baseTelemetry);
 
       try {
-        const result = await callSimpleRuntimeReview(this, tokenInfo, signal);
+        const { review: result, rawResponseHash } = await callSimpleRuntimeReview(this, tokenInfo, signal, packet);
         const latencyMs = Date.now() - startedAt;
         emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_completed', {
-          ...baseTelemetry,
+          ...terminalTelemetry,
           latencyMs,
           action: result.action || null,
           approved: result.approved === true,
           confidence: result.confidence ?? null,
           risk: result.simpleRuntime?.risk || null,
           reason: result.reason || null,
-          convergenceScore: result.convergenceScore ?? null
+          convergenceScore: result.convergenceScore ?? null,
+          rawResponseHash,
+          normalizedReview: result
         });
         this.logger.info(`Simple runtime AI review ${result.action} ${result.confidence}% ${result.simpleRuntime.risk} (${Date.now() - startedAt}ms)`);
         return result;
       } catch (error) {
         const failure = classifyRuntimeError(error);
         emitSimpleRuntimeTelemetry(this, 'simple_runtime_ai.review_failed', {
-          ...baseTelemetry,
+          ...terminalTelemetry,
           latencyMs: Date.now() - startedAt,
           failureType: failure.failureType,
           reason: failure.reason,
+          rawResponseHash: error.rawResponseHash || null,
           errorMessage: error.message,
           errorCode: error.code || null,
           httpStatus: Number(error?.response?.status || 0) || null
@@ -427,3 +459,11 @@ if (ENABLED) {
     return loaded;
   };
 }
+
+module.exports = {
+  PROMPT_VERSION,
+  SCHEMA_VERSION,
+  buildSimplePacket,
+  normalizeSimpleReview,
+  sha256Text
+};

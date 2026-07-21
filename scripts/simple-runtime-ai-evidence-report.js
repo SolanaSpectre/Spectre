@@ -96,6 +96,11 @@ function collectTelemetryEvidence() {
           source: payload.source || null,
           attemptType: payload.attemptType || null,
           model: payload.model || null,
+          promptVersion: payload.promptVersion || null,
+          promptHash: payload.promptHash || null,
+          schemaVersion: payload.schemaVersion || null,
+          packetHash: payload.packetHash || null,
+          packet: payload.packet || null,
           timeoutMs: num(payload.timeoutMs),
           outerTimeoutMs: num(payload.outerTimeoutMs),
           latencyMs: num(payload.latencyMs),
@@ -104,6 +109,8 @@ function collectTelemetryEvidence() {
           confidence: num(payload.confidence),
           risk: payload.risk || null,
           reason: payload.reason || null,
+          rawResponseHash: payload.rawResponseHash || null,
+          normalizedReview: payload.normalizedReview || null,
           failureType: payload.failureType || null,
           errorMessage: payload.errorMessage || null
         });
@@ -203,6 +210,32 @@ function buildReport() {
   const positiveConfidenceRows = telemetryRows.filter((row) => num(row.confidence, 0) > 0);
   const uniqueTokens = new Set(telemetryRows.map((row) => row.token).filter(Boolean));
   const filesWithTelemetryEvidence = new Set(telemetryRows.map((row) => row.telemetryPath));
+  const qwenTrialAttempts = attempts.filter((row) => (
+    row.model === 'qwen2.5:7b-instruct' && row.promptVersion === 'simple_runtime_guard_v2'
+  ));
+  const qwenTrialCompleted = qwenTrialAttempts.filter((row) => row.outcome === 'completed');
+  const qwenTrialFailures = qwenTrialAttempts.filter((row) => row.outcome === 'failed');
+  const qwenTrialTimeouts = qwenTrialFailures.filter((row) => row.failureType === 'timeout');
+  const qwenTrialMalformed = qwenTrialFailures.filter((row) => row.failureType === 'malformed_json');
+  const qwenTrialRuns = new Set(qwenTrialAttempts.map((row) => row.telemetryPath));
+  const qwenTrialTimeoutRate = qwenTrialAttempts.length
+    ? qwenTrialTimeouts.length / qwenTrialAttempts.length
+    : 0;
+  const qwenTrialPacketCoverage = qwenTrialAttempts.length
+    ? qwenTrialAttempts.filter((row) => row.packet && row.packetHash).length / qwenTrialAttempts.length
+    : 0;
+  const qwenAbortReasons = [];
+  if (qwenTrialAttempts.length && qwenTrialTimeoutRate > 0.05) qwenAbortReasons.push('TIMEOUT_RATE_GT_5_PERCENT');
+  if (qwenTrialMalformed.length) qwenAbortReasons.push('MALFORMED_JSON_OBSERVED');
+  const qwenTrialEvidenceComplete =
+    qwenTrialCompleted.length >= 50 &&
+    qwenTrialRuns.size >= 2 &&
+    qwenTrialPacketCoverage === 1;
+  const qwenTrialVerdict = qwenAbortReasons.length
+    ? 'ABORT_QWEN_PAPER_TRIAL'
+    : qwenTrialEvidenceComplete
+      ? 'QWEN_PAPER_EVIDENCE_CHECKPOINT_REACHED'
+      : 'COLLECT_QWEN_PAPER_EVIDENCE';
 
   return {
     generatedAt: new Date().toISOString(),
@@ -244,6 +277,26 @@ function buildReport() {
       telemetryReasonCounts: countBy(telemetryRows, (row) => row.reason),
       telemetryRiskCounts: countBy(telemetryRows, (row) => row.risk),
       liveIssueFailureTypeCounts: countBy(liveIssueRows, (row) => row.failureType || row.message)
+    },
+    qwenPaperTrial: {
+      preregisteredBeforeRuntimeEvidence: true,
+      model: 'qwen2.5:7b-instruct',
+      promptVersion: 'simple_runtime_guard_v2',
+      minimumCompletedReviews: 50,
+      minimumPaperRuns: 2,
+      abortIfTimeoutRateAbove: 0.05,
+      abortOnAnyMalformedJson: true,
+      requirePacketEvidenceCoverage: 1,
+      attempts: qwenTrialAttempts.length,
+      completedReviews: qwenTrialCompleted.length,
+      paperRuns: qwenTrialRuns.size,
+      timeoutRate: compact(qwenTrialTimeoutRate, 4),
+      malformedJsonFailures: qwenTrialMalformed.length,
+      packetEvidenceCoverage: compact(qwenTrialPacketCoverage, 4),
+      abortReasons: qwenAbortReasons,
+      verdict: qwenTrialVerdict,
+      scope: 'Main signal lane only. Pre-migration V4 and runner-watch evidence lanes bypass reviewTrade.',
+      liveUse: 'BLOCKED'
     },
     reviewAttempts: attempts,
     reviewLifecycleRows: lifecycleRows,
