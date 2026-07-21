@@ -468,8 +468,8 @@ class TradingEngine {
         executedActionComparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context'
       },
       strategyPreregistration: {
-        id: 'runner_watch_full_coverage_v1_2026-07-18',
-        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v1.json'
+        id: 'runner_watch_full_coverage_v2_2026-07-20',
+        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v2.json'
       },
       replayConfigSnapshot,
       configHash: replayConfigSnapshot.configHash,
@@ -3509,6 +3509,9 @@ class TradingEngine {
 
     this.finalistAccountVerifier?.maybeSubscribe?.(result.state, {
       source: 'pre_migration_watch',
+      reportOnlyDecisionShadowCandidate: this.config.heliusPumpfunShadowEnabled === true
+        && this.config.heliusPumpfunDecisionShadowEnabled !== false
+        && this.executionModeManager?.isPaper?.(),
       flagged: Boolean(result.flagged),
       confirmed: Boolean(result.state.confirmed),
       newlyConfirmed: Boolean(result.newlyConfirmed),
@@ -3594,6 +3597,12 @@ class TradingEngine {
     const portalWalletContext = paperLaneOptions.walletClassificationContext
       || result.state.walletClassificationContext
       || null;
+    const accountVerifierStatus = this.finalistAccountVerifier?.getSubscriptionStatus?.(result.state.mint) || {
+      subscribed: false,
+      hasUpdate: false,
+      selectionClass: null,
+      lastUpdateAt: null
+    };
     const snapshot = this.heliusDecisionShadowState.snapshot({
       portalToken,
       portalState: result.state,
@@ -3654,6 +3663,9 @@ class TradingEngine {
         shadowTradeStateAgeMs: snapshot.tradeStateAgeMs ?? null,
         shadowRecentTapeCaptured: snapshot.recentTapeCaptured === true,
         shadowRecentTradeCap: snapshot.recentTradeCap ?? null,
+        accountVerifierSubscribed: accountVerifierStatus.subscribed === true,
+        accountVerifierHasUpdate: accountVerifierStatus.hasUpdate === true,
+        accountVerifierSelectionClass: accountVerifierStatus.selectionClass,
         actualDecision: actual.payload?.decision || null,
         actualAction,
         actualReason: actual.payload?.reason || null,
@@ -3710,6 +3722,9 @@ class TradingEngine {
         shadowTradeStateAgeMs: snapshot.tradeStateAgeMs ?? null,
         shadowRecentTapeCaptured: snapshot.recentTapeCaptured === true,
         shadowRecentTradeCap: snapshot.recentTradeCap ?? null,
+        accountVerifierSubscribed: accountVerifierStatus.subscribed === true,
+        accountVerifierHasUpdate: accountVerifierStatus.hasUpdate === true,
+        accountVerifierSelectionClass: accountVerifierStatus.selectionClass,
         actionAgreement: comparable ? counterfactual?.wouldExecute === true : null,
         actualReason,
         shadowAction: counterfactual?.action || null,

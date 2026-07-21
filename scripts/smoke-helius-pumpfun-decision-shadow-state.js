@@ -78,6 +78,33 @@ assert.strictEqual(accountEnriched.state.curveProgress, 0.72);
 assert.strictEqual(accountEnriched.state.recentTradeCount, 0);
 assert.strictEqual(accountEnriched.recentTapeCaptured, false);
 
+const olderAccount = state.snapshot({
+  portalToken: { mint: 'DecisionMint' },
+  portalState: { mint: 'DecisionMint', score: 70 },
+  accountState: {
+    receivedAtMs: Date.parse('2026-07-20T01:00:15.000Z'),
+    curveProgress: 0.9,
+    priceSol: 0.000003
+  },
+  timestamp: '2026-07-20T01:00:25.000Z'
+});
+assert.strictEqual(olderAccount.accountEnriched, false);
+assert.strictEqual(olderAccount.curveStateSource, 'helius_pump_trade_event_virtual_token_reserves');
+assert.strictEqual(olderAccount.state.curveProgress, 0.58);
+
+const futureAccount = state.snapshot({
+  portalToken: { mint: 'DecisionMint' },
+  portalState: { mint: 'DecisionMint', score: 70 },
+  accountState: {
+    receivedAtMs: Date.parse('2026-07-20T01:00:30.000Z'),
+    curveProgress: 0.99,
+    priceSol: 0.000004
+  },
+  timestamp: '2026-07-20T01:00:25.000Z'
+});
+assert.strictEqual(futureAccount.accountEnriched, false);
+assert.strictEqual(futureAccount.state.curveProgress, 0.58);
+
 state.ingestPortalTradeIdentity({
   mint: 'DecisionMint',
   signature: 'aliased-signature',
@@ -103,6 +130,47 @@ const aliased = state.snapshot({
 });
 assert.deepStrictEqual(aliased.walletContext.wallets.map((row) => row.wallet), ['PortalRuntimeWallet']);
 assert.strictEqual(aliased.walletContext.portalSignatureAliasTradeCount, 1);
+
+const rewrite = new HeliusDecisionShadowState({ pumpMomentumWindowMs: 60_000 });
+rewrite.ingest('provider.helius_pumpfun.shadow_trade', {
+  mint: 'RewriteMint',
+  signature: 'rewrite-signature',
+  receivedAt: '2026-07-20T01:02:00.000Z',
+  txType: 'buy',
+  solAmount: 0.5,
+  traderPublicKey: 'OriginalEventUser',
+  curveProgress: 0.5,
+  priceSol: 0.000001,
+  pairBase: 'SOL'
+});
+rewrite.ingestPortalTradeIdentity({
+  mint: 'RewriteMint',
+  signature: 'rewrite-signature',
+  trader: 'LatePortalRuntimeWallet',
+  receivedAt: '2026-07-20T01:02:00.100Z'
+});
+const rewritten = rewrite.snapshot({
+  portalToken: { mint: 'RewriteMint' },
+  portalState: { mint: 'RewriteMint' },
+  timestamp: '2026-07-20T01:02:01.000Z',
+  resolveWallet: (wallet) => ({ watched: wallet === 'LatePortalRuntimeWallet' })
+});
+assert.deepStrictEqual(rewritten.walletContext.wallets.map((row) => row.wallet), ['LatePortalRuntimeWallet']);
+assert.strictEqual(rewritten.walletContext.portalSignatureAliasTradeCount, 1);
+
+const accountOnly = new HeliusDecisionShadowState({ pumpMomentumWindowMs: 60_000 }).snapshot({
+  portalToken: { mint: 'AccountOnlyMint' },
+  portalState: { mint: 'AccountOnlyMint' },
+  accountState: {
+    receivedAtMs: Date.parse('2026-07-20T01:03:00.000Z'),
+    curveProgress: 0.42,
+    priceSol: 0.000001
+  },
+  timestamp: '2026-07-20T01:03:00.500Z'
+});
+assert.strictEqual(accountOnly.available, true);
+assert.strictEqual(accountOnly.accountEnriched, true);
+assert.strictEqual(accountOnly.state.recentTradeCount, 0);
 
 const capped = new HeliusDecisionShadowState({ pumpMomentumWindowMs: 60_000 });
 for (let index = 0; index < 250; index += 1) {

@@ -1,16 +1,19 @@
 {
   "schemaVersion": 1,
-  "id": "runner_watch_full_coverage_v1_2026-07-18",
-  "preregisteredAt": "2026-07-18T01:28:22.1008379-05:00",
-  "amendedBeforeFirstValidRunAt": "2026-07-18T08:46:05.7433538-05:00",
-  "amendmentReason": "Measure targeted-tape blind spots and require runtime bonding-curve RPC at startup after an interrupted preflight exposed a disabled private override; no eligible run or strategy evidence existed, and strategy gates plus the subscription band are unchanged.",
-  "status": "SUPERSEDED_ZERO_VALID_RUNS",
-  "supersededAt": "2026-07-20T22:04:11.2558352-05:00",
-  "supersededBy": "runner_watch_full_coverage_v2_2026-07-20",
-  "terminalDisposition": "PARKED_BUDGET_INCOMPATIBLE_ZERO_VALID_RUNS",
+  "id": "runner_watch_full_coverage_v2_2026-07-20",
+  "preregisteredAt": "2026-07-20T22:04:11.2558352-05:00",
+  "status": "PREREGISTERED_BEFORE_FIRST_VALID_RUN",
   "mode": "paper_only",
   "liveBehaviorChanged": false,
   "question": "Under full paid-tape coverage, does PRE_MIGRATION_RUNNER_WATCH produce at least one independent mint episode per covered hour, and do its realizable runtime outcomes remain durable rather than top-heavy?",
+  "supersedes": {
+    "id": "runner_watch_full_coverage_v1_2026-07-18",
+    "disposition": "PARKED_BUDGET_INCOMPATIBLE_ZERO_VALID_RUNS",
+    "acceptedEvidenceReuseAllowed": false,
+    "v1LedgerRuns": 9,
+    "v1ValidRuns": 0,
+    "reason": "V1 froze a 30000-event budget while the separately pre-registered Helius V4 full-hour comparator requires 72000 events. V2 aligns procurement before either experiment's next run; strategy gates, exits, episode identity, and economic bars are unchanged."
+  },
   "subscriptionPlan": {
     "mode": "targeted_curve",
     "freeInputsOnly": [
@@ -19,8 +22,8 @@
     ],
     "minCurveProgressInclusive": 0.25,
     "maxCurveProgressExclusive": 0.9,
-    "paidEventBudgetPerSession": 30000,
-    "estimatedMaximumChargeSol": 0.03,
+    "paidEventBudgetPerSession": 72000,
+    "estimatedMaximumChargeSol": 0.072,
     "tokenTradeSubscriptionTtlMs": 1800000,
     "belowBandRpcRecheckMaxAgeMs": 180000,
     "belowBandRpcRecheckCadenceMs": 15000,
@@ -60,6 +63,7 @@
     "No live broadcast enablement from this experiment.",
     "No entry-gate or exit-rule changes while evidence is collecting.",
     "No grading on MFE, maximum excursion, or duplicate same-mint reentries.",
+    "V1 excluded runs cannot count as V2 evidence.",
     "Any changed curve floor, budget, entry logic, or exit logic starts a new pre-registration."
   ]
 }

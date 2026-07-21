@@ -1,6 +1,8 @@
 {
   "id": "helius_pumpfun_decision_divergence_v4_2026-07-20",
   "frozenAt": "2026-07-20T21:21:36.0543428-05:00",
+  "amendedBeforeFirstV4RunAt": "2026-07-20T22:04:11.2558352-05:00",
+  "amendmentReason": "A zero-cost V3 overlap check found that only 2002/2887 stale evaluation rows (69.35%) had an active finalist-verifier subscription. Even perfect freshness on those rows would project only about 80.46% total comparable coverage, below V4's frozen 90% floor. Before any V4 run, report-only subscriptions were therefore broadened to every decision-shadow candidate; population, freshness, agreement bars, strategy behavior, and budget are unchanged.",
   "mode": "paper_only_report_only_semantically_aligned_counterfactual",
   "question": "After account-state enrichment, Portal-window normalization, and same-signature wallet aliasing, would the unchanged paper lane make the same gate and executed-action choices from Helius state at the same decision instant?",
   "oracle": "PumpPortal remains the sole runtime decision input; Helius and account-state enrichment remain report-only.",
@@ -30,6 +32,19 @@
     ],
     "walletIdentity": "For matching signatures, use the PumpPortal trader identity so the counterfactual reproduces Portal's runtime wallet semantics; otherwise retain the on-chain Helius TradeEvent user and report alias coverage.",
     "strategyConsumptionAllowed": false
+  },
+  "accountVerifierSelection": {
+    "policy": "Subscribe every paper mint that reaches the Helius decision-shadow comparison.",
+    "selectionClass": "decision_shadow_candidate",
+    "reportOnly": true,
+    "v3OfflineOverlap": {
+      "sourceTelemetry": "run-logs/telemetry-2026-07-20T23-00-23-045Z.jsonl",
+      "staleEvaluationRows": 2887,
+      "staleUniqueMints": 301,
+      "staleRowsWhileSubscriptionActive": 2002,
+      "activeSubscriptionRowRate": 0.6934534118462071,
+      "projectedMaximumComparableCoverageWithoutBroadening": 0.804607157548334
+    }
   },
   "paidTapePlan": {
     "tradeSubscriptionMode": "targeted_curve",

@@ -8,7 +8,7 @@ const { analyzeEvents } = require('./helius-pumpfun-decision-divergence-report')
 const sourceTelemetry = 'run-logs/synthetic-decision-shadow.jsonl';
 const events = [{
   type: 'session.started',
-    timestamp: '2026-07-21T03:00:00.000Z',
+    timestamp: '2026-07-21T03:10:00.000Z',
   payload: {
     mode: 'PAPER',
     pumpPortalPaidTapePlan: {
@@ -33,7 +33,7 @@ const events = [{
 for (let index = 0; index < 500; index += 1) {
   events.push({
     type: 'helius_pumpfun.decision_shadow.evaluation',
-    timestamp: new Date(Date.parse('2026-07-21T03:00:01.000Z') + index).toISOString(),
+    timestamp: new Date(Date.parse('2026-07-21T03:10:01.000Z') + index).toISOString(),
     payload: {
       preregistrationId: preregistration.id,
       comparable: true,
@@ -54,7 +54,7 @@ for (let index = 0; index < 500; index += 1) {
 for (const action of ['ENTRY', 'EXIT']) {
   events.push({
     type: 'helius_pumpfun.decision_shadow.executed_action',
-    timestamp: '2026-07-21T03:10:00.000Z',
+    timestamp: '2026-07-21T03:20:00.000Z',
     payload: {
       preregistrationId: preregistration.id,
       action,
@@ -70,7 +70,7 @@ for (const action of ['ENTRY', 'EXIT']) {
 }
 events.push({
   type: 'session.stopped',
-  timestamp: '2026-07-21T04:00:00.000Z',
+  timestamp: '2026-07-21T04:10:00.000Z',
   payload: { reason: 'SESSION_DURATION_EXCEEDED' }
 });
 

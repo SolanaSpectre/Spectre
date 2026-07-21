@@ -73,6 +73,8 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
   const walletFeatureMatches = walletCharacterized.filter((row) => row.walletComparison.featureAgreement === true);
   const trackedAddressMatches = walletCharacterized.filter((row) => row.walletComparison.trackedAddressAgreement === true);
   const accountEnriched = comparable.filter((row) => row.shadowAccountEnriched === true);
+  const verifierSubscribed = evaluations.filter((row) => row.accountVerifierSubscribed === true);
+  const verifierUpdated = evaluations.filter((row) => row.accountVerifierHasUpdate === true);
   const aliasedWalletTrades = comparable.reduce(
     (sum, row) => sum + Number(row.walletComparison?.helius?.portalSignatureAliasTradeCount || 0),
     0
@@ -95,8 +97,9 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
   const budgetReachedAfterMinutes = Number.isFinite(startMs) && Number.isFinite(budgetReachedMs)
     ? (budgetReachedMs - startMs) / 60_000
     : null;
+  const effectiveRegistrationAt = preregistration.amendedBeforeFirstV4RunAt || preregistration.frozenAt;
   const checks = {
-    postRegistration: Number.isFinite(startMs) && startMs > Date.parse(preregistration.frozenAt),
+    postRegistration: Number.isFinite(startMs) && startMs > Date.parse(effectiveRegistrationAt),
     paperMode: state.sessionStarted?.payload?.mode === 'PAPER',
     decisionShadowEnabled: plan.decisionShadowEnabled === true,
     correctPreregistrationPlan: plan.decisionShadowPreregistrationId === preregistration.id,
@@ -192,6 +195,8 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       walletFeatureMatches: walletFeatureMatches.length,
       trackedAddressMatches: trackedAddressMatches.length,
       accountEnrichedGateEvaluations: accountEnriched.length,
+      accountVerifierSubscribedEvaluations: verifierSubscribed.length,
+      accountVerifierUpdatedEvaluations: verifierUpdated.length,
       portalSignatureAliasedWalletTrades: aliasedWalletTrades,
       rawHeliusEventUserWalletTrades: rawHeliusWalletTrades,
       executedActions: executed.length,

@@ -100,11 +100,13 @@ class FinalistAccountVerifier {
       return false;
     }
 
-    const selectionClass = this.qualifies({
-      ...state,
-      flagged: meta.flagged ?? state.flagged,
-      confirmed: meta.confirmed ?? state.confirmed
-    });
+    const selectionClass = meta.reportOnlyDecisionShadowCandidate === true
+      ? 'decision_shadow_candidate'
+      : this.qualifies({
+        ...state,
+        flagged: meta.flagged ?? state.flagged,
+        confirmed: meta.confirmed ?? state.confirmed
+      });
     if (!selectionClass) return false;
 
     this.pruneExpired('before_subscribe');
@@ -410,6 +412,16 @@ class FinalistAccountVerifier {
   getLatestUpdate(mint) {
     if (!mint) return null;
     return this.subscriptions.get(mint)?.latestUpdate || null;
+  }
+
+  getSubscriptionStatus(mint) {
+    const subscription = mint ? this.subscriptions.get(mint) : null;
+    return {
+      subscribed: Boolean(subscription),
+      hasUpdate: Boolean(subscription?.latestUpdate),
+      selectionClass: subscription?.selectionClass || null,
+      lastUpdateAt: subscription?.lastUpdateAt || null
+    };
   }
 
   evaluateShadowGate(state = {}, meta = {}) {

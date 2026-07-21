@@ -7,11 +7,11 @@ const { forEachJsonlSync } = require('./lib/jsonl');
 const { scanTelemetryCoverage } = require('./lib/paid-tape-coverage-epochs');
 
 const ROOT = path.join(__dirname, '..');
-const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'runner-watch-full-coverage-v1.json');
+const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'runner-watch-full-coverage-v2.json');
 const PAID_TAPE_COVERAGE_PATH = path.join(ROOT, 'data', 'reports', 'paid-tape-coverage-epoch-latest.json');
 const BATTLEFIELD_PATH = path.join(ROOT, 'data', 'reports', 'run-battlefield-latest.json');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'runner-watch-full-coverage-evidence-latest.json');
-const LEDGER_PATH = path.join(ROOT, 'data', 'runner-watch-ledgers', 'full-coverage-v1.jsonl');
+const LEDGER_PATH = path.join(ROOT, 'data', 'runner-watch-ledgers', 'full-coverage-v2.jsonl');
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
@@ -155,6 +155,7 @@ function validateRun(prereg, telemetryPath, run, coverage) {
   const checks = {
     postRegistration: Boolean(run.started?.timestamp && new Date(run.started.timestamp) > new Date(effectiveRegistrationAt)),
     paperMode: run.started?.payload?.mode === 'PAPER',
+    correctStrategyPreregistration: run.started?.payload?.strategyPreregistration?.id === prereg.id,
     requestedDuration: number(run.started?.payload?.sessionDurationMinutes) === requested.requestedRunMinutes,
     targetedMode: plan.tradeSubscriptionMode === expected.mode,
     minCurveProgress: number(plan.targetedMinCurveProgress) === expected.minCurveProgressInclusive,
