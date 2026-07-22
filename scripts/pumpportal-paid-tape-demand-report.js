@@ -221,7 +221,7 @@ function simulateStateAwareMint(state, policy, observedEndMs, maxCurveProgress) 
 }
 
 function simulateStateAwarePolicy(scanned, policy) {
-  const observedEndMs = scanned.coverage.budgetReachedAtMs || timestampMs(scanned.coverage.endAt);
+  const observedEndMs = scanned.coverage.coverageEndedAtMs || timestampMs(scanned.coverage.endAt);
   const maxCurveProgress = Number(scanned.sessionPlan.targetedMaxCurveProgress || 0.9);
   const stateByMint = new Map();
   let observedEvents = 0;
@@ -293,7 +293,7 @@ function firstEligibleAt(state, floor, maxCurveProgress = 0.9) {
 }
 
 function simulatePolicy(scanned, policy) {
-  const observedEndMs = scanned.coverage.budgetReachedAtMs || timestampMs(scanned.coverage.endAt);
+  const observedEndMs = scanned.coverage.coverageEndedAtMs || timestampMs(scanned.coverage.endAt);
   const maxCurveProgress = Number(scanned.sessionPlan.targetedMaxCurveProgress || 0.9);
   let observedEvents = 0;
   let targetedMints = 0;

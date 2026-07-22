@@ -35,6 +35,9 @@ function coverageVerdict(coverage) {
     }
     return 'NO_ACTIVE_TARGETED_PAID_TAPE';
   }
+  if (coverage.coverageEndReason === 'TARGETED_SUBSCRIPTION_REJECTED') {
+    return 'MIXED_COVERAGE_TARGETED_SUBSCRIPTION_REJECTED';
+  }
   return coverage.paidTapeCapped ? 'MIXED_COVERAGE_PAID_TAPE_CAPPED' : 'FULL_SESSION_PAID_TAPE';
 }
 
@@ -47,14 +50,14 @@ function main() {
   const report = {
     generatedAt: new Date().toISOString(),
     mode: 'report_only_paid_tape_coverage_epoch',
-    note: 'Separates strategy evidence collected before the PumpPortal paid-event cap from discovery/RPC-only evidence after the cap.',
+    note: 'Separates strategy evidence collected while PumpPortal targeted tape remained eligible from evidence after a budget cap or subscription rejection.',
     telemetryPath: relativeTelemetryPath,
     verdict: coverageVerdict(coverage),
     coverage: { ...coverage, telemetryPath: relativeTelemetryPath },
     evidencePolicy: {
-      fullPaidTape: 'Decision and complete outcome window occurred before the paid-event cap.',
-      capTruncated: 'Decision occurred before the cap, but the requested outcome window extended beyond it.',
-      discoveryRpcOnly: 'Decision occurred after paid token/account streams were disabled; do not compare it directly with full-tape funnel rates.',
+      fullPaidTape: 'Decision and complete outcome window occurred before the paid-tape coverage endpoint.',
+      coverageTruncated: 'Decision occurred before coverage ended, but the requested outcome window extended beyond it.',
+      discoveryRpcOnly: 'Decision occurred after the budget cap or first rejected targeted subscription; do not compare it directly with full-tape funnel rates.',
       noActiveTargetedTape: 'Targeted mode did not produce acknowledged subscriptions and delivered trades; elapsed session time is not paid-tape coverage.'
     }
   };

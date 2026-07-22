@@ -91,7 +91,7 @@ function buildReport(docs) {
     ? scanTelemetryCoverage(canonicalTelemetryFile)
     : null;
   const shadowCoverageEpochs = paidTapeCoverage
-    ? summarizeRows(flaggedReplayRows, paidTapeCoverage.budgetReachedAtMs, 300)
+    ? summarizeRows(flaggedReplayRows, paidTapeCoverage.coverageEndedAtMs, 300)
     : null;
 
   const observedMints = number(entryFunnel.observedMints);
@@ -166,6 +166,10 @@ function buildReport(docs) {
       runtimeToSimGap,
       paidTapeCoverage: paidTapeCoverage ? {
         paidTapeCapped: paidTapeCoverage.paidTapeCapped,
+        paidTapeCoverageTruncated: paidTapeCoverage.paidTapeCoverageTruncated,
+        coverageEndReason: paidTapeCoverage.coverageEndReason,
+        coverageEndedAt: paidTapeCoverage.coverageEndedAt,
+        targetedTradeSubscriptionRejections: paidTapeCoverage.targetedTradeSubscriptionRejections,
         budgetReachedAt: paidTapeCoverage.budgetReachedAt,
         fullPaidTapeMinutes: paidTapeCoverage.fullPaidTapeMinutes,
         discoveryRpcOnlyMinutes: paidTapeCoverage.discoveryRpcOnlyMinutes,
@@ -175,8 +179,8 @@ function buildReport(docs) {
       liveAction: scorecard.bestAction || 'KEEP_LIVE_DISABLED',
       interpretation: !runnerInputMatches
         ? 'Runner-watch funnel withheld curve60 metrics because its runner-no-entry input belongs to a different telemetry run.'
-        : paidTapeCoverage?.paidTapeCapped
-        ? 'This is a mixed-coverage run. Interpret runtime and shadow funnel rates within their paid-tape epoch; cap-truncated and discovery/RPC-only rows are labeled separately.'
+        : paidTapeCoverage?.paidTapeCoverageTruncated
+        ? 'This is a mixed-coverage run. Interpret runtime and shadow funnel rates within their paid-tape epoch; coverage-truncated and discovery/RPC-only rows are labeled separately.'
         : enteredMints === 0 && simMeasured > 0
         ? 'The next question is why runner-watch confirmation admitted zero runtime entries while report-only shadow/sim paths still found candidates. Treat the sim as a gap to explain, not as permission to loosen gates.'
         : enteredMints === 0

@@ -39,6 +39,13 @@ const rejectedPath = writeTelemetry([
   { type: 'provider.pumpportal.targeted_subscription_rejected', timestamp: '2026-07-19T12:01:00.100Z', payload: { message: 'paid stream unavailable' } },
   stop
 ]);
+const activeThenRejectedPath = writeTelemetry([
+  start,
+  { type: 'provider.pumpportal.targeted_subscription', timestamp: '2026-07-19T12:01:00.000Z', payload: { mint: 'A' } },
+  { type: 'provider.pumpportal.trade', timestamp: '2026-07-19T12:01:01.000Z', payload: { mint: 'A' } },
+  { type: 'provider.pumpportal.targeted_subscription_rejected', timestamp: '2026-07-19T12:40:00.000Z', payload: { message: 'wallet below provider floor' } },
+  { ...stop, payload: { stats: { pumpPortal: { targetedTradeSubscriptionAccepted: 1, targetedTradeSubscriptionAcked: 1, targetedTradeSubscriptionRejected: 1, trades: 1 } } } }
+]);
 
 try {
   const empty = scanTelemetryCoverage(emptyPath);
@@ -65,11 +72,19 @@ try {
   assert.strictEqual(rejected.targetedTradeSubscriptionRejections, 1);
   assert.strictEqual(rejected.fullPaidTapeMinutes, 0);
   assert.strictEqual(coverageVerdict(rejected), 'TARGETED_PAID_TAPE_REJECTED');
+
+  const activeThenRejected = scanTelemetryCoverage(activeThenRejectedPath);
+  assert.strictEqual(activeThenRejected.paidTapeActivated, true);
+  assert.strictEqual(activeThenRejected.coverageEndReason, 'TARGETED_SUBSCRIPTION_REJECTED');
+  assert.strictEqual(activeThenRejected.fullPaidTapeMinutes, 40);
+  assert.strictEqual(activeThenRejected.discoveryRpcOnlyMinutes, 20);
+  assert.strictEqual(coverageVerdict(activeThenRejected), 'MIXED_COVERAGE_TARGETED_SUBSCRIPTION_REJECTED');
 } finally {
   fs.rmSync(emptyPath, { force: true });
   fs.rmSync(activePath, { force: true });
   fs.rmSync(unacknowledgedPath, { force: true });
   fs.rmSync(rejectedPath, { force: true });
+  fs.rmSync(activeThenRejectedPath, { force: true });
 }
 
 console.log('Paid-tape coverage epoch smoke passed');

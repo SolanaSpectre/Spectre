@@ -46,6 +46,27 @@ assert.strictEqual(summary.episodesPerFullCoverageHour, 2);
 assert.strictEqual(summary.economicCheckpointReady, true);
 assert.strictEqual(summary.liveAction, 'KEEP_LIVE_DISABLED');
 
+const correctedSummary = summarizeLedger([
+  {
+    valid: true,
+    telemetryPath: 'run-logs/corrected.jsonl',
+    fullPaidTapeMinutes: 60,
+    pnlSol: 0.025,
+    episodes
+  },
+  {
+    recordType: 'coverage_annotation',
+    telemetryPath: 'run-logs/corrected.jsonl',
+    validOverride: false,
+    failedChecksOverride: ['fullPaidTapeMinutes'],
+    fullPaidTapeMinutesOverride: 40,
+    comparatorCoverage: { coverageEndReason: 'TARGETED_SUBSCRIPTION_REJECTED' }
+  }
+], prereg);
+assert.strictEqual(correctedSummary.validRuns, 0, 'coverage correction must exclude a previously accepted run');
+assert.strictEqual(correctedSummary.excludedRuns, 1);
+assert.strictEqual(correctedSummary.realizedUniqueMintEpisodes, 0);
+
 const telemetryPath = path.join(os.tmpdir(), `spectre-runner-watch-coverage-${process.pid}.jsonl`);
 fs.writeFileSync(telemetryPath, [
   { type: 'provider.pumpportal.targeted_prefilter_first_rpc_observation', timestamp: '2026-07-18T12:00:00.000Z', payload: { mint: 'FAST', symbol: 'FAST', classification: 'ABOVE_BAND' } },

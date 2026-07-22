@@ -183,6 +183,10 @@ function validateRun(prereg, telemetryPath, run, coverage) {
       fullPaidTapeMinutes: coverage.fullPaidTapeMinutes,
       discoveryRpcOnlyMinutes: coverage.discoveryRpcOnlyMinutes,
       paidTapeCapped: coverage.paidTapeCapped,
+      paidTapeCoverageTruncated: coverage.paidTapeCoverageTruncated,
+      coverageEndReason: coverage.coverageEndReason,
+      coverageEndedAt: coverage.coverageEndedAt,
+      targetedTradeSubscriptionRejections: coverage.targetedTradeSubscriptionRejections,
       runtimeRpcCurveErrors: curveErrors,
       rpcTransportFailures: rpcFailures
     }
@@ -216,7 +220,25 @@ function appendCoverageAnnotation(row) {
 
 function summarizeLedger(rows, prereg) {
   const runRows = rows.filter((row) => row.recordType !== 'coverage_annotation');
-  const validRuns = runRows.filter((row) => row.valid);
+  const coverageAnnotations = new Map(
+    rows.filter((row) => row.recordType === 'coverage_annotation' && row.telemetryPath)
+      .map((row) => [row.telemetryPath, row])
+  );
+  const effectiveRunRows = runRows.map((row) => {
+    const annotation = coverageAnnotations.get(row.telemetryPath);
+    if (!annotation) return row;
+    return {
+      ...row,
+      valid: Object.prototype.hasOwnProperty.call(annotation, 'validOverride')
+        ? annotation.validOverride
+        : row.valid,
+      failedChecks: annotation.failedChecksOverride || row.failedChecks,
+      fullPaidTapeMinutes: Number.isFinite(Number(annotation.fullPaidTapeMinutesOverride))
+        ? Number(annotation.fullPaidTapeMinutesOverride)
+        : row.fullPaidTapeMinutes
+    };
+  });
+  const validRuns = effectiveRunRows.filter((row) => row.valid);
   const episodes = validRuns.flatMap((row) => row.episodes.map((episode) => ({ ...episode, telemetryPath: row.telemetryPath })))
     .filter((episode) => episode.exits > 0);
   const pnlValues = episodes.map((episode) => number(episode.pnlSol, 0));
@@ -250,7 +272,7 @@ function summarizeLedger(rows, prereg) {
   return {
     verdict,
     validRuns: validRuns.length,
-    excludedRuns: runRows.length - validRuns.length,
+    excludedRuns: effectiveRunRows.length - validRuns.length,
     realizedUniqueMintEpisodes: episodes.length,
     fullPaidTapeHours: round(fullHours, 4),
     episodesPerFullCoverageHour: round(episodesPerFullCoverageHour, 6),
@@ -283,10 +305,14 @@ function main() {
     fullPaidTapeMinutes: coverage.fullPaidTapeMinutes,
     comparatorCoverage: {
       budgetTruncated: coverage.paidTapeCapped === true,
+      coverageTruncated: coverage.paidTapeCoverageTruncated === true,
+      coverageEndReason: coverage.coverageEndReason || null,
+      coverageEndedAt: coverage.coverageEndedAt || null,
+      targetedTradeSubscriptionRejections: coverage.targetedTradeSubscriptionRejections,
       fullPaidTapeMinutes: coverage.fullPaidTapeMinutes,
       discoveryRpcOnlyMinutes: coverage.discoveryRpcOnlyMinutes,
-      annotation: coverage.paidTapeCapped === true
-        ? 'PumpPortal comparator evidence is limited to the paid-tape epoch; later Helius operation is not comparator-covered.'
+      annotation: coverage.paidTapeCoverageTruncated === true
+        ? `PumpPortal comparator evidence ends at ${coverage.coverageEndReason || 'UNKNOWN_COVERAGE_STOP'}; later operation is not comparator-covered.`
         : 'PumpPortal comparator remained available for the requested evidence window.'
     },
     coverageDiagnostics: run.coverageDiagnostics,
@@ -297,11 +323,14 @@ function main() {
   let appended = false;
   if (validation.checks.postRegistration) ({ rows: ledgerRows, appended } = appendRun(runRow));
   let coverageAnnotationAppended = false;
-  if (validation.checks.postRegistration && coverage.paidTapeCapped === true) {
+  if (validation.checks.postRegistration && coverage.paidTapeCoverageTruncated === true) {
     ({ rows: ledgerRows, appended: coverageAnnotationAppended } = appendCoverageAnnotation({
       recordType: 'coverage_annotation',
       telemetryPath: relative(telemetryPath),
       annotatedAt: new Date().toISOString(),
+      validOverride: validation.valid,
+      failedChecksOverride: validation.failedChecks,
+      fullPaidTapeMinutesOverride: coverage.fullPaidTapeMinutes,
       comparatorCoverage: runRow.comparatorCoverage
     }));
   }

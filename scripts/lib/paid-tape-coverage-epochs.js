@@ -4,6 +4,7 @@ const fs = require('fs');
 
 const EPOCHS = Object.freeze({
   FULL_PAID_TAPE: 'FULL_PAID_TAPE',
+  PAID_TAPE_TRUNCATED: 'PAID_TAPE_TRUNCATED',
   PAID_TAPE_TRUNCATED_BY_CAP: 'PAID_TAPE_TRUNCATED_BY_CAP',
   DISCOVERY_RPC_ONLY: 'DISCOVERY_RPC_ONLY',
   UNKNOWN: 'UNKNOWN'
@@ -27,6 +28,8 @@ function scanTelemetryCoverage(filePath) {
   let targetedTradeSubscriptionsAccepted = 0;
   let targetedTradeSubscriptionAcks = 0;
   let targetedTradeSubscriptionRejections = 0;
+  let targetedTradeSubscriptionRejectedAtMs = null;
+  let targetedTradeSubscriptionRejectionPayload = null;
   let pumpPortalTradeEvents = 0;
   let malformedLines = 0;
   const visit = (rawLine) => {
@@ -46,6 +49,11 @@ function scanTelemetryCoverage(filePath) {
     }
     if (type === 'provider.pumpportal.targeted_subscription_rejected') {
       targetedTradeSubscriptionRejections += 1;
+      if (Number.isFinite(atMs)
+        && (targetedTradeSubscriptionRejectedAtMs === null || atMs < targetedTradeSubscriptionRejectedAtMs)) {
+        targetedTradeSubscriptionRejectedAtMs = atMs;
+        targetedTradeSubscriptionRejectionPayload = payload;
+      }
     }
     if (type === 'provider.pumpportal.trade') {
       pumpPortalTradeEvents += 1;
@@ -87,59 +95,83 @@ function scanTelemetryCoverage(filePath) {
     if (pending.trim()) visit(pending);
   } finally { fs.closeSync(fd); }
   const durationMinutes = Number.isFinite(startMs) && Number.isFinite(endMs) ? (endMs - startMs) / 60000 : null;
-  const uncappedPaidTapeMinutes = Number.isFinite(startMs) && Number.isFinite(budgetReachedAtMs) ? Math.max(0, (budgetReachedAtMs - startMs) / 60000) : durationMinutes;
   const targetedTapeRequired = tradeSubscriptionMode === 'targeted_curve';
   const paidTapeDeliveryQualified = !targetedTapeRequired
     || (targetedTradeSubscriptionsAccepted > 0 && targetedTradeSubscriptionAcks > 0 && pumpPortalTradeEvents > 0);
   const paidTapeActivated = paidTapeDeliveryQualified;
-  const fullPaidTapeMinutes = paidTapeActivated ? uncappedPaidTapeMinutes : 0;
-  const discoveryRpcOnlyMinutes = Number.isFinite(endMs) && Number.isFinite(budgetReachedAtMs) ? Math.max(0, (endMs - budgetReachedAtMs) / 60000) : 0;
+  if (targetedTradeSubscriptionRejections > 0 && !Number.isFinite(targetedTradeSubscriptionRejectedAtMs)) {
+    targetedTradeSubscriptionRejectedAtMs = Number.isFinite(startMs) ? startMs : null;
+  }
+  const coverageStops = [
+    Number.isFinite(budgetReachedAtMs) ? { atMs: budgetReachedAtMs, reason: 'METERED_BUDGET_REACHED' } : null,
+    Number.isFinite(targetedTradeSubscriptionRejectedAtMs)
+      ? { atMs: targetedTradeSubscriptionRejectedAtMs, reason: 'TARGETED_SUBSCRIPTION_REJECTED' }
+      : null
+  ].filter(Boolean).sort((left, right) => left.atMs - right.atMs);
+  const coverageStop = coverageStops[0] || null;
+  const coverageEndedAtMs = coverageStop?.atMs ?? null;
+  const coveredDurationMinutes = Number.isFinite(startMs) && Number.isFinite(coverageEndedAtMs)
+    ? Math.max(0, (coverageEndedAtMs - startMs) / 60000)
+    : durationMinutes;
+  const fullPaidTapeMinutes = paidTapeActivated ? coveredDurationMinutes : 0;
+  const discoveryRpcOnlyMinutes = Number.isFinite(endMs) && Number.isFinite(coverageEndedAtMs)
+    ? Math.max(0, (endMs - coverageEndedAtMs) / 60000)
+    : 0;
   return {
     telemetryPath: filePath,
     startAt: Number.isFinite(startMs) ? new Date(startMs).toISOString() : null,
     endAt: Number.isFinite(endMs) ? new Date(endMs).toISOString() : null,
     durationMinutes: durationMinutes === null ? null : Number(durationMinutes.toFixed(2)),
     paidTapeCapped: budgetReachedAtMs !== null,
+    paidTapeCoverageTruncated: coverageStop !== null,
+    coverageEndReason: coverageStop?.reason || null,
+    coverageEndedAt: coverageEndedAtMs === null ? null : new Date(coverageEndedAtMs).toISOString(),
+    coverageEndedAtMs,
     tradeSubscriptionMode,
     targetedTradeSubscriptionsAccepted,
     targetedTradeSubscriptionAcks,
     targetedTradeSubscriptionRejections,
+    targetedTradeSubscriptionRejectedAt: targetedTradeSubscriptionRejectedAtMs === null
+      ? null
+      : new Date(targetedTradeSubscriptionRejectedAtMs).toISOString(),
+    targetedTradeSubscriptionRejectedAtMs,
+    targetedTradeSubscriptionRejectionPayload,
     pumpPortalTradeEvents,
     paidTapeDeliveryQualified,
     paidTapeActivated,
     budgetReachedAt: budgetReachedAtMs === null ? null : new Date(budgetReachedAtMs).toISOString(),
     budgetReachedAtMs,
     fullPaidTapeMinutes: fullPaidTapeMinutes === null ? null : Number(fullPaidTapeMinutes.toFixed(2)),
-    potentialFullPaidTapeMinutes: uncappedPaidTapeMinutes === null ? null : Number(uncappedPaidTapeMinutes.toFixed(2)),
+    potentialFullPaidTapeMinutes: durationMinutes === null ? null : Number(durationMinutes.toFixed(2)),
     discoveryRpcOnlyMinutes: Number(discoveryRpcOnlyMinutes.toFixed(2)),
     budgetPayload,
     malformedLines
   };
 }
 
-function classifyDecision(atMs, budgetReachedAtMs) {
+function classifyDecision(atMs, coverageEndedAtMs) {
   const decisionMs = Number(atMs);
   if (!Number.isFinite(decisionMs)) return EPOCHS.UNKNOWN;
-  if (!Number.isFinite(Number(budgetReachedAtMs))) return EPOCHS.FULL_PAID_TAPE;
-  return decisionMs <= Number(budgetReachedAtMs) ? EPOCHS.FULL_PAID_TAPE : EPOCHS.DISCOVERY_RPC_ONLY;
+  if (!Number.isFinite(Number(coverageEndedAtMs))) return EPOCHS.FULL_PAID_TAPE;
+  return decisionMs <= Number(coverageEndedAtMs) ? EPOCHS.FULL_PAID_TAPE : EPOCHS.DISCOVERY_RPC_ONLY;
 }
 
-function classifyOutcomeWindow(atMs, holdSeconds, budgetReachedAtMs) {
-  const decisionEpoch = classifyDecision(atMs, budgetReachedAtMs);
+function classifyOutcomeWindow(atMs, holdSeconds, coverageEndedAtMs) {
+  const decisionEpoch = classifyDecision(atMs, coverageEndedAtMs);
   if (decisionEpoch !== EPOCHS.FULL_PAID_TAPE) return decisionEpoch;
   const endMs = Number(atMs) + Number(holdSeconds || 0) * 1000;
-  return Number.isFinite(Number(budgetReachedAtMs)) && endMs > Number(budgetReachedAtMs)
-    ? EPOCHS.PAID_TAPE_TRUNCATED_BY_CAP
+  return Number.isFinite(Number(coverageEndedAtMs)) && endMs > Number(coverageEndedAtMs)
+    ? EPOCHS.PAID_TAPE_TRUNCATED
     : EPOCHS.FULL_PAID_TAPE;
 }
 
-function summarizeRows(rows, budgetReachedAtMs, holdSeconds = 300) {
+function summarizeRows(rows, coverageEndedAtMs, holdSeconds = 300) {
   const byDecisionEpoch = {};
   const byOutcomeCoverage = {};
   for (const row of rows || []) {
     const atMs = Number(row.atMs || timestampMs(row.at || row.entryAt));
-    const decisionEpoch = classifyDecision(atMs, budgetReachedAtMs);
-    const outcomeCoverage = classifyOutcomeWindow(atMs, holdSeconds, budgetReachedAtMs);
+    const decisionEpoch = classifyDecision(atMs, coverageEndedAtMs);
+    const outcomeCoverage = classifyOutcomeWindow(atMs, holdSeconds, coverageEndedAtMs);
     byDecisionEpoch[decisionEpoch] = (byDecisionEpoch[decisionEpoch] || 0) + 1;
     byOutcomeCoverage[outcomeCoverage] = (byOutcomeCoverage[outcomeCoverage] || 0) + 1;
   }

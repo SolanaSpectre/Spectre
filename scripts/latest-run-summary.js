@@ -2307,8 +2307,8 @@ function buildLaunchDecisionLines({
   const closestGateMiss = topArray(preMigrationEntryGateMargin.closestByMint, 1)[0] || {};
   const strategyEvidenceBlocked = Number(paperEntries || 0) === 0 || Number(paperPnl || 0) < 0;
   const broadcastBlocked = launchBlocks.some((line) => String(line).toLowerCase().includes('broadcast'));
-  const aiNotReached = Number(aiReachability.generatedSignals || 0) === 0
-    && Number(aiReachability.lifecycleAttempts || 0) === 0;
+  const aiNotReached = Number(aiReachability.lifecycleAttempts || 0) === 0
+    && Number(aiReachability.aiDecisionEvents || 0) === 0;
   const relaxedPositiveButTiny = curveStallBest
     && Number(curveStallBest.totalPnlSol) > 0
     && Number(curveStallBest.trades || 0) < 20;
@@ -3198,7 +3198,7 @@ function buildSummary(docs) {
   lines.push(`  - metered trade budget: events=${pumpPortalHealth.meteredTradeEvents || 0} (mint=${pumpPortalHealth.trades || 0}, account-only=${pumpPortalHealth.unmatchedAccountTrades || 0}), max=${meteredTradeLimitLabel}, reached=${pumpPortalHealth.meteredTradeBudgetReached === true}, skippedTokenSubscriptions=${pumpPortalHealth.tradeSubscriptionsSkippedBudget || 0}, skippedAccountSubscriptions=${pumpPortalHealth.accountSubscriptionsSkippedBudget || 0}, estimatedCompletedBlockCharge=${fmt(estimatedPumpPortalChargeSol, 4)} SOL`);
   lines.push(`  - targeted paid tape: mode=${pumpPortalHealth.tradeSubscriptionMode || 'unknown'}, discoveryDeferred=${pumpPortalHealth.targetedTradeSubscriptionsDeferredAtDiscovery || 0}, candidates=${pumpPortalHealth.targetedTradeSubscriptionCandidates || 0}, sent=${pumpPortalHealth.targetedTradeSubscriptionAccepted || 0}, sendFailed=${pumpPortalHealth.targetedTradeSubscriptionSendFailed || 0}, acked=${pumpPortalHealth.targetedTradeSubscriptionAcked || 0}, rejected=${pumpPortalHealth.targetedTradeSubscriptionRejected || 0}, alreadyActive=${pumpPortalHealth.targetedTradeSubscriptionAlreadyActive || 0}, silentAlerts=${pumpPortalHealth.paidTapeSilentAlerts || 0}, skippedNoKey/budget/max=${pumpPortalHealth.targetedTradeSubscriptionSkippedNoApiKey || 0}/${pumpPortalHealth.targetedTradeSubscriptionSkippedBudget || 0}/${pumpPortalHealth.targetedTradeSubscriptionSkippedMaxActive || 0}`);
   if (paidTapeCoverageEpoch.coverage) {
-    lines.push(`  - paid-tape coverage epoch: ${paidTapeCoverageEpoch.verdict || 'unknown'}; fullPaid=${paidTapeCoverageEpoch.coverage.fullPaidTapeMinutes ?? 'n/a'}m, discoveryRpcOnly=${paidTapeCoverageEpoch.coverage.discoveryRpcOnlyMinutes ?? 'n/a'}m, capAt=${paidTapeCoverageEpoch.coverage.budgetReachedAt || 'none'}`);
+    lines.push(`  - paid-tape coverage epoch: ${paidTapeCoverageEpoch.verdict || 'unknown'}; fullPaid=${paidTapeCoverageEpoch.coverage.fullPaidTapeMinutes ?? 'n/a'}m, discoveryRpcOnly=${paidTapeCoverageEpoch.coverage.discoveryRpcOnlyMinutes ?? 'n/a'}m, coverageEnd=${paidTapeCoverageEpoch.coverage.coverageEndReason || 'none'} at ${paidTapeCoverageEpoch.coverage.coverageEndedAt || 'n/a'}, budgetCapAt=${paidTapeCoverageEpoch.coverage.budgetReachedAt || 'none'}`);
   }
   if (runnerWatchFullCoverageEvidence.cumulative) {
     const evidence = runnerWatchFullCoverageEvidence.cumulative;
