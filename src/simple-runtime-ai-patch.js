@@ -9,7 +9,7 @@ const RUNTIME_TIMEOUT_MS = Number(process.env.SIMPLE_RUNTIME_AI_TIMEOUT_MS || pr
 const RUNTIME_NUM_PREDICT = Number(process.env.SIMPLE_RUNTIME_AI_NUM_PREDICT || 80);
 const RUNTIME_CONFIDENCE_ENTER_MIN = Number(process.env.SIMPLE_RUNTIME_AI_ENTER_CONFIDENCE_MIN || 60);
 const PROMPT_VERSION = 'simple_runtime_guard_v2';
-const SCHEMA_VERSION = 'simple_runtime_review_v1';
+const SCHEMA_VERSION = 'simple_runtime_review_v2';
 
 function mergeNodeOptions() {
   const preloadArg = '--require ./src/simple-runtime-ai-patch.js';
@@ -256,7 +256,20 @@ function buildSimplePacket(instance, tokenInfo = {}, signal = {}) {
   };
 }
 
-function normalizeSimpleReview(parsed = {}) {
+function walletFlowScore(packet = {}, convergenceScore = 0) {
+  const tier = String(packet?.walletSupportTier || '').trim().toUpperCase();
+  const supportCount = Array.isArray(packet?.walletSupport) ? packet.walletSupport.length : 0;
+  const cautionCount = Array.isArray(packet?.walletCautions) ? packet.walletCautions.length : 0;
+  if (tier === 'TRUSTED_FLOW' && supportCount > 0) {
+    return Number(Math.min(convergenceScore, 0.85).toFixed(4));
+  }
+  if (tier === 'MIXED_FLOW' && supportCount > cautionCount) {
+    return Number(Math.min(convergenceScore, 0.5).toFixed(4));
+  }
+  return 0;
+}
+
+function normalizeSimpleReview(parsed = {}, packet = {}) {
   const requestedAction = normalizeAction(parsed.action);
   const confidence = clampNumber(parsed.confidence, 0, 100, 0);
   const risk = normalizeRisk(parsed.risk, requestedAction, confidence);
@@ -278,7 +291,7 @@ function normalizeSimpleReview(parsed = {}) {
       SNIPER: 0,
       SCALPER: action === 'WATCH' ? convergenceScore : 0,
       MIGRATION_HUNTER: 0,
-      WALLET_FLOW: risk === 'LOW' ? Math.min(1, convergenceScore + 0.1) : convergenceScore
+      WALLET_FLOW: walletFlowScore(packet, convergenceScore)
     },
     contradictions: risk === 'HIGH' ? ['simple runtime guard risk HIGH'] : [],
     executionProfile: {
@@ -289,7 +302,12 @@ function normalizeSimpleReview(parsed = {}) {
     simpleRuntime: {
       model: RUNTIME_MODEL,
       risk,
-      requestedAction
+      requestedAction,
+      walletSupportTier: packet?.walletSupportTier || null,
+      walletEvidencePresent: Boolean(
+        (Array.isArray(packet?.walletSupport) && packet.walletSupport.length) ||
+        (Array.isArray(packet?.walletCautions) && packet.walletCautions.length)
+      )
     }
   };
 }
@@ -318,7 +336,7 @@ async function callSimpleRuntimeReview(instance, tokenInfo, signal, packet = nul
   const rawResponseHash = sha256Text(text);
   try {
     return {
-      review: normalizeSimpleReview(extractJsonObject(text)),
+      review: normalizeSimpleReview(extractJsonObject(text), reviewPacket),
       rawResponseHash
     };
   } catch (error) {
@@ -593,5 +611,6 @@ module.exports = {
   SCHEMA_VERSION,
   buildSimplePacket,
   normalizeSimpleReview,
+  walletFlowScore,
   sha256Text
 };

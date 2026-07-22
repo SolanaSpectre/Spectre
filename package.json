@@ -42,6 +42,7 @@
     "check:live-safety-defaults": "node scripts/check-live-safety-defaults.js",
     "report:live-readiness": "node scripts/live-readiness-report.js",
     "report:strategy-candidate-scorecard": "node scripts/strategy-candidate-scorecard-report.js",
+    "report:readiness-stack": "node scripts/live-readiness-report.js && node scripts/strategy-candidate-scorecard-report.js && node scripts/latest-run-summary.js",
     "report:strategy": "node scripts/strategy-report.js",
     "report:watch-validation": "node scripts/watch-lane-validation-report.js",
     "report:pre-migration-outcomes": "node scripts/pre-migration-outcome-report.js",

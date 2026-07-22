@@ -160,21 +160,7 @@ function hadConsumerObservedOuterTimeout(started, timeoutRows) {
   });
 }
 
-function collectLiveIssueRows() {
-  return readJsonl(LIVE_ISSUES_PATH)
-    .filter((row) => row.message === 'Simple runtime AI review failed')
-    .map((row) => ({
-      timestamp: row.timestamp || null,
-      failureType: typeof row.data === 'object' && row.data ? row.data.failureType || null : null,
-      reason: typeof row.data === 'object' && row.data ? row.data.reason || null : null,
-      message: typeof row.data === 'object' && row.data ? row.data.message || null : String(row.data || '')
-    }));
-}
-
-function buildReport() {
-  const telemetryEvidence = collectTelemetryEvidence();
-  const { telemetryRows, lifecycleRows, aiDecisionRows } = telemetryEvidence;
-  const liveIssueRows = collectLiveIssueRows();
+function joinLifecycleAttempts(lifecycleRows = [], aiDecisionRows = []) {
   const startedRows = lifecycleRows.filter((row) => row.type === 'simple_runtime_ai.review_started');
   const completedByAttemptId = new Map(lifecycleRows
     .filter((row) => row.type === 'simple_runtime_ai.review_completed' && row.attemptId)
@@ -184,7 +170,8 @@ function buildReport() {
     .map((row) => [row.attemptId, row]));
   const outerTimeoutRows = aiDecisionRows
     .filter((row) => (row.reason === 'OLLAMA_TIMEOUT' || row.timeout === true) && row.signalId);
-  const attempts = startedRows.map((started) => {
+
+  return startedRows.map((started) => {
     const completed = completedByAttemptId.get(started.attemptId);
     const failed = failedByAttemptId.get(started.attemptId);
     const outcome = completed ? 'completed' : failed ? 'failed' : 'dangling';
@@ -200,13 +187,86 @@ function buildReport() {
       confidence: terminal.confidence ?? null,
       risk: terminal.risk || null,
       reason: terminal.reason || null,
+      rawResponseHash: terminal.rawResponseHash || null,
+      normalizedReview: terminal.normalizedReview || null,
       failureType: terminal.failureType || null,
+      errorMessage: terminal.errorMessage || null,
       exceededOuterTimeout: Number.isFinite(num(terminal.latencyMs)) && Number.isFinite(num(started.outerTimeoutMs))
         ? num(terminal.latencyMs) > num(started.outerTimeoutMs)
         : false,
       consumerObservedOuterTimeout: hadConsumerObservedOuterTimeout(started, outerTimeoutRows)
     };
   });
+}
+
+function summarizeResponseDiversity(attempts = []) {
+  const completed = attempts.filter((row) => row.outcome === 'completed');
+  const packetHashes = completed.map((row) => row.packetHash).filter(Boolean);
+  const responseHashes = completed.map((row) => row.rawResponseHash).filter(Boolean);
+  const responseGroups = new Map();
+  completed.forEach((row) => {
+    if (!row.rawResponseHash) return;
+    const rows = responseGroups.get(row.rawResponseHash) || [];
+    rows.push(row);
+    responseGroups.set(row.rawResponseHash, rows);
+  });
+  const repeatedAcrossDistinctPackets = [...responseGroups.entries()]
+    .map(([rawResponseHash, rows]) => ({
+      rawResponseHash,
+      reviews: rows.length,
+      distinctPacketHashes: new Set(rows.map((row) => row.packetHash).filter(Boolean)).size,
+      mints: [...new Set(rows.map((row) => row.mint).filter(Boolean))]
+    }))
+    .filter((group) => group.distinctPacketHashes > 1)
+    .sort((a, b) => b.reviews - a.reviews);
+  const uniqueResponses = new Set(responseHashes).size;
+  const uniquePackets = new Set(packetHashes).size;
+  const actionCounts = countBy(completed, (row) => row.action);
+  const riskCounts = countBy(completed, (row) => row.risk);
+  const reasonCounts = countBy(completed, (row) => row.reason);
+  const confidenceCounts = countBy(completed, (row) => row.confidence);
+
+  return {
+    completedReviews: completed.length,
+    completedReviewsWithResponseHash: responseHashes.length,
+    distinctPacketHashes: uniquePackets,
+    distinctRawResponseHashes: uniqueResponses,
+    responseDiversityRate: responseHashes.length ? compact(uniqueResponses / responseHashes.length, 4) : null,
+    identicalResponseAcrossDistinctPackets: repeatedAcrossDistinctPackets.length > 0,
+    repeatedResponseGroups: repeatedAcrossDistinctPackets,
+    actionCounts,
+    riskCounts,
+    confidenceCounts,
+    reasonCounts,
+    uniformAction: completed.length > 1 && Object.keys(actionCounts).length === 1,
+    uniformRisk: completed.length > 1 && Object.keys(riskCounts).length === 1,
+    uniformConfidence: completed.length > 1 && Object.keys(confidenceCounts).length === 1,
+    uniformReason: completed.length > 1 && Object.keys(reasonCounts).length === 1,
+    interpretation: completed.length < 2
+      ? 'INSUFFICIENT_REVIEWS_FOR_RESPONSE_DIVERSITY'
+      : (repeatedAcrossDistinctPackets.length
+        ? 'IDENTICAL_RESPONSE_OBSERVED_ACROSS_DISTINCT_PACKETS'
+        : 'RESPONSES_DIFFER_ACROSS_OBSERVED_PACKETS'),
+    frozenCheckpointImpact: 'DIAGNOSTIC_ONLY_NOT_A_POST_HOC_ABORT_OR_PASS_GATE'
+  };
+}
+
+function collectLiveIssueRows() {
+  return readJsonl(LIVE_ISSUES_PATH)
+    .filter((row) => row.message === 'Simple runtime AI review failed')
+    .map((row) => ({
+      timestamp: row.timestamp || null,
+      failureType: typeof row.data === 'object' && row.data ? row.data.failureType || null : null,
+      reason: typeof row.data === 'object' && row.data ? row.data.reason || null : null,
+      message: typeof row.data === 'object' && row.data ? row.data.message || null : String(row.data || '')
+    }));
+}
+
+function buildReport() {
+  const telemetryEvidence = collectTelemetryEvidence();
+  const { telemetryRows, lifecycleRows, aiDecisionRows } = telemetryEvidence;
+  const liveIssueRows = collectLiveIssueRows();
+  const attempts = joinLifecycleAttempts(lifecycleRows, aiDecisionRows);
   const completedAttempts = attempts.filter((row) => row.outcome === 'completed');
   const failedAttempts = attempts.filter((row) => row.outcome === 'failed');
   const danglingAttempts = attempts.filter((row) => row.outcome === 'dangling');
@@ -241,6 +301,7 @@ function buildReport() {
     ? qwenTrialBusy.length / qwenTrialRequests.length
     : 0;
   const qwenTrialBurstCensored = qwenTrialBusyRate > 0.3;
+  const qwenResponseDiversity = summarizeResponseDiversity(qwenTrialCompleted);
   const qwenAbortReasons = [];
   if (qwenTrialAttempts.length && qwenTrialTimeoutRate > 0.05) qwenAbortReasons.push('TIMEOUT_RATE_GT_5_PERCENT');
   if (qwenTrialMalformed.length) qwenAbortReasons.push('MALFORMED_JSON_OBSERVED');
@@ -308,6 +369,7 @@ function buildReport() {
       promptVersion: 'simple_runtime_guard_v2',
       minimumCompletedReviews: 50,
       minimumPaperRuns: 2,
+      schemaVersionCounts: countBy(qwenTrialAttempts, (row) => row.schemaVersion || 'unknown'),
       abortIfTimeoutRateAbove: 0.05,
       abortOnAnyMalformedJson: true,
       maximumBusyRateForDecisionQuality: 0.3,
@@ -324,6 +386,7 @@ function buildReport() {
       timeoutRate: compact(qwenTrialTimeoutRate, 4),
       malformedJsonFailures: qwenTrialMalformed.length,
       packetEvidenceCoverage: compact(qwenTrialPacketCoverage, 4),
+      responseDiversity: qwenResponseDiversity,
       abortReasons: qwenAbortReasons,
       verdict: qwenTrialVerdict,
       scope: 'Main signal lane only. Pre-migration V4 and runner-watch evidence lanes bypass reviewTrade.',
@@ -357,5 +420,7 @@ if (require.main === module) {
 module.exports = {
   buildReport,
   collectLiveIssueRows,
-  collectTelemetryRows
+  collectTelemetryRows,
+  joinLifecycleAttempts,
+  summarizeResponseDiversity
 };

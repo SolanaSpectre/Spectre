@@ -28,12 +28,69 @@ function findLifecycle(events, type, signalId) {
   ));
 }
 const runtimePatch = require('../src/simple-runtime-ai-patch');
+const evidenceReport = require('./simple-runtime-ai-evidence-report');
 const AIAgent = require('../src/ai-agent');
 const TradingEngine = require('../src/trading-engine');
 
 const incompleteEnter = runtimePatch.normalizeSimpleReview({ action: 'ENTER' });
 if (incompleteEnter.action !== 'WATCH' || incompleteEnter.approved !== false) {
   throw new Error('Incomplete ENTER response did not degrade to WATCH.');
+}
+if (incompleteEnter.strategyScores.WALLET_FLOW !== 0) {
+  throw new Error('Review without wallet evidence received a synthetic WALLET_FLOW score.');
+}
+
+const trustedWalletReview = runtimePatch.normalizeSimpleReview(
+  { action: 'ENTER', confidence: 85, risk: 'LOW', reason: 'trusted fixture' },
+  { walletSupportTier: 'TRUSTED_FLOW', walletSupport: ['trusted touch'], walletCautions: [] }
+);
+if (trustedWalletReview.strategyScores.WALLET_FLOW !== 0.85) {
+  throw new Error('Trusted wallet evidence was not reflected in WALLET_FLOW score.');
+}
+const avoidWalletReview = runtimePatch.normalizeSimpleReview(
+  { action: 'ENTER', confidence: 85, risk: 'LOW', reason: 'avoid fixture' },
+  { walletSupportTier: 'AVOID_FLOW', walletSupport: [], walletCautions: ['avoid touch'] }
+);
+if (avoidWalletReview.strategyScores.WALLET_FLOW !== 0) {
+  throw new Error('Avoid wallet evidence produced positive WALLET_FLOW score.');
+}
+
+const joinedFixture = evidenceReport.joinLifecycleAttempts([
+  {
+    type: 'simple_runtime_ai.review_started',
+    timestamp: '2026-07-22T12:00:00.000Z',
+    attemptId: 'joined-fixture',
+    signalId: 'joined-signal',
+    mint: 'JoinedMint',
+    packetHash: 'packet-a',
+    rawResponseHash: null,
+    normalizedReview: null,
+    outerTimeoutMs: 3000
+  },
+  {
+    type: 'simple_runtime_ai.review_completed',
+    timestamp: '2026-07-22T12:00:00.900Z',
+    attemptId: 'joined-fixture',
+    latencyMs: 900,
+    action: 'ENTER',
+    confidence: 85,
+    risk: 'LOW',
+    rawResponseHash: 'response-a',
+    normalizedReview: { action: 'ENTER' }
+  }
+]);
+if (
+  joinedFixture[0]?.rawResponseHash !== 'response-a' ||
+  joinedFixture[0]?.normalizedReview?.action !== 'ENTER'
+) {
+  throw new Error('Lifecycle attempt join dropped terminal response evidence.');
+}
+const repeatedResponseFixture = evidenceReport.summarizeResponseDiversity([
+  { ...joinedFixture[0], mint: 'MintA', packetHash: 'packet-a' },
+  { ...joinedFixture[0], attemptId: 'joined-fixture-b', mint: 'MintB', packetHash: 'packet-b' }
+]);
+if (!repeatedResponseFixture.identicalResponseAcrossDistinctPackets) {
+  throw new Error('Response-diversity diagnostic missed an identical response across distinct packets.');
 }
 
 const logger = {
@@ -79,6 +136,9 @@ async function main() {
   const completed = events.find((row) => row.type === 'simple_runtime_ai.review_completed');
 
   if (result.action !== 'ENTER') throw new Error('Fixture review did not ENTER.');
+  if (result.strategyScores?.WALLET_FLOW !== 0 || result.simpleRuntime?.walletEvidencePresent !== false) {
+    throw new Error('Runtime review invented wallet support for a packet without wallet evidence.');
+  }
   if (!started?.payload?.packet || !started.payload.packetHash) throw new Error('Started telemetry omitted packet evidence.');
   if (!started.payload.promptVersion || !started.payload.promptHash || !started.payload.schemaVersion) {
     throw new Error('Started telemetry omitted prompt/schema provenance.');

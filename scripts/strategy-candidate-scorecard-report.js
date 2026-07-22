@@ -46,6 +46,7 @@ function readJson(name) {
       ok: true,
       path: path.relative(ROOT, filePath),
       error: null,
+      modifiedAt: fs.statSync(filePath).mtime.toISOString(),
       data: JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''))
     };
   } catch (error) {
@@ -66,6 +67,11 @@ function round(value, digits = 9) {
 
 function topArray(value, limit = 12) {
   return Array.isArray(value) ? value.slice(0, limit) : [];
+}
+
+function telemetryFileName(value) {
+  if (!value) return null;
+  return path.win32.basename(String(value).replace(/\//g, '\\')).toLowerCase();
 }
 
 function hasPositive(value) {
@@ -190,6 +196,7 @@ function promotionBlockers(candidate, context) {
   const winRate = number(candidate.winRate);
   const minSample = candidate.lane === 'wallet_conditioned_relaxed_gate' ? 60 : 20;
 
+  if (context.inputFreshnessBlocked) blockers.push('live-readiness and battlefield inputs reference different telemetry runs');
   if (context.paperEntries <= 0) blockers.push('no runtime paper entries in latest evaluated run');
   if (candidate.mode === 'report_only') blockers.push('candidate comes from report-only replay/shadow evidence');
   if (trades < minSample) blockers.push(`sample too small: ${trades}/${minSample} trades`);
@@ -340,6 +347,21 @@ function main() {
     Object.entries(REPORTS).map(([key, fileName]) => [key, readJson(fileName)])
   );
   const candidates = [];
+  const liveReadinessTelemetry = docs.liveReadiness.data?.telemetryPath || null;
+  const battlefieldTelemetry = docs.battlefield.data?.files?.telemetryPath || null;
+  const liveReadinessTelemetryFile = telemetryFileName(liveReadinessTelemetry);
+  const battlefieldTelemetryFile = telemetryFileName(battlefieldTelemetry);
+  const telemetryInputsAligned = Boolean(liveReadinessTelemetryFile && battlefieldTelemetryFile)
+    && liveReadinessTelemetryFile === battlefieldTelemetryFile;
+  const inputFreshness = {
+    verdict: telemetryInputsAligned ? 'ALIGNED' : 'STALE_OR_MISMATCHED_CRITICAL_INPUTS',
+    liveReadinessTelemetry,
+    battlefieldTelemetry,
+    liveReadinessGeneratedAt: docs.liveReadiness.data?.generatedAt || null,
+    battlefieldGeneratedAt: docs.battlefield.data?.generatedAt || null,
+    telemetryInputsAligned,
+    paperMetricsSource: telemetryInputsAligned ? 'live-readiness' : 'run-battlefield-fallback'
+  };
 
   addSummaryByProfile(
     candidates,
@@ -361,15 +383,18 @@ function main() {
   ));
   addRanking(candidates, 'wallet_false_negative_entry_replay', docs.walletFalseNegativeEntryReplay.path, docs.walletFalseNegativeEntryReplay.data?.ranking);
 
-  const paperEntries = number(
-    docs.liveReadiness.data?.metrics?.paperEntries,
-    number(docs.battlefield.data?.preMigrationPaper?.entries, 0)
-  );
-  const paperPnl = number(
-    docs.liveReadiness.data?.metrics?.paperPnl,
-    number(docs.battlefield.data?.preMigrationPaper?.pnlSol, 0)
-  );
-  const launchBlocks = Array.isArray(docs.liveReadiness.data?.launchBlocks) ? docs.liveReadiness.data.launchBlocks : [];
+  const paperEntries = telemetryInputsAligned
+    ? number(docs.liveReadiness.data?.metrics?.paperEntries, 0)
+    : number(docs.battlefield.data?.preMigrationPaper?.entries, 0);
+  const paperPnl = telemetryInputsAligned
+    ? number(docs.liveReadiness.data?.metrics?.paperPnl, 0)
+    : number(docs.battlefield.data?.preMigrationPaper?.pnlSol, 0);
+  const launchBlocks = Array.isArray(docs.liveReadiness.data?.launchBlocks)
+    ? [...docs.liveReadiness.data.launchBlocks]
+    : [];
+  if (!telemetryInputsAligned) {
+    launchBlocks.unshift('Critical report inputs are stale or mismatched; refresh live-readiness before scorecard generation.');
+  }
   const broadcastBlocked = launchBlocks.some((line) => String(line).toLowerCase().includes('broadcast'));
   const walletCoverageRuntime = docs.walletContextCoverage.data?.runtime || {};
   const frozenStability = docs.walletConditionedSliceStability.data || {};
@@ -394,6 +419,7 @@ function main() {
   const context = {
     paperEntries,
     paperPnl,
+    inputFreshnessBlocked: !telemetryInputsAligned,
     broadcastBlocked,
     runtimeWalletEvents: number(walletCoverageRuntime.walletEvents?.rows, 0),
     paperDecisionsWithWalletContext: number(walletCoverageRuntime.decisionCoverage?.withAnyWalletTouch, 0),
@@ -451,7 +477,14 @@ function main() {
     generatedAt: new Date().toISOString(),
     mode: 'report_only_strategy_candidate_scorecard',
     note: 'Ranks report-only replay/shadow candidates and explains why none should graduate to live without runtime paper proof.',
-    inputs: Object.fromEntries(Object.entries(docs).map(([key, doc]) => [key, { path: doc.path, ok: doc.ok, error: doc.error }])),
+    inputs: Object.fromEntries(Object.entries(docs).map(([key, doc]) => [key, {
+      path: doc.path,
+      ok: doc.ok,
+      error: doc.error,
+      modifiedAt: doc.modifiedAt || null,
+      generatedAt: doc.data?.generatedAt || null,
+      telemetryPath: doc.data?.telemetryPath || doc.data?.files?.telemetryPath || null
+    }])),
     criteria: {
       runtimePromotion: 'Requires live-readiness infra, broadcast decision review, nonzero runtime paper entries, positive durable PnL, positive median, positive top-3-removed PnL when available, and adequate sample.',
       replayPromotion: 'Report-only replay candidates may enter watchlist/research only; they cannot enable live trading by themselves.',
@@ -463,6 +496,7 @@ function main() {
     summary: {
       liveReadinessVerdict: docs.liveReadiness.data?.verdict || 'unknown',
       bestAction: 'KEEP_LIVE_DISABLED',
+      inputFreshness,
       paperEntries,
       paperPnlSol: round(paperPnl),
       launchBlocks,
