@@ -1011,6 +1011,19 @@ function buildPumpPortalHealth(battlefield = {}) {
   const targetedTradeSubscriptionSendFailed = number(stats.targetedTradeSubscriptionSendFailed, 0);
   const targetedTradeSubscriptionAcked = number(stats.targetedTradeSubscriptionAcked, 0);
   const targetedTradeSubscriptionRejected = number(stats.targetedTradeSubscriptionRejected, 0);
+  const paidSubscriptionEntitlementRejected = stats.paidSubscriptionEntitlementRejected === true;
+  const paidSubscriptionFramesSuppressedAfterRejection = number(
+    stats.paidSubscriptionFramesSuppressedAfterRejection,
+    0
+  );
+  const targetedTradeSubscriptionSkippedEntitlementRejected = number(
+    stats.targetedTradeSubscriptionSkippedEntitlementRejected,
+    0
+  );
+  const accountSubscriptionsSkippedEntitlementRejected = number(
+    stats.accountSubscriptionsSkippedEntitlementRejected,
+    0
+  );
   const paidTapeSilentAlerts = number(stats.paidTapeSilentAlerts, 0);
   const targetedTradeSubscriptionAlreadyActive = number(stats.targetedTradeSubscriptionAlreadyActive, 0);
   const targetedTradeSubscriptionSkippedNoApiKey = number(stats.targetedTradeSubscriptionSkippedNoApiKey, 0);
@@ -1163,6 +1176,10 @@ function buildPumpPortalHealth(battlefield = {}) {
     targetedTradeSubscriptionSendFailed,
     targetedTradeSubscriptionAcked,
     targetedTradeSubscriptionRejected,
+    paidSubscriptionEntitlementRejected,
+    paidSubscriptionFramesSuppressedAfterRejection,
+    targetedTradeSubscriptionSkippedEntitlementRejected,
+    accountSubscriptionsSkippedEntitlementRejected,
     paidTapeSilentAlerts,
     targetedTradeSubscriptionAlreadyActive,
     targetedTradeSubscriptionSkippedNoApiKey,
@@ -3196,7 +3213,7 @@ function buildSummary(docs) {
     : meteredTradeLimit > 0 ? meteredTradeLimit : 'unlimited';
   const estimatedPumpPortalChargeSol = Math.floor((pumpPortalHealth.meteredTradeEvents || 0) / 10000) * 0.01;
   lines.push(`  - metered trade budget: events=${pumpPortalHealth.meteredTradeEvents || 0} (mint=${pumpPortalHealth.trades || 0}, account-only=${pumpPortalHealth.unmatchedAccountTrades || 0}), max=${meteredTradeLimitLabel}, reached=${pumpPortalHealth.meteredTradeBudgetReached === true}, skippedTokenSubscriptions=${pumpPortalHealth.tradeSubscriptionsSkippedBudget || 0}, skippedAccountSubscriptions=${pumpPortalHealth.accountSubscriptionsSkippedBudget || 0}, estimatedCompletedBlockCharge=${fmt(estimatedPumpPortalChargeSol, 4)} SOL`);
-  lines.push(`  - targeted paid tape: mode=${pumpPortalHealth.tradeSubscriptionMode || 'unknown'}, discoveryDeferred=${pumpPortalHealth.targetedTradeSubscriptionsDeferredAtDiscovery || 0}, candidates=${pumpPortalHealth.targetedTradeSubscriptionCandidates || 0}, sent=${pumpPortalHealth.targetedTradeSubscriptionAccepted || 0}, sendFailed=${pumpPortalHealth.targetedTradeSubscriptionSendFailed || 0}, acked=${pumpPortalHealth.targetedTradeSubscriptionAcked || 0}, rejected=${pumpPortalHealth.targetedTradeSubscriptionRejected || 0}, alreadyActive=${pumpPortalHealth.targetedTradeSubscriptionAlreadyActive || 0}, silentAlerts=${pumpPortalHealth.paidTapeSilentAlerts || 0}, skippedNoKey/budget/max=${pumpPortalHealth.targetedTradeSubscriptionSkippedNoApiKey || 0}/${pumpPortalHealth.targetedTradeSubscriptionSkippedBudget || 0}/${pumpPortalHealth.targetedTradeSubscriptionSkippedMaxActive || 0}`);
+  lines.push(`  - targeted paid tape: mode=${pumpPortalHealth.tradeSubscriptionMode || 'unknown'}, discoveryDeferred=${pumpPortalHealth.targetedTradeSubscriptionsDeferredAtDiscovery || 0}, candidates=${pumpPortalHealth.targetedTradeSubscriptionCandidates || 0}, sent=${pumpPortalHealth.targetedTradeSubscriptionAccepted || 0}, sendFailed=${pumpPortalHealth.targetedTradeSubscriptionSendFailed || 0}, acked=${pumpPortalHealth.targetedTradeSubscriptionAcked || 0}, rejected=${pumpPortalHealth.targetedTradeSubscriptionRejected || 0}, entitlementLatched=${pumpPortalHealth.paidSubscriptionEntitlementRejected === true}, suppressedAfterReject=${pumpPortalHealth.paidSubscriptionFramesSuppressedAfterRejection || 0}, alreadyActive=${pumpPortalHealth.targetedTradeSubscriptionAlreadyActive || 0}, silentAlerts=${pumpPortalHealth.paidTapeSilentAlerts || 0}, skippedNoKey/budget/max/entitlement=${pumpPortalHealth.targetedTradeSubscriptionSkippedNoApiKey || 0}/${pumpPortalHealth.targetedTradeSubscriptionSkippedBudget || 0}/${pumpPortalHealth.targetedTradeSubscriptionSkippedMaxActive || 0}/${pumpPortalHealth.targetedTradeSubscriptionSkippedEntitlementRejected || 0}`);
   if (paidTapeCoverageEpoch.coverage) {
     lines.push(`  - paid-tape coverage epoch: ${paidTapeCoverageEpoch.verdict || 'unknown'}; fullPaid=${paidTapeCoverageEpoch.coverage.fullPaidTapeMinutes ?? 'n/a'}m, discoveryRpcOnly=${paidTapeCoverageEpoch.coverage.discoveryRpcOnlyMinutes ?? 'n/a'}m, coverageEnd=${paidTapeCoverageEpoch.coverage.coverageEndReason || 'none'} at ${paidTapeCoverageEpoch.coverage.coverageEndedAt || 'n/a'}, budgetCapAt=${paidTapeCoverageEpoch.coverage.budgetReachedAt || 'none'}`);
   }

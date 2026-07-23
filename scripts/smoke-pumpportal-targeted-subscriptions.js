@@ -49,10 +49,36 @@ async function main() {
   assert.strictEqual(listener.stats.lastSubscriptionAckKind, 'token_trade');
   assert(lifecycle.some((row) => row.event === 'provider.pumpportal.targeted_subscription_ack'));
 
+  assert.strictEqual(listener.recordSubscriptionRejection({
+    message: 'subscribeTokenTrade is temporarily unavailable because the provider is busy'
+  }), false);
+  assert.strictEqual(listener.stats.paidSubscriptionEntitlementRejected, false);
+
   const rejectionMessage = "'subscribeTokenTrade' and 'subscribeAccountTrade' methods are only available when connecting with an API key funded with at least 0.02 SOL.";
+  listener.connections.tradestream.pendingResubscribeMints = ['queued-before-rejection'];
+  listener.connections.tradestream.resubscribeTimer = setTimeout(() => {}, 60000);
   assert.strictEqual(listener.recordSubscriptionRejection({ message: rejectionMessage }), true);
   assert.strictEqual(listener.stats.targetedTradeSubscriptionRejected, 1);
+  assert.strictEqual(listener.stats.paidSubscriptionEntitlementRejected, true);
+  assert(Number.isFinite(listener.stats.paidSubscriptionEntitlementRejectedAt));
+  assert.deepStrictEqual(listener.connections.tradestream.pendingResubscribeMints, []);
+  assert.strictEqual(listener.connections.tradestream.resubscribeTimer, null);
   assert(lifecycle.some((row) => row.event === 'provider.pumpportal.targeted_subscription_rejected'));
+
+  const framesAfterRejection = frames.length;
+  assert.strictEqual(listener.targetMint('mint-after-rejection'), false);
+  assert.strictEqual(listener.subscribedMints.has('mint-after-rejection'), false);
+  assert.strictEqual(listener.stats.targetedTradeSubscriptionSkippedEntitlementRejected, 1);
+  assert.strictEqual(frames.length, framesAfterRejection);
+  assert.strictEqual(listener.subscribeTokenTrade('direct-after-rejection'), false);
+  assert.strictEqual(listener.stats.paidSubscriptionFramesSuppressedAfterRejection, 1);
+  assert.strictEqual(frames.length, framesAfterRejection);
+
+  listener.config.pumpPortalTrackedAccounts = ['account-after-rejection'];
+  listener.subscribeTrackedAccounts();
+  listener.subscribeTrackedMints();
+  assert.strictEqual(listener.stats.accountSubscriptionsSkippedEntitlementRejected, 1);
+  assert.strictEqual(frames.length, framesAfterRejection);
 
   listener.stats.targetedTradeSubscriptionAccepted = 50;
   listener.stats.targetedTradeSubscriptionFirstSentAt = 1_000;

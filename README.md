@@ -82,9 +82,12 @@ Edit the `.env` file with your settings:
 ### PumpPortal Data Streams
 - `PUMP_PORTAL_API_KEY`: Local-only PumpPortal API key. Do not commit or stream it.
 - `PUMPPORTAL_USE_API_KEY_QUERY`: Keep `true` so paid data uses `?api-key=<redacted>`.
+- `PUMPPORTAL_FUNDED_WALLET_ADDRESS`: Public address of the wallet linked to the API key. When configured, startup checks that it can fund the full metered-event budget.
+- `PUMPPORTAL_FUNDING_PREFLIGHT_REQUIRED`: Set `true` to refuse startup when the public linked-wallet address is missing. When an address is configured, any invalid address, RPC failure, unbounded paid-event budget, or insufficient balance blocks startup regardless of this flag.
 - `PUMPPORTAL_RECONNECT_DELAY_MS` / `PUMPPORTAL_MAX_RECONNECT_DELAY_MS`: Base and capped reconnect delay for websocket backoff.
 - `subscribeNewToken` and `subscribeMigration` are free.
 - `subscribeTokenTrade` and `subscribeAccountTrade` require a PumpPortal API key and a linked wallet funded with at least `0.02 SOL`.
+- Paid subscriptions are disabled for the remainder of a session after PumpPortal reports a funding/API-key entitlement rejection.
 - If no API key is configured, Spectre skips paid trade/account subscriptions and keeps only the free streams. See `knowledge/pumpportal-data-streams.md`.
 
 ### Trading Configuration

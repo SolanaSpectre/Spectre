@@ -30,6 +30,8 @@ PUMPPORTAL_ENABLED=true
 PUMPPORTAL_WEBSOCKET_URL=wss://pumpportal.fun/api/data
 PUMPPORTAL_USE_API_KEY_QUERY=true
 PUMP_PORTAL_API_KEY=<local secret only>
+PUMPPORTAL_FUNDED_WALLET_ADDRESS=<public address, local only>
+PUMPPORTAL_FUNDING_PREFLIGHT_REQUIRED=true
 ```
 
 ## Safety Rules
@@ -40,6 +42,15 @@ PUMP_PORTAL_API_KEY=<local secret only>
   wallet and should not appear in chat, screenshots, logs, commits, or streams.
 - If `PUMP_PORTAL_API_KEY` is blank, Spectre should only use free new-token and
   migration streams. It must not auto-subscribe token or account trade streams.
+- A paid-tape run needs enough starting balance to preserve the 0.02 SOL
+  provider floor after its metered-event budget. Startup calculates that amount
+  from the configured event cap when the linked public address is available.
+- `PUMPPORTAL_FUNDING_PREFLIGHT_REQUIRED=false` permits the public address to be
+  omitted. Once an address is configured, the check fails closed on an invalid
+  address, RPC failure, unbounded event budget, or insufficient balance.
+- An explicit funding/API-key rejection latches paid subscriptions off for the
+  remainder of the session. Free discovery remains available, but the run is
+  mixed coverage and cannot count as full-coverage evidence.
 - Avoid repeated websocket reconnect storms. PumpPortal warns that excessive
   connection churn can trigger temporary bans that expire after roughly an hour.
   Spectre uses capped reconnect backoff controlled by

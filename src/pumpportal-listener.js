@@ -39,6 +39,7 @@ class PumpPortalListener {
       ? parsedMeteredTradeLimit
       : 10000;
     this.meteredTradeBudgetReached = false;
+    this.paidSubscriptionEntitlementRejected = false;
     this.reconnectResubscribeMaxMints = Number(config.pumpPortalReconnectResubscribeMaxMints || 25);
     this.reconnectResubscribeBatchSize = Number(config.pumpPortalReconnectResubscribeBatchSize || 10);
     this.reconnectResubscribeBatchDelayMs = Number(config.pumpPortalReconnectResubscribeBatchDelayMs || 1000);
@@ -114,6 +115,12 @@ class PumpPortalListener {
       targetedTradeSubscriptionAcked: 0,
       targetedTradeSubscriptionRejected: 0,
       lastTargetedTradeSubscriptionRejection: null,
+      paidSubscriptionEntitlementRejected: false,
+      paidSubscriptionEntitlementRejectedAt: null,
+      paidSubscriptionEntitlementRejectionMessage: null,
+      paidSubscriptionFramesSuppressedAfterRejection: 0,
+      targetedTradeSubscriptionSkippedEntitlementRejected: 0,
+      accountSubscriptionsSkippedEntitlementRejected: 0,
       targetedTradeSubscriptionFirstSentAt: null,
       paidTapeSilentAlerts: 0,
       paidTapeSilentAlertAt: null,
@@ -665,8 +672,15 @@ class PumpPortalListener {
       }
 
       if (!this.backupOnly && mint && !this.subscribedMints.has(mint) && this.tradeSubscriptionMode === 'all_discovered') {
-        if (this.canUsePaidTradeStreams() && this.meteredTradeBudgetAllowsSubscriptions() && this.reserveMintSubscriptionSlot(mint)) {
+        if (
+          this.canUsePaidTradeStreams()
+          && this.paidSubscriptionEntitlementAllowsSubscriptions()
+          && this.meteredTradeBudgetAllowsSubscriptions()
+          && this.reserveMintSubscriptionSlot(mint)
+        ) {
           this.subscribeTokenTrade(mint);
+        } else if (!this.paidSubscriptionEntitlementAllowsSubscriptions()) {
+          this.stats.targetedTradeSubscriptionSkippedEntitlementRejected += 1;
         } else if (this.canUsePaidTradeStreams() && !this.meteredTradeBudgetAllowsSubscriptions()) {
           this.stats.tradeSubscriptionsSkippedBudget += 1;
         } else if (!this.canUsePaidTradeStreams() && !this.skippedPaidStreamMints.has(mint)) {
@@ -807,17 +821,35 @@ class PumpPortalListener {
 
   recordSubscriptionRejection(payload = {}) {
     const message = typeof payload.message === 'string' ? payload.message : '';
+    // PumpPortal supplies no structured entitlement code, so only latch on its
+    // known paid-stream method and funding/API-key wording.
     if (!message || !/subscribeTokenTrade|subscribeAccountTrade/i.test(message)
       || !/only available|funded|api key/i.test(message)) {
       return false;
     }
     this.stats.targetedTradeSubscriptionRejected += 1;
     this.stats.lastTargetedTradeSubscriptionRejection = message;
+    const firstRejection = !this.paidSubscriptionEntitlementRejected;
+    if (firstRejection) {
+      this.paidSubscriptionEntitlementRejected = true;
+      this.stats.paidSubscriptionEntitlementRejected = true;
+      this.stats.paidSubscriptionEntitlementRejectedAt = Date.now();
+      this.stats.paidSubscriptionEntitlementRejectionMessage = message;
+      for (const state of new Set(Object.values(this.connections))) {
+        this.clearResubscribeTimer(state);
+      }
+    }
     this.emitLifecycle('provider.pumpportal.targeted_subscription_rejected', {
       rejectionCount: this.stats.targetedTradeSubscriptionRejected,
-      message
+      message,
+      firstRejection,
+      entitlementLatched: this.paidSubscriptionEntitlementRejected
     });
-    this.logger.warn('PumpPortal rejected a paid trade subscription', { message });
+    this.logger.warn('PumpPortal rejected a paid trade subscription', {
+      message,
+      firstRejection,
+      paidSubscriptionsDisabledForSession: this.paidSubscriptionEntitlementRejected
+    });
     return true;
   }
 
@@ -1011,6 +1043,10 @@ class PumpPortalListener {
     return Boolean(this.config.pumpPortalApiKey);
   }
 
+  paidSubscriptionEntitlementAllowsSubscriptions() {
+    return !this.paidSubscriptionEntitlementRejected;
+  }
+
   meteredTradeBudgetAllowsSubscriptions() {
     return !this.meteredTradeBudgetReached;
   }
@@ -1126,6 +1162,10 @@ class PumpPortalListener {
   }
 
   subscribeTokenTrade(mint) {
+    if (!this.paidSubscriptionEntitlementAllowsSubscriptions()) {
+      this.stats.paidSubscriptionFramesSuppressedAfterRejection += 1;
+      return false;
+    }
     const sent = this.send({
       method: 'subscribeTokenTrade',
       keys: [mint]
@@ -1140,6 +1180,10 @@ class PumpPortalListener {
   targetMint(mint, metadata = {}) {
     if (!mint || this.backupOnly || this.tradeSubscriptionMode !== 'targeted_curve') return false;
     this.stats.targetedTradeSubscriptionCandidates += 1;
+    if (!this.paidSubscriptionEntitlementAllowsSubscriptions()) {
+      this.stats.targetedTradeSubscriptionSkippedEntitlementRejected += 1;
+      return false;
+    }
     if (this.subscribedMints.has(mint)) {
       this.touchSubscribedMint(mint);
       this.stats.targetedTradeSubscriptionAlreadyActive += 1;
@@ -1332,6 +1376,10 @@ class PumpPortalListener {
   }
 
   subscribeTrackedAccounts() {
+    if (!this.paidSubscriptionEntitlementAllowsSubscriptions()) {
+      this.stats.accountSubscriptionsSkippedEntitlementRejected += this.config.pumpPortalTrackedAccounts.length;
+      return;
+    }
     if (!this.canUsePaidTradeStreams()) {
       this.stats.accountSubscriptionsSkippedNoApiKey += this.config.pumpPortalTrackedAccounts.length;
       if (this.config.pumpPortalTrackedAccounts.length) {
@@ -1355,7 +1403,11 @@ class PumpPortalListener {
   }
 
   subscribeTrackedMints() {
-    if (!this.canUsePaidTradeStreams() || !this.meteredTradeBudgetAllowsSubscriptions()) {
+    if (
+      !this.canUsePaidTradeStreams()
+      || !this.paidSubscriptionEntitlementAllowsSubscriptions()
+      || !this.meteredTradeBudgetAllowsSubscriptions()
+    ) {
       return;
     }
 
@@ -1411,6 +1463,11 @@ class PumpPortalListener {
 
   flushResubscribeBatch(state = this.connections.tradestream) {
     state.resubscribeTimer = null;
+
+    if (!this.paidSubscriptionEntitlementAllowsSubscriptions()) {
+      state.pendingResubscribeMints = [];
+      return;
+    }
 
     if (!this.running || !state.ws || state.ws.readyState !== WebSocket.OPEN) {
       state.pendingResubscribeMints = [];

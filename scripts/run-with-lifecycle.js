@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const appendOutcomeSessionEvent = require('./append-outcome-session-event');
 const { cleanup, formatBytes, statfsFreeBytes } = require('./cleanup-generated-artifacts');
+const { checkPumpPortalFunding } = require('./lib/pumpportal-funding-preflight');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const NODE = process.execPath;
@@ -94,6 +95,25 @@ function readLedgerEvents() {
   const events = [];
   forEachLedgerEvent(ledgerPath, (event) => events.push(event));
   return events;
+}
+
+async function runPreRunProviderGuards() {
+  const result = await checkPumpPortalFunding();
+  if (result.status === 'PASS') {
+    console.log(
+      `[lifecycle] PumpPortal funding preflight: ${result.addressLabel} has `
+      + `${result.balanceSol.toFixed(6)} SOL; target >= ${result.requiredBalanceSol.toFixed(6)} SOL`
+    );
+    return result;
+  }
+
+  if (result.status === 'SKIPPED_NO_PUBLIC_WALLET_ADDRESS') {
+    console.warn(
+      '[lifecycle] PumpPortal funding preflight skipped: '
+      + 'set the public PUMPPORTAL_FUNDED_WALLET_ADDRESS to protect paid-tape runs'
+    );
+  }
+  return result;
 }
 
 function forEachLedgerEvent(ledgerPath, onEvent, startOffset = 0) {
@@ -316,7 +336,7 @@ function markInterrupted(signal) {
   }
 }
 
-function main() {
+async function main() {
   process.on('SIGINT', () => markInterrupted('SIGINT'));
   process.on('SIGTERM', () => markInterrupted('SIGTERM'));
 
@@ -329,7 +349,21 @@ function main() {
       interruptedAt: new Date().toISOString(),
       shutdownClean: false
     });
-    process.exit(1);
+    process.exitCode = 1;
+    return;
+  }
+
+  try {
+    await runPreRunProviderGuards();
+  } catch (error) {
+    console.error(`[lifecycle] provider guard blocked run: ${error.message}`);
+    write('session.interrupted', {
+      reason: `PUMPPORTAL_FUNDING_GUARD:${error.message}`,
+      interruptedAt: new Date().toISOString(),
+      shutdownClean: false
+    });
+    process.exitCode = 1;
+    return;
   }
 
   write('session.started', {
@@ -387,7 +421,10 @@ function main() {
 }
 
 if (require.main === module) {
-  main();
+  main().catch((error) => {
+    console.error(`[lifecycle] pre-run lifecycle failed: ${error.message}`);
+    process.exitCode = 1;
+  });
 }
 
-module.exports = { main, runPreRunDiskGuard };
+module.exports = { main, runPreRunDiskGuard, runPreRunProviderGuards };
