@@ -41,6 +41,25 @@ function classifySimulationError(error, logs = [], fallback = null) {
   return fallback || errorText(error) || 'SIMULATION_FAILED';
 }
 
+function classifySimulationPayload(payload = {}) {
+  return classifySimulationError(
+    payload.simulationErrorClass || payload.simulationError,
+    [
+      payload.simulationError,
+      payload.reason,
+      ...(Array.isArray(payload.simulationLogs) ? payload.simulationLogs : [])
+    ],
+    payload.simulationErrorClass || payload.simulationError || payload.reason || 'SIMULATION_FAILED'
+  );
+}
+
+function normalizeDryRunReason(payload = {}) {
+  if (payload.simulationOk === false || payload.reason === 'SIMULATION_FAILED') {
+    return classifySimulationPayload(payload);
+  }
+  return payload.reason || payload.blockReason || payload.sourceReason || null;
+}
+
 function summarizeSimulationFailureCounts(counts = {}) {
   let total = 0;
   let expectedStateRace = 0;
@@ -62,5 +81,7 @@ function summarizeSimulationFailureCounts(counts = {}) {
 
 module.exports = {
   classifySimulationError,
+  classifySimulationPayload,
+  normalizeDryRunReason,
   summarizeSimulationFailureCounts
 };

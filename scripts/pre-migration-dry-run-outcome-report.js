@@ -5,6 +5,10 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const { resolveTelemetryPath, telemetryFromReport } = require('./lib/report-telemetry');
+const {
+  classifySimulationPayload,
+  normalizeDryRunReason
+} = require('../src/lib/simulation-error-classifier');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
@@ -140,6 +144,9 @@ function dryRunAttemptFromEvent(event) {
   const mint = mintOf(payload);
   const atMs = timestampMs(payload.timestamp || event.timestamp);
   if (!mint || !Number.isFinite(atMs)) return null;
+  const simulationFailure = payload.simulationOk === false
+    ? classifySimulationPayload(payload)
+    : null;
   return {
     eventType,
     wouldSend: eventType === 'live_dry_run.would_send',
@@ -148,7 +155,7 @@ function dryRunAttemptFromEvent(event) {
     atMs,
     at: new Date(atMs).toISOString(),
     sourceDecision: payload.sourceDecision || null,
-    sourceReason: payload.sourceReason || payload.reason || null,
+    sourceReason: payload.sourceReason || normalizeDryRunReason(payload),
     preset: payload.preset || null,
     lane: payload.lane || null,
     accountAgeMs: numberOrNull(payload.accountAgeMs, 0),
@@ -158,9 +165,9 @@ function dryRunAttemptFromEvent(event) {
     amountSol: numberOrNull(payload.amountSol, 4),
     priceImpactPct: numberOrNull(payload.quote?.priceImpactPct ?? payload.priceImpactPct, 4),
     simulationOk: payload.simulationOk === true,
-    simulationError: payload.simulationError || null,
+    simulationError: simulationFailure || payload.simulationError || null,
     txBuildStatus: payload.txBuildStatus || null,
-    wouldBlockReason: eventType === 'live_dry_run.would_block' ? (payload.reason || payload.blockReason || null) : null
+    wouldBlockReason: eventType === 'live_dry_run.would_block' ? normalizeDryRunReason(payload) : null
   };
 }
 

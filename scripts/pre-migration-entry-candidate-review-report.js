@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const { normalizeDryRunReason } = require('../src/lib/simulation-error-classifier');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
@@ -380,7 +381,7 @@ async function readTelemetry(filePath) {
         rows.push({
           type,
           atMs,
-          reason: payload.reason || null,
+          reason: normalizeDryRunReason(payload),
           sourceReason: payload.sourceReason || null,
           pairBase: payload.pairBase || null,
           quoteMint: payload.quoteMint || null,

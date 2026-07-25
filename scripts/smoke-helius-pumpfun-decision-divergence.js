@@ -2,13 +2,28 @@
 'use strict';
 
 const assert = require('assert');
-const preregistration = require('../data/strategy-preregistrations/helius-decision-divergence-v5.json');
+const fs = require('fs');
+const path = require('path');
+const preregistration = require('../data/strategy-preregistrations/helius-decision-divergence-v6.json');
 const { analyzeEvents } = require('./helius-pumpfun-decision-divergence-report');
+
+const engineSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'trading-engine.js'), 'utf8');
+const evaluationEmitterStart = engineSource.indexOf(
+  "this.telemetry.record('helius_pumpfun.decision_shadow.evaluation'"
+);
+assert(evaluationEmitterStart >= 0, 'decision-shadow evaluation emitter must exist');
+const evaluationEmitter = engineSource.slice(evaluationEmitterStart, evaluationEmitterStart + 8000);
+for (const field of preregistration.decisionComparabilityDiagnostics.requiredFields) {
+  assert(
+    new RegExp(`\\b${field}\\s*[, :]`).test(evaluationEmitter),
+    `V6 required diagnostic field must be emitted: ${field}`
+  );
+}
 
 const sourceTelemetry = 'run-logs/synthetic-decision-shadow.jsonl';
 const events = [{
   type: 'session.started',
-    timestamp: '2026-07-24T03:30:00.000Z',
+    timestamp: '2026-07-26T03:30:00.000Z',
   payload: {
     mode: 'PAPER',
     pumpPortalPaidTapePlan: {
@@ -40,7 +55,7 @@ const events = [{
 for (let index = 0; index < 500; index += 1) {
   events.push({
     type: 'helius_pumpfun.decision_shadow.evaluation',
-    timestamp: new Date(Date.parse('2026-07-24T03:30:01.000Z') + index).toISOString(),
+    timestamp: new Date(Date.parse('2026-07-26T03:30:01.000Z') + index).toISOString(),
     payload: {
       preregistrationId: preregistration.id,
       comparable: true,
@@ -69,7 +84,7 @@ for (let index = 0; index < 500; index += 1) {
 for (const action of ['ENTRY', 'EXIT']) {
   events.push({
     type: 'helius_pumpfun.decision_shadow.executed_action',
-    timestamp: '2026-07-24T03:40:00.000Z',
+    timestamp: '2026-07-26T03:40:00.000Z',
     payload: {
       preregistrationId: preregistration.id,
       action,
@@ -85,7 +100,7 @@ for (const action of ['ENTRY', 'EXIT']) {
 }
 events.push({
   type: 'session.stopped',
-  timestamp: '2026-07-24T04:30:00.000Z',
+  timestamp: '2026-07-26T04:30:00.000Z',
   payload: {
     reason: 'SESSION_DURATION_EXCEEDED',
     stats: {

@@ -49,7 +49,7 @@ try {
   assert.throws(
     () => Config.validate(),
     /FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS>=100/,
-    'Helius V4 must refuse PAPER startup below measured subscription-capacity headroom'
+    'Helius V6 must refuse PAPER startup below measured subscription-capacity headroom'
   );
   process.env.FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS = '100';
   assert.doesNotThrow(() => Config.validate());
@@ -57,7 +57,7 @@ try {
   assert.throws(
     () => Config.validate(),
     /FINALIST_ACCOUNT_VERIFIER_TTL_MS=120000/,
-    'Helius V4 must refuse PAPER startup when runtime TTL differs from the frozen capacity window'
+    'Helius V6 must refuse PAPER startup when runtime TTL differs from the frozen capacity window'
   );
   process.env.FINALIST_ACCOUNT_VERIFIER_TTL_MS = '120000';
   assert.doesNotThrow(() => Config.validate());

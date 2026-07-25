@@ -56,7 +56,7 @@ const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
   'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
 ]);
-const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v5_2026-07-23';
+const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v6_2026-07-25';
 const HELIUS_DECISION_SHADOW_MAX_STATE_AGE_MS = 1000;
 const HELIUS_DECISION_SHADOW_RECENT_TRADE_CAP = 201;
 
@@ -480,8 +480,8 @@ class TradingEngine {
         executedActionComparator: 'gate_coupled_entry_and_same_instant_exit_with_actual_lane_context'
       },
       strategyPreregistration: {
-        id: 'runner_watch_full_coverage_v2_2026-07-20',
-        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v2.json'
+        id: 'runner_watch_full_coverage_v3_2026-07-25',
+        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v3.json'
       },
       replayConfigSnapshot,
       configHash: replayConfigSnapshot.configHash,

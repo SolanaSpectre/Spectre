@@ -4,12 +4,15 @@
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
-require('dotenv').config();
+if (process.env.SPECTRE_SKIP_DOTENV !== 'true') {
+  require('dotenv').config();
+}
 const { Connection, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 const Config = require('../src/config');
 const WalletManager = require('../src/wallet');
 const {
-  classifySimulationError,
+  classifySimulationPayload,
+  normalizeDryRunReason,
   summarizeSimulationFailureCounts
 } = require('../src/lib/simulation-error-classifier');
 
@@ -427,21 +430,11 @@ function recordSimulationFailure(stats, payload = {}) {
 }
 
 function classifyDryRunBlockReason(payload = {}) {
-  if (payload.simulationOk === false || payload.reason === 'SIMULATION_FAILED') {
-    return classifySimulationFailure(payload);
-  }
-  return payload.reason || 'unknown';
+  return normalizeDryRunReason(payload) || 'unknown';
 }
 
 function classifySimulationFailure(payload = {}) {
-  return classifySimulationError(
-    payload.simulationErrorClass || payload.simulationError,
-    [
-      payload.simulationError,
-      ...(Array.isArray(payload.simulationLogs) ? payload.simulationLogs : [])
-    ],
-    payload.simulationErrorClass || payload.simulationError || payload.reason || 'SIMULATION_FAILED'
-  );
+  return classifySimulationPayload(payload);
 }
 
 async function readCurrentHotWalletBalanceSol() {
@@ -519,9 +512,18 @@ function buildVerdict(stats) {
   const paperEntries = number(preMigrationStop.entries, stats.paper.entries);
   const paperExits = number(preMigrationStop.exits, stats.paper.exits);
   const paperPnl = number(preMigrationStop.totalPnlSol, stats.paper.pnlSol);
-  const hotWalletBalanceSol = Number.isFinite(Number(stats.currentHotWalletBalanceSol))
+  const currentHotWalletBalanceAvailable = stats.currentHotWalletBalanceSol !== null
+    && stats.currentHotWalletBalanceSol !== undefined
+    && Number.isFinite(Number(stats.currentHotWalletBalanceSol));
+  const stoppedHotWalletBalanceAvailable = stop.hotWalletBalanceSol !== null
+    && stop.hotWalletBalanceSol !== undefined
+    && Number.isFinite(Number(stop.hotWalletBalanceSol))
+    && Number(stop.hotWalletBalanceSol) > 0;
+  const hotWalletBalanceSol = currentHotWalletBalanceAvailable
     ? Number(stats.currentHotWalletBalanceSol)
-    : number(stop.hotWalletBalanceSol, 0);
+    : stoppedHotWalletBalanceAvailable
+      ? Number(stop.hotWalletBalanceSol)
+      : null;
   const requiredLiveBalanceSol = Math.max(0.05, (dryAmountSol * 2) + 0.02);
 
   if (rpcStarted < 25) {
@@ -593,7 +595,9 @@ function buildVerdict(stats) {
     }
   }
 
-  if (hotWalletBalanceSol < requiredLiveBalanceSol) {
+  if (hotWalletBalanceSol === null) {
+    blockers.push('Hot wallet balance is unavailable; live execution funding cannot be verified from this report.');
+  } else if (hotWalletBalanceSol < requiredLiveBalanceSol) {
     blockers.push(`Hot wallet is not funded for live execution (${hotWalletBalanceSol.toFixed(6)} SOL; target at least ${requiredLiveBalanceSol.toFixed(3)} SOL for dry amount plus fees).`);
   } else {
     passes.push(`Hot wallet balance covers one configured dry-run buy plus fee buffer (${hotWalletBalanceSol.toFixed(6)} SOL).`);
@@ -882,7 +886,13 @@ async function main() {
   console.log(`Verdict: ${report.verdict}`);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  buildVerdict
+};

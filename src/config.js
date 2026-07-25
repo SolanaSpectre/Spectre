@@ -2719,7 +2719,7 @@ class Config {
       && this.finalistAccountVerifierMaxSubscriptions < 100
     ) {
       throw new Error(
-        'Helius decision-shadow V5 requires FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS>=100.'
+        'Helius decision-shadow V6 requires FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS>=100.'
       );
     }
     if (
@@ -2729,7 +2729,7 @@ class Config {
       && this.finalistAccountVerifierTtlMs !== 120000
     ) {
       throw new Error(
-        'Helius decision-shadow V5 requires FINALIST_ACCOUNT_VERIFIER_TTL_MS=120000 to match its frozen verifier-capacity window.'
+        'Helius decision-shadow V6 requires FINALIST_ACCOUNT_VERIFIER_TTL_MS=120000 to match its frozen verifier-capacity window.'
       );
     }
 

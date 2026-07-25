@@ -9,10 +9,12 @@ const {
 } = require('./lib/pumpportal-funding-preflight');
 
 async function main() {
+  assert.strictEqual(projectedMeteredChargeSol(82000), 0.08);
   assert.strictEqual(projectedMeteredChargeSol(72000), 0.07);
   assert.strictEqual(projectedMeteredChargeSol(30000), 0.03);
   assert.strictEqual(projectedMeteredChargeSol(9999), 0);
   assert.strictEqual(projectedMeteredChargeSol(0), null);
+  assert.strictEqual(requiredStartingBalanceSol({ maxMeteredTradeEvents: 82000 }), 0.105);
   assert.strictEqual(requiredStartingBalanceSol({ maxMeteredTradeEvents: 72000 }), 0.095);
 
   const baseEnv = {
@@ -20,25 +22,25 @@ async function main() {
     PUMP_PORTAL_API_KEY: 'smoke-key',
     PUMPPORTAL_FUNDED_WALLET_ADDRESS: '11111111111111111111111111111111',
     PUMPPORTAL_FUNDING_PREFLIGHT_REQUIRED: 'true',
-    PUMPPORTAL_MAX_METERED_TRADE_EVENTS_PER_SESSION: '72000',
+    PUMPPORTAL_MAX_METERED_TRADE_EVENTS_PER_SESSION: '82000',
     PUMPPORTAL_PROVIDER_MIN_FUNDED_BALANCE_SOL: '0.02',
     PUMPPORTAL_FUNDING_PREFLIGHT_BUFFER_SOL: '0.005'
   };
 
   const passing = await checkPumpPortalFunding({
     env: baseEnv,
-    getBalanceSol: async () => 0.1
+    getBalanceSol: async () => 0.11
   });
   assert.strictEqual(passing.status, 'PASS');
-  assert.strictEqual(passing.requiredBalanceSol, 0.095);
-  assert.strictEqual(passing.projectedChargeSol, 0.07);
+  assert.strictEqual(passing.requiredBalanceSol, 0.105);
+  assert.strictEqual(passing.projectedChargeSol, 0.08);
 
   await assert.rejects(
     checkPumpPortalFunding({
       env: baseEnv,
       getBalanceSol: async () => 0.009078
     }),
-    /has 0\.009078 SOL; at least 0\.095000 SOL is required/
+    /has 0\.009078 SOL; at least 0\.105000 SOL is required/
   );
 
   const fakeKeyedRpcUrl = 'https://mainnet.example.invalid/?api-key=DO_NOT_LEAK_THIS_KEY';

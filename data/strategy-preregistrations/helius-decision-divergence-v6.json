@@ -1,0 +1,151 @@
+{
+  "id": "helius_pumpfun_decision_divergence_v6_2026-07-25",
+  "frozenAt": "2026-07-25T08:24:04.7934134-05:00",
+  "mode": "paper_only_report_only_prewarmed_gate_coupled_counterfactual",
+  "question": "With report-only account verification prewarmed before likely decisions, would the unchanged paper lane make the same gate choices from Helius state, and would an executed entry agree with the exact Helius gate result paired to that entry?",
+  "oracle": "PumpPortal remains the sole runtime decision input; Helius, account verification, prewarming, and all comparisons remain report-only.",
+  "maximumShadowStateAgeMs": 1000,
+  "minimumComparableGateEvaluations": 500,
+  "minimumComparableEvaluationCoverageRate": 0.9,
+  "minimumGateActionAgreementRate": 0.99,
+  "minimumWalletFeatureAgreementRate": 0.99,
+  "minimumTrackedAddressAgreementRate": 0.99,
+  "minimumExecutedEntries": 1,
+  "minimumExecutedExits": 1,
+  "minimumComparableExecutedActionCoverageRate": 0.9,
+  "executedActionAgreementRequired": 1,
+  "comparablePopulation": {
+    "definition": "All V6 paper decision evaluations with curve progress and price from either a finalist account snapshot or Helius trade state no older than 1000 ms at the decision instant.",
+    "quietMintTreatment": "A fresh account snapshot makes curve/price comparable even when the aligned Helius trade window is empty; empty tape is represented as zero trades, not missing state.",
+    "staleTreatment": "State older than 1000 ms is non-comparable, never a mismatch.",
+    "prewarmTreatment": "Prewarming may improve availability but cannot change strategy state, thresholds, the 1000 ms freshness limit, or the comparable population.",
+    "noPostHocFiltering": true
+  },
+  "semanticAlignment": {
+    "recentTradeWindowMsSource": "PUMP_MOMENTUM_WINDOW_MS",
+    "recentTradeCap": 201,
+    "curveAndPriceSourceOrder": [
+      "freshest finalist account verifier update at or before the decision instant",
+      "Helius trade-event virtual reserves"
+    ],
+    "walletIdentity": "For matching signatures, use the PumpPortal trader identity; otherwise retain the on-chain Helius TradeEvent user and report alias coverage.",
+    "walletEvidenceWindow": "earliest_50_tracked_and_earliest_50_untrusted",
+    "walletEvidenceTradeCapPerMint": 10000,
+    "strategyConsumptionAllowed": false
+  },
+  "accountVerifierSelection": {
+    "policy": "Prewarm report-only subscriptions when the watch lane observes interest, a signal, confirmation, a flag, or an active paper position; refresh and promote the subscription when the paper lane emits a comparison.",
+    "selectionTrigger": "prewarm_interest_or_position_then_refresh_on_comparison",
+    "prewarmSelectionClass": "decision_shadow_prewarm",
+    "comparisonSelectionClass": "decision_shadow_candidate",
+    "priorityRule": "A comparison request may evict the oldest prewarm-only subscription; a prewarm request may never evict a comparison subscription.",
+    "duplicatePrewarmRule": "Repeated prewarm observations do not extend TTL; comparison requests do.",
+    "reportOnly": true,
+    "minimumMaxSubscriptions": 100,
+    "requiredTtlMs": 120000
+  },
+  "gateDecisionComparator": {
+    "name": "same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context",
+    "context": [
+      "pre-decision observation history",
+      "same-mint cooldown",
+      "bad-exit cooldown",
+      "preset entry count"
+    ],
+    "positionSemantics": "An active position does not suppress a PAPER_SHADOWED gate pass; gate agreement measures WOULD_ENTER versus WOULD_SKIP."
+  },
+  "executedActionComparator": {
+    "name": "gate_coupled_entry_and_same_instant_exit_with_actual_lane_context",
+    "entrySemantics": "An actual entry is paired to its exact PAPER_ELIGIBLE event and reuses that preset's already-recorded Helius gate counterfactual. Entry eligibility is never recomputed a second time after the gate comparison.",
+    "exitSemantics": "Exit comparison uses the actual pre-observation position, entry price, entry time, peak return, and exit profile with same-instant Helius price and curve state."
+  },
+  "decisionComparabilityDiagnostics": {
+    "purpose": "Adjudicate PRESET_NOT_ELIGIBLE_FOR_GUARD_OVERRIDE mismatches without changing their classification or denominator.",
+    "requiredFields": [
+      "actualEvaluatedPreset",
+      "shadowEvaluatedPreset",
+      "shadowPresetSelectionMode",
+      "actualAllowedPresetNames",
+      "shadowAllowedPresetNames",
+      "guardOverrideAllowListAgreement",
+      "shadowCurveProgressDelta",
+      "shadowCurveProgressThreshold",
+      "shadowCurveProgressThresholdMarginAbs",
+      "shadowBaselineCurveProgress",
+      "shadowBaselineAt",
+      "shadowBaselineSource"
+    ],
+    "presetPolicy": "Hold the actual selected preset constant in the shadow evaluation; any evaluated-preset disagreement is instrumentation failure, not provider divergence.",
+    "allowListPolicy": "Record both allow-list snapshots. Do not relabel or remove a mismatch based on these diagnostics.",
+    "baselinePolicy": "Record the shadow delta, threshold, margin, and baseline provenance so cross-source baseline sensitivity can be measured.",
+    "strategyConsumptionAllowed": false,
+    "populationFilteringAllowed": false,
+    "retroactiveRescoringAllowed": false
+  },
+  "burstControl": {
+    "eventQueueMaxSize": 20000,
+    "eventQueueBatchSize": 64,
+    "receiptTimestampRule": "Every queued Helius notification retains socket receipt time; queue delay is reported separately and cannot make provider freshness appear better.",
+    "dropRule": "Any queue overflow or stop-drain timeout invalidates the run.",
+    "finalStatsRequired": true,
+    "drainRule": "At session.stopped the queue must have zero depth, zero handler errors, zero drops, no stop-drain timeout, and processed count equal to enqueued count.",
+    "pumpDevTelemetryRule": "targeted_subscription_requested is emitted once per accepted new request, not for duplicate refreshes or capacity rejects."
+  },
+  "paidTapePlan": {
+    "tradeSubscriptionMode": "targeted_curve",
+    "maxMeteredTradeEventsPerSession": 82000,
+    "estimatedMaximumChargeSol": 0.08,
+    "requiredStartingBalanceSol": 0.105,
+    "billingRule": "PumpPortal charges 0.01 SOL for each completed 10000-event block; the 2000-event remainder adds no projected block charge.",
+    "requestedRunMinutes": 60,
+    "minimumPaidTapeMinutesIfBudgetReached": 55
+  },
+  "concurrentRequirements": {
+    "heliusV5ParityVerdict": "HELIUS_SHADOW_PARITY_PASSED",
+    "cleanHeliusLifecycle": true,
+    "completedPaperLifecycle": true,
+    "strategyConsumptionAllowed": false
+  },
+  "supersedes": {
+    "id": "helius_pumpfun_decision_divergence_v5_2026-07-23",
+    "disposition": "INVALID_RUN_AND_BUDGET_EXHAUSTED_BEFORE_MINIMUM_COVERAGE",
+    "evidenceReuseAllowed": false,
+    "sourceTelemetry": "run-logs/telemetry-2026-07-24T12-56-00-508Z.jsonl",
+    "observedResults": {
+      "meteredTradeEvents": 72000,
+      "budgetReachedAfterMinutes": 53.40873333333333,
+      "comparableEvaluationCoverageRate": 0.488336584952074,
+      "gateActionAgreementRate": 0.9982629841931562,
+      "walletFeatureAgreementRate": 0.8638179607434427,
+      "trackedAddressAgreementRate": 0.9793295118985583,
+      "executedActionAgreementRate": 0.5625,
+      "executedEntryAgreementRate": 0.125,
+      "executedExitAgreementRate": 1
+    },
+    "budgetSelection": {
+      "observedEventRatePerMinute": 1348.0941319209967,
+      "projectedCoverageMinutesAt82000": 60.82661296296296,
+      "selectionRule": "Raise only the paid-tape event budget enough to cover the frozen 60-minute run at the latest measured demand rate, with no strategy or comparator threshold changes."
+    },
+    "implementationFindings": [
+      "Pump 6005 is now classified as BONDING_CURVE_COMPLETE and remains a blocked terminal timing race rather than an insufficient-funds failure.",
+      "The exact actual preset is held constant in the shadow gate evaluation, and both guard-override allow lists are emitted for adjudication.",
+      "Shadow curve-delta threshold, margin, and baseline provenance are emitted report-only.",
+      "The recent-event retention path is O(1); Helius queue receipt timestamps, drops, drain state, and latency remain explicit."
+    ]
+  },
+  "passVerdict": "HELIUS_DECISION_SHADOW_V6_PASSED_REPORT_ONLY",
+  "failVerdict": "HELIUS_DECISION_SHADOW_V6_FAILED",
+  "insufficientVerdict": "HELIUS_DECISION_SHADOW_V6_INSUFFICIENT_EVIDENCE",
+  "invalidVerdict": "HELIUS_DECISION_SHADOW_V6_INVALID_RUN",
+  "prohibitions": [
+    "No Helius, account-verifier, prewarm, baseline-diagnostic, or allow-list state may feed runtime strategy decisions.",
+    "No live enablement, procurement switch, gate loosening, or exit tuning may follow from this experiment alone.",
+    "V1 through V5 rows cannot count toward V6 evidence.",
+    "No post-hoc population filtering, freshness relaxation, wallet-feature exclusion, mismatch relabeling, or comparator threshold change is allowed.",
+    "Queue drops invalidate the run rather than shrinking the denominator.",
+    "Pump 6005 classification must not trigger retry, re-selection, rerouting, or broadcast."
+  ],
+  "nextIfPass": "Repeat V6 report-only parity on another eligible full-coverage session before proposing any procurement change.",
+  "nextIfFail": "Use baseline provenance, preset and allow-list agreement, wallet components, paired entry semantics, and queue telemetry to identify the remaining source without changing strategy."
+}

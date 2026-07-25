@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "id": "runner_watch_full_coverage_v3_2026-07-25",
+  "preregisteredAt": "2026-07-25T08:24:04.7934134-05:00",
+  "status": "PREREGISTERED_BEFORE_FIRST_VALID_RUN",
+  "mode": "paper_only",
+  "liveBehaviorChanged": false,
+  "question": "Under full paid-tape coverage, does PRE_MIGRATION_RUNNER_WATCH produce at least one independent mint episode per covered hour, and do its realizable runtime outcomes remain durable rather than top-heavy?",
+  "supersedes": {
+    "id": "runner_watch_full_coverage_v2_2026-07-20",
+    "disposition": "CLOSED_BUDGET_CHANGED_AFTER_COVERAGE_SHORTFALL",
+    "acceptedEvidenceReuseAllowed": false,
+    "v2LedgerRuns": 5,
+    "v2ValidRuns": 3,
+    "v2RealizedUniqueMintEpisodes": 22,
+    "v2EvidenceTreatment": "Preserve as historical context only. V2 explicitly required any budget change to start a new pre-registration, so no V2 row counts toward V3.",
+    "sourceTelemetry": "run-logs/telemetry-2026-07-24T12-56-00-508Z.jsonl",
+    "latestRunResults": {
+      "valid": false,
+      "failedCheck": "fullPaidTapeMinutes",
+      "meteredTradeEvents": 72000,
+      "fullPaidTapeMinutes": 53.43,
+      "minimumRequiredFullPaidTapeMinutes": 55
+    },
+    "budgetSelection": {
+      "observedEventRatePerMinute": 1348.0941319209967,
+      "projectedCoverageMinutesAt82000": 60.82661296296296,
+      "selectionRule": "Raise only the paid-tape event budget enough to cover the frozen 60-minute run at the latest measured demand rate; retain all strategy gates, exits, episode identity, and economic bars."
+    }
+  },
+  "subscriptionPlan": {
+    "mode": "targeted_curve",
+    "freeInputsOnly": [
+      "PumpPortal new-token discovery",
+      "RPC bonding-curve progress"
+    ],
+    "minCurveProgressInclusive": 0.25,
+    "maxCurveProgressExclusive": 0.9,
+    "paidEventBudgetPerSession": 82000,
+    "estimatedMaximumChargeSol": 0.08,
+    "requiredStartingBalanceSol": 0.105,
+    "billingRule": "PumpPortal charges 0.01 SOL for each completed 10000-event block; the 2000-event remainder adds no projected block charge.",
+    "tokenTradeSubscriptionTtlMs": 1800000,
+    "belowBandRpcRecheckMaxAgeMs": 180000,
+    "belowBandRpcRecheckCadenceMs": 15000,
+    "bondingCurveRuntimeRpcRequired": true
+  },
+  "validRunDefinition": {
+    "requestedRunMinutes": 60,
+    "minimumFullPaidTapeMinutes": 55,
+    "pumpPortalBudgetMustNotBeReachedBeforeMinute": 55,
+    "runtimeRpcCurveErrorsMustBeZero": true,
+    "interruptedRunsExcluded": true,
+    "mixedCoverageRowsMustRemainEpochLabeled": true
+  },
+  "episodeIdentity": "telemetry_run|mint; same-mint reentries within a run count as one episode",
+  "throughputCheckpoint": {
+    "minimumUniqueMintEpisodesPerFullCoverageHour": 1,
+    "gradeOn": "cumulative valid V3 full-coverage runtime sessions"
+  },
+  "economicCheckpoint": {
+    "minimumUniqueMintEpisodes": 20,
+    "minimumValidRuns": 5,
+    "requirements": [
+      "total realized paper PnL SOL > 0",
+      "median realized episode PnL SOL > 0",
+      "realized PnL after removing top 3 winning episodes > 0",
+      "at least 3 positive runs",
+      "no single run contributes more than 60% of total positive PnL"
+    ]
+  },
+  "stoppingRule": {
+    "validRuns": 10,
+    "ifEpisodeTargetNotReached": "INSUFFICIENT_THROUGHPUT_FOR_LIVE_GRADUATION",
+    "ifDurabilityFailsAtCheckpoint": "FAILED_RUNTIME_CHECKPOINT",
+    "noGateLooseningFromStarvation": true
+  },
+  "prohibitions": [
+    "No live broadcast enablement from this experiment.",
+    "No entry-gate or exit-rule changes while evidence is collecting.",
+    "No grading on MFE, maximum excursion, or duplicate same-mint reentries.",
+    "V1 and V2 rows cannot count as V3 evidence.",
+    "Any later change to curve floor, budget, entry logic, or exit logic starts a new pre-registration."
+  ]
+}

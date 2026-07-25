@@ -7,7 +7,7 @@ const { forEachJsonlSync } = require('./lib/jsonl');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
-const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v5.json');
+const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v6.json');
 const PARITY_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity-latest.json');
 const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence');
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence-latest.json');

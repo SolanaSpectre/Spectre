@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const { normalizeDryRunReason } = require('../src/lib/simulation-error-classifier');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
@@ -200,7 +201,7 @@ function eventMarkerFromEvent(event) {
       mint,
       atMs,
       at: new Date(atMs).toISOString(),
-      reason: payload.reason || payload.blockReason || payload.sourceReason || null
+      reason: normalizeDryRunReason(payload)
     };
   }
   if (type === 'pre_migration_paper.entry') {

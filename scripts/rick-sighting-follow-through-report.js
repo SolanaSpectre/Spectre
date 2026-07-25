@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const { normalizeDryRunReason } = require('../src/lib/simulation-error-classifier');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
@@ -243,7 +244,7 @@ function actionFromEvent(event) {
       at: new Date(atMs).toISOString(),
       symbol: payload.symbol || null,
       symbolKey: normalizeSymbol(payload.symbol || ''),
-      reason: payload.reason || payload.blockReason || payload.sourceReason || null,
+      reason: normalizeDryRunReason(payload),
       decision: payload.sourceDecision || payload.decision || null,
       score: numberOrNull(payload.score, 2),
       curveProgress: numberOrNull(curveOf(payload), 6),

@@ -1,7 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const { forEachJsonlSync } = require('./lib/jsonl');
-const { classifySimulationError } = require('../src/lib/simulation-error-classifier');
+const {
+  classifySimulationPayload,
+  normalizeDryRunReason
+} = require('../src/lib/simulation-error-classifier');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_OUTPUT = path.join(REPO_ROOT, 'data', 'reports', 'latest-run-summary.txt');
@@ -2003,17 +2006,6 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
     const label = key === true || key === false ? String(key) : (key || 'unknown');
     target[label] = (target[label] || 0) + 1;
   };
-  const classifySimulationFailure = (payload = {}) => {
-    return classifySimulationError(
-      payload.simulationErrorClass || payload.simulationError,
-      [
-        payload.simulationError,
-        payload.reason,
-        ...(Array.isArray(payload.simulationLogs) ? payload.simulationLogs : [])
-      ],
-      payload.simulationErrorClass || payload.simulationError || payload.reason || 'SIMULATION_FAILED'
-    );
-  };
   const pushLimited = (target, item, limit = 8) => {
     target.push(item);
     if (target.length > limit) target.shift();
@@ -2025,6 +2017,10 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
       if (!type.startsWith('live_dry_run.')) return;
       const payload = event.payload || event.data || {};
       const mint = payload.mint || null;
+      const normalizedReason = normalizeDryRunReason(payload);
+      const normalizedSimulationFailure = payload.simulationOk === false
+        ? classifySimulationPayload(payload)
+        : null;
       if (mint) mints.add(mint);
 
       if (type === 'live_dry_run.would_send') {
@@ -2033,7 +2029,7 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
       } else if (type === 'live_dry_run.would_block') {
         summary.attempts += 1;
         summary.wouldBlock += 1;
-        bump(summary.blockReasons, payload.reason);
+        bump(summary.blockReasons, normalizedReason);
       } else if (type === 'live_dry_run.skipped') {
         summary.skipped += 1;
         bump(summary.skipReasons, payload.reason);
@@ -2048,7 +2044,7 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
       }
       if (payload.simulationOk === true || payload.simulationOk === false) {
         bump(summary.simulationOk, payload.simulationOk);
-        if (payload.simulationOk === false) bump(summary.simulationErrors, classifySimulationFailure(payload));
+        if (normalizedSimulationFailure) bump(summary.simulationErrors, normalizedSimulationFailure);
       } else if (type === 'live_dry_run.would_send' || type === 'live_dry_run.would_block') {
         bump(summary.simulationOk, 'null');
       }
@@ -2076,7 +2072,7 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
           mint,
           symbol: payload.symbol || null,
           eventType: type,
-          reason: payload.reason || null,
+          reason: normalizedReason,
           sourceDecision: payload.sourceDecision || null,
           accountAgeMs: payload.accountAgeMs ?? null,
           accountCurveProgress: payload.accountCurveProgress ?? null,
@@ -2087,7 +2083,7 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
           blockhashOk: payload.blockhashOk ?? null,
           blockhashLatencyMs: payload.blockhashLatencyMs ?? null,
           simulationOk: payload.simulationOk ?? null,
-          simulationError: payload.simulationOk === false ? classifySimulationFailure(payload) : (payload.simulationError || null),
+          simulationError: payload.simulationOk === false ? classifySimulationPayload(payload) : (payload.simulationError || null),
           signatureMode: payload.signatureMode || null,
           signedOk: payload.signedOk ?? null,
           broadcastEnabled: payload.broadcastEnabled ?? null,
