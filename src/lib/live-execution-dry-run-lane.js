@@ -2,6 +2,7 @@
 
 const { LAMPORTS_PER_SOL, PublicKey } = require('@solana/web3.js');
 const { PumpBuyV2DryRunBuilder } = require('./pump-buy-v2-dry-run-builder');
+const { classifySimulationError } = require('./simulation-error-classifier');
 
 const DEFAULT_PUMP_FUN_PROGRAM_ID = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -140,15 +141,7 @@ class LiveExecutionDryRunLane {
   }
 
   classifySimulationError(error, logs = []) {
-    const text = [error, ...(Array.isArray(logs) ? logs : [])]
-      .filter(Boolean)
-      .join('\n');
-    if (/MintDoesNotMatchBondingCurve/i.test(text) || /Error Number:\s*6004/i.test(text) || /custom program error:\s*0x1774/i.test(text)) {
-      return 'BONDING_CURVE_MINT_MISMATCH';
-    }
-    if (/Slippage/i.test(text)) return 'SIMULATION_SLIPPAGE';
-    if (/insufficient funds|custom program error: 0x1/i.test(text)) return 'SIMULATION_INSUFFICIENT_FUNDS';
-    return error || 'SIMULATION_FAILED';
+    return classifySimulationError(error, logs, error || 'SIMULATION_FAILED');
   }
 
   async evaluate(state = {}, meta = {}) {

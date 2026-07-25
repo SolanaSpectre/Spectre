@@ -31,6 +31,12 @@ class HeliusPumpfunShadowListener {
     this.pingTimer = null;
     this.reconnectTimer = null;
     this.subscriptionRequestId = 7101;
+    this.eventQueue = [];
+    this.eventQueueHead = 0;
+    this.eventQueueDrainScheduled = false;
+    this.eventQueueDraining = false;
+    this.eventQueueMaxSize = Math.max(100, Number(config.heliusPumpfunShadowEventQueueMaxSize || 20_000));
+    this.eventQueueBatchSize = Math.max(1, Number(config.heliusPumpfunShadowEventQueueBatchSize || 64));
     this.stats = {
       enabled: config.heliusPumpfunShadowEnabled === true,
       reportOnly: true,
@@ -46,6 +52,20 @@ class HeliusPumpfunShadowListener {
       subscriptionAcks: 0,
       subscriptionErrors: 0,
       messages: 0,
+      eventQueueEnqueued: 0,
+      eventQueueProcessed: 0,
+      eventQueueDropped: 0,
+      eventQueueDepth: 0,
+      eventQueueMaxDepth: 0,
+      eventQueueDrainYields: 0,
+      eventQueueHandlerErrors: 0,
+      eventQueueLatencySamples: 0,
+      eventQueueLatencyTotalMs: 0,
+      eventQueueLatencyMaxMs: 0,
+      eventQueueLastDroppedAt: null,
+      eventQueueStopDrainTimedOut: false,
+      eventQueueMaxSize: this.eventQueueMaxSize,
+      eventQueueBatchSize: this.eventQueueBatchSize,
       notifications: 0,
       successfulNotifications: 0,
       failedNotifications: 0,
@@ -106,11 +126,13 @@ class HeliusPumpfunShadowListener {
     this.stopHeartbeat();
     const socket = this.ws;
     this.ws = null;
-    if (!socket) return;
-    if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
-    else if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
-      socket.close(1000, 'shadow listener stop');
+    if (socket) {
+      if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
+      else if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
+        socket.close(1000, 'shadow listener stop');
+      }
     }
+    await this.drainEventQueueBeforeStop();
   }
 
   connect() {
@@ -141,7 +163,7 @@ class HeliusPumpfunShadowListener {
       });
     });
 
-    socket.on('message', (raw) => this.handleRawMessage(raw));
+    socket.on('message', (raw) => this.enqueueRawMessage(raw, Date.now()));
     socket.on('pong', () => {
       this.stats.pongsReceived += 1;
       this.stats.lastPongAt = new Date().toISOString();
@@ -190,11 +212,109 @@ class HeliusPumpfunShadowListener {
     this.pingTimer = null;
   }
 
-  handleRawMessage(raw) {
+  enqueueRawMessage(raw, receivedAtMs = Date.now()) {
     const bytes = Buffer.byteLength(raw);
     this.stats.messages += 1;
     this.stats.bytes += bytes;
-    this.stats.lastMessageAt = new Date().toISOString();
+    this.stats.lastMessageAt = new Date(receivedAtMs).toISOString();
+    if (this.eventQueueDepth() >= this.eventQueueMaxSize) {
+      this.stats.eventQueueDropped += 1;
+      this.stats.eventQueueLastDroppedAt = new Date(receivedAtMs).toISOString();
+      if (this.stats.eventQueueDropped === 1 || this.stats.eventQueueDropped % 1000 === 0) {
+        this.emitLifecycle('provider.helius_pumpfun.shadow_event_queue_overflow', {
+          dropped: this.stats.eventQueueDropped,
+          queueDepth: this.eventQueueDepth(),
+          maxQueueSize: this.eventQueueMaxSize
+        });
+      }
+      return false;
+    }
+    this.eventQueue.push({ raw, receivedAtMs, bytes });
+    this.stats.eventQueueEnqueued += 1;
+    this.syncEventQueueStats();
+    this.scheduleEventQueueDrain();
+    return true;
+  }
+
+  scheduleEventQueueDrain() {
+    if (this.eventQueueDrainScheduled || this.eventQueueDraining || this.eventQueueDepth() === 0) return;
+    this.eventQueueDrainScheduled = true;
+    setImmediate(() => {
+      this.eventQueueDrainScheduled = false;
+      this.drainEventQueue();
+    });
+  }
+
+  drainEventQueue() {
+    if (this.eventQueueDraining) return;
+    this.eventQueueDraining = true;
+    let processed = 0;
+    while (processed < this.eventQueueBatchSize && this.eventQueueDepth() > 0) {
+      const item = this.eventQueue[this.eventQueueHead];
+      this.eventQueue[this.eventQueueHead] = null;
+      this.eventQueueHead += 1;
+      processed += 1;
+      const latencyMs = Math.max(0, Date.now() - Number(item.receivedAtMs || Date.now()));
+      this.stats.eventQueueLatencySamples += 1;
+      this.stats.eventQueueLatencyTotalMs += latencyMs;
+      this.stats.eventQueueLatencyMaxMs = Math.max(this.stats.eventQueueLatencyMaxMs, latencyMs);
+      try {
+        this.handleRawMessage(item.raw, item.receivedAtMs, item.bytes);
+        this.stats.eventQueueProcessed += 1;
+      } catch (error) {
+        this.stats.eventQueueHandlerErrors += 1;
+        this.logger.warn('Helius Pump.fun shadow message handler failed', error.message);
+      }
+    }
+    this.compactEventQueue();
+    this.eventQueueDraining = false;
+    this.syncEventQueueStats();
+    if (this.eventQueueDepth() > 0) {
+      this.stats.eventQueueDrainYields += 1;
+      this.scheduleEventQueueDrain();
+    }
+  }
+
+  eventQueueDepth() {
+    return Math.max(0, this.eventQueue.length - this.eventQueueHead);
+  }
+
+  compactEventQueue() {
+    if (this.eventQueueHead === 0) return;
+    if (this.eventQueueHead < 4096 && this.eventQueueHead * 2 < this.eventQueue.length) return;
+    this.eventQueue = this.eventQueue.slice(this.eventQueueHead);
+    this.eventQueueHead = 0;
+  }
+
+  syncEventQueueStats() {
+    const depth = this.eventQueueDepth();
+    this.stats.eventQueueDepth = depth;
+    this.stats.eventQueueMaxDepth = Math.max(this.stats.eventQueueMaxDepth, depth);
+  }
+
+  async drainEventQueueBeforeStop(timeoutMs = 5000) {
+    const deadline = Date.now() + timeoutMs;
+    this.scheduleEventQueueDrain();
+    while ((this.eventQueueDraining || this.eventQueueDepth() > 0) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    if (this.eventQueueDepth() > 0) {
+      const dropped = this.eventQueueDepth();
+      this.stats.eventQueueDropped += dropped;
+      this.stats.eventQueueStopDrainTimedOut = true;
+      this.eventQueue = [];
+      this.eventQueueHead = 0;
+      this.syncEventQueueStats();
+      this.emitLifecycle('provider.helius_pumpfun.shadow_event_queue_stop_timeout', {
+        dropped,
+        totalDropped: this.stats.eventQueueDropped,
+        timeoutMs
+      });
+    }
+  }
+
+  handleRawMessage(raw, receivedAtMs = Date.now(), rawBytes = null) {
+    const bytes = Number.isFinite(Number(rawBytes)) ? Number(rawBytes) : Buffer.byteLength(raw);
     let payload;
     try {
       payload = JSON.parse(raw.toString());
@@ -230,7 +350,8 @@ class HeliusPumpfunShadowListener {
     const context = {
       signature: value.signature || null,
       slot: result?.context?.slot ?? null,
-      receivedAt: new Date().toISOString()
+      receivedAt: new Date(receivedAtMs).toISOString(),
+      queueDelayMs: Math.max(0, Date.now() - receivedAtMs)
     };
     const logs = Array.isArray(value.logs) ? value.logs : [];
     this.stats.logLines += logs.length;
@@ -460,10 +581,14 @@ class HeliusPumpfunShadowListener {
   }
 
   getStats() {
+    this.syncEventQueueStats();
     return {
       ...this.stats,
       connected: Boolean(this.ws && this.ws.readyState === WebSocket.OPEN),
-      currentReconnectDelayMs: this.currentReconnectDelayMs
+      currentReconnectDelayMs: this.currentReconnectDelayMs,
+      eventQueueLatencyMeanMs: this.stats.eventQueueLatencySamples > 0
+        ? this.stats.eventQueueLatencyTotalMs / this.stats.eventQueueLatencySamples
+        : null
     };
   }
 }

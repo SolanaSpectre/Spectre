@@ -7,7 +7,7 @@ const { forEachJsonlSync } = require('./lib/jsonl');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
-const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v4.json');
+const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v5.json');
 const PARITY_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity-latest.json');
 const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence');
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence-latest.json');
@@ -47,32 +47,51 @@ function stats(values = []) {
   };
 }
 
-function collect(events = []) {
-  const state = {
+function createState() {
+  return {
     sessionStarted: null,
     sessionStopped: null,
     budgetReached: null,
     evaluations: [],
     executedActions: [],
-    accountVerifierMaxSubscriptionSkips: []
+    accountVerifierMaxSubscriptionSkips: [],
+    accountVerifierPrewarmCapacitySkips: [],
+    heliusQueueFailures: []
   };
-  for (const event of events) {
-    if (event.type === 'session.started') state.sessionStarted = { timestamp: event.timestamp, payload: event.payload || {} };
-    else if (event.type === 'session.stopping' || event.type === 'session.stopped') {
-      state.sessionStopped = { timestamp: event.timestamp, payload: event.payload || {} };
-    } else if (event.type === 'provider.pumpportal.metered_budget_reached') {
-      state.budgetReached = { timestamp: event.timestamp, payload: event.payload || {} };
-    } else if (
-      event.type === 'finalist_account_verifier.skipped'
-      && event.payload?.reason === 'MAX_SUBSCRIPTIONS'
-    ) {
-      state.accountVerifierMaxSubscriptionSkips.push({ timestamp: event.timestamp, ...(event.payload || {}) });
-    } else if (event.type === 'helius_pumpfun.decision_shadow.evaluation') {
-      state.evaluations.push({ timestamp: event.timestamp, ...(event.payload || {}) });
-    } else if (event.type === 'helius_pumpfun.decision_shadow.executed_action') {
-      state.executedActions.push({ timestamp: event.timestamp, ...(event.payload || {}) });
-    }
+}
+
+function collectEvent(state, event) {
+  if (event.type === 'session.started') state.sessionStarted = { timestamp: event.timestamp, payload: event.payload || {} };
+  else if (event.type === 'session.stopping' || event.type === 'session.stopped') {
+    state.sessionStopped = { timestamp: event.timestamp, payload: event.payload || {} };
+  } else if (event.type === 'provider.pumpportal.metered_budget_reached') {
+    state.budgetReached = { timestamp: event.timestamp, payload: event.payload || {} };
+  } else if (
+    event.type === 'finalist_account_verifier.skipped'
+    && event.payload?.reason === 'MAX_SUBSCRIPTIONS'
+  ) {
+    state.accountVerifierMaxSubscriptionSkips.push({ timestamp: event.timestamp, ...(event.payload || {}) });
+  } else if (
+    event.type === 'finalist_account_verifier.skipped'
+    && event.payload?.reason === 'MAX_SUBSCRIPTIONS_PREWARM'
+  ) {
+    state.accountVerifierPrewarmCapacitySkips.push({ timestamp: event.timestamp, ...(event.payload || {}) });
+  } else if (
+    event.type === 'provider.helius_pumpfun.shadow_event_queue_overflow'
+    || event.type === 'provider.helius_pumpfun.shadow_event_queue_stop_timeout'
+  ) {
+    state.heliusQueueFailures.push({ type: event.type, timestamp: event.timestamp, ...(event.payload || {}) });
+  } else if (event.type === 'helius_pumpfun.decision_shadow.evaluation') {
+    state.evaluations.push({ timestamp: event.timestamp, ...(event.payload || {}) });
+  } else if (event.type === 'helius_pumpfun.decision_shadow.executed_action') {
+    state.executedActions.push({ timestamp: event.timestamp, ...(event.payload || {}) });
   }
+  return state;
+}
+
+function collect(events = []) {
+  const state = createState();
+  for (const event of events) collectEvent(state, event);
   return state;
 }
 
@@ -84,9 +103,23 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
   const walletCharacterized = comparable.filter((row) => row.walletComparison?.portal && row.walletComparison?.helius);
   const walletFeatureMatches = walletCharacterized.filter((row) => row.walletComparison.featureAgreement === true);
   const trackedAddressMatches = walletCharacterized.filter((row) => row.walletComparison.trackedAddressAgreement === true);
+  const walletTouchMatches = walletCharacterized.filter((row) => row.walletComparison.touchedAgreement === true);
+  const walletShadowTouchMatches = walletCharacterized.filter(
+    (row) => row.walletComparison.shadowTouchedAgreement === true
+  );
+  const walletUntrustedTouchMatches = walletCharacterized.filter(
+    (row) => row.walletComparison.untrustedTouchedAgreement === true
+  );
   const accountEnriched = comparable.filter((row) => row.shadowAccountEnriched === true);
   const verifierSubscribed = evaluations.filter((row) => row.accountVerifierSubscribed === true);
   const verifierUpdated = evaluations.filter((row) => row.accountVerifierHasUpdate === true);
+  const prewarmed = evaluations.filter((row) => row.accountVerifierPrewarmed === true);
+  const prewarmedComparable = prewarmed.filter((row) => row.comparable === true);
+  const notPrewarmed = evaluations.filter((row) => row.accountVerifierPrewarmed !== true);
+  const notPrewarmedComparable = notPrewarmed.filter((row) => row.comparable === true);
+  const updatedBeforeComparison = evaluations.filter(
+    (row) => row.accountVerifierFirstUpdateBeforeComparison === true
+  );
   const aliasedWalletTrades = comparable.reduce(
     (sum, row) => sum + Number(row.walletComparison?.helius?.portalSignatureAliasTradeCount || 0),
     0
@@ -101,17 +134,34 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
   const executedMatches = comparableExecuted.filter((row) => row.actionAgreement === true);
   const entryActions = comparableExecuted.filter((row) => row.action === 'ENTRY');
   const exitActions = comparableExecuted.filter((row) => row.action === 'EXIT');
+  const entryActionMatches = entryActions.filter((row) => row.actionAgreement === true);
+  const exitActionMatches = exitActions.filter((row) => row.actionAgreement === true);
   const sourceMatches = !sourceTelemetry || parity.sourceTelemetry === sourceTelemetry;
   const plan = state.sessionStarted?.payload?.heliusPumpfunShadowPlan || {};
   const paidTapePlan = state.sessionStarted?.payload?.pumpPortalPaidTapePlan || {};
+  const heliusQueueStats = state.sessionStopped?.payload?.stats?.heliusPumpfunShadow || {};
+  const heliusQueueStatsAvailable = [
+    heliusQueueStats.eventQueueEnqueued,
+    heliusQueueStats.eventQueueProcessed,
+    heliusQueueStats.eventQueueDropped,
+    heliusQueueStats.eventQueueDepth,
+    heliusQueueStats.eventQueueMaxDepth,
+    heliusQueueStats.eventQueueMaxSize,
+    heliusQueueStats.eventQueueBatchSize
+  ].every((value) => Number.isFinite(Number(value)));
+  const heliusQueueEnqueued = Number(heliusQueueStats.eventQueueEnqueued || 0);
+  const heliusQueueProcessed = Number(heliusQueueStats.eventQueueProcessed || 0);
+  const heliusQueueDropped = Number(heliusQueueStats.eventQueueDropped || 0);
+  const heliusQueueHandlerErrors = Number(heliusQueueStats.eventQueueHandlerErrors || 0);
+  const heliusQueueDepth = Number(heliusQueueStats.eventQueueDepth || 0);
+  const heliusQueueMaxDepth = Number(heliusQueueStats.eventQueueMaxDepth || 0);
+  const heliusQueueMaxSize = Number(heliusQueueStats.eventQueueMaxSize || 0);
   const startMs = Date.parse(state.sessionStarted?.timestamp || '');
   const budgetReachedMs = Date.parse(state.budgetReached?.timestamp || '');
   const budgetReachedAfterMinutes = Number.isFinite(startMs) && Number.isFinite(budgetReachedMs)
     ? (budgetReachedMs - startMs) / 60_000
     : null;
-  const effectiveRegistrationAt = preregistration.capacityAmendedBeforeFirstV4RunAt
-    || preregistration.amendedBeforeFirstV4RunAt
-    || preregistration.frozenAt;
+  const effectiveRegistrationAt = preregistration.frozenAt;
   const checks = {
     postRegistration: Number.isFinite(startMs) && startMs > Date.parse(effectiveRegistrationAt),
     paperMode: state.sessionStarted?.payload?.mode === 'PAPER',
@@ -124,8 +174,32 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     accountStateEnrichmentEnabled: plan.decisionShadowAccountStateEnrichment === 'finalist_account_verifier_latest_update',
     sufficientAccountVerifierCapacity: Number(plan.decisionShadowAccountVerifierMaxSubscriptions)
       >= preregistration.accountVerifierSelection.minimumMaxSubscriptions,
+    correctAccountVerifierTtl: Number(plan.decisionShadowAccountVerifierTtlMs)
+      === preregistration.accountVerifierSelection.requiredTtlMs,
+    correctAccountVerifierSelectionTrigger: plan.decisionShadowAccountVerifierSelectionTrigger
+      === preregistration.accountVerifierSelection.selectionTrigger,
     noAccountVerifierCapacitySkips: state.accountVerifierMaxSubscriptionSkips.length === 0,
+    heliusQueueStatsAvailable,
+    noHeliusQueueDrops: state.heliusQueueFailures.length === 0
+      && heliusQueueDropped === 0
+      && heliusQueueStats.eventQueueStopDrainTimedOut !== true,
+    heliusQueueDrainedCleanly: heliusQueueStatsAvailable
+      && heliusQueueDepth === 0
+      && heliusQueueHandlerErrors === 0
+      && heliusQueueProcessed === heliusQueueEnqueued,
+    correctHeliusQueueMaxSize: Number(plan.eventQueueMaxSize)
+      === preregistration.burstControl.eventQueueMaxSize
+      && Number(heliusQueueStats.eventQueueMaxSize)
+        === preregistration.burstControl.eventQueueMaxSize,
+    correctHeliusQueueBatchSize: Number(plan.eventQueueBatchSize)
+      === preregistration.burstControl.eventQueueBatchSize
+      && Number(heliusQueueStats.eventQueueBatchSize)
+        === preregistration.burstControl.eventQueueBatchSize,
     walletIdentityAlignmentEnabled: plan.decisionShadowWalletIdentityAlignment === 'pumpportal_signature_alias_then_helius_event_user',
+    correctWalletEvidenceWindow: plan.decisionShadowWalletEvidenceWindow
+      === preregistration.semanticAlignment.walletEvidenceWindow,
+    correctWalletEvidenceTradeCap: Number(plan.decisionShadowWalletEvidenceTradeCapPerMint)
+      === preregistration.semanticAlignment.walletEvidenceTradeCapPerMint,
     correctPaidTapeSubscriptionMode: paidTapePlan.tradeSubscriptionMode === preregistration.paidTapePlan.tradeSubscriptionMode,
     correctPaidTapeBudget: Number(paidTapePlan.maxMeteredTradeEventsPerSession)
       === preregistration.paidTapePlan.maxMeteredTradeEventsPerSession,
@@ -171,8 +245,17 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     'correctRecentTradeCap',
     'accountStateEnrichmentEnabled',
     'sufficientAccountVerifierCapacity',
+    'correctAccountVerifierTtl',
+    'correctAccountVerifierSelectionTrigger',
     'noAccountVerifierCapacitySkips',
+    'heliusQueueStatsAvailable',
+    'noHeliusQueueDrops',
+    'heliusQueueDrainedCleanly',
+    'correctHeliusQueueMaxSize',
+    'correctHeliusQueueBatchSize',
     'walletIdentityAlignmentEnabled',
+    'correctWalletEvidenceWindow',
+    'correctWalletEvidenceTradeCap',
     'correctPaidTapeSubscriptionMode',
     'correctPaidTapeBudget',
     'paidTapeCoverageDuration',
@@ -216,7 +299,14 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       accountEnrichedGateEvaluations: accountEnriched.length,
       accountVerifierSubscribedEvaluations: verifierSubscribed.length,
       accountVerifierUpdatedEvaluations: verifierUpdated.length,
+      accountVerifierPrewarmedEvaluations: prewarmed.length,
+      accountVerifierPrewarmedComparableEvaluations: prewarmedComparable.length,
+      accountVerifierNotPrewarmedEvaluations: notPrewarmed.length,
+      accountVerifierNotPrewarmedComparableEvaluations: notPrewarmedComparable.length,
+      accountVerifierUpdatedBeforeComparisonEvaluations: updatedBeforeComparison.length,
       accountVerifierMaxSubscriptionSkips: state.accountVerifierMaxSubscriptionSkips.length,
+      accountVerifierPrewarmCapacitySkips: state.accountVerifierPrewarmCapacitySkips.length,
+      heliusQueueFailures: state.heliusQueueFailures.length,
       portalSignatureAliasedWalletTrades: aliasedWalletTrades,
       rawHeliusEventUserWalletTrades: rawHeliusWalletTrades,
       executedActions: executed.length,
@@ -224,15 +314,25 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       unavailableExecutedActions: executed.length - comparableExecuted.length,
       executedActionMatches: executedMatches.length,
       executedEntries: entryActions.length,
-      executedExits: exitActions.length
+      executedExits: exitActions.length,
+      executedEntryMatches: entryActionMatches.length,
+      executedExitMatches: exitActionMatches.length
     },
     agreement: {
       gateActionAgreementRate: ratio(actionMatches.length, comparable.length),
       comparableEvaluationCoverageRate: ratio(comparable.length, evaluations.length),
+      prewarmedComparableEvaluationCoverageRate: ratio(prewarmedComparable.length, prewarmed.length),
+      notPrewarmedComparableEvaluationCoverageRate: ratio(notPrewarmedComparable.length, notPrewarmed.length),
+      accountUpdateBeforeComparisonRate: ratio(updatedBeforeComparison.length, evaluations.length),
       gateReasonAgreementRate: ratio(reasonMatches.length, comparable.length),
       walletFeatureAgreementRate: ratio(walletFeatureMatches.length, walletCharacterized.length),
+      walletTouchedAgreementRate: ratio(walletTouchMatches.length, walletCharacterized.length),
+      walletShadowTouchedAgreementRate: ratio(walletShadowTouchMatches.length, walletCharacterized.length),
+      walletUntrustedTouchedAgreementRate: ratio(walletUntrustedTouchMatches.length, walletCharacterized.length),
       trackedAddressAgreementRate: ratio(trackedAddressMatches.length, walletCharacterized.length),
       executedActionAgreementRate: ratio(executedMatches.length, comparableExecuted.length),
+      executedEntryAgreementRate: ratio(entryActionMatches.length, entryActions.length),
+      executedExitAgreementRate: ratio(exitActionMatches.length, exitActions.length),
       comparableExecutedActionCoverageRate: ratio(comparableExecuted.length, executed.length),
       shadowStateAgeMs: stats(comparable.map((row) => row.shadowStateAgeMs))
     },
@@ -251,6 +351,32 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       budgetReachedAfterMinutes,
       meteredTradeEvents: state.budgetReached?.payload?.meteredTradeEvents ?? null,
       configuredBudget: paidTapePlan.maxMeteredTradeEventsPerSession ?? null
+    },
+    accountVerifierPrewarm: {
+      prewarmLeadMs: stats(prewarmed.map((row) => row.accountVerifierPrewarmLeadMs)),
+      comparisonCapacitySkips: state.accountVerifierMaxSubscriptionSkips.length,
+      prewarmCapacitySkips: state.accountVerifierPrewarmCapacitySkips.length
+    },
+    heliusEventQueue: {
+      failures: state.heliusQueueFailures,
+      enqueued: heliusQueueEnqueued,
+      processed: heliusQueueProcessed,
+      dropped: heliusQueueDropped,
+      handlerErrors: heliusQueueHandlerErrors,
+      depthAtStop: heliusQueueDepth,
+      maxDepth: heliusQueueMaxDepth,
+      maxSize: heliusQueueMaxSize,
+      maxDepthRatio: ratio(heliusQueueMaxDepth, heliusQueueMaxSize),
+      batchSize: Number(heliusQueueStats.eventQueueBatchSize || 0),
+      drainYields: Number(heliusQueueStats.eventQueueDrainYields || 0),
+      latencySamples: Number(heliusQueueStats.eventQueueLatencySamples || 0),
+      latencyMeanMs: Number.isFinite(Number(heliusQueueStats.eventQueueLatencyMeanMs))
+        ? Number(heliusQueueStats.eventQueueLatencyMeanMs)
+        : null,
+      latencyMaxMs: Number.isFinite(Number(heliusQueueStats.eventQueueLatencyMaxMs))
+        ? Number(heliusQueueStats.eventQueueLatencyMaxMs)
+        : null,
+      stopDrainTimedOut: heliusQueueStats.eventQueueStopDrainTimedOut === true
     },
     divergenceByReason,
     divergenceSamples: divergences.slice(0, 50),
@@ -277,16 +403,16 @@ function main() {
   const { telemetryPath } = parseCli();
   const preregistration = readJson(PREREG_PATH);
   const parity = fs.existsSync(PARITY_PATH) ? readJson(PARITY_PATH) : {};
-  const events = [];
+  const state = createState();
   let malformedLines = 0;
   if (telemetryPath && fs.existsSync(telemetryPath)) {
-    const readStats = forEachJsonlSync(telemetryPath, (event) => events.push(event));
+    const readStats = forEachJsonlSync(telemetryPath, (event) => collectEvent(state, event));
     malformedLines = readStats.malformedLines;
   }
   const sourceTelemetry = telemetryPath
     ? path.relative(ROOT, telemetryPath).replace(/\\/g, '/')
     : null;
-  const report = buildReport({ state: collect(events), preregistration, parity, sourceTelemetry });
+  const report = buildReport({ state, preregistration, parity, sourceTelemetry });
   report.counts.malformedTelemetryLines = malformedLines;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const stampedPath = path.join(OUTPUT_DIR, `helius-pumpfun-decision-divergence-${stamp}.json`);
@@ -298,4 +424,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { analyzeEvents, buildReport, collect, stats };
+module.exports = { analyzeEvents, buildReport, collect, collectEvent, createState, stats };

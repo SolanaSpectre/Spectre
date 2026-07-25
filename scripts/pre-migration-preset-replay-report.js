@@ -6,7 +6,7 @@ const {
   buildReport,
   compact,
   parseArgs,
-  readJsonl,
+  readReplayEventStream,
   resolveRepoPath,
   writeJson
 } = require('./pre-migration-paper-sim-report');
@@ -147,22 +147,20 @@ function aggregateRuns(runs) {
 }
 
 function buildReplayReport(telemetryFiles, presets) {
-  const presetReports = {};
-  const telemetryRowsByPath = new Map();
-
-  function rowsForTelemetry(telemetryPath) {
-    if (!telemetryRowsByPath.has(telemetryPath)) {
-      telemetryRowsByPath.set(telemetryPath, readJsonl(telemetryPath));
+  const runsByPreset = Object.fromEntries(
+    Object.keys(presets).map((presetName) => [presetName, []])
+  );
+  for (const telemetryPath of telemetryFiles) {
+    const replayInput = readReplayEventStream(telemetryPath);
+    for (const [presetName, strategy] of Object.entries(presets)) {
+      const report = buildReport(replayInput.events, telemetryPath, strategy, replayInput.run);
+      runsByPreset[presetName].push(summarizeRun(report));
     }
-    return telemetryRowsByPath.get(telemetryPath);
   }
 
+  const presetReports = {};
   for (const [presetName, strategy] of Object.entries(presets)) {
-    const runs = telemetryFiles.map((telemetryPath) => {
-      const report = buildReport(rowsForTelemetry(telemetryPath), telemetryPath, strategy);
-      return summarizeRun(report);
-    });
-
+    const runs = runsByPreset[presetName];
     presetReports[presetName] = {
       strategy,
       aggregate: aggregateRuns(runs),

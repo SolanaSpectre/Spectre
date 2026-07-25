@@ -1,0 +1,62 @@
+#!/usr/bin/env node
+'use strict';
+
+const assert = require('assert');
+const {
+  decisionShadowVerifierPolicyActive,
+  hasDecisionShadowComparisonEvent,
+  shouldPrewarmDecisionShadowSubscription,
+  shouldRequestDecisionShadowSubscription
+} = require('../src/lib/helius-decision-shadow-subscription-policy');
+
+const active = {
+  heliusShadowEnabled: true,
+  decisionShadowEnabled: true,
+  paperMode: true
+};
+
+assert.strictEqual(decisionShadowVerifierPolicyActive(active), true);
+assert.strictEqual(decisionShadowVerifierPolicyActive({ ...active, paperMode: false }), false);
+assert.strictEqual(hasDecisionShadowComparisonEvent([
+  { telemetryType: 'pre_migration.guard_attribution' }
+]), false);
+assert.strictEqual(hasDecisionShadowComparisonEvent([
+  { telemetryType: 'pre_migration_paper.decision' }
+]), true);
+assert.strictEqual(shouldRequestDecisionShadowSubscription({
+  ...active,
+  events: [{ telemetryType: 'pre_migration.guard_attribution' }]
+}), false);
+assert.strictEqual(shouldRequestDecisionShadowSubscription({
+  ...active,
+  events: [{ telemetryType: 'pre_migration_paper.entry' }]
+}), true);
+assert.strictEqual(shouldRequestDecisionShadowSubscription({
+  ...active,
+  events: [{ telemetryType: 'pre_migration_paper.exit' }]
+}), true);
+assert.strictEqual(shouldRequestDecisionShadowSubscription({
+  ...active,
+  decisionShadowEnabled: false,
+  events: [{ telemetryType: 'pre_migration_paper.decision' }]
+}), false);
+assert.strictEqual(shouldPrewarmDecisionShadowSubscription({
+  ...active,
+  result: { observedInterest: true, state: { mint: 'Mint' } }
+}), true);
+assert.strictEqual(shouldPrewarmDecisionShadowSubscription({
+  ...active,
+  result: { state: { mint: 'Mint' } }
+}), false);
+assert.strictEqual(shouldPrewarmDecisionShadowSubscription({
+  ...active,
+  activePosition: true,
+  result: { state: { mint: 'Mint' } }
+}), true);
+assert.strictEqual(shouldPrewarmDecisionShadowSubscription({
+  ...active,
+  paperMode: false,
+  result: { flagged: true, state: { mint: 'Mint' } }
+}), false);
+
+console.log('Helius decision-shadow subscription policy smoke passed');

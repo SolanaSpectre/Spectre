@@ -411,6 +411,7 @@ if (require.main === module) {
 module.exports = {
   buildReport,
   list,
+  noPriorDecisionFromEvent,
   readJson,
   readJsonl,
   snapshotFromEvent

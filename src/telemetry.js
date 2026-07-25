@@ -7,7 +7,11 @@ class Telemetry {
     this.logger = logger;
     this.enabled = config.telemetryEnabled;
     this.events = [];
-    this.maxRecentEvents = Math.max(0, Number(process.env.TELEMETRY_MAX_RECENT_EVENTS || 5000));
+    const configuredMaxRecentEvents = Number(process.env.TELEMETRY_MAX_RECENT_EVENTS || 5000);
+    this.maxRecentEvents = Number.isFinite(configuredMaxRecentEvents)
+      ? Math.max(0, Math.floor(configuredMaxRecentEvents))
+      : 5000;
+    this.recentEventCursor = 0;
     this.totalEventsRecorded = 0;
     this.counts = new Map();
     this.rejectionCounts = new Map();
@@ -55,12 +59,7 @@ class Telemetry {
     };
 
     this.totalEventsRecorded += 1;
-    if (this.maxRecentEvents !== 0) {
-      this.events.push(event);
-      if (this.events.length > this.maxRecentEvents) {
-        this.events.splice(0, this.events.length - this.maxRecentEvents);
-      }
-    }
+    this.retainRecentEvent(event);
     this.counts.set(type, (this.counts.get(type) || 0) + 1);
 
     if (type === 'trade.rejected' && payload.reason) {
@@ -138,6 +137,17 @@ class Telemetry {
     this.enqueueWrite(event);
 
     return event;
+  }
+
+  retainRecentEvent(event) {
+    if (this.maxRecentEvents === 0) return;
+    if (this.events.length < this.maxRecentEvents) {
+      this.events.push(event);
+      return;
+    }
+    // Ring contents are bounded and recent, but no longer chronological after the first wrap.
+    this.events[this.recentEventCursor] = event;
+    this.recentEventCursor = (this.recentEventCursor + 1) % this.maxRecentEvents;
   }
 
   buildRateLimitConfigs() {
@@ -285,12 +295,7 @@ class Telemetry {
     };
 
     this.totalEventsRecorded += 1;
-    if (this.maxRecentEvents !== 0) {
-      this.events.push(event);
-      if (this.events.length > this.maxRecentEvents) {
-        this.events.splice(0, this.events.length - this.maxRecentEvents);
-      }
-    }
+    this.retainRecentEvent(event);
     this.counts.set(type, (this.counts.get(type) || 0) + 1);
     this.enqueueWrite(event);
     return event;
@@ -362,6 +367,7 @@ class Telemetry {
       totalEvents: this.totalEventsRecorded,
       recentEventsRetained: this.events.length,
       maxRecentEvents: this.maxRecentEvents,
+      recentEventRetention: this.maxRecentEvents === 0 ? 'disabled' : 'ring_buffer',
       bufferedEvents: this.writeBuffer.length,
       writeInFlight: this.writeInFlight,
       counts: Object.fromEntries(this.counts),

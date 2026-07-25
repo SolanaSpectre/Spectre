@@ -3743,6 +3743,9 @@ class PreMigrationPaperLane {
         baselineAt: details.baselineAt || null,
         baselineAt60s: details.baselineAt60s || null,
         guardOverride: details.guardOverride || null,
+        allowedPresetNames: Array.isArray(details.allowedPresetNames)
+          ? details.allowedPresetNames.slice()
+          : null,
         lateFastTrackScore: this.compact(details.lateFastTrackScore, 2),
         lateFastTrackCurveProgress: this.compact(details.lateFastTrackCurveProgress, 6),
         lateFastTrackRecentVolumeSol: this.compact(details.lateFastTrackRecentVolumeSol, 4),

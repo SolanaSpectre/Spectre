@@ -139,6 +139,14 @@ class Config {
     return parseInt(process.env.HELIUS_PUMPFUN_SHADOW_MAX_RECONNECT_DELAY_MS || '30000', 10);
   }
 
+  static get heliusPumpfunShadowEventQueueMaxSize() {
+    return parseInt(process.env.HELIUS_PUMPFUN_SHADOW_EVENT_QUEUE_MAX_SIZE || '20000', 10);
+  }
+
+  static get heliusPumpfunShadowEventQueueBatchSize() {
+    return parseInt(process.env.HELIUS_PUMPFUN_SHADOW_EVENT_QUEUE_BATCH_SIZE || '64', 10);
+  }
+
   static get heliusPumpfunDecisionShadowEnabled() {
     return process.env.HELIUS_PUMPFUN_DECISION_SHADOW_ENABLED !== 'false';
   }
@@ -2580,6 +2588,8 @@ class Config {
       { key: 'finalistAccountVerifierMinConfirmedCurveProgress', value: this.finalistAccountVerifierMinConfirmedCurveProgress, min: 0, max: 1 },
       { key: 'finalistAccountVerifierMinWalletScore', value: this.finalistAccountVerifierMinWalletScore, min: 0, max: 100 },
       { key: 'finalistAccountVerifierMaxCurveDelta', value: this.finalistAccountVerifierMaxCurveDelta, min: 0, max: 1 },
+      { key: 'heliusPumpfunShadowEventQueueMaxSize', value: this.heliusPumpfunShadowEventQueueMaxSize, min: 100 },
+      { key: 'heliusPumpfunShadowEventQueueBatchSize', value: this.heliusPumpfunShadowEventQueueBatchSize, min: 1 },
       { key: 'liveDryRunAmountSol', value: this.liveDryRunAmountSol, min: 0.001 },
       { key: 'liveDryRunMaxAccountAgeMs', value: this.liveDryRunMaxAccountAgeMs, min: 100 },
       { key: 'liveDryRunMaxPriceImpactPct', value: this.liveDryRunMaxPriceImpactPct, min: 0 },
@@ -2709,7 +2719,17 @@ class Config {
       && this.finalistAccountVerifierMaxSubscriptions < 100
     ) {
       throw new Error(
-        'Helius decision-shadow V4 requires FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS>=100; measured two-minute decision-mint demand peaked at 70.'
+        'Helius decision-shadow V5 requires FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS>=100.'
+      );
+    }
+    if (
+      this.executionMode === 'PAPER'
+      && this.heliusPumpfunShadowEnabled
+      && this.heliusPumpfunDecisionShadowEnabled
+      && this.finalistAccountVerifierTtlMs !== 120000
+    ) {
+      throw new Error(
+        'Helius decision-shadow V5 requires FINALIST_ACCOUNT_VERIFIER_TTL_MS=120000 to match its frozen verifier-capacity window.'
       );
     }
 

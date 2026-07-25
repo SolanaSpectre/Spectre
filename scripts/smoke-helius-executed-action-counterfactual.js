@@ -23,6 +23,35 @@ assert(
   contextCaptureIndex < paperObserveIndex,
   'counterfactual context must be captured before paper lane observation mutates state'
 );
+const matchingGateIndex = engineSource.indexOf(
+  "const matchingGate = action === 'ENTRY'",
+  paperObserveIndex
+);
+const gateCoupledEntryIndex = engineSource.indexOf(
+  "? matchingGate?.counterfactual || null",
+  matchingGateIndex
+);
+assert(matchingGateIndex >= 0, 'executed entry must locate its emitted PAPER_ELIGIBLE gate');
+assert(
+  gateCoupledEntryIndex > matchingGateIndex,
+  'executed entry must reuse the paired gate counterfactual instead of recomputing eligibility'
+);
+assert(
+  engineSource.includes('shadowCurveProgressThresholdMarginAbs'),
+  'decision-shadow telemetry must expose distance from the curve-progress threshold'
+);
+assert(
+  engineSource.includes("shadowBaselineSource: Array.isArray(actualLaneContext?.history)"),
+  'decision-shadow telemetry must identify its PumpPortal baseline-history source'
+);
+assert(
+  engineSource.includes("shadowPresetSelectionMode: 'actual_preset_held_constant'"),
+  'decision-shadow telemetry must state that preset identity is held constant'
+);
+assert(
+  engineSource.includes('guardOverrideAllowListAgreement'),
+  'decision-shadow telemetry must compare both guard-override allow-list snapshots'
+);
 
 const lane = Object.create(PreMigrationPaperLane.prototype);
 const preset = {

@@ -11,6 +11,7 @@ const original = {
   heliusShadowEnabled: process.env.HELIUS_PUMPFUN_SHADOW_ENABLED,
   heliusDecisionShadowEnabled: process.env.HELIUS_PUMPFUN_DECISION_SHADOW_ENABLED,
   finalistMaxSubscriptions: process.env.FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS,
+  finalistTtlMs: process.env.FINALIST_ACCOUNT_VERIFIER_TTL_MS,
   coldWalletAddress: process.env.COLD_WALLET_ADDRESS
 };
 
@@ -44,12 +45,21 @@ try {
   process.env.HELIUS_PUMPFUN_SHADOW_ENABLED = 'true';
   process.env.HELIUS_PUMPFUN_DECISION_SHADOW_ENABLED = 'true';
   process.env.FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS = '99';
+  process.env.FINALIST_ACCOUNT_VERIFIER_TTL_MS = '120000';
   assert.throws(
     () => Config.validate(),
     /FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS>=100/,
     'Helius V4 must refuse PAPER startup below measured subscription-capacity headroom'
   );
   process.env.FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS = '100';
+  assert.doesNotThrow(() => Config.validate());
+  process.env.FINALIST_ACCOUNT_VERIFIER_TTL_MS = '180000';
+  assert.throws(
+    () => Config.validate(),
+    /FINALIST_ACCOUNT_VERIFIER_TTL_MS=120000/,
+    'Helius V4 must refuse PAPER startup when runtime TTL differs from the frozen capacity window'
+  );
+  process.env.FINALIST_ACCOUNT_VERIFIER_TTL_MS = '120000';
   assert.doesNotThrow(() => Config.validate());
 } finally {
   restore('EXECUTION_MODE', original.executionMode);
@@ -58,6 +68,7 @@ try {
   restore('HELIUS_PUMPFUN_SHADOW_ENABLED', original.heliusShadowEnabled);
   restore('HELIUS_PUMPFUN_DECISION_SHADOW_ENABLED', original.heliusDecisionShadowEnabled);
   restore('FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS', original.finalistMaxSubscriptions);
+  restore('FINALIST_ACCOUNT_VERIFIER_TTL_MS', original.finalistTtlMs);
   restore('COLD_WALLET_ADDRESS', original.coldWalletAddress);
 }
 

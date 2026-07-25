@@ -44,6 +44,11 @@ const {
   roundNumber: runnerRejectShadowNumber,
   runnerRejectRuntimeShadowMarketState
 } = require('./lib/runner-reject-runtime-shadow');
+const {
+  decisionShadowVerifierPolicyActive,
+  shouldPrewarmDecisionShadowSubscription,
+  shouldRequestDecisionShadowSubscription
+} = require('./lib/helius-decision-shadow-subscription-policy');
 
 const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
   '11111111111111111111111111111111',
@@ -51,7 +56,7 @@ const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
   'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
 ]);
-const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v4_2026-07-20';
+const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v5_2026-07-23';
 const HELIUS_DECISION_SHADOW_MAX_STATE_AGE_MS = 1000;
 const HELIUS_DECISION_SHADOW_RECENT_TRADE_CAP = 201;
 
@@ -464,9 +469,15 @@ class TradingEngine {
         decisionShadowRecentTradeCap: HELIUS_DECISION_SHADOW_RECENT_TRADE_CAP,
         decisionShadowAccountStateEnrichment: 'finalist_account_verifier_latest_update',
         decisionShadowAccountVerifierMaxSubscriptions: this.config.finalistAccountVerifierMaxSubscriptions,
+        decisionShadowAccountVerifierTtlMs: this.config.finalistAccountVerifierTtlMs,
+        decisionShadowAccountVerifierSelectionTrigger: 'prewarm_interest_or_position_then_refresh_on_comparison',
         decisionShadowWalletIdentityAlignment: 'pumpportal_signature_alias_then_helius_event_user',
+        decisionShadowWalletEvidenceWindow: 'earliest_50_tracked_and_earliest_50_untrusted',
+        decisionShadowWalletEvidenceTradeCapPerMint: this.heliusDecisionShadowState.maxWalletEvidenceTradesPerMint,
+        eventQueueMaxSize: this.config.heliusPumpfunShadowEventQueueMaxSize,
+        eventQueueBatchSize: this.config.heliusPumpfunShadowEventQueueBatchSize,
         gateDecisionComparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context',
-        executedActionComparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context'
+        executedActionComparator: 'gate_coupled_entry_and_same_instant_exit_with_actual_lane_context'
       },
       strategyPreregistration: {
         id: 'runner_watch_full_coverage_v2_2026-07-20',
@@ -3517,21 +3528,37 @@ class TradingEngine {
       sessionId: this.sessionId
     });
 
-    this.finalistAccountVerifier?.maybeSubscribe?.(result.state, {
-      source: 'pre_migration_watch',
-      reportOnlyDecisionShadowCandidate: this.config.heliusPumpfunShadowEnabled === true
-        && this.config.heliusPumpfunDecisionShadowEnabled !== false
-        && this.executionModeManager?.isPaper?.(),
-      flagged: Boolean(result.flagged),
-      confirmed: Boolean(result.state.confirmed),
-      newlyConfirmed: Boolean(result.newlyConfirmed),
-      flagType: result.flagType || null
-    }).catch((error) => {
-      this.logger.warn('Finalist account verifier subscription failed', {
-        mint,
-        errorMessage: error.message
-      });
+    const decisionShadowVerifierActive = decisionShadowVerifierPolicyActive({
+      heliusShadowEnabled: this.config.heliusPumpfunShadowEnabled === true,
+      decisionShadowEnabled: this.config.heliusPumpfunDecisionShadowEnabled !== false,
+      paperMode: this.executionModeManager?.isPaper?.() === true
     });
+    if (!decisionShadowVerifierActive) {
+      this.requestFinalistAccountVerification(result.state, {
+        source: 'pre_migration_watch',
+        flagged: Boolean(result.flagged),
+        confirmed: Boolean(result.state.confirmed),
+        newlyConfirmed: Boolean(result.newlyConfirmed),
+        flagType: result.flagType || null
+      });
+    } else if (shouldPrewarmDecisionShadowSubscription({
+      heliusShadowEnabled: this.config.heliusPumpfunShadowEnabled === true,
+      decisionShadowEnabled: this.config.heliusPumpfunDecisionShadowEnabled !== false,
+      paperMode: this.executionModeManager?.isPaper?.() === true,
+      result,
+      activePosition: Boolean(this.preMigrationPaperLane.getActivePositionForMint(result.state.mint))
+    })) {
+      this.requestFinalistAccountVerification(result.state, {
+        source: 'helius_decision_shadow_prewarm',
+        reportOnlyDecisionShadowPrewarm: true,
+        flagged: Boolean(result.flagged),
+        confirmed: Boolean(result.state.confirmed),
+        newlyConfirmed: Boolean(result.newlyConfirmed),
+        observedInterest: Boolean(result.observedInterest),
+        observedSignal: Boolean(result.observedSignal),
+        flagType: result.flagType || null
+      });
+    }
 
     const paperLaneOptions = {
       flagged: Boolean(result.flagged),
@@ -3544,6 +3571,21 @@ class TradingEngine {
       paperLaneOptions.timestamp
     );
     const paperEvents = this.preMigrationPaperLane.observe(result.state, paperLaneOptions);
+    if (shouldRequestDecisionShadowSubscription({
+      heliusShadowEnabled: this.config.heliusPumpfunShadowEnabled === true,
+      decisionShadowEnabled: this.config.heliusPumpfunDecisionShadowEnabled !== false,
+      paperMode: this.executionModeManager?.isPaper?.() === true,
+      events: paperEvents
+    })) {
+      this.requestFinalistAccountVerification(result.state, {
+        source: 'helius_decision_shadow_comparison',
+        reportOnlyDecisionShadowCandidate: true,
+        flagged: Boolean(result.flagged),
+        confirmed: Boolean(result.state.confirmed),
+        newlyConfirmed: Boolean(result.newlyConfirmed),
+        flagType: result.flagType || null
+      });
+    }
     this.recordHeliusDecisionDivergenceShadow({
       result,
       portalToken: observedToken,
@@ -3586,6 +3628,15 @@ class TradingEngine {
     }
 
     return result;
+  }
+
+  requestFinalistAccountVerification(state = {}, meta = {}) {
+    this.finalistAccountVerifier?.maybeSubscribe?.(state, meta).catch((error) => {
+      this.logger.warn('Finalist account verifier subscription failed', {
+        mint: state.mint || state.token || state.mintAddress || null,
+        errorMessage: error.message
+      });
+    });
   }
 
   recordHeliusDecisionDivergenceShadow({
@@ -3638,6 +3689,7 @@ class TradingEngine {
       shadowState = shadowWatch.state || snapshot.state;
     }
 
+    const gateComparisonsByPreset = new Map();
     const actualDecisions = actualEvents.filter((event) => event.telemetryType === 'pre_migration_paper.decision');
     for (const actual of actualDecisions) {
       const counterfactual = shadowStateFresh
@@ -3653,6 +3705,56 @@ class TradingEngine {
       const actualAction = this.normalizePaperDecisionAction(actual.payload?.decision);
       const shadowAction = comparable ? counterfactual.action : null;
       const walletComparison = this.compareDecisionShadowWalletContext(portalWalletContext, snapshot.walletContext);
+      const shadowGuardDetails = counterfactual?.entryGuards || {};
+      const shadowDecisionDetails = counterfactual?.decision || {};
+      const shadowCurveProgressDeltaRaw = shadowDecisionDetails.curveProgressDelta
+        ?? shadowGuardDetails.curveProgressDelta;
+      const shadowCurveProgressThresholdRaw = shadowDecisionDetails.threshold
+        ?? shadowGuardDetails.threshold;
+      const shadowBaselineCurveProgressRaw = shadowDecisionDetails.baselineCurveProgress
+        ?? shadowGuardDetails.baselineCurveProgress;
+      const shadowCurveProgressDelta = shadowCurveProgressDeltaRaw === null
+        || shadowCurveProgressDeltaRaw === undefined
+        ? null
+        : Number(shadowCurveProgressDeltaRaw);
+      const shadowCurveProgressThreshold = shadowCurveProgressThresholdRaw === null
+        || shadowCurveProgressThresholdRaw === undefined
+        ? null
+        : Number(shadowCurveProgressThresholdRaw);
+      const shadowBaselineCurveProgress = shadowBaselineCurveProgressRaw === null
+        || shadowBaselineCurveProgressRaw === undefined
+        ? null
+        : Number(shadowBaselineCurveProgressRaw);
+      const shadowThresholdMarginAbs = Number.isFinite(shadowCurveProgressDelta)
+        && Number.isFinite(shadowCurveProgressThreshold)
+        ? Math.abs(shadowCurveProgressDelta - shadowCurveProgressThreshold)
+        : null;
+      const actualEvaluatedPreset = actual.payload?.preset || null;
+      const shadowEvaluatedPreset = actualEvaluatedPreset;
+      const actualAllowedPresetNames = Array.isArray(actual.payload?.allowedPresetNames)
+        ? actual.payload.allowedPresetNames.slice()
+        : null;
+      const shadowAllowedPresetNames = Array.isArray(
+        shadowDecisionDetails.allowedPresetNames ?? shadowGuardDetails.allowedPresetNames
+      )
+        ? (shadowDecisionDetails.allowedPresetNames ?? shadowGuardDetails.allowedPresetNames).slice()
+        : null;
+      const normalizedActualAllowedPresetNames = actualAllowedPresetNames
+        ? actualAllowedPresetNames.slice().sort()
+        : null;
+      const normalizedShadowAllowedPresetNames = shadowAllowedPresetNames
+        ? shadowAllowedPresetNames.slice().sort()
+        : null;
+      const guardOverrideAllowListAgreement = JSON.stringify(normalizedActualAllowedPresetNames)
+        === JSON.stringify(normalizedShadowAllowedPresetNames);
+      const presetComparisons = gateComparisonsByPreset.get(actual.payload?.preset) || [];
+      presetComparisons.push({
+        actual,
+        comparable,
+        counterfactual,
+        unavailableReason: comparable ? null : (counterfactual?.reason || unavailableReason)
+      });
+      gateComparisonsByPreset.set(actual.payload?.preset, presetComparisons);
       this.telemetry.record('helius_pumpfun.decision_shadow.evaluation', {
         preregistrationId: HELIUS_DECISION_SHADOW_PREREGISTRATION_ID,
         reportOnly: true,
@@ -3660,7 +3762,7 @@ class TradingEngine {
         mint: result.state.mint,
         symbol: result.state.symbol || null,
         timestamp,
-        preset: actual.payload?.preset || null,
+        preset: actualEvaluatedPreset,
         lane: actual.payload?.lane || null,
         comparable,
         unavailableReason: comparable ? null : (counterfactual?.reason || unavailableReason),
@@ -3676,14 +3778,49 @@ class TradingEngine {
         accountVerifierSubscribed: accountVerifierStatus.subscribed === true,
         accountVerifierHasUpdate: accountVerifierStatus.hasUpdate === true,
         accountVerifierSelectionClass: accountVerifierStatus.selectionClass,
+        accountVerifierPrewarmed: accountVerifierStatus.prewarmed === true,
+        accountVerifierPrewarmLeadMs: accountVerifierStatus.prewarmLeadMs ?? null,
+        accountVerifierFirstUpdateBeforeComparison: accountVerifierStatus.firstUpdateBeforeComparison,
         actualDecision: actual.payload?.decision || null,
         actualAction,
         actualReason: actual.payload?.reason || null,
+        actualGuardOverride: actual.payload?.guardOverride || null,
+        actualAllowedPresetNames,
+        actualEvaluatedPreset,
+        actualPresetEligibleForGuardOverride: !actualAllowedPresetNames
+          || actualAllowedPresetNames.includes(actualEvaluatedPreset),
         shadowDecision: comparable
           ? (counterfactual?.wouldEnter === true ? 'PAPER_ELIGIBLE' : 'PAPER_SKIPPED')
           : null,
         shadowAction,
         shadowReason: counterfactual?.reason || null,
+        shadowGuardOverride: counterfactual?.decision?.guardOverride || null,
+        shadowAllowedPresetNames,
+        shadowEvaluatedPreset,
+        shadowPresetSelectionMode: 'actual_preset_held_constant',
+        shadowPresetEligibleForGuardOverride: !shadowAllowedPresetNames
+          || shadowAllowedPresetNames.includes(shadowEvaluatedPreset),
+        evaluatedPresetAgreement: actualEvaluatedPreset === shadowEvaluatedPreset,
+        guardOverrideAllowListAgreement,
+        shadowCurveProgressDelta: Number.isFinite(shadowCurveProgressDelta)
+          ? this.roundNumber(shadowCurveProgressDelta, 6)
+          : null,
+        shadowCurveProgressThreshold: Number.isFinite(shadowCurveProgressThreshold)
+          ? this.roundNumber(shadowCurveProgressThreshold, 6)
+          : null,
+        shadowCurveProgressThresholdMarginAbs: shadowThresholdMarginAbs === null
+          ? null
+          : this.roundNumber(shadowThresholdMarginAbs, 6),
+        shadowBaselineCurveProgress: Number.isFinite(shadowBaselineCurveProgress)
+          ? this.roundNumber(shadowBaselineCurveProgress, 6)
+          : null,
+        shadowBaselineAt: shadowDecisionDetails.baselineAt || shadowGuardDetails.baselineAt || null,
+        shadowBaselineSource: Array.isArray(actualLaneContext?.history)
+          ? 'pumpportal_actual_lane_observation_history'
+          : null,
+        shadowBaselineHistoryRows: Array.isArray(actualLaneContext?.history)
+          ? actualLaneContext.history.length
+          : 0,
         actionAgreement: comparable ? actualAction === shadowAction : null,
         reasonAgreement: comparable
           ? String(actual.payload?.reason || '') === String(counterfactual?.reason || '')
@@ -3697,8 +3834,14 @@ class TradingEngine {
     const executedTypes = new Set(['pre_migration_paper.entry', 'pre_migration_paper.exit']);
     for (const actual of actualEvents.filter((event) => executedTypes.has(event.telemetryType))) {
       const action = actual.telemetryType === 'pre_migration_paper.entry' ? 'ENTRY' : 'EXIT';
-      const counterfactual = shadowStateFresh
-        ? this.preMigrationPaperLane.evaluateCounterfactualExecutedAction({
+      const matchingGate = action === 'ENTRY'
+        ? (gateComparisonsByPreset.get(actual.payload?.preset) || [])
+          .find((row) => row.actual?.payload?.decision === 'PAPER_ELIGIBLE')
+        : null;
+      const counterfactual = action === 'ENTRY'
+        ? matchingGate?.counterfactual || null
+        : shadowStateFresh
+          ? this.preMigrationPaperLane.evaluateCounterfactualExecutedAction({
           action,
           state: shadowState,
           timestamp,
@@ -3706,14 +3849,24 @@ class TradingEngine {
           flagged: Boolean(result.flagged),
           context: actualLaneContext || {}
         })
-        : null;
-      const comparable = Boolean(shadowStateFresh && counterfactual?.comparable !== false);
+          : null;
+      const comparable = action === 'ENTRY'
+        ? Boolean(matchingGate?.comparable && counterfactual?.comparable !== false)
+        : Boolean(shadowStateFresh && counterfactual?.comparable !== false);
+      const executedUnavailableReason = action === 'ENTRY' && !matchingGate
+        ? 'ACTUAL_ENTRY_GATE_CONTEXT_MISSING'
+        : (matchingGate?.unavailableReason || counterfactual?.reason || unavailableReason);
+      const wouldExecute = action === 'ENTRY'
+        ? counterfactual?.wouldEnter === true
+        : counterfactual?.wouldExecute === true;
       const actualReason = action === 'ENTRY' ? 'PAPER_ENTERED' : (actual.payload?.reason || null);
       this.telemetry.record('helius_pumpfun.decision_shadow.executed_action', {
         preregistrationId: HELIUS_DECISION_SHADOW_PREREGISTRATION_ID,
         reportOnly: true,
         strategyConsumptionAllowed: false,
-        comparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context',
+        comparator: action === 'ENTRY'
+          ? 'gate_coupled_entry_from_exact_shadow_gate_evaluation'
+          : 'same_instant_exit_with_actual_pre_observation_position_context',
         mint: result.state.mint,
         symbol: result.state.symbol || null,
         timestamp,
@@ -3723,7 +3876,7 @@ class TradingEngine {
         comparable,
         unavailableReason: comparable
           ? null
-          : (counterfactual?.reason || unavailableReason),
+          : executedUnavailableReason,
         shadowStateAgeMs: snapshot.ageMs ?? null,
         shadowCurveStateSource: snapshot.curveStateSource || null,
         shadowCurveStateAt: snapshot.curveStateAt || null,
@@ -3735,9 +3888,21 @@ class TradingEngine {
         accountVerifierSubscribed: accountVerifierStatus.subscribed === true,
         accountVerifierHasUpdate: accountVerifierStatus.hasUpdate === true,
         accountVerifierSelectionClass: accountVerifierStatus.selectionClass,
-        actionAgreement: comparable ? counterfactual?.wouldExecute === true : null,
+        accountVerifierPrewarmed: accountVerifierStatus.prewarmed === true,
+        accountVerifierPrewarmLeadMs: accountVerifierStatus.prewarmLeadMs ?? null,
+        accountVerifierFirstUpdateBeforeComparison: accountVerifierStatus.firstUpdateBeforeComparison,
+        entryGateCoupled: action === 'ENTRY',
+        actualGateDecision: matchingGate?.actual?.payload?.decision || null,
+        actualGateReason: matchingGate?.actual?.payload?.reason || null,
+        actualGateGuardOverride: matchingGate?.actual?.payload?.guardOverride || null,
+        shadowGateAction: matchingGate?.counterfactual?.action || null,
+        shadowGateReason: matchingGate?.counterfactual?.reason || null,
+        shadowGateGuardOverride: matchingGate?.counterfactual?.decision?.guardOverride || null,
+        actionAgreement: comparable ? wouldExecute : null,
         actualReason,
-        shadowAction: counterfactual?.action || null,
+        shadowAction: action === 'ENTRY'
+          ? (comparable ? (wouldExecute ? 'ENTRY' : 'NO_ENTRY') : null)
+          : (counterfactual?.action || null),
         shadowReason: counterfactual?.reason || null,
         reasonAgreement: comparable
           ? String(actualReason || '') === String(counterfactual?.reason || '')
@@ -3829,6 +3994,8 @@ class TradingEngine {
       portal: portalSummary,
       helius: heliusSummary,
       touchedAgreement: portalSummary.touched === heliusSummary.touched,
+      shadowTouchedAgreement: portalSummary.shadowTouched === heliusSummary.shadowTouched,
+      untrustedTouchedAgreement: portalSummary.untrustedTouched === heliusSummary.untrustedTouched,
       trackedAddressAgreement: portalAddresses === heliusAddresses,
       featureAgreement: portalSummary.touched === heliusSummary.touched
         && portalSummary.shadowTouched === heliusSummary.shadowTouched

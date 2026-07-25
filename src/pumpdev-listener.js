@@ -744,6 +744,14 @@ class PumpDevListener {
       this.stats.targetedSubscriptionRefreshes += 1;
       return true;
     }
+    const alreadyRequested = this.pendingSubscriptionMints.has(mint)
+      || this.queuedSubscriptionMints.has(mint);
+    const accepted = this.maybeSubscribeMint(mint, { ...meta, lastTargetedAt: now });
+    if (!accepted) return false;
+    if (alreadyRequested) {
+      this.stats.targetedSubscriptionRefreshes += 1;
+      return true;
+    }
     this.stats.targetedSubscriptionRequests += 1;
     this.emitLifecycle('provider.pumpdev.targeted_subscription_requested', {
       mint,
@@ -751,11 +759,11 @@ class PumpDevListener {
       score: Number.isFinite(Number(meta.score)) ? Number(meta.score) : null,
       curveProgress: Number.isFinite(Number(meta.curveProgress)) ? Number(meta.curveProgress) : null
     });
-    return this.maybeSubscribeMint(mint, { ...meta, lastTargetedAt: now });
+    return true;
   }
 
   maybeSubscribeMint(mint, meta = {}) {
-    if (!mint) return;
+    if (!mint) return false;
     this.stats.tokenTradeSubscribeCandidates += 1;
     if (
       this.subscribedMints.has(mint)
@@ -767,16 +775,17 @@ class PumpDevListener {
         ...(this.subscriptionIntentMeta.get(mint) || {}),
         ...meta
       });
-      return;
+      return true;
     }
     if (this.subscribedMints.size >= this.effectiveMaxSubscribedMints) {
       this.recordSubscriptionCapacitySkip(1);
-      return;
+      return false;
     }
     this.queuedSubscriptionMints.add(mint);
     this.subscriptionIntentMeta.set(mint, meta);
     this.syncSubscriptionStats();
     this.flushQueuedSubscription();
+    return true;
   }
 
   subscribeMintNow(mint, now = Date.now(), meta = {}) {

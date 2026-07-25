@@ -7,6 +7,7 @@ class HeliusDecisionShadowState {
     this.recentTradeCap = 201;
     this.maxTradeAgeMs = Math.max(this.windowMs * 3, 5 * 60_000);
     this.maxTrackedMints = Math.max(100, Number(config.preMigrationPaperMaxObservedStates || 5000));
+    this.maxWalletEvidenceTradesPerMint = 10_000;
     this.mints = new Map();
     this.portalTraderBySignature = new Map();
   }
@@ -20,7 +21,13 @@ class HeliusDecisionShadowState {
     const mint = payload.mint || null;
     if (!mint) return false;
     const atMs = this.timestampMs(payload.receivedAt || receivedAt || payload.eventAt || payload.timestamp) || Date.now();
-    const existing = this.mints.get(mint) || { mint, trades: [], createdAtMs: null };
+    const existing = this.mints.get(mint) || {
+      mint,
+      trades: [],
+      walletEvidenceTrades: [],
+      createdAtMs: null
+    };
+    if (!Array.isArray(existing.walletEvidenceTrades)) existing.walletEvidenceTrades = [];
     existing.symbol = payload.symbol || existing.symbol || null;
     existing.name = payload.name || existing.name || null;
     existing.quoteMint = payload.quoteMint || existing.quoteMint || null;
@@ -35,7 +42,7 @@ class HeliusDecisionShadowState {
       const signature = payload.signature || null;
       const eventUser = payload.traderPublicKey || payload.user || null;
       const portalTrader = signature ? this.portalTraderBySignature.get(signature)?.trader || null : null;
-      existing.trades.push({
+      const trade = {
         atMs,
         signature,
         side: side === 'sell' ? 'sell' : 'buy',
@@ -43,7 +50,11 @@ class HeliusDecisionShadowState {
         trader: portalTrader || eventUser,
         eventUser,
         identitySource: portalTrader ? 'pumpportal_signature_alias' : 'helius_trade_event_user'
-      });
+      };
+      existing.trades.push(trade);
+      if (existing.walletEvidenceTrades.length < this.maxWalletEvidenceTradesPerMint) {
+        existing.walletEvidenceTrades.push(trade);
+      }
       existing.trades = existing.trades.filter((row) => atMs - row.atMs <= this.maxTradeAgeMs).slice(-2000);
     } else if (type.endsWith('shadow_complete') || type.endsWith('shadow_migration')) {
       existing.complete = true;
@@ -75,7 +86,11 @@ class HeliusDecisionShadowState {
     }
     const source = mint ? this.mints.get(mint) : null;
     if (source) {
-      for (const trade of source.trades) {
+      const trades = new Set([
+        ...(source.trades || []),
+        ...(source.walletEvidenceTrades || [])
+      ]);
+      for (const trade of trades) {
         if (trade.signature !== signature) continue;
         trade.trader = trader;
         trade.identitySource = 'pumpportal_signature_alias';
@@ -92,6 +107,8 @@ class HeliusDecisionShadowState {
       return { available: false, reason: 'HELIUS_MINT_STATE_MISSING', state: null, walletContext: null };
     }
     const eligibleTrades = (source.trades || []).filter((row) => row.atMs <= atMs);
+    const eligibleWalletTrades = (source.walletEvidenceTrades || source.trades || [])
+      .filter((row) => row.atMs <= atMs);
     const recentTrades = eligibleTrades
       .filter((row) => atMs - row.atMs <= this.windowMs)
       .slice(-this.recentTradeCap);
@@ -102,7 +119,7 @@ class HeliusDecisionShadowState {
     const recentVolumeSol = recentTrades.reduce((sum, row) => sum + Number(row.volumeSol || 0), 0);
     const totalVolumeSol = eligibleTrades.reduce((sum, row) => sum + Number(row.volumeSol || 0), 0);
     const uniqueBuyers = new Set(recentBuys.map((row) => row.trader).filter(Boolean));
-    const walletContext = this.buildWalletContext(eligibleTrades.slice(-50), portalState, resolveWallet);
+    const walletContext = this.buildWalletContext(eligibleWalletTrades, portalState, resolveWallet);
     const tradeCurveProgress = this.finite(source.curveProgress);
     const tradePriceSol = this.finite(source.priceSol);
     const tradeCurveAtMs = Number.isFinite(source.lastCurveUpdateAtMs) ? source.lastCurveUpdateAtMs : null;
@@ -207,10 +224,8 @@ class HeliusDecisionShadowState {
   }
 
   buildWalletContext(trades, state, resolveWallet) {
-    const watched = [];
-    const shadow = [];
+    const tracked = [];
     const untrusted = [];
-    const labels = {};
     for (const trade of trades) {
       if (!trade.trader) continue;
       const resolved = typeof resolveWallet === 'function' ? resolveWallet(trade.trader) || {} : {};
@@ -232,11 +247,11 @@ class HeliusDecisionShadowState {
         evidenceTier: resolved.promotion?.evidenceTier || null,
         solAmount: trade.volumeSol,
         curveProgress: state.curveProgress ?? null,
-        shadowOnly: resolved.walletProfile?.shadowOnly === true
+        shadowOnly: resolved.walletProfile?.shadowOnly === true,
+        identitySource: trade.identitySource || 'helius_trade_event_user'
       };
       if (resolved.watched) {
-        labels[row.label] = (labels[row.label] || 0) + 1;
-        (row.shadowOnly ? shadow : watched).push(row);
+        tracked.push(row);
       } else {
         untrusted.push({
           ...row,
@@ -248,27 +263,41 @@ class HeliusDecisionShadowState {
       }
     }
     const byTime = (left, right) => Date.parse(left.tradeAt) - Date.parse(right.tradeAt);
-    const wallets = watched.sort(byTime).slice(0, 8);
-    const shadowWallets = shadow.sort(byTime).slice(0, 8);
-    const untrustedWallets = untrusted.sort(byTime).slice(0, 12);
+    const retainedTracked = tracked.sort(byTime).slice(0, 50);
+    const retainedUntrusted = untrusted.sort(byTime).slice(0, 50);
+    const labels = retainedTracked.reduce((counts, row) => {
+      counts[row.label] = (counts[row.label] || 0) + 1;
+      return counts;
+    }, {});
+    const retainedNonShadow = retainedTracked.filter((row) => row.shadowOnly !== true);
+    const retainedShadow = retainedTracked.filter((row) => row.shadowOnly === true);
+    const wallets = retainedNonShadow.slice(0, 8);
+    const shadowWallets = retainedShadow.slice(0, 8);
+    const untrustedWallets = retainedUntrusted.slice(0, 12);
     const count = (...keys) => keys.reduce((sum, key) => sum + Number(labels[key] || 0), 0);
+    const retainedTrades = [...retainedTracked, ...retainedUntrusted];
     return {
       touched: wallets.length > 0,
       shadowTouched: shadowWallets.length > 0,
       untrustedTouched: untrustedWallets.length > 0,
-      observedWalletTradeCount: wallets.length + shadowWallets.length,
-      observedNonShadowWalletTradeCount: wallets.length,
-      observedShadowWalletTradeCount: shadowWallets.length,
-      observedUntrustedWalletTradeCount: untrustedWallets.length,
+      observedWalletTradeCount: retainedTracked.length,
+      observedNonShadowWalletTradeCount: retainedNonShadow.length,
+      observedShadowWalletTradeCount: retainedShadow.length,
+      observedUntrustedWalletTradeCount: retainedUntrusted.length,
       labelCounts: labels,
       earlySniperCount: count('EARLY_SNIPER'),
       alphaScalperCount: count('EARLY_ALPHA_SCALPER'),
       convictionWhaleCount: count('CONVICTION_WHALE', 'RUNNER_HUNTER', 'DIP_SUPPORT_BUYER'),
       riskWalletCount: count('INSIDER_DUMPER', 'DEV_SIDE_WALLET', 'BUNDLE_CLUSTER', 'LOW_SIGNAL_AVOID'),
       lateChaserCount: count('LATE_CHASER'),
-      portalSignatureAliasTradeCount: trades.filter((row) => row.identitySource === 'pumpportal_signature_alias').length,
-      heliusEventUserTradeCount: trades.filter((row) => row.identitySource !== 'pumpportal_signature_alias').length,
-      contextSource: 'helius_event_user_with_pumpportal_signature_aliases',
+      portalSignatureAliasTradeCount: retainedTrades
+        .filter((row) => row.identitySource === 'pumpportal_signature_alias').length,
+      heliusEventUserTradeCount: retainedTrades
+        .filter((row) => row.identitySource !== 'pumpportal_signature_alias').length,
+      walletEvidenceInputTradeCount: trades.length,
+      walletEvidenceTradeCapPerMint: this.maxWalletEvidenceTradesPerMint,
+      walletEvidenceCapped: trades.length >= this.maxWalletEvidenceTradesPerMint,
+      contextSource: 'earliest_50_tracked_and_earliest_50_untrusted_with_signature_aliases',
       earliestTouchAt: wallets[0]?.tradeAt || null,
       earliestBuyAt: wallets.find((row) => row.side === 'buy')?.tradeAt || null,
       wallets,

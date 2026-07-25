@@ -5,6 +5,9 @@
   "amendmentReason": "A zero-cost V3 overlap check found that only 2002/2887 stale evaluation rows (69.35%) had an active finalist-verifier subscription. Even perfect freshness on those rows would project only about 80.46% total comparable coverage, below V4's frozen 90% floor. Before any V4 run, report-only subscriptions were therefore broadened to every decision-shadow candidate; population, freshness, agreement bars, strategy behavior, and budget are unchanged.",
   "capacityAmendedBeforeFirstV4RunAt": "2026-07-20T22:28:33.0321950-05:00",
   "capacityAmendmentReason": "A second zero-cost V3 demand check found a peak of 70 distinct decision-shadow mints in one 120-second verifier TTL window. Before any V4 run, the report-only subscription capacity floor was raised to 100 so the broadened policy is not structurally rejected at burst; population, freshness, agreement bars, strategy behavior, and budget remain unchanged.",
+  "implementationCorrectedAfterInvalidRunAt": "2026-07-23T02:46:04.4842339-05:00",
+  "implementationCorrectionReason": "The first V4 attempt was invalid: runtime TTL was 180000 ms instead of the frozen 120000 ms, and report-only subscriptions were requested for every pre-migration watch update before the paper lane emitted a comparison. That broad watch population filled the 100-slot verifier despite measured decision demand peaking at only 47/57/65 distinct mints per 60/120/180 seconds. The wallet comparator also sampled the latest 50 combined Helius trades while Portal preserves the earliest 50 tracked and earliest 50 untrusted rows separately. Before the next eligible run, startup now requires the frozen 120000 ms TTL, subscriptions are triggered only by emitted paper decision/entry/exit comparisons, and durable wallet evidence matches Portal's separate earliest-row windows. Population, freshness, agreement bars, strategy behavior, and paid-tape budget are unchanged.",
+  "invalidImplementationRun": "run-logs/telemetry-2026-07-23T03-32-38-718Z.jsonl",
   "mode": "paper_only_report_only_semantically_aligned_counterfactual",
   "question": "After account-state enrichment, Portal-window normalization, and same-signature wallet aliasing, would the unchanged paper lane make the same gate and executed-action choices from Helius state at the same decision instant?",
   "oracle": "PumpPortal remains the sole runtime decision input; Helius and account-state enrichment remain report-only.",
@@ -33,15 +36,29 @@
       "Helius trade-event virtual reserves"
     ],
     "walletIdentity": "For matching signatures, use the PumpPortal trader identity so the counterfactual reproduces Portal's runtime wallet semantics; otherwise retain the on-chain Helius TradeEvent user and report alias coverage.",
+    "walletEvidenceWindow": "earliest_50_tracked_and_earliest_50_untrusted",
+    "walletEvidenceRetention": "Wallet evidence is retained independently from the rolling five-minute market tape, capped at 10000 raw trades per mint for bounded memory.",
+    "walletEvidenceTradeCapPerMint": 10000,
     "strategyConsumptionAllowed": false
   },
   "accountVerifierSelection": {
-    "policy": "Subscribe every paper mint that reaches the Helius decision-shadow comparison.",
+    "policy": "Subscribe every paper mint whose current observation emits a Helius decision-shadow comparison event.",
     "selectionClass": "decision_shadow_candidate",
+    "selectionTrigger": "emitted_paper_decision_or_executed_action",
     "reportOnly": true,
     "minimumMaxSubscriptions": 100,
+    "requiredTtlMs": 120000,
     "measuredPeakDistinctDecisionMintsPerTtlWindow": 70,
     "measuredTtlWindowMs": 120000,
+    "invalidRunMeasuredDemand": {
+      "sourceTelemetry": "run-logs/telemetry-2026-07-23T03-32-38-718Z.jsonl",
+      "evaluationRows": 8733,
+      "uniqueEvaluationMints": 344,
+      "peakDistinctMints60s": 47,
+      "peakDistinctMints120s": 57,
+      "peakDistinctMints180s": 65,
+      "maxSubscriptionSkips": 7986
+    },
     "v3OfflineOverlap": {
       "sourceTelemetry": "run-logs/telemetry-2026-07-20T23-00-23-045Z.jsonl",
       "staleEvaluationRows": 2887,

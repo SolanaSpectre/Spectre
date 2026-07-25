@@ -194,4 +194,73 @@ const cappedSnapshot = capped.snapshot({
 assert.strictEqual(cappedSnapshot.state.recentTradeCount, 201);
 assert.strictEqual(cappedSnapshot.recentTradeCap, 201);
 
+const walletWindow = new HeliusDecisionShadowState({ pumpMomentumWindowMs: 60_000 });
+for (let index = 0; index < 120; index += 1) {
+  walletWindow.ingest('provider.helius_pumpfun.shadow_trade', {
+    mint: 'WalletWindowMint',
+    signature: `wallet-window-${index}`,
+    receivedAt: Date.parse('2026-07-20T03:00:00.000Z') + index,
+    txType: 'buy',
+    solAmount: 0.01,
+    traderPublicKey: index % 2 === 0 ? `Tracked${index}` : `Untrusted${index}`,
+    curveProgress: 0.5,
+    priceSol: 0.000001,
+    pairBase: 'SOL'
+  });
+}
+const walletWindowSnapshot = walletWindow.snapshot({
+  portalToken: { mint: 'WalletWindowMint' },
+  portalState: { mint: 'WalletWindowMint' },
+  timestamp: Date.parse('2026-07-20T03:00:01.000Z'),
+  resolveWallet: (wallet) => ({
+    watched: wallet.startsWith('Tracked'),
+    walletProfile: wallet.startsWith('Tracked')
+      ? { name: wallet, profile: 'manual_kol_v1', shadowOnly: false }
+      : null
+  })
+});
+assert.strictEqual(walletWindowSnapshot.walletContext.observedWalletTradeCount, 50);
+assert.strictEqual(walletWindowSnapshot.walletContext.observedUntrustedWalletTradeCount, 50);
+assert.strictEqual(walletWindowSnapshot.walletContext.wallets.length, 8);
+assert.strictEqual(walletWindowSnapshot.walletContext.untrustedWallets.length, 12);
+assert.strictEqual(walletWindowSnapshot.walletContext.wallets[0].wallet, 'Tracked0');
+assert.strictEqual(walletWindowSnapshot.walletContext.untrustedWallets[0].wallet, 'Untrusted1');
+assert.strictEqual(
+  walletWindowSnapshot.walletContext.contextSource,
+  'earliest_50_tracked_and_earliest_50_untrusted_with_signature_aliases'
+);
+
+const durableWalletEvidence = new HeliusDecisionShadowState({ pumpMomentumWindowMs: 60_000 });
+durableWalletEvidence.ingest('provider.helius_pumpfun.shadow_trade', {
+  mint: 'DurableWalletMint',
+  signature: 'early-tracked',
+  receivedAt: '2026-07-20T04:00:00.000Z',
+  txType: 'buy',
+  solAmount: 0.25,
+  traderPublicKey: 'DurableTrackedWallet',
+  curveProgress: 0.2,
+  priceSol: 0.0000005,
+  pairBase: 'SOL'
+});
+durableWalletEvidence.ingest('provider.helius_pumpfun.shadow_trade', {
+  mint: 'DurableWalletMint',
+  signature: 'later-untrusted',
+  receivedAt: '2026-07-20T04:06:00.000Z',
+  txType: 'buy',
+  solAmount: 0.25,
+  traderPublicKey: 'LaterUntrustedWallet',
+  curveProgress: 0.7,
+  priceSol: 0.000001,
+  pairBase: 'SOL'
+});
+const durableWalletSnapshot = durableWalletEvidence.snapshot({
+  portalToken: { mint: 'DurableWalletMint' },
+  portalState: { mint: 'DurableWalletMint', curveProgress: 0.7 },
+  timestamp: '2026-07-20T04:06:01.000Z',
+  resolveWallet: (wallet) => ({ watched: wallet === 'DurableTrackedWallet' })
+});
+assert.strictEqual(durableWalletSnapshot.state.recentTradeCount, 1);
+assert.strictEqual(durableWalletSnapshot.walletContext.touched, true);
+assert.strictEqual(durableWalletSnapshot.walletContext.wallets[0].wallet, 'DurableTrackedWallet');
+
 console.log('Helius Pump.fun decision shadow state smoke passed');

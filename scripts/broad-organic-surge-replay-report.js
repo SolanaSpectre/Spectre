@@ -5,7 +5,7 @@ const {
   DEFAULT_LOG_DIR,
   compact,
   parseArgs,
-  readJsonl,
+  readReplayEventStream,
   resolveRepoPath,
   writeJson
 } = require('./pre-migration-paper-sim-report');
@@ -343,24 +343,21 @@ function summarizeTrades(trades) {
 }
 
 function buildReport(telemetryFiles, variants = VARIANTS) {
-  const telemetryRowsByPath = new Map();
-
-  function rowsForTelemetry(telemetryPath) {
-    if (!telemetryRowsByPath.has(telemetryPath)) {
-      telemetryRowsByPath.set(telemetryPath, readJsonl(telemetryPath));
-    }
-    return telemetryRowsByPath.get(telemetryPath);
-  }
-
-  const variantReports = variants.map((variant) => {
-    const runs = telemetryFiles.map((telemetryPath) => {
-      const trades = simulateVariantRun(rowsForTelemetry(telemetryPath), telemetryPath, variant);
-      return {
+  const runsByVariant = variants.map(() => []);
+  for (const telemetryPath of telemetryFiles) {
+    const replayInput = readReplayEventStream(telemetryPath);
+    variants.forEach((variant, index) => {
+      const trades = simulateVariantRun(replayInput.events, telemetryPath, variant);
+      runsByVariant[index].push({
         telemetryPath,
         summary: summarizeTrades(trades),
         trades
-      };
+      });
     });
+  }
+
+  const variantReports = variants.map((variant, index) => {
+    const runs = runsByVariant[index];
     const trades = runs.flatMap((run) => run.trades);
 
     return {

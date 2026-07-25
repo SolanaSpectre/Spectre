@@ -47,6 +47,12 @@ class FinalistAccountVerifier {
       initialSnapshots: 0,
       initialSnapshotMissing: 0,
       initialSnapshotErrors: 0,
+      decisionShadowPrewarmAttempts: 0,
+      decisionShadowPrewarmSubscribed: 0,
+      decisionShadowPrewarmDuplicateRequests: 0,
+      decisionShadowPrewarmCapacitySkips: 0,
+      decisionShadowCandidateUpgrades: 0,
+      decisionShadowPriorityEvictions: 0,
       shadowGateChecks: 0,
       shadowGateReady: 0,
       shadowGateBlocked: 0,
@@ -100,9 +106,13 @@ class FinalistAccountVerifier {
       return false;
     }
 
-    const selectionClass = meta.reportOnlyDecisionShadowCandidate === true
+    const decisionShadowCandidate = meta.reportOnlyDecisionShadowCandidate === true;
+    const decisionShadowPrewarm = meta.reportOnlyDecisionShadowPrewarm === true;
+    const selectionClass = decisionShadowCandidate
       ? 'decision_shadow_candidate'
-      : this.qualifies({
+      : decisionShadowPrewarm
+        ? 'decision_shadow_prewarm'
+        : this.qualifies({
         ...state,
         flagged: meta.flagged ?? state.flagged,
         confirmed: meta.confirmed ?? state.confirmed
@@ -111,6 +121,7 @@ class FinalistAccountVerifier {
 
     this.pruneExpired('before_subscribe');
     this.stats.attempts += 1;
+    if (decisionShadowPrewarm) this.stats.decisionShadowPrewarmAttempts += 1;
 
     const mint = state.mint || state.token || state.mintAddress;
     const providerBondingCurveAddress = state.bondingCurveAddress || state.bondingCurveKey || null;
@@ -145,19 +156,46 @@ class FinalistAccountVerifier {
     if (this.subscriptions.has(mint)) {
       this.stats.duplicateRequests += 1;
       const existing = this.subscriptions.get(mint);
-      existing.lastRequestedAt = Date.now();
-      existing.expiresAt = Math.max(existing.expiresAt, Date.now() + this.ttlMs);
+      const requestedAt = Date.now();
+      if (decisionShadowCandidate) {
+        existing.lastRequestedAt = requestedAt;
+        existing.comparisonRequestedAt = existing.comparisonRequestedAt || requestedAt;
+        if (existing.selectionClass === 'decision_shadow_prewarm') {
+          existing.selectionClass = 'decision_shadow_candidate';
+          existing.selectionPriority = 2;
+          this.stats.decisionShadowCandidateUpgrades += 1;
+        }
+        existing.expiresAt = Math.max(existing.expiresAt, requestedAt + this.ttlMs);
+      } else if (decisionShadowPrewarm) {
+        this.stats.decisionShadowPrewarmDuplicateRequests += 1;
+      } else {
+        existing.expiresAt = Math.max(existing.expiresAt, requestedAt + this.ttlMs);
+      }
       return true;
     }
 
     if (this.subscriptions.size >= this.maxSubscriptions) {
+      if (decisionShadowCandidate) {
+        const evictable = Array.from(this.subscriptions.values())
+          .filter((subscription) => subscription.selectionClass === 'decision_shadow_prewarm')
+          .sort((left, right) => Number(left.prewarmRequestedAt || left.subscribedAt || 0)
+            - Number(right.prewarmRequestedAt || right.subscribedAt || 0))[0];
+        if (evictable) {
+          this.unsubscribeMint(evictable.mint, 'PRIORITY_EVICTION_FOR_DECISION_SHADOW_CANDIDATE');
+          this.stats.decisionShadowPriorityEvictions += 1;
+        }
+      }
+    }
+
+    if (this.subscriptions.size >= this.maxSubscriptions) {
       this.stats.maxSkipped += 1;
+      if (decisionShadowPrewarm) this.stats.decisionShadowPrewarmCapacitySkips += 1;
       this.emit('finalist_account_verifier.skipped', {
         mint,
         bondingCurveAddress,
         providerBondingCurveAddress,
         derivedBondingCurveAddress,
-        reason: 'MAX_SUBSCRIPTIONS',
+        reason: decisionShadowPrewarm ? 'MAX_SUBSCRIPTIONS_PREWARM' : 'MAX_SUBSCRIPTIONS',
         selectionClass,
         active: this.subscriptions.size,
         maxSubscriptions: this.maxSubscriptions
@@ -196,26 +234,34 @@ class FinalistAccountVerifier {
         providerBondingCurveAddress,
         derivedBondingCurveAddress,
         selectionClass,
+        selectionPriority: decisionShadowCandidate ? 2 : decisionShadowPrewarm ? 1 : 0,
+        prewarmRequestedAt: decisionShadowPrewarm ? subscribedAt : null,
+        comparisonRequestedAt: decisionShadowCandidate ? subscribedAt : null,
         providerCurveProgressAtSubscribe: Number.isFinite(Number(state.curveProgress)) ? Number(state.curveProgress) : null,
         scoreAtSubscribe: Number.isFinite(Number(state.score)) ? Number(state.score) : null,
-      subscriptionId,
-      subscribedAt,
-      lastRequestedAt: subscribedAt,
-      expiresAt: subscribedAt + this.ttlMs,
-      lastUpdateAt: null,
-      latestUpdate: null,
-      lastTelemetryUpdateAt: 0,
-      lastTelemetryCurveProgress: null,
-      lastTelemetryBondingStage: null,
-      lastTelemetryComplete: null
+        subscriptionId,
+        subscribedAt,
+        lastRequestedAt: subscribedAt,
+        expiresAt: subscribedAt + this.ttlMs,
+        lastUpdateAt: null,
+        firstUpdateAt: null,
+        latestUpdate: null,
+        lastTelemetryUpdateAt: 0,
+        lastTelemetryCurveProgress: null,
+        lastTelemetryBondingStage: null,
+        lastTelemetryComplete: null
       });
       this.stats.subscribed += 1;
+      if (decisionShadowPrewarm) this.stats.decisionShadowPrewarmSubscribed += 1;
       this.stats.active = this.subscriptions.size;
       this.emit('finalist_account_verifier.subscribed', {
         mint,
         symbol: state.symbol || null,
         bondingCurveAddress,
         selectionClass,
+        selectionTrigger: decisionShadowCandidate
+          ? 'emitted_paper_decision_or_executed_action'
+          : decisionShadowPrewarm ? 'pre_decision_interest_or_position' : null,
         subscriptionId,
         score: Number.isFinite(Number(state.score)) ? Number(state.score) : null,
         curveProgress: Number.isFinite(Number(state.curveProgress)) ? Number(state.curveProgress) : null,
@@ -314,7 +360,10 @@ class FinalistAccountVerifier {
     const subscription = this.subscriptions.get(mint);
     if (subscription) {
       subscription.lastUpdateAt = now;
-      subscription.expiresAt = Math.max(subscription.expiresAt, now + this.ttlMs);
+      subscription.firstUpdateAt = subscription.firstUpdateAt || now;
+      if (subscription.selectionClass !== 'decision_shadow_prewarm') {
+        subscription.expiresAt = Math.max(subscription.expiresAt, now + this.ttlMs);
+      }
     }
 
     const owner = accountInfo?.owner?.toBase58?.() || String(accountInfo?.owner || '');
@@ -416,11 +465,23 @@ class FinalistAccountVerifier {
 
   getSubscriptionStatus(mint) {
     const subscription = mint ? this.subscriptions.get(mint) : null;
+    const comparisonRequestedAt = Number(subscription?.comparisonRequestedAt || 0) || null;
+    const prewarmRequestedAt = Number(subscription?.prewarmRequestedAt || 0) || null;
+    const firstUpdateAt = Number(subscription?.firstUpdateAt || 0) || null;
     return {
       subscribed: Boolean(subscription),
       hasUpdate: Boolean(subscription?.latestUpdate),
       selectionClass: subscription?.selectionClass || null,
-      lastUpdateAt: subscription?.lastUpdateAt || null
+      lastUpdateAt: subscription?.lastUpdateAt || null,
+      prewarmed: prewarmRequestedAt !== null,
+      prewarmRequestedAt,
+      comparisonRequestedAt,
+      prewarmLeadMs: prewarmRequestedAt !== null && comparisonRequestedAt !== null
+        ? Math.max(0, comparisonRequestedAt - prewarmRequestedAt)
+        : null,
+      firstUpdateBeforeComparison: firstUpdateAt !== null && comparisonRequestedAt !== null
+        ? firstUpdateAt <= comparisonRequestedAt
+        : null
     };
   }
 
@@ -547,10 +608,18 @@ class FinalistAccountVerifier {
         symbol: subscription.symbol,
         bondingCurveAddress: subscription.bondingCurveAddress,
         selectionClass: subscription.selectionClass,
+        selectionPriority: subscription.selectionPriority,
+        prewarmRequestedAt: subscription.prewarmRequestedAt
+          ? new Date(subscription.prewarmRequestedAt).toISOString()
+          : null,
+        comparisonRequestedAt: subscription.comparisonRequestedAt
+          ? new Date(subscription.comparisonRequestedAt).toISOString()
+          : null,
         providerCurveProgressAtSubscribe: subscription.providerCurveProgressAtSubscribe,
         scoreAtSubscribe: subscription.scoreAtSubscribe,
         subscribedAt: new Date(subscription.subscribedAt).toISOString(),
         lastUpdateAt: subscription.lastUpdateAt ? new Date(subscription.lastUpdateAt).toISOString() : null,
+        firstUpdateAt: subscription.firstUpdateAt ? new Date(subscription.firstUpdateAt).toISOString() : null,
         latestCurveProgress: subscription.latestUpdate?.curveProgress ?? null,
         latestSlot: subscription.latestUpdate?.slot ?? null,
         expiresAt: new Date(subscription.expiresAt).toISOString()

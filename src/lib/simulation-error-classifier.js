@@ -1,0 +1,66 @@
+'use strict';
+
+function errorText(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function classifySimulationError(error, logs = [], fallback = null) {
+  const text = [error, ...(Array.isArray(logs) ? logs : [])]
+    .map(errorText)
+    .filter(Boolean)
+    .join('\n');
+
+  if (
+    /MintDoesNotMatchBondingCurve/i.test(text)
+    || /Error Number:\s*6004/i.test(text)
+    || /custom program error:\s*0x1774\b/i.test(text)
+  ) {
+    return 'BONDING_CURVE_MINT_MISMATCH';
+  }
+  if (
+    /BondingCurveComplete/i.test(text)
+    || /Error Number:\s*6005/i.test(text)
+    || /custom program error:\s*0x1775\b/i.test(text)
+  ) {
+    return 'BONDING_CURVE_COMPLETE';
+  }
+  if (/Slippage/i.test(text)) return 'SIMULATION_SLIPPAGE';
+  if (
+    /insufficient funds/i.test(text)
+    || /custom program error:\s*0x1(?![0-9a-f])/i.test(text)
+  ) {
+    return 'SIMULATION_INSUFFICIENT_FUNDS';
+  }
+
+  return fallback || errorText(error) || 'SIMULATION_FAILED';
+}
+
+function summarizeSimulationFailureCounts(counts = {}) {
+  let total = 0;
+  let expectedStateRace = 0;
+  let critical = 0;
+
+  for (const [failureClass, rawCount] of Object.entries(counts || {})) {
+    const count = Number(rawCount);
+    if (!Number.isFinite(count) || count <= 0) continue;
+    total += count;
+    if (failureClass === 'BONDING_CURVE_COMPLETE') {
+      expectedStateRace += count;
+    } else {
+      critical += count;
+    }
+  }
+
+  return { total, expectedStateRace, critical };
+}
+
+module.exports = {
+  classifySimulationError,
+  summarizeSimulationFailureCounts
+};

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { forEachJsonlSync } = require('./lib/jsonl');
+const { classifySimulationError } = require('../src/lib/simulation-error-classifier');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_OUTPUT = path.join(REPO_ROOT, 'data', 'reports', 'latest-run-summary.txt');
@@ -2003,18 +2004,15 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
     target[label] = (target[label] || 0) + 1;
   };
   const classifySimulationFailure = (payload = {}) => {
-    const text = [
-      payload.simulationErrorClass,
-      payload.simulationError,
-      payload.reason,
-      ...(Array.isArray(payload.simulationLogs) ? payload.simulationLogs : [])
-    ].filter(Boolean).join('\n');
-    if (/MintDoesNotMatchBondingCurve/i.test(text) || /Error Number:\s*6004/i.test(text) || /custom program error:\s*0x1774/i.test(text)) {
-      return 'BONDING_CURVE_MINT_MISMATCH';
-    }
-    if (/Slippage/i.test(text)) return 'SIMULATION_SLIPPAGE';
-    if (/insufficient funds|custom program error:\s*0x1/i.test(text)) return 'SIMULATION_INSUFFICIENT_FUNDS';
-    return payload.simulationErrorClass || payload.simulationError || payload.reason || 'SIMULATION_FAILED';
+    return classifySimulationError(
+      payload.simulationErrorClass || payload.simulationError,
+      [
+        payload.simulationError,
+        payload.reason,
+        ...(Array.isArray(payload.simulationLogs) ? payload.simulationLogs : [])
+      ],
+      payload.simulationErrorClass || payload.simulationError || payload.reason || 'SIMULATION_FAILED'
+    );
   };
   const pushLimited = (target, item, limit = 8) => {
     target.push(item);
@@ -3337,9 +3335,12 @@ function buildSummary(docs) {
   lines.push(`  - burst p90 / high-burst miss rate / lower-burst miss rate: ${get(heliusPumpfunRecallAutopsy, 'burst.thresholdP90', 'n/a')} / ${fmt(get(heliusPumpfunRecallAutopsy, 'burst.highBurstMissRate', null), 4)} / ${fmt(get(heliusPumpfunRecallAutopsy, 'burst.lowerBurstMissRate', null), 4)}`);
   lines.push('- Helius Pump.fun decision divergence:');
   lines.push(`  - verdict / comparable evaluations: ${heliusPumpfunDecisionDivergence.verdict || 'n/a'} / ${get(heliusPumpfunDecisionDivergence, 'counts.comparableGateEvaluations', 0)}`);
+  lines.push(`  - comparable coverage overall / prewarmed / not prewarmed: ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.comparableEvaluationCoverageRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.prewarmedComparableEvaluationCoverageRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.notPrewarmedComparableEvaluationCoverageRate', null), 4)}`);
   lines.push(`  - gate action / reason agreement: ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.gateActionAgreementRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.gateReasonAgreementRate', null), 4)}`);
-  lines.push(`  - executed actions / agreement: ${get(heliusPumpfunDecisionDivergence, 'counts.executedActions', 0)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.executedActionAgreementRate', null), 4)}`);
+  lines.push(`  - executed actions / all-entry-exit agreement: ${get(heliusPumpfunDecisionDivergence, 'counts.executedActions', 0)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.executedActionAgreementRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.executedEntryAgreementRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.executedExitAgreementRate', null), 4)}`);
   lines.push(`  - wallet feature / tracked-address agreement (diagnostic): ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.walletFeatureAgreementRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.trackedAddressAgreementRate', null), 4)}`);
+  lines.push(`  - Helius queue enqueued/processed/dropped/errors/depth-at-stop: ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.enqueued', 0)} / ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.processed', 0)} / ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.dropped', 0)} / ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.handlerErrors', 0)} / ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.depthAtStop', 0)}`);
+  lines.push(`  - Helius queue max depth/saturation/latency mean-max: ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.maxDepth', 0)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.maxDepthRatio', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.latencyMeanMs', null), 2)}-${fmt(get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.latencyMaxMs', null), 0)}ms`);
   const targetedParitySummary = pumpDevTargetedCurveParity.summary || {};
   lines.push('- PumpDev targeted curve parity:');
   lines.push(`  - mode: ${pumpDevTargetedCurveParity.mode || 'n/a'}`);

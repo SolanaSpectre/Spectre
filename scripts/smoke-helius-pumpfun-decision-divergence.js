@@ -2,13 +2,13 @@
 'use strict';
 
 const assert = require('assert');
-const preregistration = require('../data/strategy-preregistrations/helius-decision-divergence-v4.json');
+const preregistration = require('../data/strategy-preregistrations/helius-decision-divergence-v5.json');
 const { analyzeEvents } = require('./helius-pumpfun-decision-divergence-report');
 
 const sourceTelemetry = 'run-logs/synthetic-decision-shadow.jsonl';
 const events = [{
   type: 'session.started',
-    timestamp: '2026-07-21T03:30:00.000Z',
+    timestamp: '2026-07-24T03:30:00.000Z',
   payload: {
     mode: 'PAPER',
     pumpPortalPaidTapePlan: {
@@ -24,7 +24,13 @@ const events = [{
       decisionShadowRecentTradeCap: preregistration.semanticAlignment.recentTradeCap,
       decisionShadowAccountStateEnrichment: 'finalist_account_verifier_latest_update',
       decisionShadowAccountVerifierMaxSubscriptions: preregistration.accountVerifierSelection.minimumMaxSubscriptions,
+      decisionShadowAccountVerifierTtlMs: preregistration.accountVerifierSelection.requiredTtlMs,
+      decisionShadowAccountVerifierSelectionTrigger: preregistration.accountVerifierSelection.selectionTrigger,
       decisionShadowWalletIdentityAlignment: 'pumpportal_signature_alias_then_helius_event_user',
+      decisionShadowWalletEvidenceWindow: preregistration.semanticAlignment.walletEvidenceWindow,
+      decisionShadowWalletEvidenceTradeCapPerMint: preregistration.semanticAlignment.walletEvidenceTradeCapPerMint,
+      eventQueueMaxSize: preregistration.burstControl.eventQueueMaxSize,
+      eventQueueBatchSize: preregistration.burstControl.eventQueueBatchSize,
       gateDecisionComparator: preregistration.gateDecisionComparator.name,
       executedActionComparator: preregistration.executedActionComparator.name
     }
@@ -34,7 +40,7 @@ const events = [{
 for (let index = 0; index < 500; index += 1) {
   events.push({
     type: 'helius_pumpfun.decision_shadow.evaluation',
-    timestamp: new Date(Date.parse('2026-07-21T03:30:01.000Z') + index).toISOString(),
+    timestamp: new Date(Date.parse('2026-07-24T03:30:01.000Z') + index).toISOString(),
     payload: {
       preregistrationId: preregistration.id,
       comparable: true,
@@ -43,9 +49,17 @@ for (let index = 0; index < 500; index += 1) {
       shadowStateAgeMs: 25,
       shadowCurveStateSource: 'finalist_account_verifier',
       shadowAccountEnriched: true,
+      accountVerifierSubscribed: true,
+      accountVerifierHasUpdate: true,
+      accountVerifierPrewarmed: true,
+      accountVerifierPrewarmLeadMs: 500,
+      accountVerifierFirstUpdateBeforeComparison: true,
       walletComparison: {
         portal: { touched: false },
         helius: { touched: false },
+        touchedAgreement: true,
+        shadowTouchedAgreement: true,
+        untrustedTouchedAgreement: true,
         featureAgreement: true,
         trackedAddressAgreement: true
       }
@@ -55,7 +69,7 @@ for (let index = 0; index < 500; index += 1) {
 for (const action of ['ENTRY', 'EXIT']) {
   events.push({
     type: 'helius_pumpfun.decision_shadow.executed_action',
-    timestamp: '2026-07-21T03:40:00.000Z',
+    timestamp: '2026-07-24T03:40:00.000Z',
     payload: {
       preregistrationId: preregistration.id,
       action,
@@ -71,8 +85,27 @@ for (const action of ['ENTRY', 'EXIT']) {
 }
 events.push({
   type: 'session.stopped',
-  timestamp: '2026-07-21T04:30:00.000Z',
-  payload: { reason: 'SESSION_DURATION_EXCEEDED' }
+  timestamp: '2026-07-24T04:30:00.000Z',
+  payload: {
+    reason: 'SESSION_DURATION_EXCEEDED',
+    stats: {
+      heliusPumpfunShadow: {
+        eventQueueEnqueued: 1000,
+        eventQueueProcessed: 1000,
+        eventQueueDropped: 0,
+        eventQueueDepth: 0,
+        eventQueueMaxDepth: 96,
+        eventQueueMaxSize: preregistration.burstControl.eventQueueMaxSize,
+        eventQueueBatchSize: preregistration.burstControl.eventQueueBatchSize,
+        eventQueueDrainYields: 15,
+        eventQueueHandlerErrors: 0,
+        eventQueueLatencySamples: 1000,
+        eventQueueLatencyMeanMs: 2.5,
+        eventQueueLatencyMaxMs: 18,
+        eventQueueStopDrainTimedOut: false
+      }
+    }
+  }
 });
 
 const parity = {
@@ -93,7 +126,20 @@ assert.strictEqual(report.agreement.gateActionAgreementRate, 1);
 assert.strictEqual(report.agreement.executedActionAgreementRate, 1);
 assert.strictEqual(report.agreement.walletFeatureAgreementRate, 1);
 assert.strictEqual(report.checks.correctPaidTapeBudget, true);
+assert.strictEqual(report.checks.correctAccountVerifierTtl, true);
+assert.strictEqual(report.checks.correctAccountVerifierSelectionTrigger, true);
+assert.strictEqual(report.checks.correctWalletEvidenceWindow, true);
+assert.strictEqual(report.checks.correctWalletEvidenceTradeCap, true);
+assert.strictEqual(report.checks.correctHeliusQueueMaxSize, true);
+assert.strictEqual(report.checks.correctHeliusQueueBatchSize, true);
+assert.strictEqual(report.checks.noHeliusQueueDrops, true);
+assert.strictEqual(report.checks.heliusQueueStatsAvailable, true);
+assert.strictEqual(report.checks.heliusQueueDrainedCleanly, true);
+assert.strictEqual(report.heliusEventQueue.maxDepthRatio, 0.0048);
+assert.strictEqual(report.heliusEventQueue.latencyMaxMs, 18);
 assert.strictEqual(report.counts.accountEnrichedGateEvaluations, 500);
+assert.strictEqual(report.counts.accountVerifierPrewarmedEvaluations, 500);
+assert.strictEqual(report.agreement.prewarmedComparableEvaluationCoverageRate, 1);
 
 const staleEvents = events.map((event) => ({ ...event, payload: { ...(event.payload || {}) } }));
 for (const event of staleEvents) {
@@ -133,5 +179,43 @@ const invalidParity = analyzeEvents(events, preregistration, {
 }, sourceTelemetry);
 assert.strictEqual(invalidParity.verdict, preregistration.invalidVerdict);
 assert.strictEqual(invalidParity.checks.concurrentV5ParityPassed, false);
+
+const wrongTtlEvents = events.map((event) => ({ ...event, payload: { ...(event.payload || {}) } }));
+wrongTtlEvents[0].payload.heliusPumpfunShadowPlan = {
+  ...wrongTtlEvents[0].payload.heliusPumpfunShadowPlan,
+  decisionShadowAccountVerifierTtlMs: 180000
+};
+const wrongTtl = analyzeEvents(wrongTtlEvents, preregistration, parity, sourceTelemetry);
+assert.strictEqual(wrongTtl.verdict, preregistration.invalidVerdict);
+assert.strictEqual(wrongTtl.checks.correctAccountVerifierTtl, false);
+
+const queueDropEvents = events.concat([{
+  type: 'provider.helius_pumpfun.shadow_event_queue_overflow',
+  timestamp: '2026-07-24T03:50:00.000Z',
+  payload: { dropped: 1, queueDepth: 20000, maxQueueSize: 20000 }
+}]);
+const queueDrop = analyzeEvents(queueDropEvents, preregistration, parity, sourceTelemetry);
+assert.strictEqual(queueDrop.verdict, preregistration.invalidVerdict);
+assert.strictEqual(queueDrop.checks.noHeliusQueueDrops, false);
+assert.strictEqual(queueDrop.counts.heliusQueueFailures, 1);
+
+const finalStatsDropEvents = events.map((event) => ({
+  ...event,
+  payload: {
+    ...(event.payload || {}),
+    stats: event.payload?.stats
+      ? {
+        ...event.payload.stats,
+        heliusPumpfunShadow: {
+          ...event.payload.stats.heliusPumpfunShadow,
+          eventQueueDropped: 1
+        }
+      }
+      : event.payload?.stats
+  }
+}));
+const finalStatsDrop = analyzeEvents(finalStatsDropEvents, preregistration, parity, sourceTelemetry);
+assert.strictEqual(finalStatsDrop.verdict, preregistration.invalidVerdict);
+assert.strictEqual(finalStatsDrop.checks.noHeliusQueueDrops, false);
 
 console.log('Helius Pump.fun decision divergence smoke passed');

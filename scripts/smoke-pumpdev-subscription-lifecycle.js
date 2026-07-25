@@ -96,4 +96,32 @@ assert.strictEqual(targetedStats.subscribedMints, 0);
 assert.strictEqual(targetedStats.targetedSubscriptionRequests, 1);
 assert.strictEqual(targetedStats.targetedSubscriptionEvictions, 1);
 
+const burstLifecycle = [];
+const burstTargeted = new PumpDevListener({
+  pumpDevShadowEnabled: true,
+  pumpDevFeedMode: 'shadow',
+  pumpDevTradeSubscriptionMode: 'targeted_candidates',
+  pumpDevTargetedSubscriptionTtlMs: 1000,
+  pumpDevMaxSubscribedMints: 1
+}, { info() {}, warn() {} }, {
+  onLifecycle(type, payload) {
+    burstLifecycle.push({ type, payload });
+  }
+});
+burstTargeted.send = () => true;
+assert.strictEqual(burstTargeted.targetMint('burst-a', { reason: 'flagged' }), true);
+assert.strictEqual(burstTargeted.targetMint('burst-a', { reason: 'flagged_again' }), true);
+burstTargeted.recordSystemSubscriptionMessage({
+  type: 'subscribed',
+  method: 'subscribeTokenTrade',
+  keys: ['burst-a']
+});
+assert.strictEqual(burstTargeted.targetMint('burst-b', { reason: 'at_capacity' }), false);
+const burstStats = burstTargeted.getStats();
+assert.strictEqual(burstStats.targetedSubscriptionRequests, 1);
+assert.strictEqual(
+  burstLifecycle.filter((row) => row.type === 'provider.pumpdev.targeted_subscription_requested').length,
+  1
+);
+
 console.log('PumpDev subscription lifecycle smoke passed.');

@@ -8,6 +8,10 @@ require('dotenv').config();
 const { Connection, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 const Config = require('../src/config');
 const WalletManager = require('../src/wallet');
+const {
+  classifySimulationError,
+  summarizeSimulationFailureCounts
+} = require('../src/lib/simulation-error-classifier');
 
 const ROOT = path.resolve(__dirname, '..');
 const TELEMETRY_DIR = path.join(ROOT, 'run-logs');
@@ -430,17 +434,14 @@ function classifyDryRunBlockReason(payload = {}) {
 }
 
 function classifySimulationFailure(payload = {}) {
-  const text = [
-    payload.simulationErrorClass,
-    payload.simulationError,
-    ...(Array.isArray(payload.simulationLogs) ? payload.simulationLogs : [])
-  ].filter(Boolean).join('\n');
-  if (/MintDoesNotMatchBondingCurve/i.test(text) || /Error Number:\s*6004/i.test(text) || /custom program error:\s*0x1774/i.test(text)) {
-    return 'BONDING_CURVE_MINT_MISMATCH';
-  }
-  if (/Slippage/i.test(text)) return 'SIMULATION_SLIPPAGE';
-  if (/insufficient funds|custom program error:\s*0x1/i.test(text)) return 'SIMULATION_INSUFFICIENT_FUNDS';
-  return payload.simulationErrorClass || payload.simulationError || payload.reason || 'SIMULATION_FAILED';
+  return classifySimulationError(
+    payload.simulationErrorClass || payload.simulationError,
+    [
+      payload.simulationError,
+      ...(Array.isArray(payload.simulationLogs) ? payload.simulationLogs : [])
+    ],
+    payload.simulationErrorClass || payload.simulationError || payload.reason || 'SIMULATION_FAILED'
+  );
 }
 
 async function readCurrentHotWalletBalanceSol() {
@@ -485,7 +486,14 @@ function buildVerdict(stats) {
   const dryWouldSend = number(dryRunStop.wouldSend, stats.dryRun.wouldSend);
   const dryWouldBlock = number(dryRunStop.wouldBlock, stats.dryRun.wouldBlock);
   const dryErrors = number(dryRunStop.errors, stats.dryRun.errors);
-  const drySimulationFailures = number(dryRunStop.simulationFailed, stats.dryRun.simulationOk.false);
+  const dryRunStopSimulationFailures = number(dryRunStop.simulationFailed, 0);
+  const drySimulationFailureSummary = summarizeSimulationFailureCounts(
+    stats.dryRun.simulationErrors
+  );
+  const drySimulationFailures = drySimulationFailureSummary.total;
+  const dryExpectedStateRaceSimulationFailures = drySimulationFailureSummary.expectedStateRace;
+  const dryCriticalSimulationFailures = drySimulationFailureSummary.critical;
+  const drySimulationFailureAccountingMismatch = dryRunStopSimulationFailures !== drySimulationFailures;
   const dryPolicyBlocks = countOnly(stats.dryRun.blockReasons, [
     'PRICE_IMPACT_TOO_HIGH',
     'STALE_ACCOUNT_UPDATE',
@@ -549,8 +557,18 @@ function buildVerdict(stats) {
     warnings.push(`Dry-run policy blocks observed (${dryPolicyBlocks}/${dryAttempts}); safety rails are active and should remain visible in review.`);
   }
 
-  if (drySimulationFailures > 0) {
-    blockers.push(`Dry-run transaction simulation is failing (${drySimulationFailures}/${dryAttempts}); live execution cannot be reviewed until simulations pass.`);
+  if (dryExpectedStateRaceSimulationFailures > 0) {
+    warnings.push(
+      `Dry-run observed ${dryExpectedStateRaceSimulationFailures} bonding-curve completion race(s) during simulation; these remain blocked and require fresh post-migration routing evidence, but are not wallet or transaction-infrastructure failures.`
+    );
+  }
+  if (drySimulationFailureAccountingMismatch) {
+    blockers.push(
+      `Dry-run simulation failure accounting disagrees (session stop=${dryRunStopSimulationFailures}, classified events=${drySimulationFailures}); readiness remains blocked until the telemetry lifecycle is reconciled.`
+    );
+  }
+  if (dryCriticalSimulationFailures > 0) {
+    blockers.push(`Dry-run transaction simulation is failing (${dryCriticalSimulationFailures}/${dryAttempts} critical; ${dryExpectedStateRaceSimulationFailures} expected curve-completion races excluded); live execution cannot be reviewed until critical simulations pass.`);
   } else if (dryAttempts >= 20 && dryWouldSend >= 20 && dryCriticalBlocks === 0 && dryErrors === 0) {
     passes.push(`Dry-run tx builder is healthy (${dryWouldSend}/${dryAttempts} would_send, criticalBlocks=${dryCriticalBlocks}, policyBlocks=${dryPolicyBlocks}, errors=0).`);
   } else if (dryAttempts > 0 && dryWouldSend > 0 && dryCriticalBlocks === 0 && dryErrors === 0) {
@@ -627,7 +645,11 @@ function buildVerdict(stats) {
       dryPolicyBlocks,
       dryCriticalBlocks,
       dryErrors,
+      dryRunStopSimulationFailures,
       drySimulationFailures,
+      dryExpectedStateRaceSimulationFailures,
+      dryCriticalSimulationFailures,
+      drySimulationFailureAccountingMismatch,
       drySignedTrue,
       drySignedFalse,
       drySignedNull: number(stats.dryRun.signedOk.null, 0),
@@ -765,6 +787,10 @@ function writeText(report) {
   lines.push(`- Finalist verifier subscribed/updates/ready/checks: ${m.finalistSubscribed} / ${m.finalistUpdates} / ${m.finalistReady} / ${m.finalistChecks}`);
   lines.push(`- Dry-run attempts/would_send/would_block/errors: ${m.dryAttempts} / ${m.dryWouldSend} / ${m.dryWouldBlock} / ${m.dryErrors}`);
   lines.push(`- Dry-run simulation failures: ${m.drySimulationFailures}`);
+  lines.push(`- Dry-run session-stop simulation failures: ${m.dryRunStopSimulationFailures}`);
+  lines.push(`- Dry-run simulation accounting mismatch: ${m.drySimulationFailureAccountingMismatch}`);
+  lines.push(`- Dry-run critical simulation failures: ${m.dryCriticalSimulationFailures}`);
+  lines.push(`- Dry-run expected curve-completion races: ${m.dryExpectedStateRaceSimulationFailures}`);
   lines.push(`- Dry-run signedOk true/false/null: ${m.drySignedTrue} / ${m.drySignedFalse} / ${m.drySignedNull}`);
   lines.push(`- Dry-run broadcastEnabled true/false/null: ${m.dryBroadcastTrue} / ${m.dryBroadcastFalse} / ${m.dryBroadcastNull}`);
   lines.push(`- Dry-run account age median/p90/max: ${fmt(m.dryRun.accountAgeMs.median, 0)} / ${fmt(m.dryRun.accountAgeMs.p90, 0)} / ${fmt(m.dryRun.accountAgeMs.max, 0)}ms`);

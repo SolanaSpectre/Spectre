@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { readJsonl } = require('./lib/jsonl');
+const { readReplayEventStream } = require('./lib/replay-event-stream');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_LOG_DIR = path.join(REPO_ROOT, 'run-logs');
@@ -174,12 +175,12 @@ function buildPriceSample(event) {
   };
 }
 
-function buildReport(events, telemetryPath, strategy) {
+function buildReport(events, telemetryPath, strategy, sourceRun = null) {
   const trades = new Map();
   const priceSamplesByMint = new Map();
-  const eventCounts = {};
-  let firstTimestamp = null;
-  let lastTimestamp = null;
+  const eventCounts = sourceRun?.eventCounts ? { ...sourceRun.eventCounts } : {};
+  let firstTimestamp = sourceRun?.firstTimestamp || null;
+  let lastTimestamp = sourceRun?.lastTimestamp || null;
 
   const sortedEvents = [...events].sort((a, b) => new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime());
   const actualPaperEntries = sortedEvents.filter((event) => (event.type || event.event || event.name) === 'pre_migration_paper.entry');
@@ -190,9 +191,9 @@ function buildReport(events, telemetryPath, strategy) {
     const payload = eventPayload(event);
     const mint = getMint(payload);
     const timestamp = event.timestamp;
-    if (type) eventCounts[type] = (eventCounts[type] || 0) + 1;
-    if (timestamp && (!firstTimestamp || timestamp < firstTimestamp)) firstTimestamp = timestamp;
-    if (timestamp && (!lastTimestamp || timestamp > lastTimestamp)) lastTimestamp = timestamp;
+    if (!sourceRun && type) eventCounts[type] = (eventCounts[type] || 0) + 1;
+    if (!sourceRun && timestamp && (!firstTimestamp || timestamp < firstTimestamp)) firstTimestamp = timestamp;
+    if (!sourceRun && timestamp && (!lastTimestamp || timestamp > lastTimestamp)) lastTimestamp = timestamp;
     if (!mint || !timestamp) continue;
 
     const priceSample = buildPriceSample(event);
@@ -297,7 +298,10 @@ function buildReport(events, telemetryPath, strategy) {
       runDurationMinutes: firstTimestamp && lastTimestamp
         ? compact((new Date(lastTimestamp).getTime() - new Date(firstTimestamp).getTime()) / 60000, 2)
         : null,
-      eventCounts
+      eventCounts,
+      sourceRows: sourceRun?.sourceRows ?? events.length,
+      retainedReplayRows: sourceRun?.retainedRows ?? events.length,
+      malformedTelemetryLines: sourceRun?.malformedLines ?? 0
     },
     summary: {
       priceEligibleFlagEvents: countPriceEligibleFlags(sortedEvents),
@@ -374,7 +378,8 @@ function main() {
     process.exit(1);
   }
 
-  const report = buildReport(readJsonl(telemetryPath), telemetryPath, strategy);
+  const replayInput = readReplayEventStream(telemetryPath);
+  const report = buildReport(replayInput.events, telemetryPath, strategy, replayInput.run);
   writeJson(outputPath, report);
   printReport(report);
   console.log('');
@@ -389,6 +394,7 @@ module.exports = {
   resolveRepoPath,
   resolveLatestTelemetry,
   readJsonl,
+  readReplayEventStream,
   writeJson,
   compact,
   strategyFromArgs,
