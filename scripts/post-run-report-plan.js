@@ -196,6 +196,7 @@ const DECISIVE_REPORT_METADATA = {
     }
   },
   'latest-run-summary.js': {
+    args: ['--decisive'],
     artifactPath: 'data/reports/latest-run-summary-latest.json',
     artifactTelemetryJsonPaths: [
       'telemetryPath',

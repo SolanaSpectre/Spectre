@@ -38,9 +38,10 @@ function sameTelemetry(left, right, root = process.cwd()) {
 }
 
 function buildReportArgs(report, telemetryPath) {
-  if (!telemetryPath || !report?.telemetryCli) return [];
-  if (report.telemetryCli === 'equals') return [`--telemetry=${telemetryPath}`];
-  if (report.telemetryCli === 'pair') return ['--telemetry', telemetryPath];
+  const args = Array.isArray(report?.args) ? [...report.args] : [];
+  if (!telemetryPath || !report?.telemetryCli) return args;
+  if (report.telemetryCli === 'equals') return [...args, `--telemetry=${telemetryPath}`];
+  if (report.telemetryCli === 'pair') return [...args, '--telemetry', telemetryPath];
   throw new Error(`Unsupported telemetry CLI style for ${report.script}: ${report.telemetryCli}`);
 }
 

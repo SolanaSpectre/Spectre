@@ -20,7 +20,10 @@ const {
   reportsForProfile
 } = require('./post-run-report-plan');
 const { buildPostRunReportOptions } = require('./run-with-context-and-reports');
-const { buildSummaryManifest } = require('./latest-run-summary');
+const {
+  buildDecisiveSummary,
+  buildSummaryManifest
+} = require('./latest-run-summary');
 
 const timed = buildPostRunReportOptions({ timeoutMs: 300000 });
 assert.strictEqual(timed.allowFailure, true);
@@ -50,9 +53,18 @@ const summaryPlan = DECISIVE_POST_RUN_REPORTS.find(
 assert.strictEqual(scorecardPlan.artifactTelemetryJsonPaths.length, 2);
 assert.strictEqual(summaryPlan.artifactTelemetryJsonPaths.length, 10);
 assert.strictEqual(summaryPlan.artifactPath, 'data/reports/latest-run-summary-latest.json');
+assert.deepStrictEqual(summaryPlan.args, ['--decisive']);
 assert.deepStrictEqual(
   buildReportArgs({ script: 'pair.js', telemetryCli: 'pair' }, 'run.jsonl'),
   ['--telemetry', 'run.jsonl']
+);
+assert.deepStrictEqual(
+  buildReportArgs({
+    script: 'pair.js',
+    telemetryCli: 'pair',
+    args: ['--decisive']
+  }, 'run.jsonl'),
+  ['--decisive', '--telemetry', 'run.jsonl']
 );
 assert.deepStrictEqual(
   buildReportArgs({ script: 'equals.js', telemetryCli: 'equals' }, 'run.jsonl'),
@@ -156,6 +168,61 @@ try {
     Object.values(summaryManifest.criticalTelemetryPaths)
       .every((reportedPath) => reportedPath === telemetryPath)
   );
+
+  const decisiveSummary = buildDecisiveSummary({
+    battlefield: {
+      data: {
+        files: { telemetryPath },
+        session: { durationMinutes: 60, configuredDurationMinutes: 60 },
+        preMigrationPaper: {
+          entries: 2,
+          exits: 2,
+          wins: 1,
+          losses: 1,
+          pnlSol: 0.01
+        }
+      }
+    },
+    paidTapeCoverageEpoch: {
+      data: {
+        verdict: 'FULL_SESSION_PAID_TAPE',
+        coverage: { fullPaidTapeMinutes: 60 }
+      }
+    },
+    runnerWatchFullCoverageEvidence: {
+      data: {
+        currentRun: {
+          validation: { valid: true, failedChecks: [] },
+          episodes: []
+        },
+        cumulative: { verdict: 'COLLECTING_RUNTIME_EVIDENCE' }
+      }
+    },
+    heliusPumpfunShadowParity: {
+      data: { verdict: 'HELIUS_SHADOW_PARITY_PASSED' }
+    },
+    heliusPumpfunDecisionDivergence: {
+      data: { verdict: 'HELIUS_DECISION_DIVERGENCE_INSUFFICIENT_EVIDENCE' }
+    },
+    eventLoopLagDiagnostic: {
+      data: { summary: { diagnosis: 'NO_MATERIAL_LAG', lagEvents: 0 } }
+    },
+    liveReadiness: {
+      data: { verdict: 'blocked', blockers: ['strategy_not_proven'] }
+    },
+    strategyCandidateScorecard: {
+      data: {
+        summary: {
+          bestAction: 'KEEP_LIVE_DISABLED',
+          promotionEligibleCount: 0,
+          candidateCount: 1
+        }
+      }
+    }
+  });
+  assert(decisiveSummary.includes('FULL_SESSION_PAID_TAPE'));
+  assert(decisiveSummary.includes('KEEP_LIVE_DISABLED'));
+  assert(decisiveSummary.includes(telemetryPath));
 } finally {
   fs.rmSync(tempDir, { recursive: true, force: true });
 }

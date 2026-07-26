@@ -143,6 +143,17 @@ const FILES = {
   rickSightingFollowThrough: 'data/reports/rick-sighting-follow-through-latest.json'
 };
 
+const DECISIVE_FILE_KEYS = Object.freeze([
+  'battlefield',
+  'paidTapeCoverageEpoch',
+  'runnerWatchFullCoverageEvidence',
+  'heliusPumpfunShadowParity',
+  'heliusPumpfunDecisionDivergence',
+  'eventLoopLagDiagnostic',
+  'liveReadiness',
+  'strategyCandidateScorecard'
+]);
+
 function parseArgs(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i += 1) {
@@ -272,6 +283,98 @@ function sol(value, digits = 4) {
   if (!Number.isFinite(n)) return 'n/a';
   const sign = n > 0 ? '+' : '';
   return `${sign}${n.toFixed(digits)} SOL`;
+}
+
+function summarizeList(values, limit = 3) {
+  if (!Array.isArray(values) || values.length === 0) return 'none';
+  return values.slice(0, limit).map((value) => {
+    if (typeof value === 'string') return value;
+    if (!value || typeof value !== 'object') return String(value);
+    return value.reason
+      || value.code
+      || value.label
+      || value.verdict
+      || JSON.stringify(value);
+  }).join('; ');
+}
+
+function buildDecisiveSummary(docs) {
+  const coverageReport = docs.paidTapeCoverageEpoch?.data || {};
+  const coverage = coverageReport.coverage || {};
+  const battlefield = docs.battlefield?.data || {};
+  const session = battlefield.session || {};
+  const paper = battlefield.preMigrationPaper || {};
+  const runner = battlefield.runnerLane || {};
+  const watch = battlefield.watchLane || {};
+  const runnerWatch = docs.runnerWatchFullCoverageEvidence?.data || {};
+  const runnerWatchCurrent = runnerWatch.currentRun || {};
+  const runnerWatchValidation = runnerWatchCurrent.validation || {};
+  const runnerWatchCumulative = runnerWatch.cumulative || {};
+  const parity = docs.heliusPumpfunShadowParity?.data || {};
+  const divergence = docs.heliusPumpfunDecisionDivergence?.data || {};
+  const divergenceCounts = divergence.counts || {};
+  const divergenceAgreement = divergence.agreement || {};
+  const mismatchAttribution = divergence.entryMismatchAttribution || {};
+  const lagReport = docs.eventLoopLagDiagnostic?.data || {};
+  const lag = lagReport.summary || {};
+  const live = docs.liveReadiness?.data || {};
+  const liveMetrics = live.metrics || {};
+  const scorecard = docs.strategyCandidateScorecard?.data?.summary || {};
+  const telemetryPath = battlefield.files?.telemetryPath
+    || coverageReport.telemetryPath
+    || null;
+  const failedRunnerChecks = runnerWatchValidation.failedChecks || [];
+
+  return [
+    'Spectre Decisive Post-Run Summary',
+    '=================================',
+    `Generated: ${new Date().toISOString()}`,
+    `Telemetry: ${telemetryPath || 'n/a'}`,
+    '',
+    'Coverage',
+    '--------',
+    `Verdict: ${coverageReport.verdict || 'n/a'}`,
+    `Session: ${fmt(session.durationMinutes, 2)} / ${fmt(session.configuredDurationMinutes, 2)} min`,
+    `Full paid tape: ${fmt(coverage.fullPaidTapeMinutes, 2)} min; discovery-only: ${fmt(coverage.discoveryRpcOnlyMinutes, 2)} min`,
+    `Paid events: ${number(coverage.pumpPortalTradeEvents)}; subscriptions accepted/rejected: ${number(coverage.targetedTradeSubscriptionsAccepted)}/${number(coverage.targetedTradeSubscriptionRejections)}`,
+    `Budget reached: ${coverage.paidTapeCapped ? 'yes' : 'no'}`,
+    '',
+    'Paper Trading',
+    '-------------',
+    `Entries/exits: ${number(paper.entries)}/${number(paper.exits)}; wins/losses: ${number(paper.wins)}/${number(paper.losses)}`,
+    `Net PnL: ${sol(paper.pnlSol, 6)}`,
+    `Runner signals generated/executed: ${number(runner.generatedSignals)}/${number(runner.executedSignals)}`,
+    `Watch candidates: ${number(watch.uniqueWatchCandidates)}`,
+    '',
+    'Runner-Watch Evidence',
+    '---------------------',
+    `Current run valid: ${runnerWatchValidation.valid === true ? 'yes' : 'no'}; failed checks: ${summarizeList(failedRunnerChecks)}`,
+    `Current episodes: ${Array.isArray(runnerWatchCurrent.episodes) ? runnerWatchCurrent.episodes.length : 0}`,
+    `Cumulative verdict: ${runnerWatchCumulative.verdict || 'n/a'}`,
+    `Valid/excluded runs: ${number(runnerWatchCumulative.validRuns)}/${number(runnerWatchCumulative.excludedRuns)}; unique episodes: ${number(runnerWatchCumulative.realizedUniqueMintEpisodes)}`,
+    `Cumulative PnL: ${sol(runnerWatchCumulative.totalPnlSol, 6)}; median: ${sol(runnerWatchCumulative.medianEpisodePnlSol, 6)}; ex-top-3: ${sol(runnerWatchCumulative.pnlAfterRemovingTop3WinnersSol, 6)}`,
+    '',
+    'Helius',
+    '------',
+    `Trade/curve parity: ${parity.verdict || 'n/a'}; eligible mint-hours: ${number(parity.counts?.eligibleMintHours)}; recall pass rate: ${pct(parity.agreement?.mintHourPortalTradeIdentityRecallPassRate)}`,
+    `Decision comparator: ${divergence.verdict || 'n/a'}; valid run: ${divergence.validRun === true ? 'yes' : 'no'}`,
+    `Comparable decisions: ${number(divergenceCounts.comparableGateEvaluations)}/${number(divergenceCounts.evaluations)} (${pct(divergenceAgreement.comparableEvaluationCoverageRate)})`,
+    `Executed entries: ${number(divergenceCounts.executedEntries)}; entry matches: ${number(divergenceCounts.executedEntryMatches)}; mismatches attributed/unattributed: ${number(mismatchAttribution.attributedMismatches)}/${number(mismatchAttribution.unattributedMismatches)}`,
+    '',
+    'Runtime Health',
+    '--------------',
+    `Event-loop diagnosis: ${lag.diagnosis || 'n/a'}`,
+    `Lag events: ${number(lag.lagEvents)}; median/p90/max: ${ms(lag.lagMs?.median)}/${ms(lag.lagMs?.p90)}/${ms(lag.lagMs?.max)}`,
+    `RPC calls/failures: ${number(liveMetrics.rpcStarted)}/${number(liveMetrics.rpcFailures)}; PumpDev closes/errors: ${number(liveMetrics.pumpDevCloses)}/${number(liveMetrics.pumpDevErrors)}`,
+    '',
+    'Decision',
+    '--------',
+    `Live readiness: ${live.verdict || 'n/a'}`,
+    `Scorecard action: ${scorecard.bestAction || 'n/a'}; promotions: ${number(scorecard.promotionEligibleCount)}/${number(scorecard.candidateCount)}`,
+    `Top blockers: ${summarizeList(live.blockers)}`,
+    `Interpretation: ${scorecard.interpretation || 'n/a'}`,
+    ''
+  ].join('\n');
 }
 
 function money(value, digits = 2) {
@@ -5746,12 +5849,13 @@ function writeJson(filePath, payload) {
   fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }
 
-function buildSummaryManifest(docs, outputPath) {
+function buildSummaryManifest(docs, outputPath, summaryMode = 'full') {
   const battlefieldTelemetry = docs.battlefield.data?.files?.telemetryPath || null;
   const scorecardFreshness = docs.strategyCandidateScorecard.data?.summary?.inputFreshness || {};
   return {
     generatedAt: new Date().toISOString(),
     mode: 'latest_run_summary_manifest',
+    summaryMode,
     telemetryPath: battlefieldTelemetry,
     summaryPath: path.relative(REPO_ROOT, outputPath).replace(/\\/g, '/'),
     criticalTelemetryPaths: {
@@ -5774,12 +5878,14 @@ function buildSummaryManifest(docs, outputPath) {
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const output = args.output ? path.resolve(REPO_ROOT, args.output) : DEFAULT_OUTPUT;
+  const fileKeys = args.decisive ? DECISIVE_FILE_KEYS : Object.keys(FILES);
   const docs = Object.fromEntries(
-    Object.entries(FILES).map(([key, relativePath]) => [key, readJson(relativePath)])
+    fileKeys.map((key) => [key, readJson(FILES[key])])
   );
-  const summary = buildSummary(docs);
+  const summary = args.decisive ? buildDecisiveSummary(docs) : buildSummary(docs);
+  const summaryMode = args.decisive ? 'decisive' : 'full';
   writeOutput(output, summary);
-  writeJson(DEFAULT_MANIFEST_OUTPUT, buildSummaryManifest(docs, output));
+  writeJson(DEFAULT_MANIFEST_OUTPUT, buildSummaryManifest(docs, output, summaryMode));
   console.log(summary);
   console.log(`Wrote summary: ${output}`);
   console.log(`Wrote summary manifest: ${DEFAULT_MANIFEST_OUTPUT}`);
@@ -5788,5 +5894,6 @@ function main() {
 if (require.main === module) main();
 
 module.exports = {
+  buildDecisiveSummary,
   buildSummaryManifest
 };

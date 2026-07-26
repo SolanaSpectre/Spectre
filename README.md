@@ -342,7 +342,8 @@ npm run report:run
 
 The automatic lifecycle runs the decisive report tier. It covers current-run
 coverage, trades, runner evidence, Helius parity/divergence, event-loop lag,
-live readiness, the strategy scorecard, and the latest summary:
+live readiness, the strategy scorecard, and a compact latest-run summary that
+does not rescan telemetry or load historical research artifacts:
 
 ```bash
 npm run report:post-run
