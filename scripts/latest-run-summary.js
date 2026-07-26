@@ -298,6 +298,33 @@ function summarizeList(values, limit = 3) {
   }).join('; ');
 }
 
+function summarizeCurrentRunPnl(exits = []) {
+  const values = exits
+    .map((row) => Number(row?.pnlSol))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  const totalPnlSol = values.reduce((sum, value) => sum + value, 0);
+  const middle = Math.floor(values.length / 2);
+  const medianPnlSol = !values.length
+    ? null
+    : values.length % 2
+      ? values[middle]
+      : (values[middle - 1] + values[middle]) / 2;
+  const top3WinnerPnlSol = values.slice()
+    .sort((left, right) => right - left)
+    .filter((value) => value > 0)
+    .slice(0, 3)
+    .reduce((sum, value) => sum + value, 0);
+  return {
+    exits: values.length,
+    totalPnlSol,
+    medianPnlSol,
+    pnlAfterRemovingTop3WinnersSol: values.length
+      ? totalPnlSol - top3WinnerPnlSol
+      : null
+  };
+}
+
 function buildDecisiveSummary(docs) {
   const coverageReport = docs.paidTapeCoverageEpoch?.data || {};
   const coverage = coverageReport.coverage || {};
@@ -310,6 +337,7 @@ function buildDecisiveSummary(docs) {
   const runnerWatchCurrent = runnerWatch.currentRun || {};
   const runnerWatchValidation = runnerWatchCurrent.validation || {};
   const runnerWatchCumulative = runnerWatch.cumulative || {};
+  const currentRunPnl = summarizeCurrentRunPnl(paper.exitsDetail || []);
   const parity = docs.heliusPumpfunShadowParity?.data || {};
   const divergence = docs.heliusPumpfunDecisionDivergence?.data || {};
   const divergenceCounts = divergence.counts || {};
@@ -347,6 +375,7 @@ function buildDecisiveSummary(docs) {
     '-------------',
     `Entries/exits: ${number(paper.entries)}/${number(paper.exits)}; wins/losses: ${number(paper.wins)}/${number(paper.losses)}`,
     `Net PnL: ${sol(paper.pnlSol, 6)}`,
+    `Current-run durability: median ${sol(currentRunPnl.medianPnlSol, 6)}; ex-top-3 ${sol(currentRunPnl.pnlAfterRemovingTop3WinnersSol, 6)}`,
     `Runner signals generated/executed: ${number(runner.generatedSignals)}/${number(runner.executedSignals)}`,
     `Watch candidates: ${number(watch.uniqueWatchCandidates)}`,
     '',
@@ -363,7 +392,7 @@ function buildDecisiveSummary(docs) {
     `Trade/curve parity: ${parity.verdict || 'n/a'}; eligible mint-hours: ${number(parity.counts?.eligibleMintHours)}; recall pass rate: ${pct(parity.agreement?.mintHourPortalTradeIdentityRecallPassRate)}`,
     `Decision comparator: ${divergence.verdict || 'n/a'}; valid run: ${divergence.validRun === true ? 'yes' : 'no'}`,
     `Comparable decisions: ${number(divergenceCounts.comparableGateEvaluations)}/${number(divergenceCounts.evaluations)} (${pct(divergenceAgreement.comparableEvaluationCoverageRate)})`,
-    `Executed entries: ${number(divergenceCounts.executedEntries)}; entry matches: ${number(divergenceCounts.executedEntryMatches)}; mismatches attributed/unattributed: ${number(mismatchAttribution.attributedMismatches)}/${number(mismatchAttribution.unattributedMismatches)}`,
+    `Executed entries observed/comparable: ${number(divergenceCounts.observedExecutedEntries ?? mismatchAttribution.observedExecutedEntries ?? mismatchAttribution.executedEntries ?? divergenceCounts.executedEntries)}/${number(divergenceCounts.comparableExecutedEntries ?? mismatchAttribution.comparableExecutedEntries ?? divergenceCounts.executedEntries)}; entry matches: ${number(divergenceCounts.executedEntryMatches)}; mismatches attributed/unattributed: ${number(mismatchAttribution.attributedMismatches)}/${number(mismatchAttribution.unattributedMismatches)}`,
     `Entry mismatch causes: ${mismatchCauseText}`,
     '',
     'Runtime Health',

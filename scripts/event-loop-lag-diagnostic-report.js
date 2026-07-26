@@ -118,7 +118,8 @@ function analyzeTelemetry(filePath) {
         atMs,
         at: new Date(atMs).toISOString(),
         lagMs: numberOrNull(lagMs, 0),
-        sample: payload.sample ?? null
+        sample: payload.sample ?? null,
+        stallContext: payload.stallContext || null
       });
       minute.lagEvents += 1;
       minute.maxLagMs = Math.max(minute.maxLagMs, Number.isFinite(lagMs) ? lagMs : 0);
@@ -166,6 +167,20 @@ function analyzeTelemetry(filePath) {
   const heliusQueue = sessionRuntimeStats?.heliusPumpfunShadow || {};
   const curveQueue = sessionRuntimeStats?.pumpBondingCurveLane?.engineQueueDrain || {};
   const gcPauses = sessionRuntimeStats?.eventLoopMonitor?.gcPauses || {};
+  const rpcChildTransport = sessionRuntimeStats?.solanaRpc?.transport?.childProcess || {};
+  const topLagEvents = lagRows.slice()
+    .sort((left, right) => Number(right.lagMs || 0) - Number(left.lagMs || 0))
+    .slice(0, 20)
+    .map((row) => ({
+      at: row.at,
+      lagMs: row.lagMs,
+      rpc: row.stallContext?.rpc || null,
+      queues: row.stallContext?.queues || null,
+      activeHandleTypes: row.stallContext?.activeHandleTypes || {}
+    }));
+  const lagRowsWithActiveRpcChild = lagRows.filter(
+    (row) => Number(row.stallContext?.rpc?.childProcess?.active || 0) > 0
+  ).length;
 
   let diagnosis = 'NO_LAG_EVENTS';
   if (lagRows.length > 0) {
@@ -212,6 +227,15 @@ function analyzeTelemetry(filePath) {
       fifteenSecondCadenceShare: numberOrNull(cadenceShare, 4),
       firstLagAt: lagRows[0]?.at || null,
       lastLagAt: lagRows[lagRows.length - 1]?.at || null,
+      topLagEvents,
+      stallContextCoverage: {
+        captured: lagRows.filter((row) => row.stallContext).length,
+        total: lagRows.length,
+        lagRowsWithActiveRpcChild,
+        lagRowsWithActiveRpcChildRate: lagRows.length
+          ? numberOrNull(lagRowsWithActiveRpcChild / lagRows.length, 4)
+          : null
+      },
       topPrecedingEventTypes5s: topEntries(precedingEventTypes5s, 20),
       topLagMinutes,
       eventDensityCorrelation: {
@@ -253,6 +277,28 @@ function analyzeTelemetry(filePath) {
           maxDurationMs: numberOrNull(gcPauses.maxDurationMs, 6),
           over50Ms: gcPauses.over50Ms ?? null,
           byKind: gcPauses.byKind || {}
+        },
+        rpcChildTransport: {
+          spawnAttempts: rpcChildTransport.spawnAttempts ?? null,
+          spawnErrors: rpcChildTransport.spawnErrors ?? null,
+          completed: rpcChildTransport.completed ?? null,
+          failed: rpcChildTransport.failed ?? null,
+          timedOut: rpcChildTransport.timedOut ?? null,
+          maxActive: rpcChildTransport.maxActive ?? null,
+          meanSpawnSyncMs: numberOrNull(rpcChildTransport.meanSpawnSyncMs, 6),
+          maxSpawnSyncMs: numberOrNull(rpcChildTransport.maxSpawnSyncMs, 6),
+          spawnSyncOver10Ms: rpcChildTransport.spawnSyncOver10Ms ?? null,
+          meanLifetimeMs: numberOrNull(rpcChildTransport.meanLifetimeMs, 6),
+          maxLifetimeMs: numberOrNull(rpcChildTransport.maxLifetimeMs, 6),
+          meanTimeoutCallbackLatenessMs: numberOrNull(
+            rpcChildTransport.meanTimeoutCallbackLatenessMs,
+            6
+          ),
+          maxTimeoutCallbackLatenessMs: numberOrNull(
+            rpcChildTransport.maxTimeoutCallbackLatenessMs,
+            6
+          ),
+          timeoutCallbacksLateOver100Ms: rpcChildTransport.timeoutCallbacksLateOver100Ms ?? null
         },
         note: 'Phase-level timers avoid adding high-resolution timing work to every telemetry event.'
       }

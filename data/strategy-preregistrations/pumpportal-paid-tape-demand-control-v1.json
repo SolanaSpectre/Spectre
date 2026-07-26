@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "id": "pumpportal_paid_tape_demand_control_v1_2026-07-26",
+  "preregisteredAt": "2026-07-26T14:10:59.4522277-05:00",
+  "mode": "paper_only_report_only",
+  "runtimePolicyChanged": false,
+  "question": "Would raising the targeted paid-tape curve floor from 0.25 to 0.30 reduce full-hour demand while preserving runner-watch entry and exit coverage on future 105000-event sessions?",
+  "pinnedCandidate": {
+    "minCurveProgressInclusive": 0.3,
+    "maxCurveProgressExclusive": 0.9,
+    "tokenTradeSubscriptionTtlMs": 1800000,
+    "terminalRelease": false,
+    "perMintEventCap": null,
+    "selectionSource": "In-sample demand replay on telemetry-2026-07-26T17-26-34-263Z.jsonl.",
+    "trainingResult": {
+      "projectedEventsAt60Minutes": 97013,
+      "coveredPaperEntries": 11,
+      "totalPaperEntries": 11,
+      "coveredRunnerWatchEntries": 9,
+      "totalRunnerWatchEntries": 9,
+      "fullOutcomeWindowPaperEntries": 11,
+      "fullOutcomeWindowRunnerWatchEntries": 9
+    }
+  },
+  "confirmation": {
+    "minimumFutureFullCoverageRuns": 2,
+    "requirements": [
+      "projected events at 60 minutes <= 100000 on each run",
+      "100% observed runner-watch entry coverage on each run",
+      "100% observed runner-watch exit-window coverage on each run"
+    ],
+    "causalLimitation": "Replay from 0.25-floor tape cannot prove that decisions would remain identical if earlier 0.25-to-0.30 trades were never purchased. Passing this report-only checkpoint permits a dedicated causal shadow design, not a runtime policy switch."
+  },
+  "passVerdict": "DEMAND_CONTROL_V1_REPORT_ONLY_CONFIRMATION_PASSED",
+  "failVerdict": "DEMAND_CONTROL_V1_REPORT_ONLY_CONFIRMATION_FAILED",
+  "insufficientVerdict": "DEMAND_CONTROL_V1_COLLECTING_FUTURE_RUNS",
+  "prohibitions": [
+    "Do not change runtime curve floor, TTL, strategy gates, exits, or provider routing from this replay alone.",
+    "Do not reuse the training run as confirmation evidence.",
+    "Do not treat entry coverage in recorded tape as causal decision parity."
+  ]
+}

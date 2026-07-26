@@ -1,6 +1,7 @@
 const https = require('https');
 const path = require('path');
 const { spawn } = require('child_process');
+const { performance } = require('perf_hooks');
 const { Connection, PublicKey } = require('@solana/web3.js');
 
 class SolanaRpcRouter {
@@ -70,6 +71,27 @@ class SolanaRpcRouter {
     this.queueTimer = null;
     this.accountInfoCache = new Map();
     this.accountInfoInFlight = new Map();
+    this.activeChildTransports = new Set();
+    this.childTransportStats = {
+      spawnAttempts: 0,
+      spawnErrors: 0,
+      completed: 0,
+      failed: 0,
+      timedOut: 0,
+      totalSpawnSyncMs: 0,
+      maxSpawnSyncMs: 0,
+      spawnSyncOver10Ms: 0,
+      totalLifetimeMs: 0,
+      maxLifetimeMs: 0,
+      totalTimeoutCallbackLatenessMs: 0,
+      maxTimeoutCallbackLatenessMs: 0,
+      timeoutCallbacksLateOver100Ms: 0,
+      lastSpawnSyncMs: null,
+      lastLifetimeMs: null,
+      lastTimeoutCallbackLatenessMs: null,
+      lastStartedAt: null,
+      lastSettledAt: null
+    };
     this.telemetryHook = null;
     this.callSequence = 0;
     this.stats = {
@@ -279,8 +301,47 @@ class SolanaRpcRouter {
         accountReadTransport: this.accountReadTransport,
         accountReadUrl: this.accountReadUrl ? this.redactEndpoint(this.accountReadUrl) : null,
         httpAgentConfigured: this.httpAgent !== null,
-        ...this.httpAgentConfig
+        ...this.httpAgentConfig,
+        childProcess: this.getChildTransportDiagnostics()
       }
+    };
+  }
+
+  getChildTransportDiagnostics(now = Date.now()) {
+    const activeAgesMs = [...this.activeChildTransports]
+      .map((entry) => now - entry.startedAt)
+      .filter(Number.isFinite);
+    const spawnAttempts = this.childTransportStats.spawnAttempts;
+    const spawned = Math.max(0, spawnAttempts - this.childTransportStats.spawnErrors);
+    const settled = this.childTransportStats.completed
+      + this.childTransportStats.failed
+      + this.childTransportStats.timedOut;
+    return {
+      ...this.childTransportStats,
+      active: this.activeChildTransports.size,
+      maxActive: this.childTransportStats.maxActive || 0,
+      oldestActiveAgeMs: activeAgesMs.length ? Math.max(...activeAgesMs) : null,
+      meanSpawnSyncMs: spawned > 0
+        ? this.childTransportStats.totalSpawnSyncMs / spawned
+        : null,
+      meanLifetimeMs: settled > 0
+        ? this.childTransportStats.totalLifetimeMs / settled
+        : null,
+      meanTimeoutCallbackLatenessMs: this.childTransportStats.timedOut > 0
+        ? this.childTransportStats.totalTimeoutCallbackLatenessMs
+          / this.childTransportStats.timedOut
+        : null
+    };
+  }
+
+  getEventLoopDiagnostics(now = Date.now()) {
+    return {
+      activeRequests: this.activeRequests,
+      pendingRequests: this.queue.length,
+      maxConcurrentRequests: this.maxConcurrentRequests,
+      accountInfoInFlight: this.accountInfoInFlight.size,
+      accountInfoCacheSize: this.accountInfoCache.size,
+      childProcess: this.getChildTransportDiagnostics(now)
     };
   }
 
@@ -764,15 +825,46 @@ class SolanaRpcRouter {
 
   childHttpsRpc(target, rpcMethod, params) {
     return new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, [this.childRpcScript], {
-        cwd: path.join(__dirname, '..', '..'),
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true
-      });
+      const startedAt = Date.now();
+      const deadlineAt = startedAt + this.callTimeoutMs;
+      const activeEntry = { startedAt, rpcMethod };
+      this.activeChildTransports.add(activeEntry);
+      this.childTransportStats.spawnAttempts += 1;
+      this.childTransportStats.lastStartedAt = new Date(startedAt).toISOString();
+      this.childTransportStats.maxActive = Math.max(
+        this.childTransportStats.maxActive || 0,
+        this.activeChildTransports.size
+      );
+
+      const spawnStartedAt = performance.now();
+      let child;
+      try {
+        child = spawn(process.execPath, [this.childRpcScript], {
+          cwd: path.join(__dirname, '..', '..'),
+          stdio: ['pipe', 'pipe', 'pipe'],
+          windowsHide: true
+        });
+      } catch (error) {
+        this.activeChildTransports.delete(activeEntry);
+        this.childTransportStats.spawnErrors += 1;
+        reject(error);
+        return;
+      }
+      const spawnSyncMs = performance.now() - spawnStartedAt;
+      this.childTransportStats.totalSpawnSyncMs += spawnSyncMs;
+      this.childTransportStats.maxSpawnSyncMs = Math.max(
+        this.childTransportStats.maxSpawnSyncMs,
+        spawnSyncMs
+      );
+      this.childTransportStats.lastSpawnSyncMs = spawnSyncMs;
+      if (spawnSyncMs >= 10) {
+        this.childTransportStats.spawnSyncOver10Ms += 1;
+      }
 
       let stdout = '';
       let stderr = '';
       let settled = false;
+      let timer = null;
 
       const cleanup = () => {
         child.stdout?.removeAllListeners();
@@ -780,10 +872,27 @@ class SolanaRpcRouter {
         child.removeAllListeners();
       };
 
-      const finish = (error, value) => {
+      const finish = (error, value, outcome = 'completed') => {
         if (settled) return;
         settled = true;
         if (timer) clearTimeout(timer);
+        this.activeChildTransports.delete(activeEntry);
+        const settledAt = Date.now();
+        const lifetimeMs = settledAt - startedAt;
+        this.childTransportStats.totalLifetimeMs += lifetimeMs;
+        this.childTransportStats.maxLifetimeMs = Math.max(
+          this.childTransportStats.maxLifetimeMs,
+          lifetimeMs
+        );
+        this.childTransportStats.lastLifetimeMs = lifetimeMs;
+        this.childTransportStats.lastSettledAt = new Date(settledAt).toISOString();
+        if (outcome === 'timed_out') {
+          this.childTransportStats.timedOut += 1;
+        } else if (error) {
+          this.childTransportStats.failed += 1;
+        } else {
+          this.childTransportStats.completed += 1;
+        }
         cleanup();
         if (error) {
           reject(error);
@@ -792,9 +901,23 @@ class SolanaRpcRouter {
         }
       };
 
-      const timer = setTimeout(() => {
+      timer = setTimeout(() => {
+        const timeoutCallbackLatenessMs = Math.max(0, Date.now() - deadlineAt);
+        this.childTransportStats.totalTimeoutCallbackLatenessMs += timeoutCallbackLatenessMs;
+        this.childTransportStats.maxTimeoutCallbackLatenessMs = Math.max(
+          this.childTransportStats.maxTimeoutCallbackLatenessMs,
+          timeoutCallbackLatenessMs
+        );
+        this.childTransportStats.lastTimeoutCallbackLatenessMs = timeoutCallbackLatenessMs;
+        if (timeoutCallbackLatenessMs >= 100) {
+          this.childTransportStats.timeoutCallbacksLateOver100Ms += 1;
+        }
         child.kill();
-        finish(new Error(`child ${rpcMethod} timed out after ${this.callTimeoutMs}ms`));
+        finish(
+          new Error(`child ${rpcMethod} timed out after ${this.callTimeoutMs}ms`),
+          null,
+          'timed_out'
+        );
       }, this.callTimeoutMs);
       if (typeof timer.unref === 'function') timer.unref();
 

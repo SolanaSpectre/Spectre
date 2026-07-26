@@ -71,6 +71,14 @@ class LiveExecutionDryRunLane {
       this.mintCooldownMs,
       finiteNumber(config.liveDryRunSimulationFailureCooldownMs, 300000)
     );
+    this.postMigrationRouteProbeTimeoutMs = Math.max(
+      100,
+      finiteNumber(config.liveDryRunPostMigrationRouteProbeTimeoutMs, 3000)
+    );
+    this.postMigrationRouteProbeCooldownMs = Math.max(
+      0,
+      finiteNumber(config.liveDryRunPostMigrationRouteProbeCooldownMs, 60000)
+    );
     this.fetchBlockhash = config.liveDryRunFetchBlockhash !== false;
     this.requireTransactionBuilder = config.liveDryRunRequireTransactionBuilder !== false;
     this.simulateTransaction = config.liveDryRunSimulateTransaction === true;
@@ -107,9 +115,16 @@ class LiveExecutionDryRunLane {
       postMigrationRouteProbes: 0,
       postMigrationRoutesAvailable: 0,
       postMigrationRoutesUnavailable: 0,
-      postMigrationRouteProbeErrors: 0
+      postMigrationRouteProbeErrors: 0,
+      postMigrationRouteProbeTimeouts: 0,
+      postMigrationRouteProbeCooldownSkips: 0,
+      postMigrationRouteProbeInFlightSkips: 0,
+      postMigrationRouteProbeTimeoutMs: this.postMigrationRouteProbeTimeoutMs,
+      postMigrationRouteProbeCooldownMs: this.postMigrationRouteProbeCooldownMs
     };
     this.simulationFailureByMint = new Map();
+    this.postMigrationRouteProbeLastAttemptByMint = new Map();
+    this.postMigrationRouteProbeInFlight = new Set();
   }
 
   emit(type, payload = {}) {
@@ -417,6 +432,7 @@ class LiveExecutionDryRunLane {
 
   async probePostMigrationRoute(context = {}) {
     const startedAt = Date.now();
+    const mint = context.mint || null;
     const base = {
       attempted: Boolean(this.postMigrationRouteProbe),
       provider: 'JUPITER_ULTRA',
@@ -433,9 +449,63 @@ class LiveExecutionDryRunLane {
       };
     }
 
+    if (mint && this.postMigrationRouteProbeInFlight.has(mint)) {
+      this.stats.postMigrationRouteProbeInFlightSkips += 1;
+      return {
+        ...base,
+        attempted: false,
+        status: 'PROBE_IN_FLIGHT',
+        available: false,
+        reason: 'POST_MIGRATION_ROUTE_PROBE_IN_FLIGHT',
+        latencyMs: 0
+      };
+    }
+    const lastAttemptAt = mint
+      ? Number(this.postMigrationRouteProbeLastAttemptByMint.get(mint) || 0)
+      : 0;
+    if (
+      mint
+      && this.postMigrationRouteProbeCooldownMs > 0
+      && lastAttemptAt > 0
+      && startedAt - lastAttemptAt < this.postMigrationRouteProbeCooldownMs
+    ) {
+      this.stats.postMigrationRouteProbeCooldownSkips += 1;
+      const diagnostic = {
+        ...base,
+        attempted: false,
+        status: 'PROBE_COOLDOWN',
+        available: false,
+        reason: 'POST_MIGRATION_ROUTE_PROBE_COOLDOWN',
+        latencyMs: 0,
+        retryAfterMs: this.postMigrationRouteProbeCooldownMs - (startedAt - lastAttemptAt)
+      };
+      this.emit('live_dry_run.post_migration_route_probe', {
+        mint,
+        symbol: context.symbol || null,
+        sourceDecision: context.sourceDecision || null,
+        ...diagnostic
+      });
+      return diagnostic;
+    }
+
     this.stats.postMigrationRouteProbes += 1;
+    if (mint) {
+      this.postMigrationRouteProbeLastAttemptByMint.set(mint, startedAt);
+      this.postMigrationRouteProbeInFlight.add(mint);
+    }
+    let timeout = null;
     try {
-      const result = await this.postMigrationRouteProbe(context);
+      const timeoutPromise = new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          const error = new Error('Post-migration route probe timed out');
+          error.name = 'PostMigrationRouteProbeTimeoutError';
+          reject(error);
+        }, this.postMigrationRouteProbeTimeoutMs);
+      });
+      const result = await Promise.race([
+        this.postMigrationRouteProbe(context),
+        timeoutPromise
+      ]);
       const available = result?.available === true;
       if (available) {
         this.stats.postMigrationRoutesAvailable += 1;
@@ -464,9 +534,14 @@ class LiveExecutionDryRunLane {
       return diagnostic;
     } catch (error) {
       this.stats.postMigrationRouteProbeErrors += 1;
+      if (error?.name === 'PostMigrationRouteProbeTimeoutError') {
+        this.stats.postMigrationRouteProbeTimeouts += 1;
+      }
       const diagnostic = {
         ...base,
-        status: 'PROBE_ERROR',
+        status: error?.name === 'PostMigrationRouteProbeTimeoutError'
+          ? 'PROBE_TIMEOUT'
+          : 'PROBE_ERROR',
         available: false,
         reason: error?.name || 'Error',
         latencyMs: Date.now() - startedAt,
@@ -482,6 +557,9 @@ class LiveExecutionDryRunLane {
         ...diagnostic
       });
       return diagnostic;
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      if (mint) this.postMigrationRouteProbeInFlight.delete(mint);
     }
   }
 
@@ -850,7 +928,9 @@ class LiveExecutionDryRunLane {
   getStats() {
     return {
       ...this.stats,
-      activeCooldownMints: this.lastAttemptByMint.size
+      activeCooldownMints: this.lastAttemptByMint.size,
+      postMigrationRouteProbeCooldownMints: this.postMigrationRouteProbeLastAttemptByMint.size,
+      postMigrationRouteProbesInFlight: this.postMigrationRouteProbeInFlight.size
     };
   }
 }

@@ -6,6 +6,16 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { buildReport } = require('./pumpportal-paid-tape-demand-report');
+const demandPrereg = require('../data/strategy-preregistrations/pumpportal-paid-tape-demand-control-v1.json');
+
+assert.strictEqual(demandPrereg.runtimePolicyChanged, false);
+assert.strictEqual(demandPrereg.pinnedCandidate.minCurveProgressInclusive, 0.3);
+assert.strictEqual(demandPrereg.confirmation.minimumFutureFullCoverageRuns, 2);
+const envExample = fs.readFileSync(path.join(__dirname, '..', '.env.example'), 'utf8');
+assert(
+  envExample.includes('PUMPPORTAL_TARGETED_MIN_CURVE_PROGRESS=0.25'),
+  'report-only demand candidate must not change the runtime curve floor'
+);
 
 const filePath = path.join(os.tmpdir(), `spectre-paid-demand-${process.pid}.jsonl`);
 const rows = [

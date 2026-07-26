@@ -1,0 +1,105 @@
+{
+  "id": "helius_pumpfun_decision_divergence_v9_2026-07-26",
+  "extends": "data/strategy-preregistrations/helius-decision-divergence-v7.json",
+  "basePreregistrationSha256": "ab856615188c781cd71bb61c587d8dec0b56d9fab3ecdd2be54842e1fb0e6a85",
+  "frozenAt": "2026-07-26T14:10:59.4522277-05:00",
+  "mode": "paper_only_report_only_same_guard_path_entry_mismatch_attribution",
+  "evaluationMode": "entry_mismatch_attribution",
+  "stateAgeAgreementBucketsMs": [
+    100,
+    500,
+    1000
+  ],
+  "offlineComparabilityBoundsMs": [
+    1000,
+    2000,
+    3000
+  ],
+  "question": "Among executed entries whose PumpPortal and Helius counterfactuals traverse the same guard-override path, can every mismatch be attributed to a recorded preset, eligibility, wallet-context, market-input, or state-age/source difference?",
+  "methodologyCorrection": {
+    "sourceTelemetry": "run-logs/telemetry-2026-07-26T17-26-34-263Z.jsonl",
+    "eligibleV9RunsBeforeCorrection": 0,
+    "findings": [
+      "The Helius counterfactual already used its aligned tape-derived market vector, but guard-family telemetry omitted that vector and falsely displayed null market inputs.",
+      "A null curve-progress diagnostic was coerced to LT_25 by Number(null); null is now UNKNOWN.",
+      "Executed entries that selected different guard-override paths were counted as provider mismatches even though they were not same-path comparisons.",
+      "Observed and comparable executed-entry denominators used the same field name."
+    ],
+    "corrections": [
+      "Populate guard-family market diagnostics from the actual PumpPortal state and Helius shadow state used by each decision.",
+      "Represent missing curve progress as UNKNOWN.",
+      "Keep full gate counterfactuals visible, but exclude cross-guard-path executed entries from the mismatch-attribution denominator with COUNTERFACTUAL_GUARD_PATH_MISMATCH.",
+      "Report observed and comparable executed entries separately."
+    ],
+    "strategyBehaviorChanged": false,
+    "providerRoutingChanged": false,
+    "freshnessThresholdChanged": false
+  },
+  "gateDecisionComparator": {
+    "name": "same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context",
+    "context": [
+      "pre-decision observation history",
+      "same-mint cooldown",
+      "bad-exit cooldown",
+      "preset entry count"
+    ],
+    "positionSemantics": "An active position does not suppress a PAPER_SHADOWED gate pass; gate agreement measures WOULD_ENTER versus WOULD_SKIP.",
+    "marketFeatureSemantics": "PumpPortal decisions retain PumpPortal tape-derived features and Helius counterfactuals retain Helius tape-derived features. Diagnostic guard-family payloads must expose the exact market vector each side used.",
+    "gatePathTreatment": "Cross-guard-path gate results remain visible as full counterfactual outcomes and are never fed into strategy."
+  },
+  "executedActionComparator": {
+    "name": "gate_coupled_same_guard_path_entry_and_same_instant_exit_with_actual_lane_context",
+    "entrySemantics": "An actual entry is paired to its exact PAPER_ELIGIBLE evaluation. Entry mismatch attribution is comparable only when both sides selected the same guard-override family, including both selecting no family.",
+    "crossPathTreatment": "COUNTERFACTUAL_GUARD_PATH_MISMATCH is non-comparable scope, not an attributed provider mismatch.",
+    "exitSemantics": "Exit comparison retains the actual pre-observation position context and same-instant Helius state.",
+    "pnlAttributionRule": "Actual paper PnL may be grouped only by comparable same-path shadow entries from a valid run and remains NOT_EVIDENCE_FOR_EXECUTION."
+  },
+  "entryMismatchAttribution": {
+    "passRule": "At least one comparable same-path executed ENTRY and one same-path mismatch must be observed. Every mismatch must have one deterministic allowed cause. Zero mismatches and cross-path-only samples are insufficient evidence.",
+    "minimumComparableExecutedEntries": 1,
+    "minimumMismatches": 1,
+    "allowedAttributedCauses": [
+      "EVALUATED_PRESET_MISMATCH",
+      "GUARD_ELIGIBILITY_MISMATCH",
+      "GUARD_ALLOW_LIST_MISMATCH",
+      "WALLET_CONTEXT_MISMATCH",
+      "MARKET_OR_GUARD_INPUT_MISMATCH"
+    ],
+    "strategyConsumptionAllowed": false,
+    "freshnessThresholdChangeAllowed": false,
+    "postHocMismatchRelabelingAllowed": false,
+    "positionStatePolicy": "Use actual pre-observation position context as a held-constant control.",
+    "guardPathPolicy": "Different selected guard-override families are scope-incomparable and excluded before attribution."
+  },
+  "paidTapePlan": {
+    "tradeSubscriptionMode": "targeted_curve",
+    "maxMeteredTradeEventsPerSession": 105000,
+    "estimatedMaximumChargeSol": 0.1,
+    "requiredStartingBalanceSol": 0.125,
+    "billingRule": "PumpPortal charges 0.01 SOL for each completed 10000-event block; a 5000-event remainder adds no projected completed-block charge.",
+    "budgetHeadroomRule": "The latest excluded run used 92011 events in 54.98 paid minutes (1673.536 per minute). A 105000 cap covers the projected 60-minute demand of about 100400 events with about 4.5 percent headroom.",
+    "requestedRunMinutes": 60,
+    "minimumPaidTapeMinutesIfBudgetReached": 55
+  },
+  "supersedes": {
+    "id": "helius_pumpfun_decision_divergence_v8_2026-07-26",
+    "disposition": "INVALID_RUN_AND_COMPARATOR_SCOPE_DEFECT",
+    "evidenceReuseAllowed": false,
+    "sourceTelemetry": "run-logs/telemetry-2026-07-26T17-26-34-263Z.jsonl",
+    "observedResults": {
+      "observedExecutedEntries": 11,
+      "comparableExecutedEntriesUnderV8": 9,
+      "entryMatches": 1,
+      "entryMismatches": 8,
+      "crossGuardPathMismatches": 7,
+      "comparableEvaluationCoverageRate": 0.471
+    }
+  },
+  "checkpointDisposition": null,
+  "passVerdict": "HELIUS_DECISION_SHADOW_V9_SAME_PATH_MISMATCHES_ATTRIBUTED_REPORT_ONLY",
+  "failVerdict": "HELIUS_DECISION_SHADOW_V9_UNATTRIBUTED_SAME_PATH_ENTRY_MISMATCH",
+  "insufficientVerdict": "HELIUS_DECISION_SHADOW_V9_INSUFFICIENT_SAME_PATH_ATTRIBUTION_EVIDENCE",
+  "invalidVerdict": "HELIUS_DECISION_SHADOW_V9_INVALID_RUN",
+  "nextIfPass": "Keep Helius report-only and repeat on another valid full-coverage run before proposing provider routing.",
+  "nextIfFail": "Fix only the specific same-path comparator instrumentation defect. Do not change strategy, freshness bounds, gates, exits, or provider routing."
+}

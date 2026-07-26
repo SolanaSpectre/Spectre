@@ -175,11 +175,17 @@ try {
         files: { telemetryPath },
         session: { durationMinutes: 60, configuredDurationMinutes: 60 },
         preMigrationPaper: {
-          entries: 2,
-          exits: 2,
-          wins: 1,
+          entries: 4,
+          exits: 4,
+          wins: 3,
           losses: 1,
-          pnlSol: 0.01
+          pnlSol: 0.05,
+          exitsDetail: [
+            { pnlSol: 0.05 },
+            { pnlSol: 0.02 },
+            { pnlSol: 0.01 },
+            { pnlSol: -0.03 }
+          ]
         }
       }
     },
@@ -223,6 +229,7 @@ try {
   assert(decisiveSummary.includes('FULL_SESSION_PAID_TAPE'));
   assert(decisiveSummary.includes('KEEP_LIVE_DISABLED'));
   assert(decisiveSummary.includes(telemetryPath));
+  assert(decisiveSummary.includes('Current-run durability: median +0.015000 SOL; ex-top-3 -0.030000 SOL'));
 } finally {
   fs.rmSync(tempDir, { recursive: true, force: true });
 }

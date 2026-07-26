@@ -10,12 +10,14 @@ const {
 
 async function main() {
   assert.strictEqual(projectedMeteredChargeSol(92000), 0.09);
+  assert.strictEqual(projectedMeteredChargeSol(105000), 0.1);
   assert.strictEqual(projectedMeteredChargeSol(82000), 0.08);
   assert.strictEqual(projectedMeteredChargeSol(72000), 0.07);
   assert.strictEqual(projectedMeteredChargeSol(30000), 0.03);
   assert.strictEqual(projectedMeteredChargeSol(9999), 0);
   assert.strictEqual(projectedMeteredChargeSol(0), null);
   assert.strictEqual(requiredStartingBalanceSol({ maxMeteredTradeEvents: 92000 }), 0.115);
+  assert.strictEqual(requiredStartingBalanceSol({ maxMeteredTradeEvents: 105000 }), 0.125);
   assert.strictEqual(requiredStartingBalanceSol({ maxMeteredTradeEvents: 82000 }), 0.105);
   assert.strictEqual(requiredStartingBalanceSol({ maxMeteredTradeEvents: 72000 }), 0.095);
 

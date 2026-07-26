@@ -4,6 +4,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const TradingEngine = require('../src/trading-engine');
 const {
   analyzeEvents,
   loadPreregistration
@@ -16,6 +17,37 @@ assert.strictEqual(
   false
 );
 assert.strictEqual(preregistration.entryMismatchAttribution.minimumMismatches, 1);
+assert.strictEqual(
+  preregistration.entryMismatchAttribution.allowedAttributedCauses.includes(
+    'PRESET_FAMILY_MISMATCH'
+  ),
+  false
+);
+assert.strictEqual(
+  preregistration.executedActionComparator.name,
+  'gate_coupled_same_guard_path_entry_and_same_instant_exit_with_actual_lane_context'
+);
+
+const comparatorHarness = Object.create(TradingEngine.prototype);
+assert.strictEqual(comparatorHarness.decisionShadowCurveRegimeBucket(null), 'UNKNOWN');
+assert.strictEqual(comparatorHarness.decisionShadowCurveRegimeBucket(undefined), 'UNKNOWN');
+assert.strictEqual(comparatorHarness.decisionShadowCurveRegimeBucket(0), 'LT_25');
+const guardInputs = comparatorHarness.decisionShadowGuardFamilyInputs(
+  { guardOverride: null },
+  {},
+  'runnerWatch',
+  {
+    score: 88,
+    curveProgress: 0.77,
+    recentVolumeSol: 12.5,
+    tradeVelocityPerMin: 44,
+    uniqueBuyerCount: 31,
+    sniperWalletCount: 2
+  }
+);
+assert.strictEqual(guardInputs.curveRegimeBucket, '75_TO_90');
+assert.strictEqual(guardInputs.market.score, 88);
+assert.strictEqual(guardInputs.market.recentVolumeSol, 12.5);
 
 const engineSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'trading-engine.js'), 'utf8');
 const evaluationEmitterStart = engineSource.indexOf(
@@ -42,7 +74,7 @@ assert.strictEqual(executedEmitter.includes('actualPositionOccupiedAtDecision'),
 const sourceTelemetry = 'run-logs/synthetic-decision-shadow.jsonl';
 const events = [{
   type: 'session.started',
-    timestamp: '2026-07-26T14:30:00.000Z',
+    timestamp: '2026-07-27T14:30:00.000Z',
   payload: {
     mode: 'PAPER',
     pumpPortalPaidTapePlan: {
@@ -75,7 +107,7 @@ for (let index = 0; index < 500; index += 1) {
   const enter = index < 20;
   events.push({
     type: 'helius_pumpfun.decision_shadow.evaluation',
-    timestamp: new Date(Date.parse('2026-07-26T14:30:01.000Z') + index).toISOString(),
+    timestamp: new Date(Date.parse('2026-07-27T14:30:01.000Z') + index).toISOString(),
     payload: {
       preregistrationId: preregistration.id,
       pairedDecisionKey: index === 0 ? 'fixture-entry' : `fixture-${index}`,
@@ -95,6 +127,7 @@ for (let index = 0; index < 500; index += 1) {
       guardOverrideAllowListAgreement: true,
       actualGuardOverrideEligibilityState: 'NO_OVERRIDE_FAMILY_SELECTED',
       shadowGuardOverrideEligibilityState: 'NO_OVERRIDE_FAMILY_SELECTED',
+      guardOverridePathAgreement: true,
       actualGuardFamilyInputs: { selectedFamily: null, curveRegimeBucket: '50_TO_75' },
       shadowGuardFamilyInputs: { selectedFamily: null, curveRegimeBucket: '50_TO_75' },
       shadowAccountEnriched: true,
@@ -118,7 +151,7 @@ for (let index = 0; index < 500; index += 1) {
 for (const action of ['ENTRY', 'EXIT']) {
   events.push({
     type: 'helius_pumpfun.decision_shadow.executed_action',
-    timestamp: '2026-07-26T14:40:00.000Z',
+    timestamp: '2026-07-27T14:40:00.000Z',
     payload: {
       preregistrationId: preregistration.id,
       action,
@@ -142,13 +175,14 @@ for (const action of ['ENTRY', 'EXIT']) {
       independentShadowPositionStateAvailable: false,
       actualPresetFamily: 'runnerWatch',
       shadowPresetFamily: 'runnerWatch',
+      guardOverridePathAgreement: true,
       comparator: preregistration.executedActionComparator.name
     }
   });
 }
 events.push({
   type: 'session.stopped',
-  timestamp: '2026-07-26T15:30:00.000Z',
+  timestamp: '2026-07-27T15:30:00.000Z',
   payload: {
     reason: 'SESSION_DURATION_EXCEEDED',
     stats: {
@@ -212,6 +246,8 @@ assert.strictEqual(report.executedPnlAttribution.shadowWouldEnter.actualPnlSol, 
 assert.strictEqual(report.executedPnlAttribution.evidenceLabel, 'NOT_EVIDENCE_FOR_EXECUTION');
 assert.strictEqual(report.entryMismatchAttribution.mismatches, 0);
 assert.strictEqual(report.entryMismatchAttribution.allMismatchesAttributed, false);
+assert.strictEqual(report.counts.observedExecutedEntries, 1);
+assert.strictEqual(report.counts.comparableExecutedEntries, 1);
 assert.strictEqual(report.checks.minimumComparableExecutedEntriesForAttribution, true);
 assert.strictEqual(report.checks.minimumEntryMismatchesForAttribution, false);
 assert.strictEqual(report.agreementByStateAge[0].bucket, 'LTE_100_MS');
@@ -284,6 +320,24 @@ assert.strictEqual(unattributed.verdict, preregistration.failVerdict);
 assert.strictEqual(unattributed.entryMismatchAttribution.unattributedMismatches, 1);
 assert.strictEqual(unattributed.entryMismatchAttribution.rows[0].cause, 'UNATTRIBUTED');
 
+const crossPathEvents = events.map((event) => ({ ...event, payload: { ...(event.payload || {}) } }));
+const crossPathEntry = crossPathEvents.find(
+  (event) => event.type === 'helius_pumpfun.decision_shadow.executed_action'
+    && event.payload.action === 'ENTRY'
+);
+crossPathEntry.payload.comparable = false;
+crossPathEntry.payload.guardOverridePathAgreement = false;
+crossPathEntry.payload.unavailableReason = 'COUNTERFACTUAL_GUARD_PATH_MISMATCH';
+crossPathEntry.payload.actionAgreement = null;
+const crossPath = analyzeEvents(crossPathEvents, preregistration, parity, sourceTelemetry);
+assert.strictEqual(crossPath.verdict, preregistration.insufficientVerdict);
+assert.strictEqual(crossPath.counts.observedExecutedEntries, 1);
+assert.strictEqual(crossPath.counts.comparableExecutedEntries, 0);
+assert.strictEqual(
+  crossPath.unavailableExecutedReasons.COUNTERFACTUAL_GUARD_PATH_MISMATCH,
+  1
+);
+
 const invalidParity = analyzeEvents(events, preregistration, {
   ...parity,
   verdict: 'HELIUS_SHADOW_PARITY_FAILED',
@@ -305,7 +359,7 @@ assert.strictEqual(wrongTtl.checks.correctAccountVerifierTtl, false);
 
 const queueDropEvents = events.concat([{
   type: 'provider.helius_pumpfun.shadow_event_queue_overflow',
-  timestamp: '2026-07-24T03:50:00.000Z',
+  timestamp: '2026-07-27T14:50:00.000Z',
   payload: { dropped: 1, queueDepth: 20000, maxQueueSize: 20000 }
 }]);
 const queueDrop = analyzeEvents(queueDropEvents, preregistration, parity, sourceTelemetry);

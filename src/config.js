@@ -354,6 +354,14 @@ class Config {
     return parseInt(process.env.LIVE_DRY_RUN_SIMULATION_FAILURE_COOLDOWN_MS || '300000', 10);
   }
 
+  static get liveDryRunPostMigrationRouteProbeTimeoutMs() {
+    return parseInt(process.env.LIVE_DRY_RUN_POST_MIGRATION_ROUTE_PROBE_TIMEOUT_MS || '3000', 10);
+  }
+
+  static get liveDryRunPostMigrationRouteProbeCooldownMs() {
+    return parseInt(process.env.LIVE_DRY_RUN_POST_MIGRATION_ROUTE_PROBE_COOLDOWN_MS || '60000', 10);
+  }
+
   static get liveDryRunFetchBlockhash() {
     return process.env.LIVE_DRY_RUN_FETCH_BLOCKHASH !== 'false';
   }
@@ -2596,6 +2604,16 @@ class Config {
       { key: 'liveDryRunMaxQuoteReserveDriftPct', value: this.liveDryRunMaxQuoteReserveDriftPct, min: 0 },
       { key: 'liveDryRunMaxPerRun', value: this.liveDryRunMaxPerRun, min: 0 },
       { key: 'liveDryRunMintCooldownMs', value: this.liveDryRunMintCooldownMs, min: 0 },
+      {
+        key: 'liveDryRunPostMigrationRouteProbeTimeoutMs',
+        value: this.liveDryRunPostMigrationRouteProbeTimeoutMs,
+        min: 100
+      },
+      {
+        key: 'liveDryRunPostMigrationRouteProbeCooldownMs',
+        value: this.liveDryRunPostMigrationRouteProbeCooldownMs,
+        min: 0
+      },
       { key: 'eventLoopMonitorIntervalMs', value: this.eventLoopMonitorIntervalMs, min: 100 },
       { key: 'eventLoopMonitorLagThresholdMs', value: this.eventLoopMonitorLagThresholdMs, min: 1 },
       { key: 'runtimeStatusIntervalMs', value: this.runtimeStatusIntervalMs, min: 1000 },

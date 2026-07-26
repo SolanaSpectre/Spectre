@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "id": "runner_watch_full_coverage_v5_2026-07-26",
+  "preregisteredAt": "2026-07-26T14:10:59.4522277-05:00",
+  "status": "PREREGISTERED_BEFORE_FIRST_VALID_RUN",
+  "mode": "paper_only",
+  "liveBehaviorChanged": false,
+  "question": "Under a 105000-event full paid-tape session, does PRE_MIGRATION_RUNNER_WATCH produce at least one independent mint episode per covered hour, and do realizable runtime outcomes remain durable rather than top-heavy?",
+  "supersedes": {
+    "id": "runner_watch_full_coverage_v4_2026-07-25",
+    "disposition": "CLOSED_AFTER_ONE_VALID_AND_TWO_EXCLUDED_RUNS",
+    "acceptedEvidenceReuseAllowed": false,
+    "v4ValidRuns": 1,
+    "v4ExcludedRuns": 2,
+    "v4RealizedUniqueMintEpisodes": 7,
+    "v4TotalPnlSol": 0.180154198,
+    "v4MedianEpisodePnlSol": 0.016015574,
+    "v4PnlAfterRemovingTop3WinnersSol": 0.015837992,
+    "latestExcludedTelemetry": "run-logs/telemetry-2026-07-26T17-26-34-263Z.jsonl",
+    "latestExcludedResults": {
+      "meteredTradeEvents": 92011,
+      "fullPaidTapeMinutes": 54.98,
+      "minimumRequiredFullPaidTapeMinutes": 55,
+      "runtimeRpcCurveErrors": 3
+    },
+    "budgetSelection": {
+      "observedEventRatePerMinute": 1673.536,
+      "projectedEventsAt60Minutes": 100412,
+      "selectedBudgetEvents": 105000,
+      "projectedCoverageMinutesAtSelectedBudget": 62.741,
+      "projectedHeadroomRate": 0.0457,
+      "selectionRule": "Raise only the event cap enough to cover the latest measured 60-minute demand with about 4.5 percent headroom. Subscription policy, strategy gates, exits, episode identity, and economic bars remain unchanged."
+    }
+  },
+  "subscriptionPlan": {
+    "mode": "targeted_curve",
+    "freeInputsOnly": [
+      "PumpPortal new-token discovery",
+      "RPC bonding-curve progress"
+    ],
+    "minCurveProgressInclusive": 0.25,
+    "maxCurveProgressExclusive": 0.9,
+    "paidEventBudgetPerSession": 105000,
+    "estimatedMaximumChargeSol": 0.1,
+    "requiredStartingBalanceSol": 0.125,
+    "billingRule": "PumpPortal charges 0.01 SOL for each completed 10000-event block; the 5000-event remainder adds no projected completed-block charge.",
+    "budgetHeadroomRule": "Cover 60 minutes at the latest measured 1673.536 paid events per minute with about 4.5 percent event headroom.",
+    "tokenTradeSubscriptionTtlMs": 1800000,
+    "belowBandRpcRecheckMaxAgeMs": 180000,
+    "belowBandRpcRecheckCadenceMs": 15000,
+    "bondingCurveRuntimeRpcRequired": true
+  },
+  "validRunDefinition": {
+    "requestedRunMinutes": 60,
+    "minimumFullPaidTapeMinutes": 55,
+    "pumpPortalBudgetMustNotBeReachedBeforeMinute": 55,
+    "runtimeRpcCurveErrorsMustBeZero": true,
+    "interruptedRunsExcluded": true,
+    "mixedCoverageRowsMustRemainEpochLabeled": true
+  },
+  "episodeIdentity": "telemetry_run|mint; same-mint reentries within a run count as one episode",
+  "throughputCheckpoint": {
+    "minimumUniqueMintEpisodesPerFullCoverageHour": 1,
+    "gradeOn": "cumulative valid V5 full-coverage runtime sessions"
+  },
+  "economicCheckpoint": {
+    "minimumUniqueMintEpisodes": 20,
+    "minimumValidRuns": 5,
+    "requirements": [
+      "total realized paper PnL SOL > 0",
+      "median realized episode PnL SOL > 0",
+      "realized PnL after removing top 3 winning episodes > 0",
+      "at least 3 positive runs",
+      "no single run contributes more than 60% of total positive PnL"
+    ]
+  },
+  "stoppingRule": {
+    "validRuns": 10,
+    "ifEpisodeTargetNotReached": "INSUFFICIENT_THROUGHPUT_FOR_LIVE_GRADUATION",
+    "ifDurabilityFailsAtCheckpoint": "FAILED_RUNTIME_CHECKPOINT",
+    "noGateLooseningFromStarvation": true
+  },
+  "prohibitions": [
+    "No live broadcast enablement from this experiment.",
+    "No entry-gate, exit-rule, targeted curve-band, or TTL changes while evidence is collecting.",
+    "No grading on MFE, maximum excursion, or duplicate same-mint reentries.",
+    "V1 through V4 rows cannot count as V5 evidence.",
+    "Any later change to curve floor, budget, entry logic, or exit logic starts a new pre-registration."
+  ]
+}

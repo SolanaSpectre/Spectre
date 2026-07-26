@@ -6,16 +6,16 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { resolveTelemetryPath, scanRun, buildEpisodes, summarizeLedger } = require('./runner-watch-full-coverage-evidence-report');
-const frozenPrereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v4.json');
+const frozenPrereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v5.json');
 
 const engineSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'trading-engine.js'), 'utf8');
 const envExample = fs.readFileSync(path.join(__dirname, '..', '.env.example'), 'utf8');
-assert.strictEqual(frozenPrereg.subscriptionPlan.paidEventBudgetPerSession, 92000);
-assert.strictEqual(frozenPrereg.subscriptionPlan.requiredStartingBalanceSol, 0.115);
-assert(engineSource.includes(`id: '${frozenPrereg.id}'`), 'runtime must emit the V4 strategy preregistration id');
+assert.strictEqual(frozenPrereg.subscriptionPlan.paidEventBudgetPerSession, 105000);
+assert.strictEqual(frozenPrereg.subscriptionPlan.requiredStartingBalanceSol, 0.125);
+assert(engineSource.includes(`id: '${frozenPrereg.id}'`), 'runtime must emit the V5 strategy preregistration id');
 assert(
-  envExample.includes('PUMPPORTAL_MAX_METERED_TRADE_EVENTS_PER_SESSION=92000'),
-  '.env.example must publish the frozen V4 event budget'
+  envExample.includes('PUMPPORTAL_MAX_METERED_TRADE_EVENTS_PER_SESSION=105000'),
+  '.env.example must publish the frozen V5 event budget'
 );
 
 const prereg = {

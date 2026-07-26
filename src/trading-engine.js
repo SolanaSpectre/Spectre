@@ -57,7 +57,7 @@ const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
   'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
 ]);
-const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v8_2026-07-26';
+const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v9_2026-07-26';
 const HELIUS_DECISION_SHADOW_MAX_STATE_AGE_MS = 1000;
 const HELIUS_DECISION_SHADOW_RECENT_TRADE_CAP = 201;
 
@@ -495,11 +495,11 @@ class TradingEngine {
         eventQueueMaxSize: this.config.heliusPumpfunShadowEventQueueMaxSize,
         eventQueueBatchSize: this.config.heliusPumpfunShadowEventQueueBatchSize,
         gateDecisionComparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context',
-        executedActionComparator: 'gate_coupled_entry_and_same_instant_exit_with_actual_lane_context'
+        executedActionComparator: 'gate_coupled_same_guard_path_entry_and_same_instant_exit_with_actual_lane_context'
       },
       strategyPreregistration: {
-        id: 'runner_watch_full_coverage_v4_2026-07-25',
-        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v4.json'
+        id: 'runner_watch_full_coverage_v5_2026-07-26',
+        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v5.json'
       },
       replayConfigSnapshot,
       configHash: replayConfigSnapshot.configHash,
@@ -1221,13 +1221,34 @@ class TradingEngine {
           lagMs,
           thresholdMs: lagThresholdMs,
           intervalMs,
-          sample: this.eventLoopMonitorStats.samples
+          sample: this.eventLoopMonitorStats.samples,
+          stallContext: this.eventLoopStallContext(now)
         });
       }
     }, intervalMs);
     if (typeof this.eventLoopMonitorTimer.unref === 'function') {
       this.eventLoopMonitorTimer.unref();
     }
+  }
+
+  eventLoopStallContext(now = Date.now()) {
+    const activeHandleTypes = {};
+    if (typeof process._getActiveHandles === 'function') {
+      for (const handle of process._getActiveHandles()) {
+        const type = handle?.constructor?.name || 'Unknown';
+        activeHandleTypes[type] = (activeHandleTypes[type] || 0) + 1;
+      }
+    }
+    return {
+      captureSemantics: 'captured_when_event_loop_monitor_resumed_after_detected_lag',
+      rpc: this.connection.getEventLoopDiagnostics?.(now) || null,
+      queues: {
+        heliusShadowDepth: Number(this.heliusPumpfunShadowListener?.eventQueue?.length || 0),
+        bondingCurveQueued: this.queuedPumpBondingCurveSyncs.size,
+        bondingCurvePending: this.pendingPumpBondingCurveSyncs.size
+      },
+      activeHandleTypes
+    };
   }
 
   stopEventLoopMonitor(reason = 'STOPPED') {
@@ -3879,11 +3900,15 @@ class TradingEngine {
         shadowAllowedPresetNames,
         shadowEvaluatedPreset
       );
+      const guardOverridePathAgreement = actualGuardOverride === shadowGuardOverride;
       const presetComparisons = gateComparisonsByPreset.get(actual.payload?.preset) || [];
       presetComparisons.push({
         actual,
         comparable,
         counterfactual,
+        actualGuardOverride,
+        shadowGuardOverride,
+        guardOverridePathAgreement,
         unavailableReason: comparable ? null : (counterfactual?.reason || unavailableReason)
       });
       gateComparisonsByPreset.set(actual.payload?.preset, presetComparisons);
@@ -3928,7 +3953,8 @@ class TradingEngine {
         actualGuardFamilyInputs: this.decisionShadowGuardFamilyInputs(
           actual.payload || {},
           {},
-          actualEvaluatedPreset
+          actualEvaluatedPreset,
+          this.decisionShadowMarket(result.state)
         ),
         shadowDecision: comparable
           ? (counterfactual?.wouldEnter === true ? 'PAPER_ELIGIBLE' : 'PAPER_SKIPPED')
@@ -3945,10 +3971,15 @@ class TradingEngine {
         shadowGuardFamilyInputs: this.decisionShadowGuardFamilyInputs(
           shadowDecisionDetails,
           shadowGuardDetails,
-          shadowEvaluatedPreset
+          shadowEvaluatedPreset,
+          snapshot.market || {}
         ),
         evaluatedPresetAgreement: actualEvaluatedPreset === shadowEvaluatedPreset,
         guardOverrideAllowListAgreement,
+        guardOverridePathAgreement,
+        guardOverridePathComparison: guardOverridePathAgreement
+          ? 'SAME_GUARD_OVERRIDE_PATH'
+          : 'CROSS_GUARD_OVERRIDE_PATH',
         shadowCurveProgressDelta: Number.isFinite(shadowCurveProgressDelta)
           ? this.roundNumber(shadowCurveProgressDelta, 6)
           : null,
@@ -3989,20 +4020,28 @@ class TradingEngine {
         ? matchingGate?.counterfactual || null
         : shadowStateFresh
           ? this.preMigrationPaperLane.evaluateCounterfactualExecutedAction({
-          action,
-          state: shadowState,
-          timestamp,
-          presetName: actual.payload?.preset,
-          flagged: Boolean(result.flagged),
-          context: actualLaneContext || {}
-        })
+            action,
+            state: shadowState,
+            timestamp,
+            presetName: actual.payload?.preset,
+            flagged: Boolean(result.flagged),
+            context: actualLaneContext || {}
+          })
           : null;
+      const entryGuardOverridePathAgreement = action !== 'ENTRY'
+        || matchingGate?.guardOverridePathAgreement === true;
       const comparable = action === 'ENTRY'
-        ? Boolean(matchingGate?.comparable && counterfactual?.comparable !== false)
+        ? Boolean(
+          matchingGate?.comparable
+          && counterfactual?.comparable !== false
+          && entryGuardOverridePathAgreement
+        )
         : Boolean(shadowStateFresh && counterfactual?.comparable !== false);
       const executedUnavailableReason = action === 'ENTRY' && !matchingGate
         ? 'ACTUAL_ENTRY_GATE_CONTEXT_MISSING'
-        : (matchingGate?.unavailableReason || counterfactual?.reason || unavailableReason);
+        : action === 'ENTRY' && !entryGuardOverridePathAgreement
+          ? 'COUNTERFACTUAL_GUARD_PATH_MISMATCH'
+          : (matchingGate?.unavailableReason || counterfactual?.reason || unavailableReason);
       const wouldExecute = action === 'ENTRY'
         ? counterfactual?.wouldEnter === true
         : counterfactual?.wouldExecute === true;
@@ -4072,6 +4111,16 @@ class TradingEngine {
           || actual.payload?.preset
           || null,
         entryGateCoupled: action === 'ENTRY',
+        guardOverridePathAgreement: action === 'ENTRY'
+          ? entryGuardOverridePathAgreement
+          : null,
+        guardOverridePathComparison: action === 'ENTRY'
+          ? (
+            entryGuardOverridePathAgreement
+              ? 'SAME_GUARD_OVERRIDE_PATH'
+              : 'CROSS_GUARD_OVERRIDE_PATH'
+          )
+          : null,
         actualGateDecision: matchingGate?.actual?.payload?.decision || null,
         actualGateReason: matchingGate?.actual?.payload?.reason || null,
         actualGateGuardOverride: matchingGate?.actual?.payload?.guardOverride || null,
@@ -4147,6 +4196,9 @@ class TradingEngine {
   }
 
   decisionShadowCurveRegimeBucket(curveProgress) {
+    if (curveProgress === null || curveProgress === undefined || curveProgress === '') {
+      return 'UNKNOWN';
+    }
     const curve = Number(curveProgress);
     if (!Number.isFinite(curve)) return 'UNKNOWN';
     if (curve < 0.25) return 'LT_25';
@@ -4156,29 +4208,39 @@ class TradingEngine {
     return 'GE_90';
   }
 
-  decisionShadowGuardFamilyInputs(primary = {}, fallback = {}, evaluatedPreset = null) {
+  decisionShadowGuardFamilyInputs(
+    primary = {},
+    fallback = {},
+    evaluatedPreset = null,
+    marketState = {}
+  ) {
     const value = (key) => {
       const selected = primary?.[key] ?? fallback?.[key];
+      return selected === undefined ? null : selected;
+    };
+    const marketValue = (key) => {
+      const selected = primary?.[key] ?? fallback?.[key] ?? marketState?.[key];
       return selected === undefined ? null : selected;
     };
     const curveProgress = value('curveProgress')
       ?? value('firstCurveSnapshotScalpCurveProgress')
       ?? value('earlyAccelerationCurveProgress')
-      ?? value('curvePauseCurveProgress');
+      ?? value('curvePauseCurveProgress')
+      ?? marketValue('curveProgress');
     const selectedFamily = value('guardOverride');
     return {
       evaluatedPreset,
       selectedFamily,
       curveRegimeBucket: this.decisionShadowCurveRegimeBucket(curveProgress),
       market: {
-        score: value('score'),
+        score: marketValue('score'),
         curveProgress,
-        curveProgressDelta: value('curveProgressDelta'),
-        curveProgressDelta60s: value('curveProgressDelta60s'),
-        recentVolumeSol: value('recentVolumeSol'),
-        tradeVelocityPerMin: value('tradeVelocityPerMin'),
-        uniqueBuyerCount: value('uniqueBuyerCount'),
-        sniperWalletCount: value('sniperWalletCount')
+        curveProgressDelta: marketValue('curveProgressDelta'),
+        curveProgressDelta60s: marketValue('curveProgressDelta60s'),
+        recentVolumeSol: marketValue('recentVolumeSol'),
+        tradeVelocityPerMin: marketValue('tradeVelocityPerMin'),
+        uniqueBuyerCount: marketValue('uniqueBuyerCount'),
+        sniperWalletCount: marketValue('sniperWalletCount')
       },
       familySelected: {
         firstCurveSnapshotScalp: selectedFamily === 'FIRST_CURVE_SNAPSHOT_SCALP',

@@ -10,6 +10,8 @@ async function main() {
   const lane = new LiveExecutionDryRunLane({
     liveDryRunEnabled: true,
     liveDryRunPumpBuyV2BuilderEnabled: false,
+    liveDryRunPostMigrationRouteProbeTimeoutMs: 20,
+    liveDryRunPostMigrationRouteProbeCooldownMs: 1000,
     preMigrationPaperAmountSol: 0.05
   }, {}, {
     telemetryHook: (type, payload) => events.push({ type, payload }),
@@ -33,6 +35,9 @@ async function main() {
   assert.strictEqual(available.strategyConsumptionAllowed, false);
   assert.strictEqual(lane.getStats().postMigrationRoutesAvailable, 1);
   assert.strictEqual(events[0].type, 'live_dry_run.post_migration_route_probe');
+  const cooldown = await lane.probePostMigrationRoute({ mint: 'mint-a', amountLamports: 1 });
+  assert.strictEqual(cooldown.status, 'PROBE_COOLDOWN');
+  assert.strictEqual(cooldown.attempted, false);
 
   const hostileError = new Error('https://api.jup.ag/order?api-key=DO_NOT_LEAK');
   hostileError.name = 'FetchError';
@@ -43,6 +48,12 @@ async function main() {
   assert.strictEqual(failed.status, 'PROBE_ERROR');
   assert.strictEqual(failed.reason, 'FetchError');
   assert.strictEqual(JSON.stringify(failed).includes('DO_NOT_LEAK'), false);
+
+  lane.postMigrationRouteProbe = async () => new Promise(() => {});
+  const timedOut = await lane.probePostMigrationRoute({ mint: 'mint-timeout', amountLamports: 1 });
+  assert.strictEqual(timedOut.status, 'PROBE_TIMEOUT');
+  assert.strictEqual(timedOut.reason, 'PostMigrationRouteProbeTimeoutError');
+  assert.strictEqual(lane.getStats().postMigrationRouteProbeTimeouts, 1);
 
   let executeCalls = 0;
   const engineContext = {

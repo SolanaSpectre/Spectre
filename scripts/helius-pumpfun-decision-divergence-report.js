@@ -8,7 +8,7 @@ const { forEachJsonlSync } = require('./lib/jsonl');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
-const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v8.json');
+const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v9.json');
 const PARITY_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity-latest.json');
 const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence');
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence-latest.json');
@@ -169,6 +169,7 @@ function buildEntryMismatchAttribution(evaluations = [], executed = [], preregis
   const mismatches = executed.filter((row) => (
     row.action === 'ENTRY'
     && row.comparable === true
+    && row.guardOverridePathAgreement !== false
     && row.actionAgreement !== true
   )).map((row) => {
     const evaluation = evaluationByPair.get(row.pairedDecisionKey) || null;
@@ -204,14 +205,18 @@ function buildEntryMismatchAttribution(evaluations = [], executed = [], preregis
     };
   });
   const comparableExecutedEntries = executed.filter(
-    (row) => row.action === 'ENTRY' && row.comparable === true
+    (row) => (
+      row.action === 'ENTRY'
+      && row.comparable === true
+      && row.guardOverridePathAgreement !== false
+    )
   ).length;
   const minimumMismatchesRequired = Math.max(
     1,
     Number(preregistration.entryMismatchAttribution?.minimumMismatches || 1)
   );
   return {
-    executedEntries: executed.filter((row) => row.action === 'ENTRY').length,
+    observedExecutedEntries: executed.filter((row) => row.action === 'ENTRY').length,
     comparableExecutedEntries,
     mismatches: mismatches.length,
     minimumMismatchesRequired,
@@ -397,7 +402,10 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
   );
   const divergences = comparable.filter((row) => row.actionAgreement !== true);
   const executed = state.executedActions.filter((row) => row.preregistrationId === preregistration.id);
-  const comparableExecuted = executed.filter((row) => row.comparable === true);
+  const comparableExecuted = executed.filter((row) => (
+    row.comparable === true
+    && (row.action !== 'ENTRY' || row.guardOverridePathAgreement !== false)
+  ));
   const executedMatches = comparableExecuted.filter((row) => row.actionAgreement === true);
   const entryActions = comparableExecuted.filter((row) => row.action === 'ENTRY');
   const exitActions = comparableExecuted.filter((row) => row.action === 'EXIT');
@@ -625,8 +633,18 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       comparableExecutedActions: comparableExecuted.length,
       unavailableExecutedActions: executed.length - comparableExecuted.length,
       executedActionMatches: executedMatches.length,
-      executedEntries: entryActions.length,
-      executedExits: exitActions.length,
+      observedExecutedEntries: executed.filter((row) => row.action === 'ENTRY').length,
+      comparableExecutedEntries: entryActions.length,
+      unavailableExecutedEntries: executed.filter((row) => (
+        row.action === 'ENTRY'
+        && !comparableExecuted.includes(row)
+      )).length,
+      observedExecutedExits: executed.filter((row) => row.action === 'EXIT').length,
+      comparableExecutedExits: exitActions.length,
+      unavailableExecutedExits: executed.filter((row) => (
+        row.action === 'EXIT'
+        && !comparableExecuted.includes(row)
+      )).length,
       executedEntryMatches: entryActionMatches.length,
       executedExitMatches: exitActionMatches.length
     },
@@ -667,6 +685,12 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       counts[key] = (counts[key] || 0) + 1;
       return counts;
     }, {}),
+    unavailableExecutedReasons: executed.filter((row) => !comparableExecuted.includes(row))
+      .reduce((counts, row) => {
+        const key = row.unavailableReason || 'UNKNOWN';
+        counts[key] = (counts[key] || 0) + 1;
+        return counts;
+      }, {}),
     paidTapeCoverage: {
       budgetReached: Boolean(state.budgetReached),
       budgetReachedAfterMinutes,
