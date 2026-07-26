@@ -5,7 +5,14 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { resolveTelemetryPath, scanRun, buildEpisodes, summarizeLedger } = require('./runner-watch-full-coverage-evidence-report');
+const {
+  resolveTelemetryPath,
+  scanRun,
+  buildEpisodes,
+  validateRun,
+  summarizeLedger,
+  summarizeEpisodes
+} = require('./runner-watch-full-coverage-evidence-report');
 const frozenPrereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v5.json');
 
 const engineSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'trading-engine.js'), 'utf8');
@@ -36,6 +43,121 @@ const episodes = buildEpisodes({
 });
 assert.strictEqual(episodes.length, 2, 'same-mint reentries must collapse to one episode');
 assert.strictEqual(episodes.find((row) => row.mint === 'A').pnlSol, 0.015);
+const concentrated = summarizeEpisodes([
+  { exits: 1, pnlSol: 0.1 },
+  { exits: 1, pnlSol: -0.01 },
+  { exits: 1, pnlSol: -0.02 },
+  { exits: 1, pnlSol: -0.03 }
+]);
+assert.strictEqual(concentrated.totalPnlSol, 0.04);
+assert.strictEqual(concentrated.pnlAfterRemovingTop3WinnersSol, -0.06);
+assert.strictEqual(concentrated.concentrationDependent, true);
+
+const futureRun = {
+  started: {
+    timestamp: '2026-07-27T12:00:00.000Z',
+    payload: {
+      mode: 'PAPER',
+      sessionDurationMinutes: 60,
+      strategyPreregistration: { id: frozenPrereg.id },
+      pumpPortalPaidTapePlan: {
+        tradeSubscriptionMode: frozenPrereg.subscriptionPlan.mode,
+        targetedMinCurveProgress: frozenPrereg.subscriptionPlan.minCurveProgressInclusive,
+        targetedMaxCurveProgress: frozenPrereg.subscriptionPlan.maxCurveProgressExclusive,
+        maxMeteredTradeEventsPerSession: frozenPrereg.subscriptionPlan.paidEventBudgetPerSession,
+        tokenTradeSubscriptionTtlMs: frozenPrereg.subscriptionPlan.tokenTradeSubscriptionTtlMs,
+        targetedPrefilterMaxAgeMs: frozenPrereg.subscriptionPlan.belowBandRpcRecheckMaxAgeMs,
+        targetedPrefilterCadenceMs: frozenPrereg.subscriptionPlan.belowBandRpcRecheckCadenceMs,
+        bondingCurveRuntimeRpcEnabled: true
+      }
+    }
+  },
+  stopping: {
+    timestamp: '2026-07-27T13:00:00.000Z',
+    payload: {
+      reason: 'SESSION_DURATION_EXCEEDED',
+      stats: {
+        pumpBondingCurveLane: {
+          errors: 4,
+          activePhaseErrors: 0,
+          stoppingPhaseErrors: 4,
+          stoppedPhaseErrors: 0,
+          shutdownCancelledErrors: 4,
+          errorSessionPhaseCounts: { STOPPING: 4 }
+        },
+        solanaRpc: { stats: { primaryFailures: 0, fallbackFailures: 0 } }
+      }
+    }
+  }
+};
+const fullCoverage = {
+  fullPaidTapeMinutes: 60,
+  discoveryRpcOnlyMinutes: 0,
+  paidTapeCapped: false,
+  paidTapeCoverageTruncated: false,
+  coverageEndReason: null,
+  coverageEndedAt: null,
+  targetedTradeSubscriptionRejections: 0
+};
+const phaseAwareValidation = validateRun(
+  frozenPrereg,
+  path.join(__dirname, '..', 'run-logs', 'future.jsonl'),
+  futureRun,
+  fullCoverage
+);
+assert.strictEqual(phaseAwareValidation.valid, true, 'shutdown cancellations must not invalidate a future run');
+assert.strictEqual(phaseAwareValidation.actual.activeRuntimeRpcCurveErrors, 0);
+assert.strictEqual(phaseAwareValidation.actual.shutdownCancelledCurveErrors, 4);
+assert.strictEqual(phaseAwareValidation.actual.shutdownPhaseErrorsClassified, true);
+const legacyValidation = validateRun(
+  frozenPrereg,
+  path.join(__dirname, '..', 'run-logs', 'legacy.jsonl'),
+  {
+    ...futureRun,
+    stopping: {
+      ...futureRun.stopping,
+      payload: {
+        ...futureRun.stopping.payload,
+        stats: {
+          ...futureRun.stopping.payload.stats,
+          pumpBondingCurveLane: { errors: 0 }
+        }
+      }
+    }
+  },
+  fullCoverage
+);
+assert.strictEqual(
+  legacyValidation.checks.phaseAwareCurveErrorAccounting,
+  false,
+  'future V5 runs must expose phase-aware curve error counters'
+);
+const unclassifiedShutdownValidation = validateRun(
+  frozenPrereg,
+  path.join(__dirname, '..', 'run-logs', 'unclassified-shutdown.jsonl'),
+  {
+    ...futureRun,
+    stopping: {
+      ...futureRun.stopping,
+      payload: {
+        ...futureRun.stopping.payload,
+        stats: {
+          ...futureRun.stopping.payload.stats,
+          pumpBondingCurveLane: {
+            ...futureRun.stopping.payload.stats.pumpBondingCurveLane,
+            shutdownCancelledErrors: 3
+          }
+        }
+      }
+    }
+  },
+  fullCoverage
+);
+assert.strictEqual(
+  unclassifiedShutdownValidation.checks.shutdownRuntimeRpcCurveErrorsClassified,
+  false,
+  'a non-cancellation shutdown error must invalidate the run'
+);
 
 const summary = summarizeLedger([
   {

@@ -3384,7 +3384,14 @@ function buildSummary(docs) {
   }
   if (runnerWatchFullCoverageEvidence.cumulative) {
     const evidence = runnerWatchFullCoverageEvidence.cumulative;
-    lines.push(`  - runner-watch prereg evidence: ${evidence.verdict || 'unknown'}; validRuns=${evidence.validRuns ?? 0}, episodes=${evidence.realizedUniqueMintEpisodes ?? 0}/20, episodesPerHour=${evidence.episodesPerFullCoverageHour ?? 'n/a'}, median=${evidence.medianEpisodePnlSol ?? 'n/a'} SOL, exTop3=${evidence.pnlAfterRemovingTop3WinnersSol ?? 'n/a'} SOL, live=${evidence.liveAction || 'KEEP_LIVE_DISABLED'}`);
+    const concentrationLabel = evidence.concentrationDependent === true
+      ? 'CONCENTRATION_DEPENDENT'
+      : 'not_detected';
+    lines.push(`  - runner-watch prereg evidence: ${evidence.verdict || 'unknown'}; validRuns=${evidence.validRuns ?? 0}, episodes=${evidence.realizedUniqueMintEpisodes ?? 0}/20, episodesPerHour=${evidence.episodesPerFullCoverageHour ?? 'n/a'}, total=${evidence.totalPnlSol ?? 'n/a'} SOL, median=${evidence.medianEpisodePnlSol ?? 'n/a'} SOL, exTop3=${evidence.pnlAfterRemovingTop3WinnersSol ?? 'n/a'} SOL, concentration=${concentrationLabel}, live=${evidence.liveAction || 'KEEP_LIVE_DISABLED'}`);
+    const currentEconomics = runnerWatchFullCoverageEvidence.currentRun?.economics;
+    if (currentEconomics?.concentrationDependent === true) {
+      lines.push(`  - current runner-watch run warning: CONCENTRATION_DEPENDENT; total=${currentEconomics.totalPnlSol ?? 'n/a'} SOL but exTop3=${currentEconomics.pnlAfterRemovingTop3WinnersSol ?? 'n/a'} SOL (median=${currentEconomics.medianEpisodePnlSol ?? 'n/a'} SOL).`);
+    }
     const coverageDiagnostics = runnerWatchFullCoverageEvidence.currentRun?.coverageDiagnostics;
     if (coverageDiagnostics) {
       lines.push(`  - targeted prefilter coverage: firstRpc=${coverageDiagnostics.firstRpcObservations ?? 0} (below/in/above=${coverageDiagnostics.byClassification?.BELOW_BAND || 0}/${coverageDiagnostics.byClassification?.IN_BAND || 0}/${coverageDiagnostics.byClassification?.ABOVE_BAND || 0}), aboveBandCoverageShapedSkips=${coverageDiagnostics.coverageShapedPaperSkips ?? 0}, belowBandExpired=${coverageDiagnostics.belowBandRecheckExpirations ?? 0}, expiredLaterInOrAbove=${coverageDiagnostics.expiredLaterObservedInOrAboveBand ?? 0}`);

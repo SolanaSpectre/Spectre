@@ -25,10 +25,16 @@ function bigIntToNumber(value) {
 }
 
 class PumpBondingCurveLane {
-  constructor(config, logger, connection) {
+  constructor(config, logger, connection, options = {}) {
     this.config = config;
     this.logger = logger;
     this.connection = connection;
+    this.getSessionPhase = typeof options.getSessionPhase === 'function'
+      ? options.getSessionPhase
+      : () => 'ACTIVE';
+    this.telemetryHook = typeof options.telemetryHook === 'function'
+      ? options.telemetryHook
+      : null;
     this.enabled = config.pumpBondingCurveLaneEnabled !== false;
     this.refreshIntervalMs = config.pumpBondingCurveRefreshIntervalMs;
     this.failureCooldownMs = config.pumpBondingCurveFailureCooldownMs;
@@ -77,6 +83,11 @@ class PumpBondingCurveLane {
       lastGlobalBackoffErrorsInWindow: 0,
       lastGlobalBackoffWindowMs: null,
       errors: 0,
+      activePhaseErrors: 0,
+      stoppingPhaseErrors: 0,
+      stoppedPhaseErrors: 0,
+      shutdownCancelledErrors: 0,
+      errorSessionPhaseCounts: {},
       rpcBatchErrors: 0,
       rpcSingleErrors: 0,
       errorReasonCounts: {},
@@ -318,10 +329,21 @@ class PumpBondingCurveLane {
       };
     } catch (error) {
       const failedAt = Date.now();
-      const diagnostic = this.classifyFetchError(error);
+      const originalDiagnostic = this.classifyFetchError(error);
+      const sessionPhase = this.sessionPhase();
+      const shutdownCancelled = sessionPhase !== 'ACTIVE'
+        && originalDiagnostic.reason !== 'LOCAL_CURVE_PROCESSING_ERROR';
+      const diagnostic = {
+        ...originalDiagnostic,
+        reason: shutdownCancelled ? 'SHUTDOWN_CANCELLED' : originalDiagnostic.reason,
+        originalReason: shutdownCancelled ? originalDiagnostic.reason : null,
+        sessionPhase,
+        shutdownCancelled
+      };
       this.stats.errors += 1;
+      this.recordPhaseError(sessionPhase, shutdownCancelled);
       this.recordFetchError(diagnostic, failedAt);
-      this.noteFailedFetch(failedAt);
+      if (sessionPhase === 'ACTIVE') this.noteFailedFetch(failedAt);
       const failed = this.mergeState(mint, tokenMeta, {
         bondingCurveAddress: this.safeDeriveBondingCurveAddress(mint),
         lastErrorAt: failedAt,
@@ -333,6 +355,11 @@ class PumpBondingCurveLane {
         mint,
         ...diagnostic
       });
+      this.telemetryHook?.('pump_bonding_curve.lookup_error', {
+        mint,
+        at: new Date(failedAt).toISOString(),
+        ...diagnostic
+      });
       return failed ? {
         ...this.toSummary(failed),
         refreshed: false
@@ -340,6 +367,21 @@ class PumpBondingCurveLane {
     } finally {
       this.inFlight.delete(mint);
     }
+  }
+
+  sessionPhase() {
+    const phase = String(this.getSessionPhase?.() || 'ACTIVE').toUpperCase();
+    return ['ACTIVE', 'STOPPING', 'STOPPED'].includes(phase) ? phase : 'ACTIVE';
+  }
+
+  recordPhaseError(sessionPhase, shutdownCancelled) {
+    this.stats.errorSessionPhaseCounts[sessionPhase] = (
+      this.stats.errorSessionPhaseCounts[sessionPhase] || 0
+    ) + 1;
+    if (sessionPhase === 'ACTIVE') this.stats.activePhaseErrors += 1;
+    else if (sessionPhase === 'STOPPING') this.stats.stoppingPhaseErrors += 1;
+    else this.stats.stoppedPhaseErrors += 1;
+    if (shutdownCancelled) this.stats.shutdownCancelledErrors += 1;
   }
 
   fetchBondingCurveAccount(bondingCurveAddress) {

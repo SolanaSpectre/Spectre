@@ -52,6 +52,14 @@ assert(
   engineSource.includes('guardOverrideAllowListAgreement'),
   'decision-shadow telemetry must compare both guard-override allow-list snapshots'
 );
+assert(
+  engineSource.includes("reason: 'INCOMPARABLE_SCORE_INPUT'"),
+  'a missing recomputed shadow score must be explicitly incomparable'
+);
+assert(
+  engineSource.includes('sniperWalletCountCaptured: state.sniperWalletCountCaptured === true'),
+  'decision-shadow telemetry must preserve sniper-input capture state'
+);
 
 const lane = Object.create(PreMigrationPaperLane.prototype);
 const preset = {

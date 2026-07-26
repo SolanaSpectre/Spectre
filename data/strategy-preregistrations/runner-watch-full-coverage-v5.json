@@ -2,6 +2,7 @@
   "schemaVersion": 1,
   "id": "runner_watch_full_coverage_v5_2026-07-26",
   "preregisteredAt": "2026-07-26T14:10:59.4522277-05:00",
+  "amendedBeforeFirstValidRunAt": "2026-07-26T16:19:56.0006188-05:00",
   "status": "PREREGISTERED_BEFORE_FIRST_VALID_RUN",
   "mode": "paper_only",
   "liveBehaviorChanged": false,
@@ -54,9 +55,22 @@
     "requestedRunMinutes": 60,
     "minimumFullPaidTapeMinutes": 55,
     "pumpPortalBudgetMustNotBeReachedBeforeMinute": 55,
-    "runtimeRpcCurveErrorsMustBeZero": true,
+    "phaseAwareCurveErrorAccountingRequired": true,
+    "activePhaseRuntimeRpcCurveErrorsMustBeZero": true,
+    "shutdownPhaseCurveErrorsRecordedButDoNotInvalidate": true,
+    "shutdownPhaseErrorsMustBeClassifiedAsCancelled": true,
     "interruptedRunsExcluded": true,
     "mixedCoverageRowsMustRemainEpochLabeled": true
+  },
+  "instrumentationAmendment": {
+    "sourceTelemetry": "run-logs/telemetry-2026-07-26T19-39-18-549Z.jsonl",
+    "validV5RunsBeforeAmendment": 0,
+    "reason": "The first V5 row was excluded by four session-total curve errors. All four were emitted 12-32 ms after session.stopping and the run had zero RPC transport failures, proving that the frozen session-total counter could not distinguish active failures from shutdown-drain cancellation.",
+    "futureRule": "Require phase counters to reconcile to the visible total, require zero ACTIVE errors, and require every STOPPING or STOPPED error to be explicitly classified SHUTDOWN_CANCELLED. Preserve all shutdown totals as visible diagnostics.",
+    "priorRunDisposition": "REMAINS_EXCLUDED_UNDER_THE_RULE_FROZEN_FOR_THAT_RUN",
+    "strategyBehaviorChanged": false,
+    "subscriptionPolicyChanged": false,
+    "economicRequirementsChanged": false
   },
   "episodeIdentity": "telemetry_run|mint; same-mint reentries within a run count as one episode",
   "throughputCheckpoint": {
@@ -80,11 +94,20 @@
     "ifDurabilityFailsAtCheckpoint": "FAILED_RUNTIME_CHECKPOINT",
     "noGateLooseningFromStarvation": true
   },
+  "freezePolicy": {
+    "minimumConsecutiveFutureValidRunsBeforeSchemaChange": 3,
+    "allowedEarlyAmendmentReasons": [
+      "secret_or_fund_safety_defect",
+      "runtime_data_integrity_defect"
+    ],
+    "strategyOrThresholdRetuningAllowed": false
+  },
   "prohibitions": [
     "No live broadcast enablement from this experiment.",
     "No entry-gate, exit-rule, targeted curve-band, or TTL changes while evidence is collecting.",
     "No grading on MFE, maximum excursion, or duplicate same-mint reentries.",
     "V1 through V4 rows cannot count as V5 evidence.",
+    "The first excluded V5 row cannot be retroactively validated by the phase-aware amendment.",
     "Any later change to curve floor, budget, entry logic, or exit logic starts a new pre-registration."
   ]
 }

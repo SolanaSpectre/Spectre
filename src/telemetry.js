@@ -37,6 +37,7 @@ class Telemetry {
     this.rateLimitConfigs = this.buildRateLimitConfigs();
     this.rateLimitState = new Map();
     this.rateLimitedCounts = new Map();
+    this.eventLoopWorkSampler = null;
 
     if (this.enabled) {
       const logDir = config.telemetryLogDir;
@@ -137,6 +138,10 @@ class Telemetry {
     this.enqueueWrite(event);
 
     return event;
+  }
+
+  setEventLoopWorkSampler(sampler) {
+    this.eventLoopWorkSampler = sampler || null;
   }
 
   retainRecentEvent(event) {
@@ -304,7 +309,16 @@ class Telemetry {
   enqueueWrite(event) {
     if (!this.enabled || !this.filePath) return;
 
-    this.writeBuffer.push(`${JSON.stringify(event)}\n`);
+    const startedAtMs = Date.now();
+    const startedHr = process.hrtime.bigint();
+    const line = `${JSON.stringify(event)}\n`;
+    const bytes = Buffer.byteLength(line);
+    const durationMs = Number(process.hrtime.bigint() - startedHr) / 1e6;
+    this.eventLoopWorkSampler?.record?.('telemetry.json_serialize', startedAtMs, durationMs, {
+      type: event.type,
+      bytes
+    });
+    this.writeBuffer.push(line);
     if (this.writeBuffer.length >= this.flushMaxEvents) {
       this.flush();
       return;
@@ -328,7 +342,17 @@ class Telemetry {
       return;
     }
 
+    const joinStartedAtMs = Date.now();
+    const joinStartedHr = process.hrtime.bigint();
     const chunk = this.writeBuffer.join('');
+    const bytes = Buffer.byteLength(chunk);
+    const durationMs = Number(process.hrtime.bigint() - joinStartedHr) / 1e6;
+    this.eventLoopWorkSampler?.record?.(
+      'telemetry.buffer_join',
+      joinStartedAtMs,
+      durationMs,
+      { bytes }
+    );
     this.writeBuffer = [];
     this.writeInFlight = true;
     this.writePromise = fs.promises.appendFile(this.filePath, chunk)

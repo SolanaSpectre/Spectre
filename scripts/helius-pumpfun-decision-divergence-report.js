@@ -418,6 +418,15 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
   );
   const sourceMatches = !sourceTelemetry || parity.sourceTelemetry === sourceTelemetry;
   const unavailableEvaluations = evaluations.filter((row) => row.comparable !== true);
+  const comparableWithExactMarketInputs = comparable.filter((row) => {
+    const market = row.shadowGuardFamilyInputs?.market || {};
+    return typeof market.score === 'number'
+      && Number.isFinite(market.score)
+      && market.scoreCaptured === true
+      && typeof market.sniperWalletCount === 'number'
+      && Number.isFinite(market.sniperWalletCount)
+      && typeof market.sniperWalletCountCaptured === 'boolean';
+  });
   const plan = state.sessionStarted?.payload?.heliusPumpfunShadowPlan || {};
   const paidTapePlan = state.sessionStarted?.payload?.pumpPortalPaidTapePlan || {};
   const heliusQueueStats = state.sessionStopped?.payload?.stats?.heliusPumpfunShadow || {};
@@ -442,7 +451,8 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
   const budgetReachedAfterMinutes = Number.isFinite(startMs) && Number.isFinite(budgetReachedMs)
     ? (budgetReachedMs - startMs) / 60_000
     : null;
-  const effectiveRegistrationAt = preregistration.frozenAt;
+  const effectiveRegistrationAt = preregistration.amendedBeforeFirstComparableRunAt
+    || preregistration.frozenAt;
   const checks = {
     postRegistration: Number.isFinite(startMs) && startMs > Date.parse(effectiveRegistrationAt),
     paperMode: state.sessionStarted?.payload?.mode === 'PAPER',
@@ -450,6 +460,8 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     correctPreregistrationPlan: plan.decisionShadowPreregistrationId === preregistration.id,
     correctGateDecisionComparator: plan.gateDecisionComparator === preregistration.gateDecisionComparator.name,
     correctExecutedActionComparator: plan.executedActionComparator === preregistration.executedActionComparator.name,
+    correctMarketInputSemantics: plan.decisionShadowMarketInputSemantics
+      === preregistration.gateDecisionComparator.marketInputTelemetrySemantics,
     correctMaximumStateAge: Number(plan.decisionShadowMaximumStateAgeMs) === preregistration.maximumShadowStateAgeMs,
     correctRecentTradeCap: Number(plan.decisionShadowRecentTradeCap) === preregistration.semanticAlignment.recentTradeCap,
     accountStateEnrichmentEnabled: plan.decisionShadowAccountStateEnrichment === 'finalist_account_verifier_latest_update',
@@ -504,6 +516,7 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       Number.isFinite(Number(row.shadowStateAgeMs))
       && Number(row.shadowStateAgeMs) <= preregistration.maximumShadowStateAgeMs
     )),
+    comparableMarketInputsComplete: comparableWithExactMarketInputs.length === comparable.length,
     comparableExecutedActionCoverage: ratio(comparableExecuted.length, executed.length)
       >= preregistration.minimumComparableExecutedActionCoverageRate,
     minimumExecutedEntries: entryActions.length >= preregistration.minimumExecutedEntries,
@@ -532,6 +545,7 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     'correctPreregistrationPlan',
     'correctGateDecisionComparator',
     'correctExecutedActionComparator',
+    'correctMarketInputSemantics',
     'correctMaximumStateAge',
     'correctRecentTradeCap',
     'accountStateEnrichmentEnabled',
@@ -554,7 +568,8 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     'completedLifecycle',
     'sameTelemetryAsParity',
     'concurrentV5ParityPassed',
-    'cleanHeliusLifecycle'
+    'cleanHeliusLifecycle',
+    'comparableMarketInputsComplete'
   ];
   const validityPassed = validityChecks.every((key) => checks[key]);
   const attributionExperiment = preregistration.evaluationMode === 'entry_mismatch_attribution';
@@ -609,6 +624,7 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     counts: {
       evaluations: evaluations.length,
       comparableGateEvaluations: comparable.length,
+      comparableGateEvaluationsWithExactMarketInputs: comparableWithExactMarketInputs.length,
       unavailableGateEvaluations: evaluations.length - comparable.length,
       gateActionMatches: actionMatches.length,
       gateActionDivergences: divergences.length,

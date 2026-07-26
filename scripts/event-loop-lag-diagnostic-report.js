@@ -167,7 +167,43 @@ function analyzeTelemetry(filePath) {
   const heliusQueue = sessionRuntimeStats?.heliusPumpfunShadow || {};
   const curveQueue = sessionRuntimeStats?.pumpBondingCurveLane?.engineQueueDrain || {};
   const gcPauses = sessionRuntimeStats?.eventLoopMonitor?.gcPauses || {};
+  const workSamplerSummary = sessionRuntimeStats?.eventLoopMonitor?.workSampler || {};
   const rpcChildTransport = sessionRuntimeStats?.solanaRpc?.transport?.childProcess || {};
+  const stallWindowPhases = new Map();
+  for (const row of lagRows) {
+    for (const phase of row.stallContext?.workWindow?.topPhases || []) {
+      const aggregate = stallWindowPhases.get(phase.phase) || {
+        lagWindows: 0,
+        count: 0,
+        totalDurationMs: 0,
+        maxDurationMs: 0,
+        totalBytes: 0
+      };
+      aggregate.lagWindows += 1;
+      aggregate.count += Number(phase.count || 0);
+      aggregate.totalDurationMs += Number(phase.totalDurationMs || 0);
+      aggregate.maxDurationMs = Math.max(
+        aggregate.maxDurationMs,
+        Number(phase.maxDurationMs || 0)
+      );
+      aggregate.totalBytes += Number(phase.totalBytes || 0);
+      stallWindowPhases.set(phase.phase, aggregate);
+    }
+  }
+  const topStallWindowPhases = [...stallWindowPhases.entries()]
+    .map(([phase, row]) => ({
+      phase,
+      lagWindows: row.lagWindows,
+      count: row.count,
+      totalDurationMs: numberOrNull(row.totalDurationMs, 6),
+      maxDurationMs: numberOrNull(row.maxDurationMs, 6),
+      totalBytes: row.totalBytes
+    }))
+    .sort((left, right) => (
+      right.totalDurationMs - left.totalDurationMs
+      || right.maxDurationMs - left.maxDurationMs
+    ))
+    .slice(0, 20);
   const topLagEvents = lagRows.slice()
     .sort((left, right) => Number(right.lagMs || 0) - Number(left.lagMs || 0))
     .slice(0, 20)
@@ -176,6 +212,7 @@ function analyzeTelemetry(filePath) {
       lagMs: row.lagMs,
       rpc: row.stallContext?.rpc || null,
       queues: row.stallContext?.queues || null,
+      workWindow: row.stallContext?.workWindow || null,
       activeHandleTypes: row.stallContext?.activeHandleTypes || {}
     }));
   const lagRowsWithActiveRpcChild = lagRows.filter(
@@ -231,12 +268,14 @@ function analyzeTelemetry(filePath) {
       stallContextCoverage: {
         captured: lagRows.filter((row) => row.stallContext).length,
         total: lagRows.length,
+        workWindowCaptured: lagRows.filter((row) => row.stallContext?.workWindow).length,
         lagRowsWithActiveRpcChild,
         lagRowsWithActiveRpcChildRate: lagRows.length
           ? numberOrNull(lagRowsWithActiveRpcChild / lagRows.length, 4)
           : null
       },
       topPrecedingEventTypes5s: topEntries(precedingEventTypes5s, 20),
+      topStallWindowPhases,
       topLagMinutes,
       eventDensityCorrelation: {
         totalMinutes: allMinutes.length,
@@ -300,7 +339,15 @@ function analyzeTelemetry(filePath) {
           ),
           timeoutCallbacksLateOver100Ms: rpcChildTransport.timeoutCallbacksLateOver100Ms ?? null
         },
-        note: 'Phase-level timers avoid adding high-resolution timing work to every telemetry event.'
+        workSampler: {
+          bucketMs: workSamplerSummary.bucketMs ?? null,
+          retainedBuckets: workSamplerSummary.retainedBuckets ?? null,
+          samples: workSamplerSummary.samples ?? null,
+          totalDurationMs: numberOrNull(workSamplerSummary.totalDurationMs, 6),
+          maxDurationMs: numberOrNull(workSamplerSummary.maxDurationMs, 6),
+          byPhase: workSamplerSummary.byPhase || {}
+        },
+        note: 'The bounded work sampler aggregates completed synchronous work into 100ms buckets and reconstructs phases overlapping each delayed timer window.'
       }
     },
     interpretation

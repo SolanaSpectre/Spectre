@@ -36,6 +36,7 @@ const SolanaRpcRouter = require('./lib/solana-rpc-router');
 const OutcomeLedger = require('./lib/outcome-ledger');
 const FinalistAccountVerifier = require('./lib/finalist-account-verifier');
 const LiveExecutionDryRunLane = require('./lib/live-execution-dry-run-lane');
+const EventLoopWorkSampler = require('./lib/event-loop-work-sampler');
 const { fileProvenance } = require('./lib/file-provenance');
 const {
   buildSanitizedConfigSnapshot,
@@ -75,6 +76,11 @@ class TradingEngine {
   constructor(config, logger) {
     this.config = config;
     this.logger = logger;
+    this.eventLoopWorkSampler = new EventLoopWorkSampler({
+      bucketMs: 100,
+      maxBuckets: 300,
+      maxSamplesPerBucket: 4
+    });
     this.connection = new SolanaRpcRouter(config, logger);
     this.marketData = new MarketData(config, logger);
     this.aiAgent = new AIAgent(config, logger);
@@ -82,9 +88,21 @@ class TradingEngine {
     this.hotWallet = new WalletManager(config.hotWalletPrivateKey);
     this.coldWalletAddress = config.coldWalletAddress;
     this.pumpPortalListener = new PumpPortalListener(config, logger, {
-      onNewToken: async (event) => this.handlePumpPortalNewToken(event),
-      onTrade: async (event) => this.handlePumpPortalTrade(event),
-      onMigration: async (event) => this.handlePumpPortalMigration(event),
+      onNewToken: async (event) => this.measureEventLoopWork(
+        'provider.pumpportal.new_token_sync_prefix',
+        () => this.handlePumpPortalNewToken(event),
+        { type: 'new_token' }
+      ),
+      onTrade: async (event) => this.measureEventLoopWork(
+        'provider.pumpportal.trade_sync_prefix',
+        () => this.handlePumpPortalTrade(event),
+        { type: 'trade' }
+      ),
+      onMigration: async (event) => this.measureEventLoopWork(
+        'provider.pumpportal.migration_sync_prefix',
+        () => this.handlePumpPortalMigration(event),
+        { type: 'migration' }
+      ),
       onLifecycle: (type, payload) => {
         try {
           this.telemetry.record(type, payload);
@@ -94,8 +112,16 @@ class TradingEngine {
       }
     });
     this.pumpDevListener = new PumpDevListener(config, logger, {
-      onNewToken: async (event) => this.handlePumpDevNewToken(event),
-      onTrade: async (event) => this.handlePumpDevTrade(event),
+      onNewToken: async (event) => this.measureEventLoopWork(
+        'provider.pumpdev.new_token_sync_prefix',
+        () => this.handlePumpDevNewToken(event),
+        { type: 'new_token' }
+      ),
+      onTrade: async (event) => this.measureEventLoopWork(
+        'provider.pumpdev.trade_sync_prefix',
+        () => this.handlePumpDevTrade(event),
+        { type: 'trade' }
+      ),
       onLifecycle: (type, payload) => {
         try {
           this.telemetry.record(type, payload);
@@ -120,16 +146,18 @@ class TradingEngine {
         }
       },
       onShadowEvent: (type, payload) => {
-        try {
-          this.heliusDecisionShadowState?.ingest?.(type, payload, new Date().toISOString());
-        } catch {
-          // Decision-shadow state is report-only and must not suppress raw provider telemetry.
-        }
-        try {
-          this.telemetry.record(type, payload);
-        } catch {
-          // Helius shadow events must never enter provider runtime handlers.
-        }
+        this.measureEventLoopWork('provider.helius.shadow_event_callback', () => {
+          try {
+            this.heliusDecisionShadowState?.ingest?.(type, payload, new Date().toISOString());
+          } catch {
+            // Decision-shadow state is report-only and must not suppress raw provider telemetry.
+          }
+          try {
+            this.telemetry.record(type, payload);
+          } catch {
+            // Helius shadow events must never enter provider runtime handlers.
+          }
+        }, { type });
       }
     });
 
@@ -139,6 +167,7 @@ class TradingEngine {
     this.accounting = new AccountingService();
     this.treasurySweeper = new TreasurySweeper(config, logger);
     this.telemetry = new Telemetry(config, logger);
+    this.telemetry.setEventLoopWorkSampler(this.eventLoopWorkSampler);
     this.connection.setTelemetryHook?.((type, payload) => {
       try {
         this.telemetry.record(type, payload);
@@ -168,7 +197,20 @@ class TradingEngine {
     this.heliusDecisionShadowState = new HeliusDecisionShadowState(config);
     this.heliusDecisionShadowWatchLane = new PreMigrationWatchLane(config, logger);
     this.heliusDecisionShadowPaperLane = new PreMigrationPaperLane(config, logger);
-    this.pumpBondingCurveLane = new PumpBondingCurveLane(config, logger, this.connection);
+    this.pumpBondingCurveLane = new PumpBondingCurveLane(config, logger, this.connection, {
+      getSessionPhase: () => (
+        this.stopInProgress
+          ? 'STOPPING'
+          : (this.active ? 'ACTIVE' : 'STOPPED')
+      ),
+      telemetryHook: (type, payload) => {
+        try {
+          this.telemetry.record(type, payload);
+        } catch {
+          // Curve error diagnostics are observability-only.
+        }
+      }
+    });
     this.finalistAccountVerifier = new FinalistAccountVerifier(config, logger, {
       connection: this.connection.getSubscriptionConnection?.(),
       accountReader: this.connection,
@@ -495,7 +537,8 @@ class TradingEngine {
         eventQueueMaxSize: this.config.heliusPumpfunShadowEventQueueMaxSize,
         eventQueueBatchSize: this.config.heliusPumpfunShadowEventQueueBatchSize,
         gateDecisionComparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context',
-        executedActionComparator: 'gate_coupled_same_guard_path_entry_and_same_instant_exit_with_actual_lane_context'
+        executedActionComparator: 'gate_coupled_same_guard_path_entry_and_same_instant_exit_with_actual_lane_context',
+        decisionShadowMarketInputSemantics: 'exact_counterfactual_score_and_sniper_capture_exposed_null_score_incomparable'
       },
       strategyPreregistration: {
         id: 'runner_watch_full_coverage_v5_2026-07-26',
@@ -1208,7 +1251,8 @@ class TradingEngine {
     this.eventLoopMonitorExpectedAt = startedAt + intervalMs;
     this.eventLoopMonitorTimer = setInterval(() => {
       const now = Date.now();
-      const lagMs = Math.max(0, now - this.eventLoopMonitorExpectedAt);
+      const expectedAt = this.eventLoopMonitorExpectedAt;
+      const lagMs = Math.max(0, now - expectedAt);
       this.eventLoopMonitorExpectedAt = now + intervalMs;
       this.eventLoopMonitorStats.samples += 1;
       this.eventLoopMonitorStats.lastLagMs = lagMs;
@@ -1222,7 +1266,7 @@ class TradingEngine {
           thresholdMs: lagThresholdMs,
           intervalMs,
           sample: this.eventLoopMonitorStats.samples,
-          stallContext: this.eventLoopStallContext(now)
+          stallContext: this.eventLoopStallContext(now, expectedAt, intervalMs)
         });
       }
     }, intervalMs);
@@ -1231,7 +1275,14 @@ class TradingEngine {
     }
   }
 
-  eventLoopStallContext(now = Date.now()) {
+  measureEventLoopWork(phase, fn, details = null) {
+    if (!this.eventLoopWorkSampler) {
+      return fn();
+    }
+    return this.eventLoopWorkSampler.measure(phase, fn, details);
+  }
+
+  eventLoopStallContext(now = Date.now(), expectedAt = now, intervalMs = 1000) {
     const activeHandleTypes = {};
     if (typeof process._getActiveHandles === 'function') {
       for (const handle of process._getActiveHandles()) {
@@ -1247,6 +1298,10 @@ class TradingEngine {
         bondingCurveQueued: this.queuedPumpBondingCurveSyncs.size,
         bondingCurvePending: this.pendingPumpBondingCurveSyncs.size
       },
+      workWindow: this.eventLoopWorkSampler?.window?.(
+        Math.max(0, expectedAt - intervalMs),
+        now
+      ) || null,
       activeHandleTypes
     };
   }
@@ -1261,6 +1316,7 @@ class TradingEngine {
     this.telemetry.record('runtime.event_loop_monitor_summary', {
       ...this.eventLoopMonitorStats,
       gcPauses: this.gcPauseSummary(),
+      workSampler: this.eventLoopWorkSampler?.summary?.() || null,
       reason,
       stoppedAt: new Date().toISOString()
     });
@@ -3821,6 +3877,9 @@ class TradingEngine {
       );
       shadowState = shadowWatch.state || snapshot.state;
     }
+    const shadowMarket = shadowState
+      ? this.decisionShadowMarket(shadowState)
+      : (snapshot.market || null);
 
     const gateComparisonsByPreset = new Map();
     const actualDecisions = actualEvents.filter((event) => event.telemetryType === 'pre_migration_paper.decision');
@@ -3832,13 +3891,22 @@ class TradingEngine {
         actual.payload?.preset || 'unknown'
       ].join('|');
       const counterfactual = shadowStateFresh
-        ? this.preMigrationPaperLane.evaluateCounterfactualGateDecision({
-          state: shadowState,
-          timestamp,
-          presetName: actual.payload?.preset,
-          flagged: Boolean(result.flagged),
-          context: actualLaneContext || {}
-        })
+        ? (
+          shadowMarket?.score === null || shadowMarket?.score === undefined
+            ? {
+                comparable: false,
+                wouldEnter: false,
+                action: 'WOULD_SKIP',
+                reason: 'INCOMPARABLE_SCORE_INPUT'
+              }
+            : this.preMigrationPaperLane.evaluateCounterfactualGateDecision({
+              state: shadowState,
+              timestamp,
+              presetName: actual.payload?.preset,
+              flagged: Boolean(result.flagged),
+              context: actualLaneContext || {}
+            })
+        )
         : null;
       const comparable = Boolean(shadowStateFresh && counterfactual?.comparable !== false);
       const actualAction = this.normalizePaperDecisionAction(actual.payload?.decision);
@@ -3972,7 +4040,7 @@ class TradingEngine {
           shadowDecisionDetails,
           shadowGuardDetails,
           shadowEvaluatedPreset,
-          snapshot.market || {}
+          shadowMarket || {}
         ),
         evaluatedPresetAgreement: actualEvaluatedPreset === shadowEvaluatedPreset,
         guardOverrideAllowListAgreement,
@@ -4004,7 +4072,7 @@ class TradingEngine {
           ? String(actual.payload?.reason || '') === String(counterfactual?.reason || '')
           : null,
         portalMarket: this.decisionShadowMarket(result.state),
-        heliusMarket: snapshot.market || null,
+        heliusMarket: shadowMarket,
         walletComparison
       });
     }
@@ -4137,9 +4205,9 @@ class TradingEngine {
           ? String(actualReason || '') === String(counterfactual?.reason || '')
           : null,
         portalPriceSol: this.extractProviderPriceForParity(result.state),
-        heliusPriceSol: snapshot.market?.priceSol ?? null,
+        heliusPriceSol: shadowMarket?.priceSol ?? null,
         portalCurveProgress: this.extractProviderCurveProgressForParity(result.state),
-        heliusCurveProgress: snapshot.market?.curveProgress ?? null
+        heliusCurveProgress: shadowMarket?.curveProgress ?? null
       });
     }
   }
@@ -4227,20 +4295,29 @@ class TradingEngine {
       ?? value('earlyAccelerationCurveProgress')
       ?? value('curvePauseCurveProgress')
       ?? marketValue('curveProgress');
+    const score = marketValue('score');
+    const sniperWalletCount = marketValue('sniperWalletCount');
+    const sniperWalletCountCaptured = marketValue('sniperWalletCountCaptured');
     const selectedFamily = value('guardOverride');
     return {
       evaluatedPreset,
       selectedFamily,
       curveRegimeBucket: this.decisionShadowCurveRegimeBucket(curveProgress),
       market: {
-        score: marketValue('score'),
+        score,
+        scoreCaptured: score !== null
+          && score !== ''
+          && Number.isFinite(Number(score)),
         curveProgress,
         curveProgressDelta: marketValue('curveProgressDelta'),
         curveProgressDelta60s: marketValue('curveProgressDelta60s'),
         recentVolumeSol: marketValue('recentVolumeSol'),
         tradeVelocityPerMin: marketValue('tradeVelocityPerMin'),
         uniqueBuyerCount: marketValue('uniqueBuyerCount'),
-        sniperWalletCount: marketValue('sniperWalletCount')
+        sniperWalletCount,
+        sniperWalletCountCaptured: typeof sniperWalletCountCaptured === 'boolean'
+          ? sniperWalletCountCaptured
+          : null
       },
       familySelected: {
         firstCurveSnapshotScalp: selectedFamily === 'FIRST_CURVE_SNAPSHOT_SCALP',
@@ -4290,16 +4367,23 @@ class TradingEngine {
   }
 
   decisionShadowMarket(state = {}) {
+    const finite = (value) => {
+      if (value === null || value === undefined || value === '') return null;
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : null;
+    };
     return {
-      score: Number.isFinite(Number(state.score)) ? Number(state.score) : null,
+      score: finite(state.score),
       curveProgress: this.extractProviderCurveProgressForParity(state),
       priceSol: this.extractProviderPriceForParity(state),
-      recentBuys: Number.isFinite(Number(state.recentBuys)) ? Number(state.recentBuys) : null,
-      recentSells: Number.isFinite(Number(state.recentSells)) ? Number(state.recentSells) : null,
-      recentTradeCount: Number.isFinite(Number(state.recentTradeCount)) ? Number(state.recentTradeCount) : null,
-      recentVolumeSol: Number.isFinite(Number(state.recentVolumeSol)) ? Number(state.recentVolumeSol) : null,
-      tradeVelocityPerMin: Number.isFinite(Number(state.tradeVelocityPerMin)) ? Number(state.tradeVelocityPerMin) : null,
-      uniqueBuyerCount: Number.isFinite(Number(state.uniqueBuyerCount)) ? Number(state.uniqueBuyerCount) : null
+      recentBuys: finite(state.recentBuys),
+      recentSells: finite(state.recentSells),
+      recentTradeCount: finite(state.recentTradeCount),
+      recentVolumeSol: finite(state.recentVolumeSol),
+      tradeVelocityPerMin: finite(state.tradeVelocityPerMin),
+      uniqueBuyerCount: finite(state.uniqueBuyerCount),
+      sniperWalletCount: finite(state.sniperWalletCount),
+      sniperWalletCountCaptured: state.sniperWalletCountCaptured === true
     };
   }
 
@@ -7743,7 +7827,8 @@ class TradingEngine {
       telemetry: this.telemetry.getSummary(),
       eventLoopMonitor: {
         ...this.eventLoopMonitorStats,
-        gcPauses: this.gcPauseSummary()
+        gcPauses: this.gcPauseSummary(),
+        workSampler: this.eventLoopWorkSampler?.summary?.() || null
       },
       eventFlow: this.eventFlow.getSummary(),
       strategyLedger: this.strategyLedger.getSummary(),

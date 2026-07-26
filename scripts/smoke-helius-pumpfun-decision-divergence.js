@@ -47,7 +47,34 @@ const guardInputs = comparatorHarness.decisionShadowGuardFamilyInputs(
 );
 assert.strictEqual(guardInputs.curveRegimeBucket, '75_TO_90');
 assert.strictEqual(guardInputs.market.score, 88);
+assert.strictEqual(guardInputs.market.scoreCaptured, true);
 assert.strictEqual(guardInputs.market.recentVolumeSol, 12.5);
+assert.strictEqual(guardInputs.market.sniperWalletCount, 2);
+assert.strictEqual(guardInputs.market.sniperWalletCountCaptured, null);
+comparatorHarness.extractProviderCurveProgressForParity = (state) => state.curveProgress ?? null;
+comparatorHarness.extractProviderPriceForParity = (state) => state.priceSol ?? null;
+assert.deepStrictEqual(
+  comparatorHarness.decisionShadowMarket({
+    score: 0,
+    curveProgress: 0.5,
+    priceSol: 0.000001,
+    sniperWalletCount: 0,
+    sniperWalletCountCaptured: false
+  }),
+  {
+    score: 0,
+    curveProgress: 0.5,
+    priceSol: 0.000001,
+    recentBuys: null,
+    recentSells: null,
+    recentTradeCount: null,
+    recentVolumeSol: null,
+    tradeVelocityPerMin: null,
+    uniqueBuyerCount: null,
+    sniperWalletCount: 0,
+    sniperWalletCountCaptured: false
+  }
+);
 
 const engineSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'trading-engine.js'), 'utf8');
 const evaluationEmitterStart = engineSource.indexOf(
@@ -98,7 +125,9 @@ const events = [{
       eventQueueMaxSize: preregistration.burstControl.eventQueueMaxSize,
       eventQueueBatchSize: preregistration.burstControl.eventQueueBatchSize,
       gateDecisionComparator: preregistration.gateDecisionComparator.name,
-      executedActionComparator: preregistration.executedActionComparator.name
+      executedActionComparator: preregistration.executedActionComparator.name,
+      decisionShadowMarketInputSemantics:
+        preregistration.gateDecisionComparator.marketInputTelemetrySemantics
     }
   }
 }];
@@ -128,8 +157,26 @@ for (let index = 0; index < 500; index += 1) {
       actualGuardOverrideEligibilityState: 'NO_OVERRIDE_FAMILY_SELECTED',
       shadowGuardOverrideEligibilityState: 'NO_OVERRIDE_FAMILY_SELECTED',
       guardOverridePathAgreement: true,
-      actualGuardFamilyInputs: { selectedFamily: null, curveRegimeBucket: '50_TO_75' },
-      shadowGuardFamilyInputs: { selectedFamily: null, curveRegimeBucket: '50_TO_75' },
+      actualGuardFamilyInputs: {
+        selectedFamily: null,
+        curveRegimeBucket: '50_TO_75',
+        market: {
+          score: 80,
+          scoreCaptured: true,
+          sniperWalletCount: 0,
+          sniperWalletCountCaptured: false
+        }
+      },
+      shadowGuardFamilyInputs: {
+        selectedFamily: null,
+        curveRegimeBucket: '50_TO_75',
+        market: {
+          score: 80,
+          scoreCaptured: true,
+          sniperWalletCount: 0,
+          sniperWalletCountCaptured: false
+        }
+      },
       shadowAccountEnriched: true,
       accountVerifierSubscribed: true,
       accountVerifierHasUpdate: true,
@@ -223,6 +270,8 @@ assert.strictEqual(report.agreement.gateActionAgreementRate, 1);
 assert.strictEqual(report.agreement.executedActionAgreementRate, 1);
 assert.strictEqual(report.agreement.walletFeatureAgreementRate, 1);
 assert.strictEqual(report.checks.correctPaidTapeBudget, true);
+assert.strictEqual(report.checks.correctMarketInputSemantics, true);
+assert.strictEqual(report.checks.comparableMarketInputsComplete, true);
 assert.strictEqual(report.checks.correctAccountVerifierTtl, true);
 assert.strictEqual(report.checks.correctAccountVerifierSelectionTrigger, true);
 assert.strictEqual(report.checks.correctWalletEvidenceWindow, true);

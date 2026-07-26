@@ -144,10 +144,44 @@ function buildEpisodes(run) {
   return [...byMint.values()].map((episode) => ({ ...episode, pnlSol: round(episode.pnlSol) }));
 }
 
+function summarizeEpisodes(episodes = []) {
+  const realized = episodes.filter((episode) => number(episode.exits, 0) > 0);
+  const pnlValues = realized.map((episode) => number(episode.pnlSol, 0));
+  const winners = [...pnlValues].filter((value) => value > 0).sort((left, right) => right - left);
+  const totalPnlSol = pnlValues.reduce((sum, value) => sum + value, 0);
+  const pnlAfterRemovingTop3WinnersSol = totalPnlSol
+    - winners.slice(0, 3).reduce((sum, value) => sum + value, 0);
+  return {
+    realizedEpisodes: realized.length,
+    totalPnlSol: round(totalPnlSol),
+    medianEpisodePnlSol: round(median(pnlValues)),
+    pnlAfterRemovingTop3WinnersSol: round(pnlAfterRemovingTop3WinnersSol),
+    concentrationDependent: totalPnlSol > 0 && pnlAfterRemovingTop3WinnersSol <= 0
+  };
+}
+
 function validateRun(prereg, telemetryPath, run, coverage) {
   const plan = run.started?.payload?.pumpPortalPaidTapePlan || {};
   const stats = run.stopping?.payload?.stats || {};
-  const curveErrors = number(stats.pumpBondingCurveLane?.errors, null);
+  const curveStats = stats.pumpBondingCurveLane || {};
+  const curveErrors = number(curveStats.errors, null);
+  const activeCurveErrors = number(curveStats.activePhaseErrors, null);
+  const stoppingCurveErrors = number(curveStats.stoppingPhaseErrors, null);
+  const stoppedCurveErrors = number(curveStats.stoppedPhaseErrors, null);
+  const shutdownCancelledCurveErrors = number(curveStats.shutdownCancelledErrors, null);
+  const phaseAwareCurveErrorAccounting = [
+    curveErrors,
+    activeCurveErrors,
+    stoppingCurveErrors,
+    stoppedCurveErrors,
+    shutdownCancelledCurveErrors
+  ].every(Number.isFinite)
+    && activeCurveErrors + stoppingCurveErrors + stoppedCurveErrors === curveErrors;
+  const shutdownPhaseCurveErrors = phaseAwareCurveErrorAccounting
+    ? stoppingCurveErrors + stoppedCurveErrors
+    : null;
+  const shutdownPhaseErrorsClassified = phaseAwareCurveErrorAccounting
+    && shutdownCancelledCurveErrors === shutdownPhaseCurveErrors;
   const rpcFailures = number(stats.solanaRpc?.stats?.primaryFailures, 0) + number(stats.solanaRpc?.stats?.fallbackFailures, 0);
   const expected = prereg.subscriptionPlan;
   const requested = prereg.validRunDefinition;
@@ -166,7 +200,14 @@ function validateRun(prereg, telemetryPath, run, coverage) {
     targetedPrefilterCadence: number(plan.targetedPrefilterCadenceMs) === expected.belowBandRpcRecheckCadenceMs,
     bondingCurveRuntimeRpcEnabled: plan.bondingCurveRuntimeRpcEnabled === expected.bondingCurveRuntimeRpcRequired,
     fullPaidTapeMinutes: number(coverage.fullPaidTapeMinutes, 0) >= requested.minimumFullPaidTapeMinutes,
-    runtimeRpcCurveErrors: curveErrors === 0,
+    phaseAwareCurveErrorAccounting: requested.phaseAwareCurveErrorAccountingRequired === true
+      && phaseAwareCurveErrorAccounting,
+    activeRuntimeRpcCurveErrors: requested.activePhaseRuntimeRpcCurveErrorsMustBeZero === true
+      && phaseAwareCurveErrorAccounting
+      && activeCurveErrors === 0,
+    shutdownRuntimeRpcCurveErrorsClassified:
+      requested.shutdownPhaseErrorsMustBeClassifiedAsCancelled === true
+      && shutdownPhaseErrorsClassified,
     completedLifecycle: run.stopping?.payload?.reason === 'SESSION_DURATION_EXCEEDED'
   };
   const failedChecks = Object.entries(checks).filter(([, passed]) => !passed).map(([key]) => key);
@@ -188,6 +229,13 @@ function validateRun(prereg, telemetryPath, run, coverage) {
       coverageEndedAt: coverage.coverageEndedAt,
       targetedTradeSubscriptionRejections: coverage.targetedTradeSubscriptionRejections,
       runtimeRpcCurveErrors: curveErrors,
+      activeRuntimeRpcCurveErrors: activeCurveErrors,
+      stoppingRuntimeRpcCurveErrors: stoppingCurveErrors,
+      stoppedRuntimeRpcCurveErrors: stoppedCurveErrors,
+      shutdownCancelledCurveErrors,
+      shutdownPhaseCurveErrors,
+      shutdownPhaseErrorsClassified,
+      curveErrorSessionPhaseCounts: curveStats.errorSessionPhaseCounts || {},
       rpcTransportFailures: rpcFailures
     }
   };
@@ -261,6 +309,7 @@ function summarizeLedger(rows, prereg) {
     positiveRunCount: positiveRuns >= 3,
     runConcentration: largestPositiveRunShare !== null && largestPositiveRunShare <= 0.6
   };
+  const concentrationDependent = totalPnlSol > 0 && pnlAfterRemovingTop3WinnersSol <= 0;
   let verdict = 'COLLECTING_RUNTIME_EVIDENCE';
   if (economicReady) verdict = Object.values(requirements).every(Boolean)
     ? 'RUNTIME_CHECKPOINT_PASSED_PAPER_ONLY'
@@ -281,6 +330,7 @@ function summarizeLedger(rows, prereg) {
     totalPnlSol: round(totalPnlSol),
     medianEpisodePnlSol: round(median(pnlValues)),
     pnlAfterRemovingTop3WinnersSol: round(pnlAfterRemovingTop3WinnersSol),
+    concentrationDependent,
     positiveRuns,
     largestPositiveRunShare: round(largestPositiveRunShare, 6),
     economicCheckpointReady: economicReady,
@@ -296,6 +346,7 @@ function main() {
   const coverage = scanTelemetryCoverage(telemetryPath);
   const validation = validateRun(prereg, telemetryPath, run, coverage);
   const episodes = buildEpisodes(run);
+  const currentRunEconomics = summarizeEpisodes(episodes);
   const runRow = {
     preregistrationId: prereg.id,
     telemetryPath: relative(telemetryPath),
@@ -317,7 +368,7 @@ function main() {
     },
     coverageDiagnostics: run.coverageDiagnostics,
     episodes,
-    pnlSol: round(episodes.reduce((sum, episode) => sum + number(episode.pnlSol, 0), 0))
+    pnlSol: currentRunEconomics.totalPnlSol
   };
   let ledgerRows = readLedger();
   let appended = false;
@@ -344,6 +395,7 @@ function main() {
       comparatorCoverage: runRow.comparatorCoverage,
       coverageDiagnostics: run.coverageDiagnostics,
       episodes,
+      economics: currentRunEconomics,
       ledgerAppended: appended,
       coverageAnnotationAppended
     },
@@ -365,5 +417,6 @@ module.exports = {
   buildEpisodes,
   validateRun,
   summarizeLedger,
+  summarizeEpisodes,
   appendCoverageAnnotation
 };

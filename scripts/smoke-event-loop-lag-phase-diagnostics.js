@@ -34,6 +34,24 @@ const rows = [
           bondingCurveQueued: 3,
           bondingCurvePending: 2
         },
+        workWindow: {
+          semantics: 'bounded_recent_sync_work_buckets_overlapping_timer_deadline_window',
+          startAt: '2026-07-25T12:00:00.000Z',
+          endAt: '2026-07-25T12:00:01.000Z',
+          durationMs: 1000,
+          bucketMs: 100,
+          bucketsObserved: 10,
+          topPhases: [
+            {
+              phase: 'telemetry.json_serialize',
+              count: 100,
+              totalDurationMs: 80,
+              maxDurationMs: 4,
+              totalBytes: 12000,
+              samples: []
+            }
+          ]
+        },
         activeHandleTypes: { Socket: 7, ChildProcess: 2 }
       }
     }
@@ -69,6 +87,22 @@ const rows = [
             maxDurationMs: 55,
             over50Ms: 1,
             byKind: { MAJOR: 1, MINOR: 4 }
+          },
+          workSampler: {
+            bucketMs: 100,
+            retainedBuckets: 300,
+            samples: 1000,
+            totalDurationMs: 500,
+            maxDurationMs: 12,
+            byPhase: {
+              'telemetry.json_serialize': {
+                count: 1000,
+                totalDurationMs: 500,
+                meanDurationMs: 0.5,
+                maxDurationMs: 4,
+                totalBytes: 120000
+              }
+            }
           }
         },
         solanaRpc: {
@@ -105,8 +139,12 @@ try {
   assert.strictEqual(report.summary.runtimePhaseDiagnostics.gcPauses.maxDurationMs, 55);
   assert.strictEqual(report.summary.runtimePhaseDiagnostics.rpcChildTransport.maxSpawnSyncMs, 12.2);
   assert.strictEqual(report.summary.stallContextCoverage.captured, 1);
+  assert.strictEqual(report.summary.stallContextCoverage.workWindowCaptured, 1);
   assert.strictEqual(report.summary.stallContextCoverage.lagRowsWithActiveRpcChild, 1);
   assert.strictEqual(report.summary.topLagEvents[0].rpc.pendingRequests, 4);
+  assert.strictEqual(report.summary.topLagEvents[0].workWindow.topPhases[0].phase, 'telemetry.json_serialize');
+  assert.strictEqual(report.summary.topStallWindowPhases[0].totalDurationMs, 80);
+  assert.strictEqual(report.summary.runtimePhaseDiagnostics.workSampler.samples, 1000);
 } finally {
   fs.rmSync(telemetryPath, { force: true });
 }
