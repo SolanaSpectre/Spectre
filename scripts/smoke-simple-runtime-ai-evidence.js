@@ -32,6 +32,17 @@ const evidenceReport = require('./simple-runtime-ai-evidence-report');
 const AIAgent = require('../src/ai-agent');
 const TradingEngine = require('../src/trading-engine');
 
+const pausedQwenTrial = runtimePatch.trialEvidenceDisposition(
+  'qwen2.5:7b-instruct',
+  'simple_runtime_guard_v2'
+);
+if (
+  pausedQwenTrial.trialEvidenceEligible !== false ||
+  pausedQwenTrial.trialEvidenceDisposition !== 'PAUSED_IDENTICAL_RESPONSE_DEGENERACY'
+) {
+  throw new Error('Qwen V2 trial pause disposition is not frozen.');
+}
+
 const incompleteEnter = runtimePatch.normalizeSimpleReview({ action: 'ENTER' });
 if (incompleteEnter.action !== 'WATCH' || incompleteEnter.approved !== false) {
   throw new Error('Incomplete ENTER response did not degrade to WATCH.');
@@ -142,6 +153,9 @@ async function main() {
   if (!started?.payload?.packet || !started.payload.packetHash) throw new Error('Started telemetry omitted packet evidence.');
   if (!started.payload.promptVersion || !started.payload.promptHash || !started.payload.schemaVersion) {
     throw new Error('Started telemetry omitted prompt/schema provenance.');
+  }
+  if (started.payload.trialEvidenceEligible !== true) {
+    throw new Error('Non-Qwen fixture was incorrectly excluded from trial evidence.');
   }
   if (!completed?.payload?.rawResponseHash || !completed.payload.normalizedReview) {
     throw new Error('Completed telemetry omitted response/normalization evidence.');

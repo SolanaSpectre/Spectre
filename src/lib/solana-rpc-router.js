@@ -541,6 +541,7 @@ class SolanaRpcRouter {
   async executeCall(methodName, args = [], meta = {}) {
     const targets = this.getPreferredTargets();
     const failures = [];
+    const failureDiagnostics = [];
     const callId = `${Date.now()}-${++this.callSequence}`;
     const callSummary = this.summarizeCallArgs(methodName, args);
 
@@ -600,6 +601,10 @@ class SolanaRpcRouter {
       } catch (error) {
         const latencyMs = Date.now() - targetStartedAt;
         failures.push(`${target.label}:${error?.message || String(error || 'unknown error')}`);
+        failureDiagnostics.push({
+          target: target.label,
+          errorClass: this.classifyFailure(error)
+        });
         this.stats.callTelemetryFailed += 1;
         this.emitTelemetry('solana_rpc.call_failed', {
           ...baseTelemetry,
@@ -623,7 +628,11 @@ class SolanaRpcRouter {
       }
     }
 
-    throw new Error(`Solana RPC ${methodName} failed across all configured endpoints: ${failures.join(' | ')}`);
+    const terminalError = new Error(`Solana RPC ${methodName} failed across all configured endpoints: ${failures.join(' | ')}`);
+    terminalError.name = 'SolanaRpcRouteError';
+    terminalError.rpcMethod = methodName;
+    terminalError.rpcFailureClasses = failureDiagnostics;
+    throw terminalError;
   }
 
   executeTargetMethod(target, methodName, args = []) {

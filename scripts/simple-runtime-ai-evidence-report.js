@@ -99,6 +99,9 @@ function collectTelemetryEvidence() {
           promptVersion: payload.promptVersion || null,
           promptHash: payload.promptHash || null,
           schemaVersion: payload.schemaVersion || null,
+          trialEvidenceEligible: payload.trialEvidenceEligible !== false,
+          trialEvidenceDisposition: payload.trialEvidenceDisposition || null,
+          trialEvidencePauseReason: payload.trialEvidencePauseReason || null,
           packetHash: payload.packetHash || null,
           packet: payload.packet || null,
           guardOutcome: payload.guardOutcome || null,
@@ -276,14 +279,18 @@ function buildReport() {
   const positiveConfidenceRows = telemetryRows.filter((row) => num(row.confidence, 0) > 0);
   const uniqueTokens = new Set(telemetryRows.map((row) => row.token).filter(Boolean));
   const filesWithTelemetryEvidence = new Set(telemetryRows.map((row) => row.telemetryPath));
-  const qwenTrialAttempts = attempts.filter((row) => (
+  const qwenAllV2Attempts = attempts.filter((row) => (
     row.model === 'qwen2.5:7b-instruct' &&
-    row.promptVersion === 'simple_runtime_guard_v2' &&
+    row.promptVersion === 'simple_runtime_guard_v2'
+  ));
+  const qwenTrialAttempts = qwenAllV2Attempts.filter((row) => (
+    row.trialEvidenceEligible !== false &&
     (!row.guardOutcome || row.guardOutcome === 'acquired')
   ));
-  const qwenTrialRequests = attempts.filter((row) => (
-    row.model === 'qwen2.5:7b-instruct' && row.promptVersion === 'simple_runtime_guard_v2'
+  const qwenTrialRequests = qwenAllV2Attempts.filter((row) => (
+    row.trialEvidenceEligible !== false
   ));
+  const qwenDiagnosticOnlyRequests = qwenAllV2Attempts.filter((row) => row.trialEvidenceEligible === false);
   const qwenTrialBusy = qwenTrialRequests.filter((row) => row.guardOutcome === 'busy_rejected');
   const qwenTrialDedup = qwenTrialRequests.filter((row) => row.guardOutcome === 'deduped_joined');
   const qwenTrialCompleted = qwenTrialAttempts.filter((row) => row.outcome === 'completed');
@@ -309,13 +316,7 @@ function buildReport() {
     qwenTrialCompleted.length >= 50 &&
     qwenTrialRuns.size >= 2 &&
     qwenTrialPacketCoverage === 1;
-  const qwenTrialVerdict = qwenAbortReasons.length
-    ? 'ABORT_QWEN_PAPER_TRIAL'
-    : qwenTrialEvidenceComplete
-      ? qwenTrialBurstCensored
-        ? 'QWEN_PAPER_TRIAL_BURST_CENSORED'
-        : 'QWEN_PAPER_EVIDENCE_CHECKPOINT_REACHED'
-      : 'COLLECT_QWEN_PAPER_EVIDENCE';
+  const qwenTrialVerdict = 'PAUSED_IDENTICAL_RESPONSE_DEGENERACY';
 
   return {
     generatedAt: new Date().toISOString(),
@@ -367,6 +368,10 @@ function buildReport() {
       preregisteredBeforeRuntimeEvidence: true,
       model: 'qwen2.5:7b-instruct',
       promptVersion: 'simple_runtime_guard_v2',
+      evidenceCollectionPaused: true,
+      pauseReason: 'IDENTICAL_RESPONSE_ACROSS_DISTINCT_PACKETS',
+      diagnosticOnlyRequestsAfterPause: qwenDiagnosticOnlyRequests.length,
+      pausedRowsCannotAdvanceCheckpoint: true,
       minimumCompletedReviews: 50,
       minimumPaperRuns: 2,
       schemaVersionCounts: countBy(qwenTrialAttempts, (row) => row.schemaVersion || 'unknown'),
@@ -389,6 +394,13 @@ function buildReport() {
       responseDiversity: qwenResponseDiversity,
       abortReasons: qwenAbortReasons,
       verdict: qwenTrialVerdict,
+      priorRuleVerdictIfNotPaused: qwenAbortReasons.length
+        ? 'ABORT_QWEN_PAPER_TRIAL'
+        : qwenTrialEvidenceComplete
+          ? qwenTrialBurstCensored
+            ? 'QWEN_PAPER_TRIAL_BURST_CENSORED'
+            : 'QWEN_PAPER_EVIDENCE_CHECKPOINT_REACHED'
+          : 'COLLECT_QWEN_PAPER_EVIDENCE',
       scope: 'Main signal lane only. Pre-migration V4 and runner-watch evidence lanes bypass reviewTrade.',
       liveUse: 'BLOCKED'
     },

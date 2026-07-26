@@ -1,46 +1,38 @@
 {
   "schemaVersion": 1,
-  "id": "runner_watch_full_coverage_v3_2026-07-25",
-  "preregisteredAt": "2026-07-25T08:24:04.7934134-05:00",
-  "status": "CLOSED_ZERO_VALID_RUNS",
-  "closedAt": "2026-07-25T18:27:33.8859476-05:00",
-  "checkpointDisposition": {
-    "verdict": "INVALID_RUN_AND_CLOSE_PREREGISTRATION",
-    "validRuns": 0,
-    "excludedRuns": 1,
-    "evidenceReuseAllowed": false,
-    "sourceTelemetry": "run-logs/telemetry-2026-07-25T15-13-17-399Z.jsonl",
-    "failedChecks": [
-      "fullPaidTapeMinutes",
-      "runtimeRpcCurveErrors"
-    ],
-    "observedFullPaidTapeMinutes": 54.88,
-    "observedRuntimeRpcCurveErrors": 1,
-    "reason": "The first post-registration session missed the frozen paid-coverage duration and recorded a runtime bonding-curve RPC error. The 15 observed episodes remain discarded context and do not count as V3 evidence."
-  },
+  "id": "runner_watch_full_coverage_v4_2026-07-25",
+  "preregisteredAt": "2026-07-25T18:27:33.8859476-05:00",
+  "status": "PREREGISTERED_BEFORE_FIRST_VALID_RUN",
   "mode": "paper_only",
   "liveBehaviorChanged": false,
   "question": "Under full paid-tape coverage, does PRE_MIGRATION_RUNNER_WATCH produce at least one independent mint episode per covered hour, and do its realizable runtime outcomes remain durable rather than top-heavy?",
   "supersedes": {
-    "id": "runner_watch_full_coverage_v2_2026-07-20",
-    "disposition": "CLOSED_BUDGET_CHANGED_AFTER_COVERAGE_SHORTFALL",
+    "id": "runner_watch_full_coverage_v3_2026-07-25",
+    "disposition": "CLOSED_ZERO_VALID_RUNS_AFTER_COVERAGE_AND_RPC_FAILURE",
     "acceptedEvidenceReuseAllowed": false,
-    "v2LedgerRuns": 5,
-    "v2ValidRuns": 3,
-    "v2RealizedUniqueMintEpisodes": 22,
-    "v2EvidenceTreatment": "Preserve as historical context only. V2 explicitly required any budget change to start a new pre-registration, so no V2 row counts toward V3.",
-    "sourceTelemetry": "run-logs/telemetry-2026-07-24T12-56-00-508Z.jsonl",
+    "v3LedgerRuns": 1,
+    "v3ValidRuns": 0,
+    "v3RealizedUniqueMintEpisodes": 0,
+    "v3EvidenceTreatment": "The 15 observed episodes are discarded context. They failed both the paid-coverage duration and zero-runtime-curve-error requirements and cannot count toward V4.",
+    "sourceTelemetry": "run-logs/telemetry-2026-07-25T15-13-17-399Z.jsonl",
     "latestRunResults": {
       "valid": false,
-      "failedCheck": "fullPaidTapeMinutes",
-      "meteredTradeEvents": 72000,
-      "fullPaidTapeMinutes": 53.43,
-      "minimumRequiredFullPaidTapeMinutes": 55
+      "failedChecks": [
+        "fullPaidTapeMinutes",
+        "runtimeRpcCurveErrors"
+      ],
+      "meteredTradeEvents": 82007,
+      "fullPaidTapeMinutes": 54.88,
+      "minimumRequiredFullPaidTapeMinutes": 55,
+      "runtimeRpcCurveErrors": 1
     },
     "budgetSelection": {
-      "observedEventRatePerMinute": 1348.0941319209967,
-      "projectedCoverageMinutesAt82000": 60.82661296296296,
-      "selectionRule": "Raise only the paid-tape event budget enough to cover the frozen 60-minute run at the latest measured demand rate; retain all strategy gates, exits, episode identity, and economic bars."
+      "observedEventRatePerMinute": 1494.297,
+      "projectedEventsAt60Minutes": 89658,
+      "selectedBudgetEvents": 92000,
+      "projectedCoverageMinutesAtSelectedBudget": 61.567,
+      "projectedHeadroomRate": 0.0261,
+      "selectionRule": "Use the latest measured paid-event rate, round the 60-minute demand upward, and retain about 2.5 percent event headroom without changing strategy gates, exits, episode identity, or economic bars."
     }
   },
   "subscriptionPlan": {
@@ -51,10 +43,11 @@
     ],
     "minCurveProgressInclusive": 0.25,
     "maxCurveProgressExclusive": 0.9,
-    "paidEventBudgetPerSession": 82000,
-    "estimatedMaximumChargeSol": 0.08,
-    "requiredStartingBalanceSol": 0.105,
+    "paidEventBudgetPerSession": 92000,
+    "estimatedMaximumChargeSol": 0.09,
+    "requiredStartingBalanceSol": 0.115,
     "billingRule": "PumpPortal charges 0.01 SOL for each completed 10000-event block; the 2000-event remainder adds no projected block charge.",
+    "budgetHeadroomRule": "Selected event budget must cover 60 minutes at the latest measured paid-event rate with at least 2.5 percent event headroom.",
     "tokenTradeSubscriptionTtlMs": 1800000,
     "belowBandRpcRecheckMaxAgeMs": 180000,
     "belowBandRpcRecheckCadenceMs": 15000,
@@ -71,7 +64,7 @@
   "episodeIdentity": "telemetry_run|mint; same-mint reentries within a run count as one episode",
   "throughputCheckpoint": {
     "minimumUniqueMintEpisodesPerFullCoverageHour": 1,
-    "gradeOn": "cumulative valid V3 full-coverage runtime sessions"
+    "gradeOn": "cumulative valid V4 full-coverage runtime sessions"
   },
   "economicCheckpoint": {
     "minimumUniqueMintEpisodes": 20,
@@ -94,7 +87,7 @@
     "No live broadcast enablement from this experiment.",
     "No entry-gate or exit-rule changes while evidence is collecting.",
     "No grading on MFE, maximum excursion, or duplicate same-mint reentries.",
-    "V1 and V2 rows cannot count as V3 evidence.",
+    "V1 through V3 rows cannot count as V4 evidence.",
     "Any later change to curve floor, budget, entry logic, or exit logic starts a new pre-registration."
   ]
 }

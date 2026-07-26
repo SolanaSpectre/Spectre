@@ -79,6 +79,7 @@ function analyzeTelemetry(filePath) {
   let malformedLines = 0;
   let startMs = Infinity;
   let endMs = -Infinity;
+  let sessionRuntimeStats = null;
 
   const parseStats = forEachJsonlSync(filePath, (event) => {
     const type = event.type || event.event || 'unknown';
@@ -89,6 +90,9 @@ function analyzeTelemetry(filePath) {
     startMs = Math.min(startMs, atMs);
     endMs = Math.max(endMs, atMs);
     increment(eventCounts, type);
+    if (type === 'session.stopping' || type === 'session.stopped') {
+      sessionRuntimeStats = payload.stats || sessionRuntimeStats;
+    }
 
     const minuteMs = minuteBucket(atMs);
     if (!minuteBuckets.has(minuteMs)) {
@@ -159,6 +163,9 @@ function analyzeTelemetry(filePath) {
     ? lagMinutes.filter((minute) => minute.events >= p90MinuteEvents).length
     : 0;
   const totalEvents = allMinutes.reduce((sum, minute) => sum + minute.events, 0);
+  const heliusQueue = sessionRuntimeStats?.heliusPumpfunShadow || {};
+  const curveQueue = sessionRuntimeStats?.pumpBondingCurveLane?.engineQueueDrain || {};
+  const gcPauses = sessionRuntimeStats?.eventLoopMonitor?.gcPauses || {};
 
   let diagnosis = 'NO_LAG_EVENTS';
   if (lagRows.length > 0) {
@@ -221,6 +228,33 @@ function analyzeTelemetry(filePath) {
         lagEventsPer1000TelemetryEvents: totalEvents
           ? numberOrNull((lagRows.length / totalEvents) * 1000, 4)
           : null
+      },
+      runtimePhaseDiagnostics: {
+        available: Boolean(sessionRuntimeStats),
+        heliusQueueDrain: {
+          calls: heliusQueue.eventQueueDrainCalls ?? null,
+          items: heliusQueue.eventQueueDrainItems ?? null,
+          meanDurationMs: numberOrNull(heliusQueue.eventQueueDrainMeanMs, 6),
+          maxDurationMs: numberOrNull(heliusQueue.eventQueueDrainMaxMs, 6),
+          over50Ms: heliusQueue.eventQueueDrainOver50Ms ?? null,
+          maxQueueLatencyMs: numberOrNull(heliusQueue.eventQueueLatencyMaxMs, 6)
+        },
+        pumpBondingCurveQueueDrain: {
+          calls: curveQueue.calls ?? null,
+          scanned: curveQueue.scanned ?? null,
+          started: curveQueue.started ?? null,
+          meanDurationMs: numberOrNull(curveQueue.meanDurationMs, 6),
+          maxDurationMs: numberOrNull(curveQueue.maxDurationMs, 6),
+          over50Ms: curveQueue.over50Ms ?? null
+        },
+        gcPauses: {
+          samples: gcPauses.samples ?? null,
+          meanDurationMs: numberOrNull(gcPauses.meanDurationMs, 6),
+          maxDurationMs: numberOrNull(gcPauses.maxDurationMs, 6),
+          over50Ms: gcPauses.over50Ms ?? null,
+          byKind: gcPauses.byKind || {}
+        },
+        note: 'Phase-level timers avoid adding high-resolution timing work to every telemetry event.'
       }
     },
     interpretation
@@ -244,4 +278,6 @@ function main() {
   console.log(`Diagnosis: ${report.summary.diagnosis}; lag events=${report.summary.lagEvents}; 15s cadence share=${report.summary.fifteenSecondCadenceShare}`);
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { analyzeTelemetry };

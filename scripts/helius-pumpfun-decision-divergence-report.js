@@ -3,17 +3,37 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { forEachJsonlSync } = require('./lib/jsonl');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
-const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v6.json');
+const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v8.json');
 const PARITY_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity-latest.json');
 const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence');
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence-latest.json');
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
+}
+
+function loadPreregistration(filePath = PREREG_PATH) {
+  const extension = readJson(filePath);
+  if (!extension.extends) return extension;
+  const basePath = path.resolve(ROOT, extension.extends);
+  const baseBytes = fs.readFileSync(basePath);
+  const actualHash = crypto.createHash('sha256').update(baseBytes).digest('hex');
+  if (actualHash !== extension.basePreregistrationSha256) {
+    throw new Error(`Helius decision preregistration base hash mismatch: ${extension.extends}`);
+  }
+  return {
+    ...readJson(basePath),
+    ...extension,
+    basePreregistration: {
+      path: extension.extends,
+      sha256: actualHash
+    }
+  };
 }
 
 function latestTelemetryPath() {
@@ -44,6 +64,252 @@ function stats(values = []) {
     p90: quantile(0.9),
     max: sorted[sorted.length - 1],
     mean: sorted.reduce((sum, value) => sum + value, 0) / sorted.length
+  };
+}
+
+function ageBucket(value) {
+  const ageMs = Number(value);
+  if (!Number.isFinite(ageMs)) return 'MISSING';
+  if (ageMs <= 1000) return 'LTE_1000_MS';
+  if (ageMs <= 2000) return 'GT_1000_TO_2000_MS';
+  if (ageMs <= 5000) return 'GT_2000_TO_5000_MS';
+  if (ageMs <= 15000) return 'GT_5000_TO_15000_MS';
+  return 'GT_15000_MS';
+}
+
+function strictAgeBucket(value) {
+  const ageMs = Number(value);
+  if (!Number.isFinite(ageMs)) return 'MISSING';
+  if (ageMs <= 100) return 'LTE_100_MS';
+  if (ageMs <= 500) return 'GT_100_TO_500_MS';
+  if (ageMs <= 1000) return 'GT_500_TO_1000_MS';
+  return 'GT_1000_MS';
+}
+
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (!value || typeof value !== 'object') return value ?? null;
+  return Object.fromEntries(
+    Object.keys(value).sort().map((key) => [key, stableValue(value[key])])
+  );
+}
+
+function fieldDiff(actual, shadow, prefix = '') {
+  const left = actual && typeof actual === 'object' ? actual : {};
+  const right = shadow && typeof shadow === 'object' ? shadow : {};
+  const keys = [...new Set([...Object.keys(left), ...Object.keys(right)])].sort();
+  const rows = [];
+  for (const key of keys) {
+    const jsonPath = prefix ? `${prefix}.${key}` : key;
+    const actualValue = left[key];
+    const shadowValue = right[key];
+    const bothObjects = actualValue && shadowValue
+      && typeof actualValue === 'object' && typeof shadowValue === 'object'
+      && !Array.isArray(actualValue) && !Array.isArray(shadowValue);
+    if (bothObjects) {
+      rows.push(...fieldDiff(actualValue, shadowValue, jsonPath));
+      continue;
+    }
+    if (JSON.stringify(stableValue(actualValue)) !== JSON.stringify(stableValue(shadowValue))) {
+      rows.push({
+        jsonPath,
+        actual: actualValue ?? null,
+        shadow: shadowValue ?? null
+      });
+    }
+  }
+  return rows;
+}
+
+function agreementByStateAge(rows = []) {
+  return Object.entries(
+    rows.reduce((groups, row) => {
+      const bucket = strictAgeBucket(row.bestAvailableStateAgeMs ?? row.shadowStateAgeMs);
+      if (!groups[bucket]) groups[bucket] = [];
+      groups[bucket].push(row);
+      return groups;
+    }, {})
+  ).map(([bucket, group]) => {
+    const comparable = group.filter((row) => row.comparable === true);
+    return {
+      bucket,
+      evaluations: group.length,
+      comparable: comparable.length,
+      actionMatches: comparable.filter((row) => row.actionAgreement === true).length,
+      actionAgreementRate: ratio(
+        comparable.filter((row) => row.actionAgreement === true).length,
+        comparable.length
+      ),
+      stateSources: countBy(group, (row) => row.bestAvailableStateSource || row.shadowCurveStateSource)
+    };
+  });
+}
+
+function offlineComparabilityByBound(rows = [], bounds = [1000, 2000, 3000]) {
+  return bounds.map((boundMs) => {
+    const available = rows.filter((row) => {
+      const ageMs = Number(row.bestAvailableStateAgeMs ?? row.shadowStateAgeMs);
+      return Number.isFinite(ageMs) && ageMs <= boundMs;
+    }).length;
+    return {
+      boundMs,
+      evaluations: rows.length,
+      stateAvailableWithinBound: available,
+      coverageRate: ratio(available, rows.length),
+      note: 'Availability-only diagnostic; actions are not retroactively rescored outside the frozen 1000 ms comparator.'
+    };
+  });
+}
+
+function buildEntryMismatchAttribution(evaluations = [], executed = [], preregistration = {}) {
+  const evaluationByPair = new Map(
+    evaluations.filter((row) => row.pairedDecisionKey)
+      .map((row) => [row.pairedDecisionKey, row])
+  );
+  const mismatches = executed.filter((row) => (
+    row.action === 'ENTRY'
+    && row.comparable === true
+    && row.actionAgreement !== true
+  )).map((row) => {
+    const evaluation = evaluationByPair.get(row.pairedDecisionKey) || null;
+    const guardInputDiff = evaluation
+      ? fieldDiff(evaluation.actualGuardFamilyInputs, evaluation.shadowGuardFamilyInputs)
+      : [];
+    let cause = 'UNATTRIBUTED';
+    if (!evaluation) cause = 'MISSING_PAIRED_EVALUATION';
+    else if (evaluation.actualEvaluatedPreset !== evaluation.shadowEvaluatedPreset) {
+      cause = 'EVALUATED_PRESET_MISMATCH';
+    } else if (row.actualPresetFamily !== row.shadowPresetFamily) cause = 'PRESET_FAMILY_MISMATCH';
+    else if (
+      evaluation.actualGuardOverrideEligibilityState
+      !== evaluation.shadowGuardOverrideEligibilityState
+    ) cause = 'GUARD_ELIGIBILITY_MISMATCH';
+    else if (evaluation.guardOverrideAllowListAgreement === false) cause = 'GUARD_ALLOW_LIST_MISMATCH';
+    else if (evaluation.walletComparison?.featureAgreement === false) cause = 'WALLET_CONTEXT_MISMATCH';
+    else if (guardInputDiff.length > 0) cause = 'MARKET_OR_GUARD_INPUT_MISMATCH';
+    const allowed = preregistration.entryMismatchAttribution?.allowedAttributedCauses || [];
+    return {
+      pairedDecisionKey: row.pairedDecisionKey || null,
+      mint: row.mint || evaluation?.mint || null,
+      preset: row.preset || evaluation?.preset || null,
+      stateAgeMs: row.bestAvailableStateAgeMs ?? row.shadowStateAgeMs ?? null,
+      stateSource: row.bestAvailableStateSource || row.shadowCurveStateSource || null,
+      actualReason: row.actualReason || evaluation?.actualReason || null,
+      shadowReason: row.shadowReason || evaluation?.shadowReason || null,
+      positionContextPolicy: row.positionContextPolicy || null,
+      independentShadowPositionStateAvailable: row.independentShadowPositionStateAvailable === true,
+      cause,
+      attributed: allowed.includes(cause),
+      guardInputDiff
+    };
+  });
+  const comparableExecutedEntries = executed.filter(
+    (row) => row.action === 'ENTRY' && row.comparable === true
+  ).length;
+  const minimumMismatchesRequired = Math.max(
+    1,
+    Number(preregistration.entryMismatchAttribution?.minimumMismatches || 1)
+  );
+  return {
+    executedEntries: executed.filter((row) => row.action === 'ENTRY').length,
+    comparableExecutedEntries,
+    mismatches: mismatches.length,
+    minimumMismatchesRequired,
+    attributedMismatches: mismatches.filter((row) => row.attributed).length,
+    unattributedMismatches: mismatches.filter((row) => !row.attributed).length,
+    allMismatchesAttributed: mismatches.length >= minimumMismatchesRequired
+      && mismatches.every((row) => row.attributed),
+    rows: mismatches
+  };
+}
+
+function countBy(rows, keyFn) {
+  return rows.reduce((counts, row) => {
+    const key = keyFn(row) || 'UNKNOWN';
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
+}
+
+function buildEntryConfusionMatrix(rows = []) {
+  const comparable = rows.filter((row) => (
+    row.comparable === true
+    && ['WOULD_ENTER', 'WOULD_SKIP'].includes(row.actualAction)
+    && ['WOULD_ENTER', 'WOULD_SKIP'].includes(row.shadowAction)
+  ));
+  const truePositive = comparable.filter(
+    (row) => row.actualAction === 'WOULD_ENTER' && row.shadowAction === 'WOULD_ENTER'
+  ).length;
+  const falsePositive = comparable.filter(
+    (row) => row.actualAction === 'WOULD_SKIP' && row.shadowAction === 'WOULD_ENTER'
+  ).length;
+  const falseNegative = comparable.filter(
+    (row) => row.actualAction === 'WOULD_ENTER' && row.shadowAction === 'WOULD_SKIP'
+  ).length;
+  const trueNegative = comparable.filter(
+    (row) => row.actualAction === 'WOULD_SKIP' && row.shadowAction === 'WOULD_SKIP'
+  ).length;
+  return {
+    population: comparable.length,
+    actualEnterShadowEnter: truePositive,
+    actualSkipShadowEnter: falsePositive,
+    actualEnterShadowSkip: falseNegative,
+    actualSkipShadowSkip: trueNegative,
+    shadowEntryPrecision: ratio(truePositive, truePositive + falsePositive),
+    shadowEntryRecall: ratio(truePositive, truePositive + falseNegative),
+    shadowSkipSpecificity: ratio(trueNegative, trueNegative + falsePositive),
+    note: 'PumpPortal actual action is the report-only reference label; this matrix is not evidence for execution.'
+  };
+}
+
+function buildExecutedPnlAttribution(rows = [], validRun = false) {
+  const sorted = rows.slice().sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
+  const pendingEntries = new Map();
+  const joined = [];
+  for (const row of sorted) {
+    const key = row.positionKey || `${row.preset || 'unknown'}:${row.mint || 'unknown'}`;
+    if (row.action === 'ENTRY') {
+      const queue = pendingEntries.get(key) || [];
+      queue.push(row);
+      pendingEntries.set(key, queue);
+      continue;
+    }
+    if (row.action !== 'EXIT') continue;
+    const queue = pendingEntries.get(key) || [];
+    const entry = queue.shift();
+    if (queue.length) pendingEntries.set(key, queue);
+    else pendingEntries.delete(key);
+    if (!entry || !Number.isFinite(Number(row.actualPnlSol))) continue;
+    joined.push({
+      positionKey: key,
+      mint: row.mint || entry.mint || null,
+      preset: row.preset || entry.preset || null,
+      shadowEntryAction: entry.shadowAction || null,
+      entryComparable: entry.comparable === true,
+      actualPnlSol: Number(row.actualPnlSol)
+    });
+  }
+  const eligible = joined.filter((row) => row.entryComparable);
+  const shadowEnter = eligible.filter((row) => row.shadowEntryAction === 'ENTRY');
+  const shadowSkip = eligible.filter((row) => row.shadowEntryAction === 'NO_ENTRY');
+  const summarize = (group) => ({
+    positions: group.length,
+    actualPnlSol: validRun
+      ? group.reduce((sum, row) => sum + row.actualPnlSol, 0)
+      : null
+  });
+  return {
+    available: validRun,
+    validRunRequired: true,
+    evidenceLabel: 'NOT_EVIDENCE_FOR_EXECUTION',
+    unavailableReason: validRun ? null : 'RUN_INVALID_FOR_PNL_ATTRIBUTION',
+    joinedActualPositions: joined.length,
+    comparableJoinedActualPositions: eligible.length,
+    shadowWouldEnter: summarize(shadowEnter),
+    shadowWouldSkip: summarize(shadowSkip),
+    note: validRun
+      ? 'Actual paper PnL is grouped by the shadow entry decision for diagnostic attribution only.'
+      : 'PnL values are withheld because the run failed frozen validity checks.'
   };
 }
 
@@ -136,7 +402,13 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
   const exitActions = comparableExecuted.filter((row) => row.action === 'EXIT');
   const entryActionMatches = entryActions.filter((row) => row.actionAgreement === true);
   const exitActionMatches = exitActions.filter((row) => row.actionAgreement === true);
+  const entryMismatchAttribution = buildEntryMismatchAttribution(
+    evaluations,
+    executed,
+    preregistration
+  );
   const sourceMatches = !sourceTelemetry || parity.sourceTelemetry === sourceTelemetry;
+  const unavailableEvaluations = evaluations.filter((row) => row.comparable !== true);
   const plan = state.sessionStarted?.payload?.heliusPumpfunShadowPlan || {};
   const paidTapePlan = state.sessionStarted?.payload?.pumpPortalPaidTapePlan || {};
   const heliusQueueStats = state.sessionStopped?.payload?.stats?.heliusPumpfunShadow || {};
@@ -232,7 +504,17 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       && Number(row.shadowStateAgeMs) <= preregistration.maximumShadowStateAgeMs
     )),
     executedActionAgreement: ratio(executedMatches.length, comparableExecuted.length)
-      === preregistration.executedActionAgreementRequired
+      === preregistration.executedActionAgreementRequired,
+    minimumComparableExecutedEntriesForAttribution:
+      entryMismatchAttribution.comparableExecutedEntries
+        >= Number(
+          preregistration.entryMismatchAttribution?.minimumComparableExecutedEntries
+          ?? preregistration.minimumExecutedEntries
+        ),
+    minimumEntryMismatchesForAttribution:
+      entryMismatchAttribution.mismatches
+        >= Number(preregistration.entryMismatchAttribution?.minimumMismatches || 1),
+    everyExecutedEntryMismatchAttributed: entryMismatchAttribution.allMismatchesAttributed
   };
   const validityChecks = [
     'postRegistration',
@@ -266,25 +548,54 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     'cleanHeliusLifecycle'
   ];
   const validityPassed = validityChecks.every((key) => checks[key]);
-  const evidenceReady = checks.minimumComparableGateEvaluations
-    && checks.minimumExecutedEntries
-    && checks.minimumExecutedExits;
+  const attributionExperiment = preregistration.evaluationMode === 'entry_mismatch_attribution';
+  const evidenceReady = attributionExperiment
+    ? checks.minimumComparableExecutedEntriesForAttribution
+      && checks.minimumExecutedExits
+      && checks.minimumEntryMismatchesForAttribution
+    : checks.minimumComparableGateEvaluations
+      && checks.minimumExecutedEntries
+      && checks.minimumExecutedExits;
   let verdict = preregistration.invalidVerdict;
   if (validityPassed) {
     verdict = !evidenceReady
       ? preregistration.insufficientVerdict
-      : (Object.values(checks).every(Boolean) ? preregistration.passVerdict : preregistration.failVerdict);
+      : (
+        attributionExperiment
+          ? (checks.everyExecutedEntryMismatchAttributed
+            ? preregistration.passVerdict
+            : preregistration.failVerdict)
+          : (Object.values(checks).every(Boolean)
+            ? preregistration.passVerdict
+            : preregistration.failVerdict)
+      );
   }
   const divergenceByReason = divergences.reduce((counts, row) => {
     const key = `${row.actualReason || 'NONE'} -> ${row.shadowReason || 'NONE'}`;
     counts[key] = (counts[key] || 0) + 1;
     return counts;
   }, {});
+  const entryConfusionMatrix = buildEntryConfusionMatrix(comparable);
+  const unavailableStateAges = unavailableEvaluations.map(
+    (row) => row.bestAvailableStateAgeMs ?? row.shadowStateAgeMs
+  );
+  const unavailableStateAgeDiagnostics = {
+    agesMs: stats(unavailableStateAges),
+    histogram: countBy(unavailableEvaluations, (row) => (
+      ageBucket(row.bestAvailableStateAgeMs ?? row.shadowStateAgeMs)
+    )),
+    sources: countBy(unavailableEvaluations, (row) => (
+      row.bestAvailableStateSource || row.shadowCurveStateSource || 'UNKNOWN'
+    )),
+    byReason: countBy(unavailableEvaluations, (row) => row.unavailableReason || 'UNKNOWN')
+  };
+  const executedPnlAttribution = buildExecutedPnlAttribution(executed, validityPassed);
   return {
     generatedAt: new Date().toISOString(),
     sourceTelemetry,
     preregistration,
     verdict,
+    validRun: validityPassed,
     checks,
     counts: {
       evaluations: evaluations.length,
@@ -336,12 +647,21 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       comparableExecutedActionCoverageRate: ratio(comparableExecuted.length, executed.length),
       shadowStateAgeMs: stats(comparable.map((row) => row.shadowStateAgeMs))
     },
+    entryConfusionMatrix,
+    entryMismatchAttribution,
+    agreementByStateAge: agreementByStateAge(evaluations),
+    offlineComparabilityByBound: offlineComparabilityByBound(
+      evaluations,
+      preregistration.offlineComparabilityBoundsMs
+    ),
+    unavailableStateAgeDiagnostics,
+    executedPnlAttribution,
     stateSources: comparable.reduce((counts, row) => {
       const key = row.shadowCurveStateSource || 'unknown';
       counts[key] = (counts[key] || 0) + 1;
       return counts;
     }, {}),
-    unavailableReasons: evaluations.filter((row) => row.comparable !== true).reduce((counts, row) => {
+    unavailableReasons: unavailableEvaluations.reduce((counts, row) => {
       const key = row.unavailableReason || 'UNKNOWN';
       counts[key] = (counts[key] || 0) + 1;
       return counts;
@@ -401,7 +721,7 @@ function analyzeEvents(events, preregistration, parity, sourceTelemetry = 'synth
 
 function main() {
   const { telemetryPath } = parseCli();
-  const preregistration = readJson(PREREG_PATH);
+  const preregistration = loadPreregistration(PREREG_PATH);
   const parity = fs.existsSync(PARITY_PATH) ? readJson(PARITY_PATH) : {};
   const state = createState();
   let malformedLines = 0;
@@ -424,4 +744,16 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { analyzeEvents, buildReport, collect, collectEvent, createState, stats };
+module.exports = {
+  agreementByStateAge,
+  analyzeEvents,
+  buildEntryMismatchAttribution,
+  buildReport,
+  collect,
+  collectEvent,
+  createState,
+  fieldDiff,
+  loadPreregistration,
+  offlineComparabilityByBound,
+  stats
+};

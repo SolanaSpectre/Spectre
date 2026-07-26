@@ -1,0 +1,67 @@
+{
+  "id": "helius_pumpfun_decision_divergence_v8_2026-07-26",
+  "extends": "data/strategy-preregistrations/helius-decision-divergence-v7.json",
+  "basePreregistrationSha256": "ab856615188c781cd71bb61c587d8dec0b56d9fab3ecdd2be54842e1fb0e6a85",
+  "frozenAt": "2026-07-26T08:05:27.0202293-05:00",
+  "amendedBeforeFirstEligibleRunAt": "2026-07-26T08:49:42.5379035-05:00",
+  "preRunAmendment": {
+    "reason": "Final read-only delta review found that an empty mismatch set could pass vacuously and that independent shadow position occupancy was not modelled.",
+    "changes": [
+      "Require at least one comparable executed entry and one executed-entry mismatch before attribution can pass.",
+      "Treat zero mismatches as insufficient evidence, never a pass.",
+      "Remove POSITION_OCCUPANCY_MISMATCH from allowed causes; actual pre-observation position context is held constant and is not an independently measured shadow state."
+    ],
+    "eligibleRunsBeforeAmendment": 0
+  },
+  "mode": "paper_only_report_only_executed_entry_mismatch_attribution",
+  "evaluationMode": "entry_mismatch_attribution",
+  "question": "Can every executed-entry mismatch between the unchanged PumpPortal runtime lane and the report-only Helius shadow be attributed to a recorded position, preset-family, guard-eligibility, wallet-context, market-input, or state-age/source difference?",
+  "stateAgeAgreementBucketsMs": [
+    100,
+    500,
+    1000
+  ],
+  "offlineComparabilityBoundsMs": [
+    1000,
+    2000,
+    3000
+  ],
+  "entryMismatchAttribution": {
+    "passRule": "At least one comparable executed ENTRY and at least one executed-entry mismatch must be observed. Every mismatch must then have one deterministic attributed cause. Zero mismatches are insufficient evidence; MISSING_PAIRED_EVALUATION and UNATTRIBUTED are failures.",
+    "minimumComparableExecutedEntries": 1,
+    "minimumMismatches": 1,
+    "allowedAttributedCauses": [
+      "EVALUATED_PRESET_MISMATCH",
+      "PRESET_FAMILY_MISMATCH",
+      "GUARD_ELIGIBILITY_MISMATCH",
+      "GUARD_ALLOW_LIST_MISMATCH",
+      "WALLET_CONTEXT_MISMATCH",
+      "MARKET_OR_GUARD_INPUT_MISMATCH"
+    ],
+    "strategyConsumptionAllowed": false,
+    "freshnessThresholdChangeAllowed": false,
+    "postHocMismatchRelabelingAllowed": false,
+    "positionStatePolicy": "Use the actual pre-observation position context as a held-constant control. No independent shadow position occupancy is modelled, so position occupancy cannot be an attributed provider mismatch."
+  },
+  "supersedes": {
+    "id": "helius_pumpfun_decision_divergence_v7_2026-07-25",
+    "disposition": "VALID_RUN_FAILED_COMPARATOR_DIAGNOSTIC",
+    "evidenceReuseAllowed": false,
+    "sourceTelemetry": "run-logs/telemetry-2026-07-26T00-30-11-887Z.jsonl",
+    "observedResults": {
+      "comparableEvaluationCoverageRate": 0.542,
+      "gateActionAgreementRate": 0.996957,
+      "executedEntryMatches": 0,
+      "executedEntries": 6,
+      "executedExitMatches": 7,
+      "executedExits": 8
+    },
+    "methodologyFinding": "Entry mismatches clustered at lane-state transitions, while broad gate agreement remained high. V8 freezes mismatch attribution rather than optimizing the agreement threshold."
+  },
+  "passVerdict": "HELIUS_DECISION_SHADOW_V8_ENTRY_MISMATCHES_ATTRIBUTED_REPORT_ONLY",
+  "failVerdict": "HELIUS_DECISION_SHADOW_V8_UNATTRIBUTED_ENTRY_MISMATCH",
+  "insufficientVerdict": "HELIUS_DECISION_SHADOW_V8_INSUFFICIENT_ATTRIBUTION_EVIDENCE",
+  "invalidVerdict": "HELIUS_DECISION_SHADOW_V8_INVALID_RUN",
+  "nextIfPass": "Keep Helius report-only and repeat the attribution result on another valid full-coverage run before proposing any procurement change.",
+  "nextIfFail": "Fix only the missing comparator instrumentation identified by the unattributed rows. Do not change strategy, freshness bounds, gates, or provider routing."
+}

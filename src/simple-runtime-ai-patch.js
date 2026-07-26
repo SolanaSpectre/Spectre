@@ -10,6 +10,18 @@ const RUNTIME_NUM_PREDICT = Number(process.env.SIMPLE_RUNTIME_AI_NUM_PREDICT || 
 const RUNTIME_CONFIDENCE_ENTER_MIN = Number(process.env.SIMPLE_RUNTIME_AI_ENTER_CONFIDENCE_MIN || 60);
 const PROMPT_VERSION = 'simple_runtime_guard_v2';
 const SCHEMA_VERSION = 'simple_runtime_review_v2';
+const QWEN_V2_TRIAL_PAUSE_REASON = 'IDENTICAL_RESPONSE_ACROSS_DISTINCT_PACKETS';
+
+function trialEvidenceDisposition(model = RUNTIME_MODEL, promptVersion = PROMPT_VERSION) {
+  const paused = model === 'qwen2.5:7b-instruct' && promptVersion === 'simple_runtime_guard_v2';
+  return {
+    trialEvidenceEligible: !paused,
+    trialEvidenceDisposition: paused
+      ? 'PAUSED_IDENTICAL_RESPONSE_DEGENERACY'
+      : 'ELIGIBLE_FOR_CURRENT_MODEL_PROMPT_TRIAL',
+    trialEvidencePauseReason: paused ? QWEN_V2_TRIAL_PAUSE_REASON : null
+  };
+}
 
 function mergeNodeOptions() {
   const preloadArg = '--require ./src/simple-runtime-ai-patch.js';
@@ -433,6 +445,7 @@ function patchAIAgent(AIAgent) {
         promptVersion: PROMPT_VERSION,
         promptHash: sha256Text(simpleSystemPrompt()),
         schemaVersion: SCHEMA_VERSION,
+        ...trialEvidenceDisposition(RUNTIME_MODEL, PROMPT_VERSION),
         packetHash,
         packet,
         timeoutMs: RUNTIME_TIMEOUT_MS,
@@ -612,5 +625,6 @@ module.exports = {
   buildSimplePacket,
   normalizeSimpleReview,
   walletFlowScore,
-  sha256Text
+  sha256Text,
+  trialEvidenceDisposition
 };

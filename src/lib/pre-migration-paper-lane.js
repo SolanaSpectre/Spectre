@@ -4138,6 +4138,7 @@ class PreMigrationPaperLane {
       preset: position.presetName,
       lane: position.lane || null,
       profileName: position.profileName || null,
+      positionKey: position.positionKey || this.positionKey(position.presetName, position.mint),
       mint: position.mint,
       symbol: position.symbol || null,
       entryAt: position.entryAt,

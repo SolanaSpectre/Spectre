@@ -1,19 +1,6 @@
 {
-  "id": "helius_pumpfun_decision_divergence_v6_2026-07-25",
-  "frozenAt": "2026-07-25T08:24:04.7934134-05:00",
-  "status": "CLOSED_ZERO_VALID_RUNS",
-  "closedAt": "2026-07-25T18:27:33.8859476-05:00",
-  "checkpointDisposition": {
-    "verdict": "INVALID_RUN_AND_CLOSE_PREREGISTRATION",
-    "validRuns": 0,
-    "evidenceReuseAllowed": false,
-    "sourceTelemetry": "run-logs/telemetry-2026-07-25T15-13-17-399Z.jsonl",
-    "failedChecks": [
-      "paidTapeCoverageDuration"
-    ],
-    "observedBudgetReachedAfterMinutes": 54.88,
-    "reason": "The first post-registration session missed the frozen paid-tape coverage duration. Comparator and PnL observations remain discarded context and cannot count toward V6 or V7."
-  },
+  "id": "helius_pumpfun_decision_divergence_v7_2026-07-25",
+  "frozenAt": "2026-07-25T18:27:33.8859476-05:00",
   "mode": "paper_only_report_only_prewarmed_gate_coupled_counterfactual",
   "question": "With report-only account verification prewarmed before likely decisions, would the unchanged paper lane make the same gate choices from Helius state, and would an executed entry agree with the exact Helius gate result paired to that entry?",
   "oracle": "PumpPortal remains the sole runtime decision input; Helius, account verification, prewarming, and all comparisons remain report-only.",
@@ -28,9 +15,9 @@
   "minimumComparableExecutedActionCoverageRate": 0.9,
   "executedActionAgreementRequired": 1,
   "comparablePopulation": {
-    "definition": "All V6 paper decision evaluations with curve progress and price from either a finalist account snapshot or Helius trade state no older than 1000 ms at the decision instant.",
+    "definition": "All V7 paper decision evaluations with curve progress and price from either a finalist account snapshot or Helius trade state no older than 1000 ms at the decision instant.",
     "quietMintTreatment": "A fresh account snapshot makes curve/price comparable even when the aligned Helius trade window is empty; empty tape is represented as zero trades, not missing state.",
-    "staleTreatment": "State older than 1000 ms is non-comparable, never a mismatch.",
+    "staleTreatment": "State older than 1000 ms is non-comparable, never a mismatch. Best available age and source remain visible for diagnosis.",
     "prewarmTreatment": "Prewarming may improve availability but cannot change strategy state, thresholds, the 1000 ms freshness limit, or the comparable population.",
     "noPostHocFiltering": true
   },
@@ -70,10 +57,11 @@
   "executedActionComparator": {
     "name": "gate_coupled_entry_and_same_instant_exit_with_actual_lane_context",
     "entrySemantics": "An actual entry is paired to its exact PAPER_ELIGIBLE event and reuses that preset's already-recorded Helius gate counterfactual. Entry eligibility is never recomputed a second time after the gate comparison.",
-    "exitSemantics": "Exit comparison uses the actual pre-observation position, entry price, entry time, peak return, and exit profile with same-instant Helius price and curve state."
+    "exitSemantics": "Exit comparison uses the actual pre-observation position, entry price, entry time, peak return, and exit profile with same-instant Helius price and curve state.",
+    "pnlAttributionRule": "Actual paper PnL may be grouped by the paired shadow entry choice only when the full run passes frozen validity checks. It is always labeled NOT_EVIDENCE_FOR_EXECUTION."
   },
   "decisionComparabilityDiagnostics": {
-    "purpose": "Adjudicate PRESET_NOT_ELIGIBLE_FOR_GUARD_OVERRIDE mismatches without changing their classification or denominator.",
+    "purpose": "Adjudicate PRESET_NOT_ELIGIBLE_FOR_GUARD_OVERRIDE mismatches and stale-state coverage without changing classification or denominator.",
     "requiredFields": [
       "actualEvaluatedPreset",
       "shadowEvaluatedPreset",
@@ -81,6 +69,12 @@
       "actualAllowedPresetNames",
       "shadowAllowedPresetNames",
       "guardOverrideAllowListAgreement",
+      "actualGuardOverrideEligibilityState",
+      "shadowGuardOverrideEligibilityState",
+      "actualGuardFamilyInputs",
+      "shadowGuardFamilyInputs",
+      "bestAvailableStateAgeMs",
+      "bestAvailableStateSource",
       "shadowCurveProgressDelta",
       "shadowCurveProgressThreshold",
       "shadowCurveProgressThresholdMarginAbs",
@@ -88,9 +82,16 @@
       "shadowBaselineAt",
       "shadowBaselineSource"
     ],
+    "eligibilityStateValues": [
+      "ELIGIBLE",
+      "NOT_ELIGIBLE",
+      "NO_OVERRIDE_FAMILY_SELECTED"
+    ],
     "presetPolicy": "Hold the actual selected preset constant in the shadow evaluation; any evaluated-preset disagreement is instrumentation failure, not provider divergence.",
-    "allowListPolicy": "Record both allow-list snapshots. Do not relabel or remove a mismatch based on these diagnostics.",
-    "baselinePolicy": "Record the shadow delta, threshold, margin, and baseline provenance so cross-source baseline sensitivity can be measured.",
+    "allowListPolicy": "Record both allow-list snapshots and a tri-state eligibility value. Do not encode no selected override family as eligible.",
+    "familyInputPolicy": "Record curve-regime, first-curve-snapshot, crowding, and family-selection inputs on both sides so family divergence is attributable.",
+    "staleStatePolicy": "Every non-comparable row records the best available state age and source; the report emits an age histogram without relaxing freshness.",
+    "confusionMatrixPolicy": "Report the ENTER/SKIP 2x2 matrix and entry precision/recall separately from overall agreement.",
     "strategyConsumptionAllowed": false,
     "populationFilteringAllowed": false,
     "retroactiveRescoringAllowed": false
@@ -106,10 +107,11 @@
   },
   "paidTapePlan": {
     "tradeSubscriptionMode": "targeted_curve",
-    "maxMeteredTradeEventsPerSession": 82000,
-    "estimatedMaximumChargeSol": 0.08,
-    "requiredStartingBalanceSol": 0.105,
+    "maxMeteredTradeEventsPerSession": 92000,
+    "estimatedMaximumChargeSol": 0.09,
+    "requiredStartingBalanceSol": 0.115,
     "billingRule": "PumpPortal charges 0.01 SOL for each completed 10000-event block; the 2000-event remainder adds no projected block charge.",
+    "budgetHeadroomRule": "Use the latest measured 1494.297 paid events per minute and retain about 2.5 percent event headroom above the projected 60-minute demand.",
     "requestedRunMinutes": 60,
     "minimumPaidTapeMinutesIfBudgetReached": 55
   },
@@ -120,45 +122,59 @@
     "strategyConsumptionAllowed": false
   },
   "supersedes": {
-    "id": "helius_pumpfun_decision_divergence_v5_2026-07-23",
-    "disposition": "INVALID_RUN_AND_BUDGET_EXHAUSTED_BEFORE_MINIMUM_COVERAGE",
+    "id": "helius_pumpfun_decision_divergence_v6_2026-07-25",
+    "disposition": "INVALID_RUN_AND_CLOSED_ZERO_VALID_RUNS",
     "evidenceReuseAllowed": false,
-    "sourceTelemetry": "run-logs/telemetry-2026-07-24T12-56-00-508Z.jsonl",
+    "sourceTelemetry": "run-logs/telemetry-2026-07-25T15-13-17-399Z.jsonl",
+    "failedValidityChecks": [
+      "paidTapeCoverageDuration",
+      "runner-watch runtimeRpcCurveErrors"
+    ],
     "observedResults": {
-      "meteredTradeEvents": 72000,
-      "budgetReachedAfterMinutes": 53.40873333333333,
-      "comparableEvaluationCoverageRate": 0.488336584952074,
-      "gateActionAgreementRate": 0.9982629841931562,
-      "walletFeatureAgreementRate": 0.8638179607434427,
-      "trackedAddressAgreementRate": 0.9793295118985583,
-      "executedActionAgreementRate": 0.5625,
-      "executedEntryAgreementRate": 0.125,
-      "executedExitAgreementRate": 1
+      "meteredTradeEvents": 82007,
+      "budgetReachedAfterMinutes": 54.88,
+      "observedEventRatePerMinute": 1494.297,
+      "comparableEvaluationCoverageRate": 0.5202,
+      "gateActionAgreementRate": 0.9961,
+      "executedEntryAgreementRate": 0.0714,
+      "runtimeRpcCurveErrors": 1
     },
-    "budgetSelection": {
-      "observedEventRatePerMinute": 1348.0941319209967,
-      "projectedCoverageMinutesAt82000": 60.82661296296296,
-      "selectionRule": "Raise only the paid-tape event budget enough to cover the frozen 60-minute run at the latest measured demand rate, with no strategy or comparator threshold changes."
-    },
-    "implementationFindings": [
-      "Pump 6005 is now classified as BONDING_CURVE_COMPLETE and remains a blocked terminal timing race rather than an insufficient-funds failure.",
-      "The exact actual preset is held constant in the shadow gate evaluation, and both guard-override allow lists are emitted for adjudication.",
-      "Shadow curve-delta threshold, margin, and baseline provenance are emitted report-only.",
-      "The recent-event retention path is O(1); Helius queue receipt timestamps, drops, drain state, and latency remain explicit."
+    "methodologyFindings": [
+      "No selected override family was previously encoded as preset eligible by a vacuous boolean.",
+      "Overall agreement was dominated by SKIP/SKIP rows and lacked an explicit entry confusion matrix.",
+      "Non-comparable stale rows lacked a best-available age distribution.",
+      "Counterfactual PnL from an invalid run cannot be treated as protection evidence."
     ]
   },
-  "passVerdict": "HELIUS_DECISION_SHADOW_V6_PASSED_REPORT_ONLY",
-  "failVerdict": "HELIUS_DECISION_SHADOW_V6_FAILED",
-  "insufficientVerdict": "HELIUS_DECISION_SHADOW_V6_INSUFFICIENT_EVIDENCE",
-  "invalidVerdict": "HELIUS_DECISION_SHADOW_V6_INVALID_RUN",
+  "checkpointDisposition": {
+    "disposition": "VALID_RUN_FAILED_COMPARATOR_DIAGNOSTIC",
+    "recordedAt": "2026-07-26T08:05:27.0202293-05:00",
+    "sourceTelemetry": "run-logs/telemetry-2026-07-26T00-30-11-887Z.jsonl",
+    "verdict": "HELIUS_DECISION_SHADOW_V7_FAILED",
+    "failedChecks": [
+      "comparableEvaluationCoverage",
+      "walletFeatureAgreement",
+      "trackedAddressAgreement",
+      "comparableExecutedActionCoverage",
+      "executedActionAgreement"
+    ],
+    "executedEntryAgreement": "0/6",
+    "executedExitAgreement": "7/8",
+    "interpretation": "Broad gate agreement was high, but entry-time comparisons used incompletely attributed lane state. V7 is terminal and cannot be resurrected by later recomputation; V8 begins a fresh report-only attribution window."
+  },
+  "passVerdict": "HELIUS_DECISION_SHADOW_V7_PASSED_REPORT_ONLY",
+  "failVerdict": "HELIUS_DECISION_SHADOW_V7_FAILED",
+  "insufficientVerdict": "HELIUS_DECISION_SHADOW_V7_INSUFFICIENT_EVIDENCE",
+  "invalidVerdict": "HELIUS_DECISION_SHADOW_V7_INVALID_RUN",
   "prohibitions": [
-    "No Helius, account-verifier, prewarm, baseline-diagnostic, or allow-list state may feed runtime strategy decisions.",
+    "No Helius, account-verifier, prewarm, baseline-diagnostic, family-input, or allow-list state may feed runtime strategy decisions.",
     "No live enablement, procurement switch, gate loosening, or exit tuning may follow from this experiment alone.",
-    "V1 through V5 rows cannot count toward V6 evidence.",
+    "V1 through V6 rows cannot count toward V7 evidence.",
     "No post-hoc population filtering, freshness relaxation, wallet-feature exclusion, mismatch relabeling, or comparator threshold change is allowed.",
     "Queue drops invalidate the run rather than shrinking the denominator.",
+    "PnL attribution is withheld on invalid runs and remains NOT_EVIDENCE_FOR_EXECUTION on valid runs.",
     "Pump 6005 classification must not trigger retry, re-selection, rerouting, or broadcast."
   ],
-  "nextIfPass": "Repeat V6 report-only parity on another eligible full-coverage session before proposing any procurement change.",
-  "nextIfFail": "Use baseline provenance, preset and allow-list agreement, wallet components, paired entry semantics, and queue telemetry to identify the remaining source without changing strategy."
+  "nextIfPass": "Repeat V7 report-only parity on another eligible full-coverage session before proposing any procurement change.",
+  "nextIfFail": "Use tri-state eligibility, family inputs, stale-age histograms, the entry confusion matrix, wallet components, paired entry semantics, and queue telemetry to identify the remaining source without changing strategy."
 }

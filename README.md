@@ -340,13 +340,31 @@ After any paper run, summarize the newest telemetry and candidate dossier pair:
 npm run report:run
 ```
 
-The full automatic report bundle can be regenerated manually with:
+The automatic lifecycle runs the decisive report tier. It covers current-run
+coverage, trades, runner evidence, Helius parity/divergence, event-loop lag,
+live readiness, the strategy scorecard, and the latest summary:
 
 ```bash
 npm run report:post-run
 ```
 
-The report covers runner-lane signals/rejections, AI timeout fallback decisions, pre-migration paper entries/exits, top watch-lane candidates, and post-migration continuation verdicts. To inspect a specific run:
+Historical replays and exploratory diagnostics are kept out of the foreground
+path. Run them manually when needed:
+
+```bash
+npm run report:post-run:deep
+npm run report:post-run:terminal
+npm run report:post-run:all
+```
+
+Each tier writes a per-report execution ledger under
+`data/reports/post-run-ledgers/`, including duration, exit code, artifact
+freshness, and the exact telemetry input. Decisive reports fail closed on stale
+or missing artifacts; deep and terminal tiers finish with warnings.
+Profile counts refer to report-plan entries; the continuation terminal tier
+intentionally reruns the battlefield script under a distinct ledger title.
+
+To inspect a specific run:
 
 ```bash
 npm run report:run -- --telemetry run-logs/telemetry-YYYY-MM-DDTHH-MM-SS-msZ.jsonl --dossier run-logs/candidate-dossiers-YYYY-MM-DDTHH-MM-SS-msZ.jsonl

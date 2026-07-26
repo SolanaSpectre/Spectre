@@ -58,6 +58,11 @@ class HeliusPumpfunShadowListener {
       eventQueueDepth: 0,
       eventQueueMaxDepth: 0,
       eventQueueDrainYields: 0,
+      eventQueueDrainCalls: 0,
+      eventQueueDrainItems: 0,
+      eventQueueDrainTotalMs: 0,
+      eventQueueDrainMaxMs: 0,
+      eventQueueDrainOver50Ms: 0,
       eventQueueHandlerErrors: 0,
       eventQueueLatencySamples: 0,
       eventQueueLatencyTotalMs: 0,
@@ -247,6 +252,7 @@ class HeliusPumpfunShadowListener {
 
   drainEventQueue() {
     if (this.eventQueueDraining) return;
+    const drainStartedAt = process.hrtime.bigint();
     this.eventQueueDraining = true;
     let processed = 0;
     while (processed < this.eventQueueBatchSize && this.eventQueueDepth() > 0) {
@@ -267,6 +273,12 @@ class HeliusPumpfunShadowListener {
       }
     }
     this.compactEventQueue();
+    const drainDurationMs = Number(process.hrtime.bigint() - drainStartedAt) / 1e6;
+    this.stats.eventQueueDrainCalls += 1;
+    this.stats.eventQueueDrainItems += processed;
+    this.stats.eventQueueDrainTotalMs += drainDurationMs;
+    this.stats.eventQueueDrainMaxMs = Math.max(this.stats.eventQueueDrainMaxMs, drainDurationMs);
+    if (drainDurationMs >= 50) this.stats.eventQueueDrainOver50Ms += 1;
     this.eventQueueDraining = false;
     this.syncEventQueueStats();
     if (this.eventQueueDepth() > 0) {
@@ -588,6 +600,9 @@ class HeliusPumpfunShadowListener {
       currentReconnectDelayMs: this.currentReconnectDelayMs,
       eventQueueLatencyMeanMs: this.stats.eventQueueLatencySamples > 0
         ? this.stats.eventQueueLatencyTotalMs / this.stats.eventQueueLatencySamples
+        : null,
+      eventQueueDrainMeanMs: this.stats.eventQueueDrainCalls > 0
+        ? this.stats.eventQueueDrainTotalMs / this.stats.eventQueueDrainCalls
         : null
     };
   }

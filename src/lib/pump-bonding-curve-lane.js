@@ -77,6 +77,11 @@ class PumpBondingCurveLane {
       lastGlobalBackoffErrorsInWindow: 0,
       lastGlobalBackoffWindowMs: null,
       errors: 0,
+      rpcBatchErrors: 0,
+      rpcSingleErrors: 0,
+      errorReasonCounts: {},
+      errorMethodCounts: {},
+      lastErrorDiagnostic: null,
       invalidBondingCurveAddresses: 0,
       completeMintsObserved: 0,
       lastCompleteMint: null,
@@ -312,17 +317,21 @@ class PumpBondingCurveLane {
         refreshed: true
       };
     } catch (error) {
+      const failedAt = Date.now();
+      const diagnostic = this.classifyFetchError(error);
       this.stats.errors += 1;
-      this.noteFailedFetch(now);
+      this.recordFetchError(diagnostic, failedAt);
+      this.noteFailedFetch(failedAt);
       const failed = this.mergeState(mint, tokenMeta, {
         bondingCurveAddress: this.safeDeriveBondingCurveAddress(mint),
-        lastErrorAt: now,
-        lastErrorAtIso: new Date(now).toISOString(),
-        lastErrorMessage: error.message
+        lastErrorAt: failedAt,
+        lastErrorAtIso: new Date(failedAt).toISOString(),
+        lastErrorMessage: diagnostic.reason,
+        lastErrorDiagnostic: diagnostic
       });
       this.logger?.warn?.('Pump bonding curve lookup failed', {
         mint,
-        error: error.message
+        ...diagnostic
       });
       return failed ? {
         ...this.toSummary(failed),
@@ -335,7 +344,16 @@ class PumpBondingCurveLane {
 
   fetchBondingCurveAccount(bondingCurveAddress) {
     if (!this.batchFetchEnabled || typeof this.connection.getMultipleAccountsInfo !== 'function') {
-      return this.connection.getAccountInfo(bondingCurveAddress, this.rpcCommitment);
+      return Promise.resolve()
+        .then(() => this.connection.getAccountInfo(bondingCurveAddress, this.rpcCommitment))
+        .catch((error) => {
+          this.stats.rpcSingleErrors += 1;
+          throw this.wrapRpcFailure(error, {
+            method: 'getAccountInfo',
+            batchSize: 1,
+            commitment: this.rpcCommitment
+          });
+        });
     }
 
     const key = bondingCurveAddress.toBase58();
@@ -405,9 +423,15 @@ class PumpBondingCurveLane {
         }
       });
     } catch (error) {
+      this.stats.rpcBatchErrors += 1;
+      const wrapped = this.wrapRpcFailure(error, {
+        method: 'getMultipleAccountsInfo',
+        batchSize: addresses.length,
+        commitment: this.rpcCommitment
+      });
       for (const [, entry] of entries) {
         for (const request of entry.requests) {
-          request.reject(error);
+          request.reject(wrapped);
         }
       }
     } finally {
@@ -526,6 +550,80 @@ class PumpBondingCurveLane {
     const message = String(error?.message || '');
     return message.startsWith('Bonding curve account too short:')
       || message.startsWith('Unexpected bonding curve discriminator:');
+  }
+
+  safeErrorType(error) {
+    const name = String(error?.name || '');
+    return new Set([
+      'AbortError',
+      'Error',
+      'FetchError',
+      'RangeError',
+      'TypeError'
+    ]).has(name) ? name : 'Error';
+  }
+
+  classifyRpcFailure(error) {
+    const upstreamClasses = Array.isArray(error?.rpcFailureClasses)
+      ? error.rpcFailureClasses.map((row) => row?.errorClass).filter(Boolean)
+      : [];
+    if (upstreamClasses.includes('rate_limit')) return 'RATE_LIMITED';
+    if (upstreamClasses.includes('timeout')) return 'TIMEOUT';
+    if (upstreamClasses.includes('network')) return 'NETWORK_TRANSPORT';
+    if (upstreamClasses.includes('server_error')) return 'RPC_SERVER_ERROR';
+    const code = String(error?.code || '');
+    const status = Number(error?.status || error?.response?.status || 0);
+    if (status === 429 || code === '429' || code === '-32005') return 'RATE_LIMITED';
+    if (['ABORT_ERR', 'ECONNABORTED', 'ETIMEDOUT'].includes(code) || error?.name === 'AbortError') {
+      return 'TIMEOUT';
+    }
+    if (['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EHOSTUNREACH'].includes(code)) {
+      return 'NETWORK_TRANSPORT';
+    }
+    if (status >= 500 || code === '-32603') return 'RPC_SERVER_ERROR';
+    return 'RPC_REQUEST_FAILED';
+  }
+
+  wrapRpcFailure(error, context = {}) {
+    const upstreamFailureClasses = Array.isArray(error?.rpcFailureClasses)
+      ? [...new Set(error.rpcFailureClasses.map((row) => row?.errorClass).filter((value) => (
+        ['timeout', 'rate_limit', 'server_error', 'network', 'rpc_error'].includes(value)
+      )))]
+      : [];
+    const wrapped = new Error('Pump bonding curve RPC request failed');
+    wrapped.name = 'PumpBondingCurveRpcError';
+    wrapped.pumpBondingCurveDiagnostic = {
+      reason: this.classifyRpcFailure(error),
+      errorType: this.safeErrorType(error),
+      method: context.method || 'unknown',
+      batchSize: Number.isFinite(Number(context.batchSize)) ? Number(context.batchSize) : null,
+      commitment: context.commitment || this.rpcCommitment,
+      upstreamFailureClasses
+    };
+    return wrapped;
+  }
+
+  classifyFetchError(error) {
+    const rpcDiagnostic = error?.pumpBondingCurveDiagnostic;
+    if (rpcDiagnostic) return { ...rpcDiagnostic };
+    return {
+      reason: 'LOCAL_CURVE_PROCESSING_ERROR',
+      errorType: this.safeErrorType(error),
+      method: 'local',
+      batchSize: null,
+      commitment: this.rpcCommitment
+    };
+  }
+
+  recordFetchError(diagnostic, atMs) {
+    const reason = diagnostic.reason || 'UNKNOWN';
+    const method = diagnostic.method || 'unknown';
+    this.stats.errorReasonCounts[reason] = (this.stats.errorReasonCounts[reason] || 0) + 1;
+    this.stats.errorMethodCounts[method] = (this.stats.errorMethodCounts[method] || 0) + 1;
+    this.stats.lastErrorDiagnostic = {
+      at: new Date(atMs).toISOString(),
+      ...diagnostic
+    };
   }
 
   validateBondingCurveAddressCandidate(address) {
@@ -715,6 +813,7 @@ class PumpBondingCurveLane {
       isMayhemMode: Boolean(state.isMayhemMode),
       lastErrorAt: state.lastErrorAtIso || null,
       lastErrorMessage: state.lastErrorMessage || null,
+      lastErrorDiagnostic: state.lastErrorDiagnostic || null,
       lastFetchStartedAt: state.lastFetchStartedAtIso || null,
       lastFetchAt: state.lastFetchAtIso || null,
       fetchLatencyMs: state.fetchLatencyMs ?? null

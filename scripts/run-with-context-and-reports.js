@@ -1,9 +1,19 @@
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+if (process.env.SPECTRE_SKIP_DOTENV !== 'true') {
+  require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+}
 
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { POST_RUN_REPORTS } = require('./post-run-report-plan');
+const {
+  normalizeReportProfile,
+  reportsForProfile
+} = require('./post-run-report-plan');
+const {
+  buildReportArgs,
+  inspectReportArtifact,
+  writeReportLedger
+} = require('./lib/post-run-report-ledger');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const NODE = process.execPath;
@@ -11,6 +21,7 @@ const DEFAULT_RICK_STATE_PATH = path.join(REPO_ROOT, 'data', 'rick-context', 'co
 const DEFAULT_RICK_CONTEXT_PATH = path.join(REPO_ROOT, 'data', 'rick-context', 'latest.json');
 const RUN_LOG_DIR = path.join(REPO_ROOT, 'run-logs');
 const REPORT_NODE_OPTIONS = String(process.env.POST_RUN_NODE_OPTIONS || '--max-old-space-size=8192').trim();
+const DEFAULT_REPORT_TIMEOUT_MS = Number(process.env.POST_RUN_REPORT_TIMEOUT_MS || 180000);
 const SKIPPED_POST_RUN_REPORTS = new Set(
   String(process.env.POST_RUN_SKIP_REPORTS || '')
     .split(',')
@@ -109,6 +120,7 @@ function parseLifecycleArgs(argv) {
     rickTargetChatName: String(process.env.RICK_COMMAND_TARGET_CHAT_NAME || 'weRvENum').trim(),
     forceRick: toBool(process.env.PRE_RUN_RICK_FORCE, false)
   };
+  options.reportProfile = normalizeReportProfile(process.env.POST_RUN_REPORT_PROFILE || 'decisive');
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -125,6 +137,12 @@ function parseLifecycleArgs(argv) {
 
     if (arg === '--forceRick') {
       options.forceRick = true;
+      continue;
+    }
+
+    if (arg === '--reportProfile') {
+      options.reportProfile = normalizeReportProfile(argv[index + 1]);
+      index += 1;
       continue;
     }
 
@@ -262,6 +280,18 @@ function buildPostRunReportEnv() {
     ? existing
     : `${existing} ${REPORT_NODE_OPTIONS}`.trim();
   return { ...process.env, NODE_OPTIONS: nodeOptions };
+}
+
+function buildPostRunReportOptions(report = {}) {
+  const configuredTimeoutMs = Number(report.timeoutMs);
+  return {
+    allowFailure: true,
+    timeoutMs: Number.isFinite(configuredTimeoutMs) && configuredTimeoutMs > 0
+      ? configuredTimeoutMs
+      : DEFAULT_REPORT_TIMEOUT_MS,
+    timeoutExitCode: 124,
+    env: buildPostRunReportEnv()
+  };
 }
 
 function getBotSessionTimeoutMs(botArgs) {
@@ -416,24 +446,102 @@ async function refreshRunContext(options) {
   await runNode('Wallet Battlefield Report', 'wallet-battlefield-report.js', [], { allowFailure: true });
 }
 
-async function generatePostRunReports(options) {
+async function generatePostRunReports(options, telemetryPath = null) {
   if (options.skipReports) {
     console.log('Skipping post-run reports (--skipReports).');
     return;
   }
+  if (!telemetryPath || !fs.existsSync(telemetryPath)) {
+    throw new Error(`Post-run telemetry file is unavailable: ${telemetryPath || 'none'}`);
+  }
 
-  printSection('Post-Run Reports');
-  for (const report of POST_RUN_REPORTS) {
+  const profile = normalizeReportProfile(options.reportProfile || 'decisive');
+  const reports = reportsForProfile(profile);
+  const startedAt = new Date().toISOString();
+  const ledger = {
+    schemaVersion: 1,
+    mode: 'post_run_report_execution_ledger',
+    profile,
+    telemetryPath: path.relative(REPO_ROOT, telemetryPath).replace(/\\/g, '/'),
+    startedAt,
+    finishedAt: null,
+    durationMs: null,
+    status: 'RUNNING',
+    currentReport: null,
+    reports: []
+  };
+  const persistLedger = () => writeReportLedger(REPO_ROOT, ledger);
+  persistLedger();
+
+  printSection(`Post-Run Reports: ${profile}`);
+  for (const report of reports) {
     if (SKIPPED_POST_RUN_REPORTS.has(report.script) || SKIPPED_POST_RUN_REPORTS.has(report.title)) {
       printSection(report.title);
       console.log(`[SKIP] ${report.script} skipped by POST_RUN_SKIP_REPORTS`);
+      ledger.reports.push({
+        title: report.title,
+        script: report.script,
+        tier: report.tier,
+        status: 'SKIPPED',
+        exitCode: null,
+        durationMs: 0
+      });
+      persistLedger();
       continue;
     }
-    await runNode(report.title, report.script, [], {
-      allowFailure: true,
-      env: buildPostRunReportEnv()
+    const reportStartedAtMs = Date.now();
+    ledger.currentReport = {
+      title: report.title,
+      script: report.script,
+      startedAt: new Date(reportStartedAtMs).toISOString()
+    };
+    persistLedger();
+    const exitCode = await runNode(
+      report.title,
+      report.script,
+      buildReportArgs(report, telemetryPath),
+      buildPostRunReportOptions(report)
+    );
+    const finishedAtMs = Date.now();
+    const artifact = inspectReportArtifact(
+      REPO_ROOT,
+      report,
+      telemetryPath,
+      reportStartedAtMs
+    );
+    const artifactPassed = ['CURRENT', 'NOT_DECLARED'].includes(artifact.status);
+    const passed = exitCode === 0 && artifactPassed;
+    ledger.reports.push({
+      title: report.title,
+      script: report.script,
+      tier: report.tier,
+      required: report.required === true,
+      status: exitCode === 124 ? 'TIMED_OUT' : passed ? 'PASSED' : 'FAILED',
+      exitCode,
+      startedAt: new Date(reportStartedAtMs).toISOString(),
+      finishedAt: new Date(finishedAtMs).toISOString(),
+      durationMs: finishedAtMs - reportStartedAtMs,
+      artifact
     });
+    ledger.currentReport = null;
+    persistLedger();
+    if (!passed && report.required === true) {
+      ledger.finishedAt = new Date().toISOString();
+      ledger.durationMs = Date.parse(ledger.finishedAt) - Date.parse(ledger.startedAt);
+      ledger.status = 'FAILED';
+      const ledgerFiles = persistLedger();
+      throw new Error(
+        `Required post-run report failed: ${report.title}. Ledger: ${ledgerFiles.latestPath}`
+      );
+    }
   }
+  ledger.finishedAt = new Date().toISOString();
+  ledger.durationMs = Date.parse(ledger.finishedAt) - Date.parse(ledger.startedAt);
+  ledger.status = ledger.reports.some((row) => row.status === 'FAILED' || row.status === 'TIMED_OUT')
+    ? 'COMPLETED_WITH_WARNINGS'
+    : 'PASSED';
+  const ledgerFiles = persistLedger();
+  console.log(`Post-run ${profile} ledger: ${ledgerFiles.latestPath}`);
 }
 
 process.on('SIGINT', () => {
@@ -474,7 +582,14 @@ async function main() {
   const telemetryAfterRun = latestTelemetrySignature();
   const freshTelemetryObserved = telemetryAfterRun && telemetryAfterRun !== telemetryBeforeRun;
   if (botExitCode === 0 || freshTelemetryObserved) {
-    await generatePostRunReports(options);
+    const telemetryPath = fs.readdirSync(RUN_LOG_DIR)
+      .filter((name) => name.startsWith('telemetry-') && name.endsWith('.jsonl'))
+      .map((name) => {
+        const fullPath = path.join(RUN_LOG_DIR, name);
+        return { fullPath, mtimeMs: fs.statSync(fullPath).mtimeMs };
+      })
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)[0]?.fullPath || null;
+    await generatePostRunReports(options, telemetryPath);
   } else {
     console.warn('[WARN] Skipping post-run reports because the bot exited before producing fresh telemetry.');
   }
@@ -486,7 +601,17 @@ async function main() {
   process.exit(botExitCode);
 }
 
-main().catch((error) => {
-  console.error(`[ERROR] Run lifecycle failed: ${error.message}`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(`[ERROR] Run lifecycle failed: ${error.message}`);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  buildPostRunReportOptions,
+  generatePostRunReports,
+  getBotSessionTimeoutMs,
+  main,
+  runProcess
+};

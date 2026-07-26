@@ -1,6 +1,7 @@
 const { LAMPORTS_PER_SOL, PublicKey } = require('@solana/web3.js');
 const fs = require('fs');
 const path = require('path');
+const { PerformanceObserver, constants: perfConstants } = require('perf_hooks');
 const MarketData = require('./market-data');
 const AIAgent = require('./ai-agent');
 const CapitalAllocation = require('./capital-allocation');
@@ -56,7 +57,7 @@ const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
   'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
 ]);
-const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v6_2026-07-25';
+const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v8_2026-07-26';
 const HELIUS_DECISION_SHADOW_MAX_STATE_AGE_MS = 1000;
 const HELIUS_DECISION_SHADOW_RECENT_TRADE_CAP = 201;
 
@@ -233,6 +234,22 @@ class TradingEngine {
       maxLagMs: 0,
       lastLagMs: 0,
       startedAt: null
+    };
+    this.gcObserver = null;
+    this.gcPauseStats = {
+      samples: 0,
+      totalDurationMs: 0,
+      maxDurationMs: 0,
+      over50Ms: 0,
+      byKind: {}
+    };
+    this.pumpBondingCurveQueueDrainStats = {
+      calls: 0,
+      scanned: 0,
+      started: 0,
+      totalDurationMs: 0,
+      maxDurationMs: 0,
+      over50Ms: 0
     };
     this.pumpDevPrimarySilenceTimer = null;
     this.pumpDevPrimarySilenceStartedAt = null;
@@ -480,8 +497,8 @@ class TradingEngine {
         executedActionComparator: 'gate_coupled_entry_and_same_instant_exit_with_actual_lane_context'
       },
       strategyPreregistration: {
-        id: 'runner_watch_full_coverage_v3_2026-07-25',
-        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v3.json'
+        id: 'runner_watch_full_coverage_v4_2026-07-25',
+        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v4.json'
       },
       replayConfigSnapshot,
       configHash: replayConfigSnapshot.configHash,
@@ -1186,6 +1203,7 @@ class TradingEngine {
       intervalMs,
       lagThresholdMs
     };
+    this.startGcPauseObserver();
     this.eventLoopMonitorExpectedAt = startedAt + intervalMs;
     this.eventLoopMonitorTimer = setInterval(() => {
       const now = Date.now();
@@ -1217,11 +1235,60 @@ class TradingEngine {
     }
     clearInterval(this.eventLoopMonitorTimer);
     this.eventLoopMonitorTimer = null;
+    this.stopGcPauseObserver();
     this.telemetry.record('runtime.event_loop_monitor_summary', {
       ...this.eventLoopMonitorStats,
+      gcPauses: this.gcPauseSummary(),
       reason,
       stoppedAt: new Date().toISOString()
     });
+  }
+
+  startGcPauseObserver() {
+    if (this.gcObserver || typeof PerformanceObserver !== 'function') return;
+    this.gcPauseStats = {
+      samples: 0,
+      totalDurationMs: 0,
+      maxDurationMs: 0,
+      over50Ms: 0,
+      byKind: {}
+    };
+    try {
+      const kindNames = new Map([
+        [perfConstants.NODE_PERFORMANCE_GC_MAJOR, 'MAJOR'],
+        [perfConstants.NODE_PERFORMANCE_GC_MINOR, 'MINOR'],
+        [perfConstants.NODE_PERFORMANCE_GC_INCREMENTAL, 'INCREMENTAL'],
+        [perfConstants.NODE_PERFORMANCE_GC_WEAKCB, 'WEAK_CALLBACK']
+      ]);
+      this.gcObserver = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          const durationMs = Number(entry.duration || 0);
+          const kind = kindNames.get(entry.detail?.kind ?? entry.kind) || 'UNKNOWN';
+          this.gcPauseStats.samples += 1;
+          this.gcPauseStats.totalDurationMs += durationMs;
+          this.gcPauseStats.maxDurationMs = Math.max(this.gcPauseStats.maxDurationMs, durationMs);
+          if (durationMs >= 50) this.gcPauseStats.over50Ms += 1;
+          this.gcPauseStats.byKind[kind] = (this.gcPauseStats.byKind[kind] || 0) + 1;
+        }
+      });
+      this.gcObserver.observe({ entryTypes: ['gc'] });
+    } catch {
+      this.gcObserver = null;
+    }
+  }
+
+  stopGcPauseObserver() {
+    this.gcObserver?.disconnect?.();
+    this.gcObserver = null;
+  }
+
+  gcPauseSummary() {
+    return {
+      ...this.gcPauseStats,
+      meanDurationMs: this.gcPauseStats.samples > 0
+        ? this.gcPauseStats.totalDurationMs / this.gcPauseStats.samples
+        : null
+    };
   }
 
   emitRaydiumRunnerShadowObservation({ token, quality, momentum, rankScore }) {
@@ -3692,6 +3759,12 @@ class TradingEngine {
     const gateComparisonsByPreset = new Map();
     const actualDecisions = actualEvents.filter((event) => event.telemetryType === 'pre_migration_paper.decision');
     for (const actual of actualDecisions) {
+      const pairedDecisionKey = [
+        this.sessionId || 'session',
+        result.state.mint,
+        timestamp,
+        actual.payload?.preset || 'unknown'
+      ].join('|');
       const counterfactual = shadowStateFresh
         ? this.preMigrationPaperLane.evaluateCounterfactualGateDecision({
           state: shadowState,
@@ -3747,6 +3820,20 @@ class TradingEngine {
         : null;
       const guardOverrideAllowListAgreement = JSON.stringify(normalizedActualAllowedPresetNames)
         === JSON.stringify(normalizedShadowAllowedPresetNames);
+      const actualGuardOverride = actual.payload?.guardOverride || null;
+      const shadowGuardOverride = shadowDecisionDetails.guardOverride
+        || shadowGuardDetails.guardOverride
+        || null;
+      const actualGuardOverrideEligibilityState = this.guardOverrideEligibilityState(
+        actualGuardOverride,
+        actualAllowedPresetNames,
+        actualEvaluatedPreset
+      );
+      const shadowGuardOverrideEligibilityState = this.guardOverrideEligibilityState(
+        shadowGuardOverride,
+        shadowAllowedPresetNames,
+        shadowEvaluatedPreset
+      );
       const presetComparisons = gateComparisonsByPreset.get(actual.payload?.preset) || [];
       presetComparisons.push({
         actual,
@@ -3762,12 +3849,15 @@ class TradingEngine {
         mint: result.state.mint,
         symbol: result.state.symbol || null,
         timestamp,
+        pairedDecisionKey,
         preset: actualEvaluatedPreset,
         lane: actual.payload?.lane || null,
         comparable,
         unavailableReason: comparable ? null : (counterfactual?.reason || unavailableReason),
         shadowDecisionMissing: false,
         shadowStateAgeMs: snapshot.ageMs ?? null,
+        bestAvailableStateAgeMs: snapshot.ageMs ?? null,
+        bestAvailableStateSource: snapshot.curveStateSource || null,
         shadowCurveStateSource: snapshot.curveStateSource || null,
         shadowCurveStateAt: snapshot.curveStateAt || null,
         shadowAccountEnriched: snapshot.accountEnriched === true,
@@ -3784,22 +3874,34 @@ class TradingEngine {
         actualDecision: actual.payload?.decision || null,
         actualAction,
         actualReason: actual.payload?.reason || null,
-        actualGuardOverride: actual.payload?.guardOverride || null,
+        actualGuardOverride,
         actualAllowedPresetNames,
         actualEvaluatedPreset,
         actualPresetEligibleForGuardOverride: !actualAllowedPresetNames
           || actualAllowedPresetNames.includes(actualEvaluatedPreset),
+        actualGuardOverrideEligibilityState,
+        actualGuardFamilyInputs: this.decisionShadowGuardFamilyInputs(
+          actual.payload || {},
+          {},
+          actualEvaluatedPreset
+        ),
         shadowDecision: comparable
           ? (counterfactual?.wouldEnter === true ? 'PAPER_ELIGIBLE' : 'PAPER_SKIPPED')
           : null,
         shadowAction,
         shadowReason: counterfactual?.reason || null,
-        shadowGuardOverride: counterfactual?.decision?.guardOverride || null,
+        shadowGuardOverride,
         shadowAllowedPresetNames,
         shadowEvaluatedPreset,
         shadowPresetSelectionMode: 'actual_preset_held_constant',
         shadowPresetEligibleForGuardOverride: !shadowAllowedPresetNames
           || shadowAllowedPresetNames.includes(shadowEvaluatedPreset),
+        shadowGuardOverrideEligibilityState,
+        shadowGuardFamilyInputs: this.decisionShadowGuardFamilyInputs(
+          shadowDecisionDetails,
+          shadowGuardDetails,
+          shadowEvaluatedPreset
+        ),
         evaluatedPresetAgreement: actualEvaluatedPreset === shadowEvaluatedPreset,
         guardOverrideAllowListAgreement,
         shadowCurveProgressDelta: Number.isFinite(shadowCurveProgressDelta)
@@ -3870,14 +3972,35 @@ class TradingEngine {
         mint: result.state.mint,
         symbol: result.state.symbol || null,
         timestamp,
+        pairedDecisionKey: action === 'ENTRY'
+          ? [
+              this.sessionId || 'session',
+              result.state.mint,
+              timestamp,
+              actual.payload?.preset || 'unknown'
+            ].join('|')
+          : null,
         preset: actual.payload?.preset || null,
         lane: actual.payload?.lane || null,
         action,
+        positionKey: actual.payload?.positionKey
+          || `${actual.payload?.preset || 'unknown'}:${result.state.mint}`,
+        actualPnlSol: action === 'EXIT' && Number.isFinite(Number(actual.payload?.pnlSol))
+          ? Number(actual.payload.pnlSol)
+          : null,
+        actualReturnPct: action === 'EXIT' && Number.isFinite(Number(actual.payload?.returnPct))
+          ? Number(actual.payload.returnPct)
+          : null,
+        actualHoldSeconds: action === 'EXIT' && Number.isFinite(Number(actual.payload?.holdSeconds))
+          ? Number(actual.payload.holdSeconds)
+          : null,
         comparable,
         unavailableReason: comparable
           ? null
           : executedUnavailableReason,
         shadowStateAgeMs: snapshot.ageMs ?? null,
+        bestAvailableStateAgeMs: snapshot.ageMs ?? null,
+        bestAvailableStateSource: snapshot.curveStateSource || null,
         shadowCurveStateSource: snapshot.curveStateSource || null,
         shadowCurveStateAt: snapshot.curveStateAt || null,
         shadowAccountEnriched: snapshot.accountEnriched === true,
@@ -3891,6 +4014,18 @@ class TradingEngine {
         accountVerifierPrewarmed: accountVerifierStatus.prewarmed === true,
         accountVerifierPrewarmLeadMs: accountVerifierStatus.prewarmLeadMs ?? null,
         accountVerifierFirstUpdateBeforeComparison: accountVerifierStatus.firstUpdateBeforeComparison,
+        positionContextOccupiedAtDecision: Boolean(actualLaneContext?.activePosition),
+        positionContextPresetAtDecision: actualLaneContext?.activePosition?.presetName || null,
+        positionContextPolicy: 'actual_pre_observation_context_held_constant',
+        independentShadowPositionStateAvailable: false,
+        actualPresetFamily: matchingGate?.actual?.payload?.guardOverride
+          || matchingGate?.actual?.payload?.preset
+          || actual.payload?.preset
+          || null,
+        shadowPresetFamily: matchingGate?.counterfactual?.decision?.guardOverride
+          || matchingGate?.counterfactual?.entryGuards?.guardOverride
+          || actual.payload?.preset
+          || null,
         entryGateCoupled: action === 'ENTRY',
         actualGateDecision: matchingGate?.actual?.payload?.decision || null,
         actualGateReason: matchingGate?.actual?.payload?.reason || null,
@@ -3954,6 +4089,97 @@ class TradingEngine {
     if (['PAPER_ELIGIBLE', 'PAPER_ENTERED', 'PAPER_SHADOWED'].includes(decision)) return 'WOULD_ENTER';
     if (decision === 'PAPER_SKIPPED') return 'WOULD_SKIP';
     return decision || null;
+  }
+
+  guardOverrideEligibilityState(guardOverride, allowedPresetNames, evaluatedPreset) {
+    if (!guardOverride && !Array.isArray(allowedPresetNames)) {
+      return 'NO_OVERRIDE_FAMILY_SELECTED';
+    }
+    if (!Array.isArray(allowedPresetNames)) {
+      return 'ELIGIBLE';
+    }
+    return allowedPresetNames.includes(evaluatedPreset) ? 'ELIGIBLE' : 'NOT_ELIGIBLE';
+  }
+
+  decisionShadowCurveRegimeBucket(curveProgress) {
+    const curve = Number(curveProgress);
+    if (!Number.isFinite(curve)) return 'UNKNOWN';
+    if (curve < 0.25) return 'LT_25';
+    if (curve < 0.5) return '25_TO_50';
+    if (curve < 0.75) return '50_TO_75';
+    if (curve < 0.9) return '75_TO_90';
+    return 'GE_90';
+  }
+
+  decisionShadowGuardFamilyInputs(primary = {}, fallback = {}, evaluatedPreset = null) {
+    const value = (key) => {
+      const selected = primary?.[key] ?? fallback?.[key];
+      return selected === undefined ? null : selected;
+    };
+    const curveProgress = value('curveProgress')
+      ?? value('firstCurveSnapshotScalpCurveProgress')
+      ?? value('earlyAccelerationCurveProgress')
+      ?? value('curvePauseCurveProgress');
+    const selectedFamily = value('guardOverride');
+    return {
+      evaluatedPreset,
+      selectedFamily,
+      curveRegimeBucket: this.decisionShadowCurveRegimeBucket(curveProgress),
+      market: {
+        score: value('score'),
+        curveProgress,
+        curveProgressDelta: value('curveProgressDelta'),
+        curveProgressDelta60s: value('curveProgressDelta60s'),
+        recentVolumeSol: value('recentVolumeSol'),
+        tradeVelocityPerMin: value('tradeVelocityPerMin'),
+        uniqueBuyerCount: value('uniqueBuyerCount'),
+        sniperWalletCount: value('sniperWalletCount')
+      },
+      familySelected: {
+        firstCurveSnapshotScalp: selectedFamily === 'FIRST_CURVE_SNAPSHOT_SCALP',
+        curvePause: selectedFamily === 'CURVE_PAUSE_OVERRIDE',
+        earlyAcceleration: selectedFamily === 'EARLY_ACCELERATION',
+        earlySurge: selectedFamily === 'EARLY_SURGE',
+        firstSight: selectedFamily === 'FIRST_SIGHT'
+      },
+      firstCurveSnapshotScalp: {
+        score: value('firstCurveSnapshotScalpScore'),
+        curveProgress: value('firstCurveSnapshotScalpCurveProgress'),
+        interestSignalCount: value('firstCurveSnapshotScalpInterestSignalCount'),
+        uniqueBuyerCount: value('firstCurveSnapshotScalpUniqueBuyerCount'),
+        riskWalletCount: value('firstCurveSnapshotScalpRiskWalletCount'),
+        sniperWalletCount: value('firstCurveSnapshotScalpSniperWalletCount'),
+        curveSnapshotAgeSeconds: value('firstCurveSnapshotScalpCurveSnapshotAgeSeconds'),
+        staleCurveBlocked: value('firstCurveSnapshotScalpStaleCurveBlocked'),
+        sniperCrowdingBlocked: value('firstCurveSnapshotScalpSniperCrowdingBlocked'),
+        buyRatio: value('firstCurveSnapshotScalpBuyRatio'),
+        thresholds: value('firstCurveSnapshotScalpThresholds')
+      },
+      curvePause: {
+        score: value('curvePauseScore'),
+        curveProgress: value('curvePauseCurveProgress'),
+        buyRatio: value('curvePauseBuyRatio'),
+        hasConfirmation: value('curvePauseHasConfirmation'),
+        thresholds: value('curvePauseThresholds')
+      },
+      earlyAcceleration: {
+        score: value('earlyAccelerationScore'),
+        curveProgress: value('earlyAccelerationCurveProgress'),
+        buyRatio: value('earlyAccelerationBuyRatio'),
+        repeatedEarlyBuyerCount: value('earlyAccelerationRepeatedEarlyBuyerCount'),
+        weakWalletFlowBlocked: value('earlyAccelerationWeakWalletFlowBlocked'),
+        avoidWalletContextBlocked: value('earlyAccelerationAvoidWalletContextBlocked'),
+        thresholds: value('earlyAccelerationThresholds')
+      },
+      earlySurge: {
+        score: value('earlySurgeScore'),
+        curveProgress: value('earlySurgeCurveProgress'),
+        buyRatio: value('earlySurgeBuyRatio'),
+        hasConfirmation: value('earlySurgeHasConfirmation'),
+        passesCurveDeltaGuard: value('earlySurgePassesCurveDeltaGuard'),
+        thresholds: value('earlySurgeThresholds')
+      }
+    };
   }
 
   decisionShadowMarket(state = {}) {
@@ -6279,12 +6505,15 @@ class TradingEngine {
       return;
     }
 
+    const drainStartedAt = process.hrtime.bigint();
     const now = Date.now();
     let started = 0;
+    let scanned = 0;
     let nextDelayMs = 1000;
     const maxAttempts = 90;
 
     for (const [mint, queued] of Array.from(this.queuedPumpBondingCurveSyncs.entries())) {
+      scanned += 1;
       if (queued.nextAttemptAt && queued.nextAttemptAt > now) {
         nextDelayMs = Math.min(nextDelayMs, Math.max(50, queued.nextAttemptAt - now));
         continue;
@@ -6329,6 +6558,17 @@ class TradingEngine {
         break;
       }
     }
+
+    const drainDurationMs = Number(process.hrtime.bigint() - drainStartedAt) / 1e6;
+    this.pumpBondingCurveQueueDrainStats.calls += 1;
+    this.pumpBondingCurveQueueDrainStats.scanned += scanned;
+    this.pumpBondingCurveQueueDrainStats.started += started;
+    this.pumpBondingCurveQueueDrainStats.totalDurationMs += drainDurationMs;
+    this.pumpBondingCurveQueueDrainStats.maxDurationMs = Math.max(
+      this.pumpBondingCurveQueueDrainStats.maxDurationMs,
+      drainDurationMs
+    );
+    if (drainDurationMs >= 50) this.pumpBondingCurveQueueDrainStats.over50Ms += 1;
 
     if (this.queuedPumpBondingCurveSyncs.size > 0) {
       this.armPumpBondingCurveQueueDrain(started > 0 ? 0 : nextDelayMs);
@@ -7376,7 +7616,14 @@ class TradingEngine {
         pumpDevTargetedCurveParityInFlight: this.pumpDevTargetedCurveParityInFlight.size,
         pumpDevTargetedCurveParitySampleWatchEnabled: this.config.pumpDevTargetedCurveParitySampleWatchEnabled === true,
         pumpDevTargetedCurveParitySampleSkipsEnabled: this.config.pumpDevTargetedCurveParitySampleSkipsEnabled === true,
-        pumpDevTargetedCurveParitySampleEligibleEnabled: this.config.pumpDevTargetedCurveParitySampleEligibleEnabled !== false
+        pumpDevTargetedCurveParitySampleEligibleEnabled: this.config.pumpDevTargetedCurveParitySampleEligibleEnabled !== false,
+        engineQueueDrain: {
+          ...this.pumpBondingCurveQueueDrainStats,
+          meanDurationMs: this.pumpBondingCurveQueueDrainStats.calls > 0
+            ? this.pumpBondingCurveQueueDrainStats.totalDurationMs
+              / this.pumpBondingCurveQueueDrainStats.calls
+            : null
+        }
       },
       finalistAccountVerifier: this.finalistAccountVerifier?.getStats?.() || null,
       liveExecutionDryRun: this.liveExecutionDryRunLane?.getStats?.() || null,
@@ -7387,7 +7634,10 @@ class TradingEngine {
       candidateDossiers: this.candidateDossierLedger.getStats(),
       outcomeLedger: this.outcomeLedger.getStats(),
       telemetry: this.telemetry.getSummary(),
-      eventLoopMonitor: { ...this.eventLoopMonitorStats },
+      eventLoopMonitor: {
+        ...this.eventLoopMonitorStats,
+        gcPauses: this.gcPauseSummary()
+      },
       eventFlow: this.eventFlow.getSummary(),
       strategyLedger: this.strategyLedger.getSummary(),
       positions: [

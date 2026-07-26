@@ -1,4 +1,4 @@
-const POST_RUN_REPORTS = [
+const ALL_POST_RUN_REPORTS = [
   { title: 'Paid-Tape Coverage Epoch', script: 'paid-tape-coverage-epoch-report.js' },
   { title: 'PumpPortal Paid-Tape Demand Attribution', script: 'pumpportal-paid-tape-demand-report.js' },
   { title: 'Runner-Watch Full-Coverage Evidence', script: 'runner-watch-full-coverage-evidence-report.js' },
@@ -149,4 +149,165 @@ const POST_RUN_REPORTS = [
   { title: 'Latest Run Summary', script: 'latest-run-summary.js' }
 ];
 
-module.exports = { POST_RUN_REPORTS };
+const DECISIVE_REPORT_METADATA = {
+  'paid-tape-coverage-epoch-report.js': {
+    telemetryCli: 'pair',
+    artifactPath: 'data/reports/paid-tape-coverage-epoch-latest.json',
+    artifactTelemetryJsonPath: 'telemetryPath'
+  },
+  'run-battlefield-report.js': {
+    telemetryCli: 'pair',
+    artifactPath: 'data/reports/run-battlefield-latest.json',
+    artifactTelemetryJsonPath: 'files.telemetryPath'
+  },
+  'runner-watch-full-coverage-evidence-report.js': {
+    telemetryCli: 'pair',
+    artifactPath: 'data/reports/runner-watch-full-coverage-evidence-latest.json',
+    artifactTelemetryJsonPath: 'currentRun.validation.actual.telemetryPath'
+  },
+  'helius-pumpfun-shadow-parity-report.js': {
+    telemetryCli: 'pair',
+    artifactPath: 'data/reports/helius-pumpfun-shadow-parity-latest.json',
+    artifactTelemetryJsonPath: 'sourceTelemetry'
+  },
+  'helius-pumpfun-decision-divergence-report.js': {
+    telemetryCli: 'pair',
+    artifactPath: 'data/reports/helius-pumpfun-decision-divergence-latest.json',
+    artifactTelemetryJsonPath: 'sourceTelemetry'
+  },
+  'event-loop-lag-diagnostic-report.js': {
+    telemetryCli: 'pair',
+    artifactPath: 'data/reports/event-loop-lag-diagnostic-latest.json',
+    artifactTelemetryJsonPath: 'sources.telemetryPath'
+  },
+  'live-readiness-report.js': {
+    telemetryCli: 'equals',
+    artifactPath: 'data/reports/live-readiness-latest.json',
+    artifactTelemetryJsonPath: 'telemetryPath'
+  },
+  'strategy-candidate-scorecard-report.js': {
+    artifactPath: 'data/reports/strategy-candidate-scorecard-latest.json',
+    artifactTelemetryJsonPaths: [
+      'summary.inputFreshness.liveReadinessTelemetry',
+      'summary.inputFreshness.battlefieldTelemetry'
+    ],
+    requiredJsonValues: {
+      'summary.inputFreshness.verdict': 'ALIGNED'
+    }
+  },
+  'latest-run-summary.js': {
+    artifactPath: 'data/reports/latest-run-summary-latest.json',
+    artifactTelemetryJsonPaths: [
+      'telemetryPath',
+      'criticalTelemetryPaths.paidTapeCoverage',
+      'criticalTelemetryPaths.battlefield',
+      'criticalTelemetryPaths.runnerWatch',
+      'criticalTelemetryPaths.heliusParity',
+      'criticalTelemetryPaths.heliusDecisionDivergence',
+      'criticalTelemetryPaths.eventLoopLag',
+      'criticalTelemetryPaths.liveReadiness',
+      'criticalTelemetryPaths.scorecardLiveReadiness',
+      'criticalTelemetryPaths.scorecardBattlefield'
+    ],
+    requiredJsonValues: {
+      'inputFreshness.scorecardVerdict': 'ALIGNED'
+    }
+  }
+};
+
+const DECISIVE_REPORT_ORDER = [
+  'paid-tape-coverage-epoch-report.js',
+  'run-battlefield-report.js',
+  'runner-watch-full-coverage-evidence-report.js',
+  'helius-pumpfun-shadow-parity-report.js',
+  'helius-pumpfun-decision-divergence-report.js',
+  'event-loop-lag-diagnostic-report.js',
+  'live-readiness-report.js',
+  'strategy-candidate-scorecard-report.js',
+  'latest-run-summary.js'
+];
+
+const TERMINAL_REPORT_SCRIPTS = new Set([
+  'runner-reject-follow-through-report.js',
+  'runner-reject-entry-replay-report.js',
+  'runner-reject-runtime-shadow-outcome-report.js',
+  'pre-migration-curve-not-advancing-separability-report.js',
+  'pre-migration-curve-not-advancing-separator-shadow-report.js',
+  'pre-migration-curve-not-advancing-separator-shadow-ledger-report.js',
+  'pre-migration-crosser-precursor-discovery-report.js',
+  'pre-migration-wallet-conditioned-relaxed-gate-replay-report.js',
+  'pre-migration-wallet-relaxed-shadow-outcome-report.js',
+  'continuation-specimen-report.js',
+  'internal-continuation-specimen-report.js',
+  'continuation-paper-ledger.js',
+  'continuation-exit-replay-report.js',
+  'continuation-slippage-decomposition-report.js'
+]);
+const TERMINAL_REPORT_TITLES = new Set([
+  'Battlefield Report With Continuation Paper'
+]);
+
+function isTerminalReport(report) {
+  return TERMINAL_REPORT_SCRIPTS.has(report.script)
+    || TERMINAL_REPORT_TITLES.has(report.title);
+}
+
+const firstReportByScript = new Map();
+for (const report of ALL_POST_RUN_REPORTS) {
+  if (!firstReportByScript.has(report.script)) firstReportByScript.set(report.script, report);
+}
+
+const DECISIVE_POST_RUN_REPORTS = DECISIVE_REPORT_ORDER.map((script) => {
+  const report = firstReportByScript.get(script);
+  if (!report) throw new Error(`Decisive post-run report is missing from the plan: ${script}`);
+  return {
+    ...report,
+    ...DECISIVE_REPORT_METADATA[script],
+    tier: 'decisive',
+    required: true
+  };
+});
+
+const decisiveScripts = new Set(DECISIVE_REPORT_ORDER);
+const TERMINAL_POST_RUN_REPORTS = ALL_POST_RUN_REPORTS
+  .filter(isTerminalReport)
+  .map((report) => ({ ...report, tier: 'terminal', required: false }));
+const DEEP_POST_RUN_REPORTS = ALL_POST_RUN_REPORTS
+  .filter((report) => !decisiveScripts.has(report.script) && !isTerminalReport(report))
+  .map((report) => ({ ...report, tier: 'deep', required: false }));
+
+const REPORT_PROFILES = Object.freeze({
+  decisive: DECISIVE_POST_RUN_REPORTS,
+  deep: DEEP_POST_RUN_REPORTS,
+  terminal: TERMINAL_POST_RUN_REPORTS,
+  all: [
+    ...DECISIVE_POST_RUN_REPORTS,
+    ...DEEP_POST_RUN_REPORTS,
+    ...TERMINAL_POST_RUN_REPORTS
+  ]
+});
+
+function normalizeReportProfile(profile = 'decisive') {
+  const normalized = String(profile || 'decisive').trim().toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(REPORT_PROFILES, normalized)) {
+    throw new Error(`Unknown post-run report profile "${profile}". Expected decisive, deep, terminal, or all.`);
+  }
+  return normalized;
+}
+
+function reportsForProfile(profile = 'decisive') {
+  return REPORT_PROFILES[normalizeReportProfile(profile)].map((report) => ({ ...report }));
+}
+
+const POST_RUN_REPORTS = DECISIVE_POST_RUN_REPORTS;
+
+module.exports = {
+  ALL_POST_RUN_REPORTS,
+  DECISIVE_POST_RUN_REPORTS,
+  DEEP_POST_RUN_REPORTS,
+  POST_RUN_REPORTS,
+  REPORT_PROFILES,
+  TERMINAL_POST_RUN_REPORTS,
+  normalizeReportProfile,
+  reportsForProfile
+};

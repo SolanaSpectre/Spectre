@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { readJsonlSync } = require('./lib/jsonl');
+const { indexJsonlEventsByMint } = require('./lib/jsonl-mint-index');
 
 const ROOT = path.join(__dirname, '..');
 const DELAYED_ENTRY_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-delayed-entry-timing-latest.json');
@@ -13,10 +13,6 @@ function readJson(filePath, fallback = {}) {
   } catch (error) {
     return { error: error.message };
   }
-}
-
-function readJsonl(filePath) {
-  return readJsonlSync(filePath);
 }
 
 function rel(filePath) {
@@ -317,9 +313,31 @@ function closeReplay(entrySample, exitSample, strategy, exitReason, extra = {}) 
 }
 
 function buildRows(delayedReport) {
-  return (delayedReport.rows || []).map((row) => {
-    const telemetryPath = repoPath(row.telemetryPath);
-    const events = readJsonl(telemetryPath);
+  const rows = delayedReport.rows || [];
+  const rowsByTelemetryPath = new Map();
+  for (const row of rows) {
+    if (!row.telemetryPath || !row.mint) continue;
+    if (!rowsByTelemetryPath.has(row.telemetryPath)) {
+      rowsByTelemetryPath.set(row.telemetryPath, []);
+    }
+    rowsByTelemetryPath.get(row.telemetryPath).push(row);
+  }
+
+  const indexes = new Map();
+  for (const [telemetryPath, telemetryRows] of rowsByTelemetryPath) {
+    const targetMints = new Set(telemetryRows.map((row) => row.mint));
+    indexes.set(telemetryPath, indexJsonlEventsByMint(repoPath(telemetryPath), targetMints, {
+      includeEvent: (event, payload) => {
+        const type = eventType(event);
+        return type === 'pre_migration_paper.decision'
+          || type === 'pre_migration_paper.entry'
+          || Number.isFinite(priceOf(payload));
+      }
+    }));
+  }
+
+  const reportRows = rows.map((row) => {
+    const events = indexes.get(row.telemetryPath)?.eventsByMint.get(row.mint) || [];
     const actualEntryEvent = actualEntryForMint(events, row.mint, row.actualEntryAt);
     const actualPayload = payloadOf(actualEntryEvent || {});
     const strategy = actualPayload.strategy || {};
@@ -364,6 +382,34 @@ function buildRows(delayedReport) {
         : null
     };
   });
+  const indexFiles = [...indexes.entries()].map(([telemetryPath, index]) => ({
+    telemetryPath,
+    rows: index.rows,
+    malformedLines: index.malformedLines,
+    candidateEvents: index.candidateEvents,
+    candidateEventsWithoutMint: index.candidateEventsWithoutMint,
+    candidateEventsOutsideTargetSet: index.candidateEventsOutsideTargetSet,
+    indexedEvents: index.indexedEvents
+  }));
+  return {
+    rows: reportRows,
+    telemetryIndex: {
+      telemetryFiles: indexFiles.length,
+      rows: indexFiles.reduce((sum, row) => sum + Number(row.rows || 0), 0),
+      malformedLines: indexFiles.reduce((sum, row) => sum + Number(row.malformedLines || 0), 0),
+      candidateEvents: indexFiles.reduce((sum, row) => sum + Number(row.candidateEvents || 0), 0),
+      candidateEventsWithoutMint: indexFiles.reduce(
+        (sum, row) => sum + Number(row.candidateEventsWithoutMint || 0),
+        0
+      ),
+      candidateEventsOutsideTargetSet: indexFiles.reduce(
+        (sum, row) => sum + Number(row.candidateEventsOutsideTargetSet || 0),
+        0
+      ),
+      indexedEvents: indexFiles.reduce((sum, row) => sum + Number(row.indexedEvents || 0), 0),
+      files: indexFiles
+    }
+  };
 }
 
 function summarizePnl(rows, selector) {
@@ -383,13 +429,15 @@ function summarizePnl(rows, selector) {
 
 function buildReport() {
   const delayedReport = readJson(DELAYED_ENTRY_PATH);
-  const rows = buildRows(delayedReport);
+  const built = buildRows(delayedReport);
+  const rows = built.rows;
   return {
     generatedAt: new Date().toISOString(),
     mode: 'report_only',
     inputs: {
       delayedEntryTimingPath: rel(DELAYED_ENTRY_PATH),
-      delayedRows: delayedReport.rows?.length || 0
+      delayedRows: delayedReport.rows?.length || 0,
+      telemetryIndex: built.telemetryIndex
     },
     summary: {
       delayedRows: rows.length,
@@ -400,6 +448,9 @@ function buildReport() {
       simEntryReplayPnl: summarizePnl(rows, (row) => row.replays.simEntry?.pnlSol),
       firstRecheckReplayPnl: summarizePnl(rows, (row) => row.replays.firstRecheck?.pnlSol),
       actualEntryReplayPnl: summarizePnl(rows, (row) => row.replays.actualEntry?.pnlSol),
+      telemetryIndexIntegrity: built.telemetryIndex.candidateEventsWithoutMint === 0
+        ? 'NO_RELEVANT_EVENTS_WITHOUT_MINT'
+        : 'RELEVANT_EVENTS_WITHOUT_MINT',
       actualMinusSimEntryReplayPnlSol: compact(rows.reduce((sum, row) => sum + Number(row.actualMinusSimEntryReplayPnlSol || 0), 0), 9),
       actualMinusFirstRecheckReplayPnlSol: compact(rows.reduce((sum, row) => sum + Number(row.actualMinusFirstRecheckReplayPnlSol || 0), 0), 9)
     },

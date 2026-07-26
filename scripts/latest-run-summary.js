@@ -8,6 +8,12 @@ const {
 
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_OUTPUT = path.join(REPO_ROOT, 'data', 'reports', 'latest-run-summary.txt');
+const DEFAULT_MANIFEST_OUTPUT = path.join(
+  REPO_ROOT,
+  'data',
+  'reports',
+  'latest-run-summary-latest.json'
+);
 
 const FILES = {
   battlefield: 'data/reports/run-battlefield-latest.json',
@@ -1637,6 +1643,11 @@ function buildBondingCurvePressure(battlefield = {}) {
       updates: number(stats.updates, updateEvents),
     providerSnapshots: providerSnapshotEvents,
     errors: number(stats.errors, 0),
+    rpcBatchErrors: number(stats.rpcBatchErrors, 0),
+    rpcSingleErrors: number(stats.rpcSingleErrors, 0),
+    errorReasonCounts: stats.errorReasonCounts || {},
+    errorMethodCounts: stats.errorMethodCounts || {},
+    lastErrorDiagnostic: stats.lastErrorDiagnostic || null,
     missingAccounts: number(stats.missingAccounts, 0),
     invalidAccounts: number(stats.invalidAccounts, 0),
     completeMintsObserved: number(stats.completeMintsObserved, completeEvents),
@@ -3330,10 +3341,23 @@ function buildSummary(docs) {
   lines.push(`  - absent-signature selective / global-silence clusters: ${get(heliusPumpfunRecallAutopsy, 'absentSignatureClusterClassifications.SELECTIVE_LOSS', 0)} / ${get(heliusPumpfunRecallAutopsy, 'absentSignatureClusterClassifications.GLOBAL_SHADOW_TRADE_SILENCE', 0)}`);
   lines.push(`  - burst p90 / high-burst miss rate / lower-burst miss rate: ${get(heliusPumpfunRecallAutopsy, 'burst.thresholdP90', 'n/a')} / ${fmt(get(heliusPumpfunRecallAutopsy, 'burst.highBurstMissRate', null), 4)} / ${fmt(get(heliusPumpfunRecallAutopsy, 'burst.lowerBurstMissRate', null), 4)}`);
   lines.push('- Helius Pump.fun decision divergence:');
-  lines.push(`  - verdict / comparable evaluations: ${heliusPumpfunDecisionDivergence.verdict || 'n/a'} / ${get(heliusPumpfunDecisionDivergence, 'counts.comparableGateEvaluations', 0)}`);
+  lines.push(`  - verdict / valid run / comparable evaluations: ${heliusPumpfunDecisionDivergence.verdict || 'n/a'} / ${heliusPumpfunDecisionDivergence.validRun === true} / ${get(heliusPumpfunDecisionDivergence, 'counts.comparableGateEvaluations', 0)}`);
   lines.push(`  - comparable coverage overall / prewarmed / not prewarmed: ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.comparableEvaluationCoverageRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.prewarmedComparableEvaluationCoverageRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.notPrewarmedComparableEvaluationCoverageRate', null), 4)}`);
   lines.push(`  - gate action / reason agreement: ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.gateActionAgreementRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.gateReasonAgreementRate', null), 4)}`);
+  lines.push(`  - entry confusion actual-enter/shadow-enter | actual-skip/shadow-enter | actual-enter/shadow-skip | skip/skip: ${get(heliusPumpfunDecisionDivergence, 'entryConfusionMatrix.actualEnterShadowEnter', 0)} / ${get(heliusPumpfunDecisionDivergence, 'entryConfusionMatrix.actualSkipShadowEnter', 0)} / ${get(heliusPumpfunDecisionDivergence, 'entryConfusionMatrix.actualEnterShadowSkip', 0)} / ${get(heliusPumpfunDecisionDivergence, 'entryConfusionMatrix.actualSkipShadowSkip', 0)}`);
+  lines.push(`  - shadow entry precision / recall: ${fmt(get(heliusPumpfunDecisionDivergence, 'entryConfusionMatrix.shadowEntryPrecision', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'entryConfusionMatrix.shadowEntryRecall', null), 4)}`);
+  lines.push(`  - unavailable state age median/p90/max: ${fmt(get(heliusPumpfunDecisionDivergence, 'unavailableStateAgeDiagnostics.agesMs.median', null), 0)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'unavailableStateAgeDiagnostics.agesMs.p90', null), 0)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'unavailableStateAgeDiagnostics.agesMs.max', null), 0)}ms`);
+  lines.push(`  - executed PnL attribution: ${get(heliusPumpfunDecisionDivergence, 'executedPnlAttribution.available', false) ? 'available' : get(heliusPumpfunDecisionDivergence, 'executedPnlAttribution.unavailableReason', 'unavailable')} | NOT_EVIDENCE_FOR_EXECUTION`);
   lines.push(`  - executed actions / all-entry-exit agreement: ${get(heliusPumpfunDecisionDivergence, 'counts.executedActions', 0)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.executedActionAgreementRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.executedEntryAgreementRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.executedExitAgreementRate', null), 4)}`);
+  lines.push(`  - entry mismatch attribution: mismatches=${get(heliusPumpfunDecisionDivergence, 'entryMismatchAttribution.mismatches', 0)}, attributed=${get(heliusPumpfunDecisionDivergence, 'entryMismatchAttribution.attributedMismatches', 0)}, unattributed=${get(heliusPumpfunDecisionDivergence, 'entryMismatchAttribution.unattributedMismatches', 0)}, allAttributed=${get(heliusPumpfunDecisionDivergence, 'entryMismatchAttribution.allMismatchesAttributed', false)}`);
+  const heliusAgeBuckets = get(heliusPumpfunDecisionDivergence, 'agreementByStateAge', []);
+  if (heliusAgeBuckets.length) {
+    lines.push(`  - action agreement by state age: ${heliusAgeBuckets.map((row) => `${row.bucket}=${fmt(row.actionAgreementRate, 4)} (${row.comparable}/${row.evaluations})`).join(', ')}`);
+  }
+  const heliusOfflineBounds = get(heliusPumpfunDecisionDivergence, 'offlineComparabilityByBound', []);
+  if (heliusOfflineBounds.length) {
+    lines.push(`  - offline state availability by age bound: ${heliusOfflineBounds.map((row) => `<=${row.boundMs}ms ${fmt(row.coverageRate, 4)}`).join(', ')} (availability only; no retroactive rescoring)`);
+  }
   lines.push(`  - wallet feature / tracked-address agreement (diagnostic): ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.walletFeatureAgreementRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.trackedAddressAgreementRate', null), 4)}`);
   lines.push(`  - Helius queue enqueued/processed/dropped/errors/depth-at-stop: ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.enqueued', 0)} / ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.processed', 0)} / ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.dropped', 0)} / ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.handlerErrors', 0)} / ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.depthAtStop', 0)}`);
   lines.push(`  - Helius queue max depth/saturation/latency mean-max: ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.maxDepth', 0)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.maxDepthRatio', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.latencyMeanMs', null), 2)}-${fmt(get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.latencyMaxMs', null), 0)}ms`);
@@ -3373,6 +3397,16 @@ function buildSummary(docs) {
   lines.push('- Bonding curve pressure:');
   lines.push(`  - fetches / updates / errors: ${bondingCurvePressure.fetches} / ${bondingCurvePressure.updates} / ${bondingCurvePressure.errors}`);
   lines.push(`  - batched RPC: enabled=${bondingCurvePressure.batchFetchEnabled} commitment=${bondingCurvePressure.rpcCommitment} batches/accounts/deduped/pending=${bondingCurvePressure.rpcBatches} / ${bondingCurvePressure.batchAccounts} / ${bondingCurvePressure.batchDedupedRequests} / ${bondingCurvePressure.pendingAccountFetches} (flush=${bondingCurvePressure.batchFlushMs}ms max=${bondingCurvePressure.batchMaxAccounts})`);
+  lines.push(`  - RPC failures batch/single: ${bondingCurvePressure.rpcBatchErrors} / ${bondingCurvePressure.rpcSingleErrors}`);
+  objectLines(bondingCurvePressure.errorReasonCounts, 6).forEach((line) => lines.push(`  - RPC failure reason: ${line}`));
+  objectLines(bondingCurvePressure.errorMethodCounts, 6).forEach((line) => lines.push(`  - RPC failure method: ${line}`));
+  if (bondingCurvePressure.lastErrorDiagnostic) {
+    const diagnostic = bondingCurvePressure.lastErrorDiagnostic;
+    const upstreamClasses = Array.isArray(diagnostic.upstreamFailureClasses)
+      ? diagnostic.upstreamFailureClasses.join(',')
+      : 'none';
+    lines.push(`  - last RPC diagnostic: at=${diagnostic.at || 'n/a'} reason=${diagnostic.reason || 'n/a'} type=${diagnostic.errorType || 'n/a'} method=${diagnostic.method || 'n/a'} batch=${diagnostic.batchSize ?? 'n/a'} commitment=${diagnostic.commitment || 'n/a'} upstream=${upstreamClasses || 'none'}`);
+  }
   lines.push(`  - provider reserve snapshots: ${bondingCurvePressure.providerSnapshots || 0}`);
   lines.push(`  - missing / invalid accounts: ${bondingCurvePressure.missingAccounts} / ${bondingCurvePressure.invalidAccounts}`);
   lines.push(`  - unique complete mints observed / last complete: ${bondingCurvePressure.completeMintsObserved || 0} / ${bondingCurvePressure.lastCompleteMint || 'none'}${bondingCurvePressure.lastCompleteAt ? ` at ${bondingCurvePressure.lastCompleteAt}` : ''}`);
@@ -3409,6 +3443,15 @@ function buildSummary(docs) {
     const preceding = Object.entries(lagDiag.topPrecedingEventTypes5s || {}).slice(0, 5);
     if (preceding.length) {
       lines.push(`  - top event types in 5s before lag: ${preceding.map(([type, count]) => `${type}=${count}`).join(', ')}`);
+    }
+    const phaseDiagnostics = lagDiag.runtimePhaseDiagnostics || {};
+    if (phaseDiagnostics.available) {
+      const heliusDrain = phaseDiagnostics.heliusQueueDrain || {};
+      const curveDrain = phaseDiagnostics.pumpBondingCurveQueueDrain || {};
+      const gcPauses = phaseDiagnostics.gcPauses || {};
+      lines.push(`  - Helius drain calls/mean/max/>50ms: ${heliusDrain.calls ?? 'n/a'} / ${ms(heliusDrain.meanDurationMs)} / ${ms(heliusDrain.maxDurationMs)} / ${heliusDrain.over50Ms ?? 'n/a'}`);
+      lines.push(`  - curve queue drain calls/scanned/mean/max/>50ms: ${curveDrain.calls ?? 'n/a'} / ${curveDrain.scanned ?? 'n/a'} / ${ms(curveDrain.meanDurationMs)} / ${ms(curveDrain.maxDurationMs)} / ${curveDrain.over50Ms ?? 'n/a'}`);
+      lines.push(`  - GC pauses samples/mean/max/>50ms: ${gcPauses.samples ?? 'n/a'} / ${ms(gcPauses.meanDurationMs)} / ${ms(gcPauses.maxDurationMs)} / ${gcPauses.over50Ms ?? 'n/a'}`);
     }
   }
   if (pumpDevSubscriptionLifecycle.summary) {
@@ -5698,6 +5741,36 @@ function writeOutput(filePath, content) {
   fs.writeFileSync(filePath, `${content}\n`, 'utf8');
 }
 
+function writeJson(filePath, payload) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+}
+
+function buildSummaryManifest(docs, outputPath) {
+  const battlefieldTelemetry = docs.battlefield.data?.files?.telemetryPath || null;
+  const scorecardFreshness = docs.strategyCandidateScorecard.data?.summary?.inputFreshness || {};
+  return {
+    generatedAt: new Date().toISOString(),
+    mode: 'latest_run_summary_manifest',
+    telemetryPath: battlefieldTelemetry,
+    summaryPath: path.relative(REPO_ROOT, outputPath).replace(/\\/g, '/'),
+    criticalTelemetryPaths: {
+      paidTapeCoverage: docs.paidTapeCoverageEpoch.data?.telemetryPath || null,
+      battlefield: battlefieldTelemetry,
+      runnerWatch: docs.runnerWatchFullCoverageEvidence.data?.currentRun?.validation?.actual?.telemetryPath || null,
+      heliusParity: docs.heliusPumpfunShadowParity.data?.sourceTelemetry || null,
+      heliusDecisionDivergence: docs.heliusPumpfunDecisionDivergence.data?.sourceTelemetry || null,
+      eventLoopLag: docs.eventLoopLagDiagnostic.data?.sources?.telemetryPath || null,
+      liveReadiness: docs.liveReadiness.data?.telemetryPath || null,
+      scorecardLiveReadiness: scorecardFreshness.liveReadinessTelemetry || null,
+      scorecardBattlefield: scorecardFreshness.battlefieldTelemetry || null
+    },
+    inputFreshness: {
+      scorecardVerdict: scorecardFreshness.verdict || null
+    }
+  };
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const output = args.output ? path.resolve(REPO_ROOT, args.output) : DEFAULT_OUTPUT;
@@ -5706,8 +5779,14 @@ function main() {
   );
   const summary = buildSummary(docs);
   writeOutput(output, summary);
+  writeJson(DEFAULT_MANIFEST_OUTPUT, buildSummaryManifest(docs, output));
   console.log(summary);
   console.log(`Wrote summary: ${output}`);
+  console.log(`Wrote summary manifest: ${DEFAULT_MANIFEST_OUTPUT}`);
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = {
+  buildSummaryManifest
+};

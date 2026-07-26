@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+if (process.env.SPECTRE_SKIP_DOTENV !== 'true') {
+  require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+}
 
 const fs = require('fs');
 const path = require('path');

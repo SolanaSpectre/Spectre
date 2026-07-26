@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { readJsonlSync } = require('./lib/jsonl');
+const { indexJsonlEventsByMint } = require('./lib/jsonl-mint-index');
 
 const ROOT = path.join(__dirname, '..');
 const DELAYED_ENTRY_PATH = path.join(ROOT, 'data', 'reports', 'pre-migration-delayed-entry-timing-latest.json');
@@ -13,10 +13,6 @@ function readJson(filePath, fallback = {}) {
   } catch (error) {
     return { error: error.message };
   }
-}
-
-function readJsonl(filePath) {
-  return readJsonlSync(filePath);
 }
 
 function writeJson(filePath, payload) {
@@ -66,6 +62,34 @@ function countBy(rows, keyFn) {
     counts[key] = (counts[key] || 0) + 1;
   }
   return Object.fromEntries(Object.entries(counts).sort((a, b) => b[1] - a[1]));
+}
+
+function summarizeIndexes(indexes) {
+  const files = [...indexes.entries()].map(([telemetryPath, index]) => ({
+    telemetryPath,
+    rows: index.rows,
+    malformedLines: index.malformedLines,
+    candidateEvents: index.candidateEvents,
+    candidateEventsWithoutMint: index.candidateEventsWithoutMint,
+    candidateEventsOutsideTargetSet: index.candidateEventsOutsideTargetSet,
+    indexedEvents: index.indexedEvents
+  }));
+  return {
+    telemetryFiles: files.length,
+    rows: files.reduce((sum, row) => sum + Number(row.rows || 0), 0),
+    malformedLines: files.reduce((sum, row) => sum + Number(row.malformedLines || 0), 0),
+    candidateEvents: files.reduce((sum, row) => sum + Number(row.candidateEvents || 0), 0),
+    candidateEventsWithoutMint: files.reduce(
+      (sum, row) => sum + Number(row.candidateEventsWithoutMint || 0),
+      0
+    ),
+    candidateEventsOutsideTargetSet: files.reduce(
+      (sum, row) => sum + Number(row.candidateEventsOutsideTargetSet || 0),
+      0
+    ),
+    indexedEvents: files.reduce((sum, row) => sum + Number(row.indexedEvents || 0), 0),
+    files
+  };
 }
 
 function collectRechecks(events, row, scope = 'delayWindow') {
@@ -156,8 +180,26 @@ function summarizeRow(row, delayWindowRechecks, beforeEntryRechecks) {
 
 function buildReport() {
   const delayedReport = readJson(DELAYED_ENTRY_PATH, {});
-  const rows = (delayedReport.rows || []).map((row) => {
-    const events = readJsonl(repoPath(row.telemetryPath));
+  const delayedRows = delayedReport.rows || [];
+  const rowsByTelemetryPath = new Map();
+  for (const row of delayedRows) {
+    if (!row.telemetryPath || !row.mint) continue;
+    if (!rowsByTelemetryPath.has(row.telemetryPath)) {
+      rowsByTelemetryPath.set(row.telemetryPath, []);
+    }
+    rowsByTelemetryPath.get(row.telemetryPath).push(row);
+  }
+
+  const indexes = new Map();
+  for (const [telemetryPath, telemetryRows] of rowsByTelemetryPath) {
+    const targetMints = new Set(telemetryRows.map((row) => row.mint));
+    indexes.set(telemetryPath, indexJsonlEventsByMint(repoPath(telemetryPath), targetMints, {
+      includeEvent: (event) => String(eventType(event) || '').startsWith('pre_migration_paper.recheck_')
+    }));
+  }
+
+  const rows = delayedRows.map((row) => {
+    const events = indexes.get(row.telemetryPath)?.eventsByMint.get(row.mint) || [];
     return summarizeRow(
       row,
       collectRechecks(events, row, 'delayWindow'),
@@ -168,13 +210,15 @@ function buildReport() {
   const allBeforeEntryRechecks = rows.flatMap((row) => row.beforeActualEntry.rechecks);
   const executedRows = rows.filter((row) => row.executedCount > 0);
   const beforeEntryExecutedRows = rows.filter((row) => row.beforeActualEntry.executedCount > 0);
+  const telemetryIndex = summarizeIndexes(indexes);
 
   return {
     generatedAt: new Date().toISOString(),
     mode: 'report_only',
     inputs: {
       delayedEntryTimingPath: path.relative(ROOT, DELAYED_ENTRY_PATH).replace(/\\/g, '/'),
-      delayedRows: rows.length
+      delayedRows: rows.length,
+      telemetryIndex
     },
     summary: {
       delayedRows: rows.length,
@@ -196,7 +240,10 @@ function buildReport() {
       executedRechecksBeforeActualEntry: allBeforeEntryRechecks.filter((row) => row.type === 'pre_migration_paper.recheck_executed').length,
       averageLastExecutionBeforeActualEntrySeconds: beforeEntryExecutedRows.length
         ? Number((beforeEntryExecutedRows.reduce((sum, row) => sum + Number(row.beforeActualEntry.lastExecutionBeforeEntrySeconds || 0), 0) / beforeEntryExecutedRows.length).toFixed(3))
-        : null
+        : null,
+      telemetryIndexIntegrity: telemetryIndex.candidateEventsWithoutMint === 0
+        ? 'NO_RELEVANT_EVENTS_WITHOUT_MINT'
+        : 'RELEVANT_EVENTS_WITHOUT_MINT'
     },
     rows,
     note: 'Report-only diagnostic. Separates explicit rechecks inside each delayed row simEntryAt-to-actualEntryAt window from any rechecks that happened earlier in the mint lifecycle before actual entry. Does not change thresholds, entries, exits, scoring, AI review, or live behavior.'
