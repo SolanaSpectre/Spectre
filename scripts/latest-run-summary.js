@@ -315,6 +315,10 @@ function buildDecisiveSummary(docs) {
   const divergenceCounts = divergence.counts || {};
   const divergenceAgreement = divergence.agreement || {};
   const mismatchAttribution = divergence.entryMismatchAttribution || {};
+  const mismatchCauseText = Object.entries(mismatchAttribution.byCause || {})
+    .sort((left, right) => Number(right[1]) - Number(left[1]))
+    .map(([cause, count]) => `${cause}=${count}`)
+    .join(', ') || 'none';
   const lagReport = docs.eventLoopLagDiagnostic?.data || {};
   const lag = lagReport.summary || {};
   const live = docs.liveReadiness?.data || {};
@@ -360,6 +364,7 @@ function buildDecisiveSummary(docs) {
     `Decision comparator: ${divergence.verdict || 'n/a'}; valid run: ${divergence.validRun === true ? 'yes' : 'no'}`,
     `Comparable decisions: ${number(divergenceCounts.comparableGateEvaluations)}/${number(divergenceCounts.evaluations)} (${pct(divergenceAgreement.comparableEvaluationCoverageRate)})`,
     `Executed entries: ${number(divergenceCounts.executedEntries)}; entry matches: ${number(divergenceCounts.executedEntryMatches)}; mismatches attributed/unattributed: ${number(mismatchAttribution.attributedMismatches)}/${number(mismatchAttribution.unattributedMismatches)}`,
+    `Entry mismatch causes: ${mismatchCauseText}`,
     '',
     'Runtime Health',
     '--------------',
@@ -2100,6 +2105,14 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
     simulationErrors: {},
     simulationMissingAccounts: {},
     simulationPassedWithPreflightMissingAccounts: {},
+    postMigrationRouteProbes: {
+      attempted: 0,
+      available: 0,
+      unavailable: 0,
+      errors: 0,
+      statuses: {},
+      reasons: {}
+    },
     accountAgeMs: { count: 0, min: null, median: null, p90: null, max: null },
     priceImpactPct: { count: 0, min: null, median: null, p90: null, max: null },
     postTradePriceMovePct: { count: 0, min: null, median: null, p90: null, max: null },
@@ -2136,6 +2149,21 @@ function readLiveExecutionDryRunTelemetry(battlefield = {}) {
         ? classifySimulationPayload(payload)
         : null;
       if (mint) mints.add(mint);
+
+      if (type === 'live_dry_run.post_migration_route_probe') {
+        summary.postMigrationRouteProbes.attempted += payload.attempted === false ? 0 : 1;
+        if (payload.available === true) {
+          summary.postMigrationRouteProbes.available += 1;
+        } else {
+          summary.postMigrationRouteProbes.unavailable += 1;
+        }
+        if (payload.status === 'PROBE_ERROR') {
+          summary.postMigrationRouteProbes.errors += 1;
+        }
+        bump(summary.postMigrationRouteProbes.statuses, payload.status);
+        bump(summary.postMigrationRouteProbes.reasons, payload.reason || 'none');
+        return;
+      }
 
       if (type === 'live_dry_run.would_send') {
         summary.attempts += 1;
@@ -3453,6 +3481,7 @@ function buildSummary(docs) {
   lines.push(`  - executed PnL attribution: ${get(heliusPumpfunDecisionDivergence, 'executedPnlAttribution.available', false) ? 'available' : get(heliusPumpfunDecisionDivergence, 'executedPnlAttribution.unavailableReason', 'unavailable')} | NOT_EVIDENCE_FOR_EXECUTION`);
   lines.push(`  - executed actions / all-entry-exit agreement: ${get(heliusPumpfunDecisionDivergence, 'counts.executedActions', 0)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.executedActionAgreementRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.executedEntryAgreementRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.executedExitAgreementRate', null), 4)}`);
   lines.push(`  - entry mismatch attribution: mismatches=${get(heliusPumpfunDecisionDivergence, 'entryMismatchAttribution.mismatches', 0)}, attributed=${get(heliusPumpfunDecisionDivergence, 'entryMismatchAttribution.attributedMismatches', 0)}, unattributed=${get(heliusPumpfunDecisionDivergence, 'entryMismatchAttribution.unattributedMismatches', 0)}, allAttributed=${get(heliusPumpfunDecisionDivergence, 'entryMismatchAttribution.allMismatchesAttributed', false)}`);
+  objectLines(get(heliusPumpfunDecisionDivergence, 'entryMismatchAttribution.byCause', {}), 6).forEach((line) => lines.push(`  - entry mismatch cause: ${line}`));
   const heliusAgeBuckets = get(heliusPumpfunDecisionDivergence, 'agreementByStateAge', []);
   if (heliusAgeBuckets.length) {
     lines.push(`  - action agreement by state age: ${heliusAgeBuckets.map((row) => `${row.bucket}=${fmt(row.actionAgreementRate, 4)} (${row.comparable}/${row.evaluations})`).join(', ')}`);
@@ -3614,6 +3643,8 @@ function buildSummary(docs) {
   lines.push(`  - post-trade price move pct median/p90/max: ${fmt(liveExecutionDryRunTelemetry.postTradePriceMovePct?.median, 4)}% / ${fmt(liveExecutionDryRunTelemetry.postTradePriceMovePct?.p90, 4)}% / ${fmt(liveExecutionDryRunTelemetry.postTradePriceMovePct?.max, 4)}% (n=${liveExecutionDryRunTelemetry.postTradePriceMovePct?.count ?? 0})`);
   lines.push(`  - blockhash ok true/false; latency median/p90/max: ${liveExecutionDryRunTelemetry.blockhashOk.true || 0} / ${liveExecutionDryRunTelemetry.blockhashOk.false || 0}; ${ms(liveExecutionDryRunTelemetry.blockhashLatencyMs?.median)} / ${ms(liveExecutionDryRunTelemetry.blockhashLatencyMs?.p90)} / ${ms(liveExecutionDryRunTelemetry.blockhashLatencyMs?.max)}`);
   lines.push(`  - simulation ok true/false/null: ${liveExecutionDryRunTelemetry.simulationOk.true || 0} / ${liveExecutionDryRunTelemetry.simulationOk.false || 0} / ${liveExecutionDryRunTelemetry.simulationOk.null || 0}`);
+  lines.push(`  - post-migration Jupiter route probes attempted/available/unavailable/errors: ${liveExecutionDryRunTelemetry.postMigrationRouteProbes?.attempted || 0} / ${liveExecutionDryRunTelemetry.postMigrationRouteProbes?.available || 0} / ${liveExecutionDryRunTelemetry.postMigrationRouteProbes?.unavailable || 0} / ${liveExecutionDryRunTelemetry.postMigrationRouteProbes?.errors || 0} (report-only; never executes)`);
+  objectLines(liveExecutionDryRunTelemetry.postMigrationRouteProbes?.reasons, 4).forEach((line) => lines.push(`  - post-migration route probe reason: ${line}`));
   objectLines(liveExecutionDryRunTelemetry.simulationErrors, 4).forEach((line) => lines.push(`  - simulation error: ${line}`));
   objectLines(liveExecutionDryRunTelemetry.simulationMissingAccounts, 8).forEach((line) => lines.push(`  - simulation missing account: ${line}`));
   objectLines(liveExecutionDryRunTelemetry.simulationPassedWithPreflightMissingAccounts, 5).forEach((line) => lines.push(`  - pre-sim absent/created by tx and sim ok: ${line}`));

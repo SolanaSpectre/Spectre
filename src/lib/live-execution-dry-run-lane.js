@@ -48,6 +48,9 @@ class LiveExecutionDryRunLane {
     this.userPublicKey = options.userPublicKey || null;
     this.signerKeypair = options.signerKeypair || null;
     this.telemetryHook = typeof options.telemetryHook === 'function' ? options.telemetryHook : null;
+    this.postMigrationRouteProbe = typeof options.postMigrationRouteProbe === 'function'
+      ? options.postMigrationRouteProbe
+      : null;
     this.decodeBondingCurveAccount = typeof options.decodeBondingCurveAccount === 'function'
       ? options.decodeBondingCurveAccount
       : null;
@@ -100,7 +103,11 @@ class LiveExecutionDryRunLane {
       simulations: 0,
       simulationOk: 0,
       simulationFailed: 0,
-      simulationErrors: {}
+      simulationErrors: {},
+      postMigrationRouteProbes: 0,
+      postMigrationRoutesAvailable: 0,
+      postMigrationRoutesUnavailable: 0,
+      postMigrationRouteProbeErrors: 0
     };
     this.simulationFailureByMint = new Map();
   }
@@ -203,7 +210,15 @@ class LiveExecutionDryRunLane {
         return this.block('STALE_ACCOUNT_UPDATE', basePayload);
       }
       if (update.complete === true) {
-        return this.block('BONDING_CURVE_COMPLETE', basePayload);
+        return this.block('BONDING_CURVE_COMPLETE', {
+          ...basePayload,
+          postMigrationRouteProbe: await this.probePostMigrationRoute({
+            mint,
+            symbol: state.symbol || null,
+            amountLamports: Math.max(1, Math.round(this.amountSol * LAMPORTS_PER_SOL)),
+            sourceDecision: meta.decision || state.decision || null
+          })
+        });
       }
       const quoteSupport = this.checkSolQuoteSupport(update, state);
       if (!quoteSupport.ok) {
@@ -283,6 +298,14 @@ class LiveExecutionDryRunLane {
           });
           payload.bondingCurveValidation = curveValidation.diagnostic;
           if (!curveValidation.ok) {
+            if (curveValidation.reason === 'BONDING_CURVE_COMPLETE') {
+              payload.postMigrationRouteProbe = await this.probePostMigrationRoute({
+                mint,
+                symbol: state.symbol || null,
+                amountLamports: Math.max(1, Math.round(this.amountSol * LAMPORTS_PER_SOL)),
+                sourceDecision: meta.decision || state.decision || null
+              });
+            }
             return this.block(curveValidation.reason || 'BONDING_CURVE_VALIDATION_FAILED', payload);
           }
           const reserveDrift = this.computeQuoteReserveDrift(quote, curveValidation.diagnostic);
@@ -324,6 +347,14 @@ class LiveExecutionDryRunLane {
             const classifiedSimulationError = this.classifySimulationError(simulation.error, simulation.logs);
             payload.simulationErrorClass = classifiedSimulationError;
             this.bump(this.stats.simulationErrors, classifiedSimulationError);
+            if (classifiedSimulationError === 'BONDING_CURVE_COMPLETE') {
+              payload.postMigrationRouteProbe = await this.probePostMigrationRoute({
+                mint,
+                symbol: state.symbol || null,
+                amountLamports: Math.max(1, Math.round(this.amountSol * LAMPORTS_PER_SOL)),
+                sourceDecision: meta.decision || state.decision || null
+              });
+            }
             if (mint) this.simulationFailureByMint.set(mint, Date.now());
             return this.block(classifiedSimulationError, payload);
           }
@@ -382,6 +413,76 @@ class LiveExecutionDryRunLane {
       virtualSolReservesSol: compact(virtualSolReservesSol, 6),
       virtualTokenReservesTokens: compact(virtualTokenReservesTokens, 6)
     };
+  }
+
+  async probePostMigrationRoute(context = {}) {
+    const startedAt = Date.now();
+    const base = {
+      attempted: Boolean(this.postMigrationRouteProbe),
+      provider: 'JUPITER_ULTRA',
+      reportOnly: true,
+      strategyConsumptionAllowed: false,
+      broadcastEnabled: false
+    };
+    if (!this.postMigrationRouteProbe) {
+      return {
+        ...base,
+        status: 'PROBE_UNAVAILABLE',
+        reason: 'POST_MIGRATION_ROUTE_PROBE_NOT_CONFIGURED',
+        latencyMs: 0
+      };
+    }
+
+    this.stats.postMigrationRouteProbes += 1;
+    try {
+      const result = await this.postMigrationRouteProbe(context);
+      const available = result?.available === true;
+      if (available) {
+        this.stats.postMigrationRoutesAvailable += 1;
+      } else {
+        this.stats.postMigrationRoutesUnavailable += 1;
+      }
+      const diagnostic = {
+        ...base,
+        status: available ? 'ROUTE_AVAILABLE' : 'ROUTE_UNAVAILABLE',
+        available,
+        reason: result?.reason || (available ? null : 'NO_ACCEPTABLE_ROUTE'),
+        latencyMs: Date.now() - startedAt,
+        quoteAgeMs: finiteNumber(result?.quoteAgeMs),
+        outputAmount: result?.outputAmount === null || result?.outputAmount === undefined
+          ? null
+          : String(result.outputAmount),
+        priceImpactPct: compact(result?.priceImpactPct, 6),
+        routePlanSteps: finiteNumber(result?.routePlanSteps)
+      };
+      this.emit('live_dry_run.post_migration_route_probe', {
+        mint: context.mint || null,
+        symbol: context.symbol || null,
+        sourceDecision: context.sourceDecision || null,
+        ...diagnostic
+      });
+      return diagnostic;
+    } catch (error) {
+      this.stats.postMigrationRouteProbeErrors += 1;
+      const diagnostic = {
+        ...base,
+        status: 'PROBE_ERROR',
+        available: false,
+        reason: error?.name || 'Error',
+        latencyMs: Date.now() - startedAt,
+        quoteAgeMs: null,
+        outputAmount: null,
+        priceImpactPct: null,
+        routePlanSteps: null
+      };
+      this.emit('live_dry_run.post_migration_route_probe', {
+        mint: context.mint || null,
+        symbol: context.symbol || null,
+        sourceDecision: context.sourceDecision || null,
+        ...diagnostic
+      });
+      return diagnostic;
+    }
   }
 
   checkSolQuoteSupport(update = {}, state = {}) {

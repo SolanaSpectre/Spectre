@@ -234,6 +234,14 @@ async function readTelemetry(filePath) {
       simulationFailureMintsByClass: {},
       simulationMissingAccounts: {},
       simulationPassedWithPreflightMissingAccounts: {},
+      postMigrationRouteProbes: {
+        attempted: 0,
+        available: 0,
+        unavailable: 0,
+        errors: 0,
+        statuses: {},
+        reasons: {}
+      },
       signedOk: { true: 0, false: 0, null: 0 },
       broadcastEnabled: { true: 0, false: 0, null: 0 },
       signatureModes: {},
@@ -329,7 +337,19 @@ async function readTelemetry(filePath) {
 
     if (type.startsWith('live_dry_run.')) {
       if (payload.mint) stats.uniqueMints.dryRun.add(payload.mint);
-      if (type === 'live_dry_run.would_send') {
+      if (type === 'live_dry_run.post_migration_route_probe') {
+        stats.dryRun.postMigrationRouteProbes.attempted += payload.attempted === false ? 0 : 1;
+        if (payload.available === true) {
+          stats.dryRun.postMigrationRouteProbes.available += 1;
+        } else {
+          stats.dryRun.postMigrationRouteProbes.unavailable += 1;
+        }
+        if (payload.status === 'PROBE_ERROR') {
+          stats.dryRun.postMigrationRouteProbes.errors += 1;
+        }
+        increment(stats.dryRun.postMigrationRouteProbes.statuses, payload.status || 'unknown');
+        increment(stats.dryRun.postMigrationRouteProbes.reasons, payload.reason || 'none');
+      } else if (type === 'live_dry_run.would_send') {
         stats.dryRun.attempts += 1;
         stats.dryRun.wouldSend += 1;
         pushNumber(stats.dryRun.accountAgeMs, payload.accountAgeMs);
@@ -486,6 +506,10 @@ function buildVerdict(stats) {
   const drySimulationFailures = drySimulationFailureSummary.total;
   const dryExpectedStateRaceSimulationFailures = drySimulationFailureSummary.expectedStateRace;
   const dryCriticalSimulationFailures = drySimulationFailureSummary.critical;
+  const dryPostMigrationRouteProbeStats = stats.dryRun.postMigrationRouteProbes || {};
+  const dryPostMigrationRouteProbes = number(dryPostMigrationRouteProbeStats.attempted, 0);
+  const dryPostMigrationRoutesAvailable = number(dryPostMigrationRouteProbeStats.available, 0);
+  const dryPostMigrationRouteProbeErrors = number(dryPostMigrationRouteProbeStats.errors, 0);
   const drySimulationFailureAccountingMismatch = dryRunStopSimulationFailures !== drySimulationFailures;
   const dryPolicyBlocks = countOnly(stats.dryRun.blockReasons, [
     'PRICE_IMPACT_TOO_HIGH',
@@ -560,9 +584,18 @@ function buildVerdict(stats) {
   }
 
   if (dryExpectedStateRaceSimulationFailures > 0) {
-    warnings.push(
-      `Dry-run observed ${dryExpectedStateRaceSimulationFailures} bonding-curve completion race(s) during simulation; these remain blocked and require fresh post-migration routing evidence, but are not wallet or transaction-infrastructure failures.`
-    );
+    if (
+      dryPostMigrationRoutesAvailable >= dryExpectedStateRaceSimulationFailures
+      && dryPostMigrationRouteProbeErrors === 0
+    ) {
+      warnings.push(
+        `Dry-run observed ${dryExpectedStateRaceSimulationFailures} bonding-curve completion race(s) and found a fresh acceptable Jupiter route for each; probes were report-only and no fallback trade executed.`
+      );
+    } else {
+      warnings.push(
+        `Dry-run observed ${dryExpectedStateRaceSimulationFailures} bonding-curve completion race(s); these are not wallet failures, but fresh acceptable post-migration route evidence is incomplete (${dryPostMigrationRoutesAvailable}/${dryExpectedStateRaceSimulationFailures}, probeErrors=${dryPostMigrationRouteProbeErrors}).`
+      );
+    }
   }
   if (drySimulationFailureAccountingMismatch) {
     blockers.push(
@@ -653,6 +686,9 @@ function buildVerdict(stats) {
       drySimulationFailures,
       dryExpectedStateRaceSimulationFailures,
       dryCriticalSimulationFailures,
+      dryPostMigrationRouteProbes,
+      dryPostMigrationRoutesAvailable,
+      dryPostMigrationRouteProbeErrors,
       drySimulationFailureAccountingMismatch,
       drySignedTrue,
       drySignedFalse,
@@ -713,6 +749,14 @@ function buildReport(stats) {
         simulationFailureMintsByClass: stats.dryRun.simulationFailureMintsByClass,
         simulationMissingAccounts: stats.dryRun.simulationMissingAccounts,
         simulationPassedWithPreflightMissingAccounts: stats.dryRun.simulationPassedWithPreflightMissingAccounts,
+        postMigrationRouteProbes: stats.dryRun.postMigrationRouteProbes || {
+          attempted: 0,
+          available: 0,
+          unavailable: 0,
+          errors: 0,
+          statuses: {},
+          reasons: {}
+        },
         signedOk: stats.dryRun.signedOk,
         broadcastEnabled: stats.dryRun.broadcastEnabled,
         signatureModes: stats.dryRun.signatureModes
@@ -795,6 +839,7 @@ function writeText(report) {
   lines.push(`- Dry-run simulation accounting mismatch: ${m.drySimulationFailureAccountingMismatch}`);
   lines.push(`- Dry-run critical simulation failures: ${m.dryCriticalSimulationFailures}`);
   lines.push(`- Dry-run expected curve-completion races: ${m.dryExpectedStateRaceSimulationFailures}`);
+  lines.push(`- Dry-run post-migration route probes/available/errors: ${m.dryPostMigrationRouteProbes} / ${m.dryPostMigrationRoutesAvailable} / ${m.dryPostMigrationRouteProbeErrors} (report-only)`);
   lines.push(`- Dry-run signedOk true/false/null: ${m.drySignedTrue} / ${m.drySignedFalse} / ${m.drySignedNull}`);
   lines.push(`- Dry-run broadcastEnabled true/false/null: ${m.dryBroadcastTrue} / ${m.dryBroadcastFalse} / ${m.dryBroadcastNull}`);
   lines.push(`- Dry-run account age median/p90/max: ${fmt(m.dryRun.accountAgeMs.median, 0)} / ${fmt(m.dryRun.accountAgeMs.p90, 0)} / ${fmt(m.dryRun.accountAgeMs.max, 0)}ms`);

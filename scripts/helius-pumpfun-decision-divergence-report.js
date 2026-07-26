@@ -217,6 +217,7 @@ function buildEntryMismatchAttribution(evaluations = [], executed = [], preregis
     minimumMismatchesRequired,
     attributedMismatches: mismatches.filter((row) => row.attributed).length,
     unattributedMismatches: mismatches.filter((row) => !row.attributed).length,
+    byCause: countBy(mismatches, (row) => row.cause),
     allMismatchesAttributed: mismatches.length >= minimumMismatchesRequired
       && mismatches.every((row) => row.attributed),
     rows: mismatches

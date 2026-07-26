@@ -189,6 +189,7 @@ class TradingEngine {
       deriveBondingCurveAddress: (mint) => this.pumpBondingCurveLane.safeDeriveBondingCurveAddress(mint),
       userPublicKey: this.hotWallet.getPublicKey(),
       signerKeypair: this.hotWallet.getKeypair(),
+      postMigrationRouteProbe: (context) => this.probePostMigrationJupiterRoute(context),
       telemetryHook: (type, payload) => {
         try {
           this.telemetry.record(type, payload);
@@ -3400,6 +3401,50 @@ class TradingEngine {
     }
 
     return { passed: true };
+  }
+
+  async probePostMigrationJupiterRoute({ mint, amountLamports } = {}) {
+    const amount = Number(amountLamports);
+    if (!mint || !Number.isSafeInteger(amount) || amount <= 0) {
+      return {
+        available: false,
+        reason: 'INVALID_ROUTE_PROBE_INPUT'
+      };
+    }
+
+    const quote = await this.marketData.getQuoteWithStalenessCheck(
+      this.config.baseTokenMint,
+      mint,
+      String(amount)
+    );
+    const staleness = this.marketData.isQuoteStale(quote);
+    if (staleness.stale) {
+      return {
+        available: false,
+        reason: `QUOTE_${staleness.reason || 'STALE'}`,
+        quoteAgeMs: staleness.ageMs ?? null
+      };
+    }
+
+    const quality = this.validateQuoteQuality(quote);
+    const outputAmount = quote?.outAmount
+      ?? quote?.outputAmount
+      ?? quote?.totalOutputAmount
+      ?? null;
+    const rawPriceImpact = quote?.priceImpactPct
+      ?? quote?.priceImpact
+      ?? quote?.routePlan?.priceImpactPct
+      ?? null;
+    return {
+      available: quality.passed === true,
+      reason: quality.passed === true ? null : quality.reason,
+      quoteAgeMs: staleness.ageMs ?? null,
+      outputAmount,
+      priceImpactPct: Number.isFinite(Number(rawPriceImpact))
+        ? Number(rawPriceImpact)
+        : null,
+      routePlanSteps: Array.isArray(quote?.routePlan) ? quote.routePlan.length : null
+    };
   }
 
   scoreMomentum(token) {
