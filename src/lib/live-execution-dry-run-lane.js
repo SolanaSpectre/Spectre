@@ -2,7 +2,11 @@
 
 const { LAMPORTS_PER_SOL, PublicKey } = require('@solana/web3.js');
 const { PumpBuyV2DryRunBuilder } = require('./pump-buy-v2-dry-run-builder');
-const { classifySimulationError } = require('./simulation-error-classifier');
+const {
+  SIMULATION_ERROR_CLASSIFIER_EPOCH,
+  classifySimulationError,
+  diagnoseSimulationError
+} = require('./simulation-error-classifier');
 
 const DEFAULT_PUMP_FUN_PROGRAM_ID = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -111,6 +115,7 @@ class LiveExecutionDryRunLane {
       simulations: 0,
       simulationOk: 0,
       simulationFailed: 0,
+      simulationClassifierEpoch: SIMULATION_ERROR_CLASSIFIER_EPOCH,
       simulationErrors: {},
       postMigrationRouteProbes: 0,
       postMigrationRoutesAvailable: 0,
@@ -163,7 +168,21 @@ class LiveExecutionDryRunLane {
   }
 
   classifySimulationError(error, logs = []) {
-    return classifySimulationError(error, logs, error || 'SIMULATION_FAILED');
+    return classifySimulationError(
+      error,
+      logs,
+      error || 'SIMULATION_FAILED',
+      { pumpProgramId: this.pumpProgramId.toBase58() }
+    );
+  }
+
+  diagnoseSimulationError(error, logs = []) {
+    return diagnoseSimulationError(
+      error,
+      logs,
+      error || 'SIMULATION_FAILED',
+      { pumpProgramId: this.pumpProgramId.toBase58() }
+    );
   }
 
   async evaluate(state = {}, meta = {}) {
@@ -359,8 +378,36 @@ class LiveExecutionDryRunLane {
             this.stats.simulationOk += 1;
           } else {
             this.stats.simulationFailed += 1;
-            const classifiedSimulationError = this.classifySimulationError(simulation.error, simulation.logs);
+            const simulationErrorDiagnostic = this.diagnoseSimulationError(
+              simulation.error,
+              simulation.logs
+            );
+            const classifiedSimulationError = simulationErrorDiagnostic.failureClass;
+            payload.simulationClassifierEpoch =
+              simulationErrorDiagnostic.classifierEpoch;
             payload.simulationErrorClass = classifiedSimulationError;
+            payload.simulationClassificationBasis =
+              simulationErrorDiagnostic.classificationBasis;
+            payload.simulationRawProgramErrorCode =
+              simulationErrorDiagnostic.rawProgramErrorCode;
+            payload.simulationRawProgramErrorCodeSource =
+              simulationErrorDiagnostic.rawProgramErrorCodeSource;
+            payload.simulationAnchorErrorNumber =
+              simulationErrorDiagnostic.anchorErrorNumber;
+            payload.simulationInnermostFailingProgramId =
+              simulationErrorDiagnostic.innermostFailingProgramId;
+            payload.simulationInnermostProgramErrorCode =
+              simulationErrorDiagnostic.innermostProgramErrorCode;
+            payload.simulationOutermostFailingProgramId =
+              simulationErrorDiagnostic.outermostFailingProgramId;
+            payload.simulationOutermostProgramErrorCode =
+              simulationErrorDiagnostic.outermostProgramErrorCode;
+            payload.simulationPumpProgramFrameObserved =
+              simulationErrorDiagnostic.pumpProgramFrameObserved;
+            payload.simulationPumpProgramFailed =
+              simulationErrorDiagnostic.pumpProgramFailed;
+            payload.simulationPumpProgramErrorCode =
+              simulationErrorDiagnostic.pumpProgramErrorCode;
             this.bump(this.stats.simulationErrors, classifiedSimulationError);
             if (classifiedSimulationError === 'BONDING_CURVE_MINT_MISMATCH') {
               payload.bondingCurveMintMismatchDiagnostic = {

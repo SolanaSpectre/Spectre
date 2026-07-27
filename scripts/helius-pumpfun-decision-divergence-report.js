@@ -216,6 +216,23 @@ function offlineComparabilityByBound(rows = [], bounds = [1000, 2000, 3000]) {
   });
 }
 
+function executedGuardOverrideFamily(row = {}, side = 'actual') {
+  const explicitKey = side === 'shadow'
+    ? 'shadowGuardOverrideFamily'
+    : 'actualGuardOverrideFamily';
+  if (row[explicitKey] !== null && row[explicitKey] !== undefined) {
+    return row[explicitKey];
+  }
+  const gateKey = side === 'shadow'
+    ? 'shadowGateGuardOverride'
+    : 'actualGateGuardOverride';
+  if (Object.prototype.hasOwnProperty.call(row, gateKey)) {
+    return row[gateKey] ?? 'NO_OVERRIDE';
+  }
+  const legacyKey = side === 'shadow' ? 'shadowPresetFamily' : 'actualPresetFamily';
+  return row[legacyKey] ?? 'UNKNOWN';
+}
+
 function buildEntryMismatchAttribution(evaluations = [], executed = [], preregistration = {}) {
   const evaluationByPair = new Map(
     evaluations.filter((row) => row.pairedDecisionKey)
@@ -244,7 +261,10 @@ function buildEntryMismatchAttribution(evaluations = [], executed = [], preregis
     if (!evaluation) cause = 'MISSING_PAIRED_EVALUATION';
     else if (evaluation.actualEvaluatedPreset !== evaluation.shadowEvaluatedPreset) {
       cause = 'EVALUATED_PRESET_MISMATCH';
-    } else if (row.actualPresetFamily !== row.shadowPresetFamily) cause = 'PRESET_FAMILY_MISMATCH';
+    } else if (
+      executedGuardOverrideFamily(row, 'actual')
+      !== executedGuardOverrideFamily(row, 'shadow')
+    ) cause = 'PRESET_FAMILY_MISMATCH';
     else if (
       evaluation.actualGuardOverrideEligibilityState
       !== evaluation.shadowGuardOverrideEligibilityState
@@ -474,6 +494,24 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
   const executedMatches = comparableExecuted.filter((row) => row.actionAgreement === true);
   const entryActions = comparableExecuted.filter((row) => row.action === 'ENTRY');
   const exitActions = comparableExecuted.filter((row) => row.action === 'EXIT');
+  const crossGuardOverridePathEntries = executed.filter((row) => (
+    row.action === 'ENTRY'
+    && (
+      row.guardOverridePathAgreement === false
+      || row.guardOverridePathComparison === 'CROSS_GUARD_OVERRIDE_PATH'
+      || row.unavailableReason === 'COUNTERFACTUAL_GUARD_PATH_MISMATCH'
+    )
+  ));
+  const explicitlyExcludedCrossGuardOverridePathEntries =
+    crossGuardOverridePathEntries.filter((row) => (
+      row.comparable !== true
+      && row.unavailableReason === 'COUNTERFACTUAL_GUARD_PATH_MISMATCH'
+    ));
+  const diagnosticChecks = {
+    crossGuardOverridePathEntriesExplicitlyExcluded:
+      explicitlyExcludedCrossGuardOverridePathEntries.length
+        === crossGuardOverridePathEntries.length
+  };
   const entryActionMatches = entryActions.filter((row) => row.actionAgreement === true);
   const exitActionMatches = exitActions.filter((row) => row.actionAgreement === true);
   const entryMismatchAttribution = buildEntryMismatchAttribution(
@@ -699,6 +737,7 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     verdict,
     validRun: validityPassed,
     checks,
+    diagnosticChecks,
     counts: {
       evaluations: evaluations.length,
       comparableGateEvaluations: comparable.length,
@@ -741,7 +780,8 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
         && !comparableExecuted.includes(row)
       )).length,
       executedEntryMatches: entryActionMatches.length,
-      executedExitMatches: exitActionMatches.length
+      executedExitMatches: exitActionMatches.length,
+      crossGuardOverridePathEntries: crossGuardOverridePathEntries.length
     },
     agreement: {
       gateActionAgreementRate: ratio(actionMatches.length, comparable.length),
@@ -763,6 +803,30 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     },
     entryConfusionMatrix,
     entryMismatchAttribution,
+    crossGuardOverridePathEntryDiagnostics: {
+      observed: crossGuardOverridePathEntries.length,
+      explicitlyExcludedFromComparable:
+        explicitlyExcludedCrossGuardOverridePathEntries.length,
+      allExplicitlyExcluded:
+        diagnosticChecks.crossGuardOverridePathEntriesExplicitlyExcluded,
+      byGuardFamilyPair: countBy(crossGuardOverridePathEntries, (row) => {
+        const actualFamily = executedGuardOverrideFamily(row, 'actual');
+        const shadowFamily = executedGuardOverrideFamily(row, 'shadow');
+        return `${actualFamily} -> ${shadowFamily}`;
+      }),
+      rows: crossGuardOverridePathEntries.map((row) => ({
+        timestamp: row.timestamp || null,
+        mint: row.mint || null,
+        preset: row.preset || null,
+        actualPresetName: row.actualPresetName || row.preset || null,
+        shadowPresetName: row.shadowPresetName || row.preset || null,
+        actualGuardOverrideFamily: executedGuardOverrideFamily(row, 'actual'),
+        shadowGuardOverrideFamily: executedGuardOverrideFamily(row, 'shadow'),
+        comparable: row.comparable === true,
+        unavailableReason: row.unavailableReason || null
+      })),
+      note: 'Cross-guard-path entries are reported explicitly and remain excluded from comparable entry evidence.'
+    },
     agreementByStateAge: agreementByStateAge(evaluations),
     offlineComparabilityByBound: offlineComparabilityByBound(
       evaluations,

@@ -309,8 +309,12 @@ for (const action of ['ENTRY', 'EXIT']) {
       positionContextPresetAtDecision: null,
       positionContextPolicy: 'actual_pre_observation_context_held_constant',
       independentShadowPositionStateAvailable: false,
-      actualPresetFamily: 'runnerWatch',
-      shadowPresetFamily: 'runnerWatch',
+      actualPresetName: 'runnerWatch',
+      shadowPresetName: 'runnerWatch',
+      actualGuardOverrideFamily: 'NO_OVERRIDE',
+      shadowGuardOverrideFamily: 'NO_OVERRIDE',
+      actualPresetFamily: 'NO_OVERRIDE',
+      shadowPresetFamily: 'NO_OVERRIDE',
       guardOverridePathAgreement: true,
       comparator: preregistration.executedActionComparator.name
     }
@@ -612,12 +616,46 @@ const crossPathEntry = crossPathEvents.find(
 );
 crossPathEntry.payload.comparable = false;
 crossPathEntry.payload.guardOverridePathAgreement = false;
+crossPathEntry.payload.guardOverridePathComparison = 'CROSS_GUARD_OVERRIDE_PATH';
+delete crossPathEntry.payload.actualGuardOverrideFamily;
+delete crossPathEntry.payload.shadowGuardOverrideFamily;
+crossPathEntry.payload.actualGateGuardOverride = 'EARLY_ACCELERATION_FAST_TRACK';
+crossPathEntry.payload.shadowGateGuardOverride = null;
+crossPathEntry.payload.actualPresetFamily = 'EARLY_ACCELERATION_FAST_TRACK';
+crossPathEntry.payload.shadowPresetFamily = 'runnerWatch';
 crossPathEntry.payload.unavailableReason = 'COUNTERFACTUAL_GUARD_PATH_MISMATCH';
 crossPathEntry.payload.actionAgreement = null;
 const crossPath = analyzeEvents(crossPathEvents, preregistration, parity, sourceTelemetry);
 assert.strictEqual(crossPath.verdict, preregistration.insufficientVerdict);
 assert.strictEqual(crossPath.counts.observedExecutedEntries, 1);
 assert.strictEqual(crossPath.counts.comparableExecutedEntries, 0);
+assert.strictEqual(crossPath.counts.crossGuardOverridePathEntries, 1);
+assert.strictEqual(
+  Object.prototype.hasOwnProperty.call(
+    crossPath.checks,
+    'crossGuardOverridePathEntriesExplicitlyExcluded'
+  ),
+  false
+);
+assert.strictEqual(
+  crossPath.diagnosticChecks.crossGuardOverridePathEntriesExplicitlyExcluded,
+  true
+);
+assert.strictEqual(crossPath.crossGuardOverridePathEntryDiagnostics.observed, 1);
+assert.strictEqual(
+  crossPath.crossGuardOverridePathEntryDiagnostics.explicitlyExcludedFromComparable,
+  1
+);
+assert.strictEqual(
+  crossPath.crossGuardOverridePathEntryDiagnostics.byGuardFamilyPair[
+    'EARLY_ACCELERATION_FAST_TRACK -> NO_OVERRIDE'
+  ],
+  1
+);
+assert.strictEqual(
+  crossPath.crossGuardOverridePathEntryDiagnostics.rows[0].actualPresetName,
+  'runnerWatch'
+);
 assert.strictEqual(
   crossPath.unavailableExecutedReasons.COUNTERFACTUAL_GUARD_PATH_MISMATCH,
   1

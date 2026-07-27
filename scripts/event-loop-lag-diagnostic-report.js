@@ -255,6 +255,33 @@ function analyzeTelemetry(filePath) {
       ? 'FIFTEEN_SECOND_STATUS_CADENCE_CORRELATION'
       : 'MIXED_OR_BURSTY_EVENT_LOOP_LAG';
   }
+  const rpcChildSpawnAttempts = Number(rpcChildTransport.spawnAttempts);
+  const rpcChildTotalSpawnSyncMs = Number(rpcChildTransport.totalSpawnSyncMs);
+  const rpcChildSpawnSyncOver10Ms = Number(rpcChildTransport.spawnSyncOver10Ms);
+  const rpcChildSyncCostObserved = (
+    Number.isFinite(rpcChildSpawnAttempts)
+    && rpcChildSpawnAttempts > 0
+    && Number.isFinite(rpcChildTotalSpawnSyncMs)
+    && rpcChildTotalSpawnSyncMs > 0
+  );
+  const rpcChildTransportAssessment = {
+    candidate: rpcChildSyncCostObserved
+      ? 'RPC_CHILD_PROCESS_PER_REQUEST_SPAWN_OVERHEAD_MEASURED'
+      : 'RPC_CHILD_PROCESS_PER_REQUEST_SPAWN_OVERHEAD_NOT_MEASURED',
+    measured: rpcChildSyncCostObserved,
+    spawnAttempts: Number.isFinite(rpcChildSpawnAttempts) ? rpcChildSpawnAttempts : null,
+    totalSpawnSyncMs: numberOrNull(rpcChildTotalSpawnSyncMs, 6),
+    spawnSyncOver10Ms: Number.isFinite(rpcChildSpawnSyncOver10Ms)
+      ? rpcChildSpawnSyncOver10Ms
+      : null,
+    causalConclusionAllowed: false,
+    nextDiagnosticTarget: rpcChildSyncCostObserved
+      ? 'replace_or_pool_per_request_child_process_account_reads'
+      : null,
+    note: rpcChildSyncCostObserved
+      ? 'This is the measured synchronous return-time of per-request child_process.spawn() startup, not use of child_process.spawnSync(). It is a prioritized lag candidate, not proof that it caused each observed lag event.'
+      : 'No cumulative per-request child_process.spawn() startup cost was available in session runtime stats.'
+  };
   const interpretation = diagnosis === 'NO_LAG_EVENTS'
     ? [
       'No runtime.event_loop_lag events were observed in this telemetry file.',
@@ -267,8 +294,16 @@ function analyzeTelemetry(filePath) {
       ]
       : [
         'Lag timing is mixed or bursty rather than aligned with the 15s status cadence.',
-        'Inspect topPrecedingEventTypes5s and topLagMinutes for concentrated provider/runtime event volume, then reduce synchronous per-event telemetry/logging or report-only lane work around those bursts.'
+        'Inspect topPrecedingEventTypes5s and topLagMinutes for concentrated provider/runtime event volume.'
       ];
+  if (rpcChildSyncCostObserved) {
+    interpretation.push(
+      `RPC child-process transport accumulated ${numberOrNull(rpcChildTotalSpawnSyncMs, 3)} ms in the synchronous startup portion of ${rpcChildSpawnAttempts} per-request spawn() calls; prioritize replacing or pooling that account-read transport before changing telemetry.`
+    );
+    interpretation.push(
+      'The measured spawn() startup cost is a prioritized candidate, not causal proof for any individual lag event.'
+    );
+  }
 
   return {
     generatedAt: new Date().toISOString(),
@@ -383,6 +418,7 @@ function analyzeTelemetry(filePath) {
           maxActive: rpcChildTransport.maxActive ?? null,
           meanSpawnSyncMs: numberOrNull(rpcChildTransport.meanSpawnSyncMs, 6),
           maxSpawnSyncMs: numberOrNull(rpcChildTransport.maxSpawnSyncMs, 6),
+          totalSpawnSyncMs: numberOrNull(rpcChildTransport.totalSpawnSyncMs, 6),
           spawnSyncOver10Ms: rpcChildTransport.spawnSyncOver10Ms ?? null,
           meanLifetimeMs: numberOrNull(rpcChildTransport.meanLifetimeMs, 6),
           maxLifetimeMs: numberOrNull(rpcChildTransport.maxLifetimeMs, 6),
@@ -396,6 +432,7 @@ function analyzeTelemetry(filePath) {
           ),
           timeoutCallbacksLateOver100Ms: rpcChildTransport.timeoutCallbacksLateOver100Ms ?? null
         },
+        rpcChildTransportAssessment,
         workSampler: {
           bucketMs: workSamplerSummary.bucketMs ?? null,
           retainedBuckets: workSamplerSummary.retainedBuckets ?? null,

@@ -4104,6 +4104,8 @@ class TradingEngine {
         actual,
         comparable,
         counterfactual,
+        actualEvaluatedPreset,
+        shadowEvaluatedPreset,
         actualGuardOverride,
         shadowGuardOverride,
         guardOverridePathAgreement,
@@ -4301,14 +4303,17 @@ class TradingEngine {
         positionContextPresetAtDecision: actualLaneContext?.activePosition?.presetName || null,
         positionContextPolicy: 'actual_pre_observation_context_held_constant',
         independentShadowPositionStateAvailable: false,
-        actualPresetFamily: matchingGate?.actual?.payload?.guardOverride
+        actualPresetName: matchingGate?.actualEvaluatedPreset
           || matchingGate?.actual?.payload?.preset
           || actual.payload?.preset
           || null,
-        shadowPresetFamily: matchingGate?.counterfactual?.decision?.guardOverride
-          || matchingGate?.counterfactual?.entryGuards?.guardOverride
+        shadowPresetName: matchingGate?.shadowEvaluatedPreset
           || actual.payload?.preset
           || null,
+        actualGuardOverrideFamily: matchingGate?.actualGuardOverride ?? 'NO_OVERRIDE',
+        shadowGuardOverrideFamily: matchingGate?.shadowGuardOverride ?? 'NO_OVERRIDE',
+        actualPresetFamily: matchingGate?.actualGuardOverride ?? 'NO_OVERRIDE',
+        shadowPresetFamily: matchingGate?.shadowGuardOverride ?? 'NO_OVERRIDE',
         entryGateCoupled: action === 'ENTRY',
         guardOverridePathAgreement: action === 'ENTRY'
           ? entryGuardOverridePathAgreement
@@ -4322,10 +4327,10 @@ class TradingEngine {
           : null,
         actualGateDecision: matchingGate?.actual?.payload?.decision || null,
         actualGateReason: matchingGate?.actual?.payload?.reason || null,
-        actualGateGuardOverride: matchingGate?.actual?.payload?.guardOverride || null,
+        actualGateGuardOverride: matchingGate?.actualGuardOverride ?? null,
         shadowGateAction: matchingGate?.counterfactual?.action || null,
         shadowGateReason: matchingGate?.counterfactual?.reason || null,
-        shadowGateGuardOverride: matchingGate?.counterfactual?.decision?.guardOverride || null,
+        shadowGateGuardOverride: matchingGate?.shadowGuardOverride ?? null,
         actionAgreement: comparable ? wouldExecute : null,
         actualReason,
         shadowAction: action === 'ENTRY'

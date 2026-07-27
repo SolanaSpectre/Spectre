@@ -157,6 +157,7 @@ const rows = [
               maxActive: 2,
               meanSpawnSyncMs: 4.1,
               maxSpawnSyncMs: 12.2,
+              totalSpawnSyncMs: 205,
               spawnSyncOver10Ms: 1,
               meanLifetimeMs: 65,
               maxLifetimeMs: 10125,
@@ -188,6 +189,21 @@ try {
   assert.strictEqual(report.summary.runtimePhaseDiagnostics.pumpBondingCurveQueueDrain.maxDurationMs, 60);
   assert.strictEqual(report.summary.runtimePhaseDiagnostics.gcPauses.maxDurationMs, 55);
   assert.strictEqual(report.summary.runtimePhaseDiagnostics.rpcChildTransport.maxSpawnSyncMs, 12.2);
+  assert.strictEqual(report.summary.runtimePhaseDiagnostics.rpcChildTransport.totalSpawnSyncMs, 205);
+  assert.strictEqual(
+    report.summary.runtimePhaseDiagnostics.rpcChildTransportAssessment.candidate,
+    'RPC_CHILD_PROCESS_PER_REQUEST_SPAWN_OVERHEAD_MEASURED'
+  );
+  assert.strictEqual(
+    report.summary.runtimePhaseDiagnostics.rpcChildTransportAssessment.causalConclusionAllowed,
+    false
+  );
+  assert(
+    report.interpretation.some(
+      (line) => line.includes('205 ms in the synchronous startup portion of 50 per-request spawn() calls')
+    ),
+    'interpretation should prioritize measured per-request child-process spawn() overhead'
+  );
   assert.strictEqual(report.summary.stallContextCoverage.captured, 1);
   assert.strictEqual(report.summary.stallContextCoverage.workWindowCaptured, 1);
   assert.strictEqual(report.summary.stallContextCoverage.lagRowsWithActiveRpcChild, 1);

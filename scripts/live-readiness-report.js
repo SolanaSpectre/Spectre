@@ -238,6 +238,7 @@ async function readTelemetry(filePath) {
       txBuildStatus: {},
       simulationOk: { true: 0, false: 0, null: 0 },
       simulationErrors: {},
+      simulationClassifierEpochs: {},
       simulationFailureMintsByClass: {},
       simulationFailureBlockhashLatencyMsByClass: {},
       bondingCurveMintMismatchDiagnostics: [],
@@ -452,6 +453,10 @@ function recordSimulationAccountDiagnostic(stats, payload = {}) {
 function recordSimulationFailure(stats, payload = {}) {
   const failureClass = classifySimulationFailure(payload);
   increment(stats.dryRun.simulationErrors, failureClass);
+  increment(
+    stats.dryRun.simulationClassifierEpochs,
+    payload.simulationClassifierEpoch || 'LEGACY_PRE_CLASSIFIER_EPOCH'
+  );
   if (!stats.dryRun.simulationFailureBlockhashLatencyMsByClass[failureClass]) {
     stats.dryRun.simulationFailureBlockhashLatencyMsByClass[failureClass] = [];
   }
@@ -821,6 +826,7 @@ function buildReport(stats) {
         txBuildStatus: stats.dryRun.txBuildStatus,
         simulationOk: stats.dryRun.simulationOk,
         simulationErrors: stats.dryRun.simulationErrors,
+        simulationClassifierEpochs: stats.dryRun.simulationClassifierEpochs,
         simulationFailureMintsByClass: stats.dryRun.simulationFailureMintsByClass,
         simulationFailureBlockhashLatencyMsByClass:
           stats.dryRun.simulationFailureBlockhashLatencyMsByClass,
@@ -929,6 +935,11 @@ function writeText(report) {
   for (const [name, count] of signatureModes) lines.push(`- Dry-run signature mode: ${name}: ${count}`);
   const blockReasons = Object.entries(m.dryRun.blockReasons || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
   for (const [name, count] of blockReasons) lines.push(`- Dry-run block reason: ${name}: ${count}`);
+  const classifierEpochs = Object.entries(m.dryRun.simulationClassifierEpochs || {})
+    .sort((a, b) => b[1] - a[1]);
+  for (const [name, count] of classifierEpochs) {
+    lines.push(`- Dry-run simulation classifier epoch: ${name}: ${count}`);
+  }
   const failureClasses = Object.entries(m.dryRun.simulationErrors || {}).sort((a, b) => b[1] - a[1]).slice(0, 8);
   for (const [name, count] of failureClasses) {
     lines.push(`- Dry-run simulation failure class: ${name}: ${count}`);
