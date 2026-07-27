@@ -597,9 +597,45 @@ function buildVerdict(stats) {
     + number(finalistStop.decodeErrors, stats.finalist.invalid);
   const finalistReady = number(finalistStop.shadowGateReady, stats.finalist.shadowReady);
   const finalistChecks = number(finalistStop.shadowGateChecks, stats.finalist.shadowChecks);
-  const paperEntries = number(preMigrationStop.entries, stats.paper.entries);
-  const paperExits = number(preMigrationStop.exits, stats.paper.exits);
-  const paperPnl = number(preMigrationStop.totalPnlSol, stats.paper.pnlSol);
+  const stopPaperEntries = Number.isFinite(Number(preMigrationStop.entries))
+    ? Number(preMigrationStop.entries)
+    : null;
+  const stopPaperExits = Number.isFinite(Number(preMigrationStop.exits))
+    ? Number(preMigrationStop.exits)
+    : null;
+  const stopPaperPnl = Number.isFinite(Number(preMigrationStop.totalPnlSol))
+    ? Number(preMigrationStop.totalPnlSol)
+    : null;
+  const eventPaperEntries = number(stats.paper.entries, 0);
+  const eventPaperExits = number(stats.paper.exits, 0);
+  const eventPaperPnl = number(stats.paper.pnlSol, 0);
+  const paperEventStreamComplete = (
+    (stopPaperEntries === null || eventPaperEntries >= stopPaperEntries)
+    && (stopPaperExits === null || eventPaperExits >= stopPaperExits)
+  );
+  const paperEntries = paperEventStreamComplete
+    ? eventPaperEntries
+    : number(stopPaperEntries, eventPaperEntries);
+  const paperExits = paperEventStreamComplete
+    ? eventPaperExits
+    : number(stopPaperExits, eventPaperExits);
+  const paperPnl = paperEventStreamComplete
+    ? eventPaperPnl
+    : number(stopPaperPnl, eventPaperPnl);
+  const paperAggregation = {
+    source: paperEventStreamComplete ? 'telemetry_event_stream' : 'session_stopping_snapshot',
+    eventStream: {
+      entries: eventPaperEntries,
+      exits: eventPaperExits,
+      pnlSol: eventPaperPnl
+    },
+    stoppingSnapshot: {
+      entries: stopPaperEntries,
+      exits: stopPaperExits,
+      pnlSol: stopPaperPnl
+    },
+    note: 'The stopping snapshot can precede forced SESSION_END paper exits; the complete event stream is authoritative when it is at least as complete.'
+  };
   const currentHotWalletBalanceAvailable = stats.currentHotWalletBalanceSol !== null
     && stats.currentHotWalletBalanceSol !== undefined
     && Number.isFinite(Number(stats.currentHotWalletBalanceSol));
@@ -781,7 +817,8 @@ function buildVerdict(stats) {
       requiredLiveBalanceSol,
       paperEntries,
       paperExits,
-      paperPnl
+      paperPnl,
+      paperAggregation
     }
   };
 }

@@ -138,4 +138,26 @@ const missingDenominator = buildVerdict(missingDenominatorStats);
 assert.strictEqual(missingDenominator.metrics.dryExpectedQuoteRaceWithinBound, false);
 assert.strictEqual(missingDenominator.metrics.dryCriticalSimulationFailures, 1);
 
+const sessionEndExitStats = structuredClone(stats);
+sessionEndExitStats.lastStopStats.preMigrationPaper = {
+  entries: 1,
+  exits: 1,
+  totalPnlSol: 0.01
+};
+sessionEndExitStats.paper = {
+  entries: 2,
+  exits: 2,
+  pnlSol: 0.015
+};
+const sessionEndExit = buildVerdict(sessionEndExitStats);
+assert.strictEqual(sessionEndExit.metrics.paperEntries, 2);
+assert.strictEqual(sessionEndExit.metrics.paperExits, 2);
+assert.strictEqual(sessionEndExit.metrics.paperPnl, 0.015);
+assert.strictEqual(sessionEndExit.metrics.paperAggregation.source, 'telemetry_event_stream');
+assert.deepStrictEqual(sessionEndExit.metrics.paperAggregation.stoppingSnapshot, {
+  entries: 1,
+  exits: 1,
+  pnlSol: 0.01
+});
+
 console.log('Live-readiness report smoke passed');
