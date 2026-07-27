@@ -557,7 +557,8 @@ class TradingEngine {
         eventQueueBatchSize: this.config.heliusPumpfunShadowEventQueueBatchSize,
         gateDecisionComparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context',
         executedActionComparator: 'gate_coupled_same_guard_path_entry_and_same_instant_exit_with_actual_lane_context',
-        decisionShadowMarketInputSemantics: 'complete_source_attributed_market_telemetry_missing_score_or_wallet_features_incomparable'
+        decisionShadowMarketInputSemantics:
+          'complete_source_attributed_market_and_window_provenance_missing_score_wallet_or_anchor_features_incomparable'
       },
       strategyPreregistration: {
         id: 'runner_watch_full_coverage_v5_2026-07-26',
@@ -3796,6 +3797,14 @@ class TradingEngine {
         uniqueBuyerRatio: result.state.uniqueBuyerRatio,
         sniperWalletCount: result.state.sniperWalletCountCaptured ? result.state.sniperWalletCount : null,
         sniperWalletCountCaptured: Boolean(result.state.sniperWalletCountCaptured),
+        sniperWalletCountSource: result.state.sniperWalletCountCaptured
+          ? result.state.sniperWalletCountSource || null
+          : null,
+        sniperWindowAnchoredAtFirstObservation:
+          result.state.sniperWindowAnchoredAtFirstObservation === true,
+        sniperWindowAnchorAtMs: result.state.sniperWindowAnchorAtMs ?? null,
+        sniperWindowAnchorKind: result.state.sniperWindowAnchorKind || null,
+        sniperWindowMs: result.state.sniperWindowMs ?? null,
         tradeVelocityPerMin: result.state.tradeVelocityPerMin,
         recentVolumeSol: result.state.recentVolumeSol,
         convictionWhaleCount: result.state.convictionWhaleCount,
@@ -4367,6 +4376,9 @@ class TradingEngine {
           : null,
         sniperWindowAnchoredAtFirstObservation:
           shadowState?.sniperWindowAnchoredAtFirstObservation === true,
+        sniperWindowAnchorAtMs: shadowState?.sniperWindowAnchorAtMs ?? null,
+        sniperWindowAnchorKind: shadowState?.sniperWindowAnchorKind || null,
+        sniperWindowMs: shadowState?.sniperWindowMs ?? null,
         repeatedEarlyBuyerCount: 0,
         bundlerCandidate: false,
         kolOverlap: {
@@ -4457,6 +4469,9 @@ class TradingEngine {
         sniperWalletCountSource: marketValue('sniperWalletCountSource'),
         sniperWindowAnchoredAtFirstObservation:
           marketValue('sniperWindowAnchoredAtFirstObservation'),
+        sniperWindowAnchorAtMs: marketValue('sniperWindowAnchorAtMs'),
+        sniperWindowAnchorKind: marketValue('sniperWindowAnchorKind'),
+        sniperWindowMs: marketValue('sniperWindowMs'),
         sniperWalletCountCaptured: typeof sniperWalletCountCaptured === 'boolean'
           ? sniperWalletCountCaptured
           : null
@@ -4532,7 +4547,10 @@ class TradingEngine {
       sniperWalletCountCaptured: state.sniperWalletCountCaptured === true,
       sniperWalletCountSource: state.sniperWalletCountSource || null,
       sniperWindowAnchoredAtFirstObservation:
-        state.sniperWindowAnchoredAtFirstObservation === true
+        state.sniperWindowAnchoredAtFirstObservation === true,
+      sniperWindowAnchorAtMs: finite(state.sniperWindowAnchorAtMs),
+      sniperWindowAnchorKind: state.sniperWindowAnchorKind || null,
+      sniperWindowMs: finite(state.sniperWindowMs)
     };
   }
 

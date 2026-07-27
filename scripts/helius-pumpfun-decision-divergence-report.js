@@ -54,7 +54,11 @@ function ratio(numerator, denominator) {
 }
 
 function stats(values = []) {
-  const sorted = values.map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  const sorted = values
+    .filter((value) => value !== null && value !== undefined && value !== '')
+    .map(Number)
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
   if (!sorted.length) return { count: 0, min: null, median: null, p90: null, max: null, mean: null };
   const quantile = (q) => sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * q))];
   return {
@@ -126,6 +130,9 @@ function withoutMarketProvenance(inputs = {}) {
   delete market.curveProgressSource;
   delete market.sniperWalletCountSource;
   delete market.sniperWindowAnchoredAtFirstObservation;
+  delete market.sniperWindowAnchorAtMs;
+  delete market.sniperWindowAnchorKind;
+  delete market.sniperWindowMs;
   return { ...inputs, market };
 }
 
@@ -135,7 +142,10 @@ function marketProvenance(inputs = {}) {
     curveProgressSource: market.curveProgressSource || null,
     sniperWalletCountSource: market.sniperWalletCountSource || null,
     sniperWindowAnchoredAtFirstObservation:
-      market.sniperWindowAnchoredAtFirstObservation === true
+      market.sniperWindowAnchoredAtFirstObservation === true,
+    sniperWindowAnchorAtMs: market.sniperWindowAnchorAtMs ?? null,
+    sniperWindowAnchorKind: market.sniperWindowAnchorKind || null,
+    sniperWindowMs: market.sniperWindowMs ?? null
   };
 }
 
@@ -159,7 +169,11 @@ function marketInputTelemetryComplete(inputs = {}) {
     && market.uniqueBuyerCountCaptured === true
     && finite(market.sniperWalletCount)
     && market.sniperWalletCountCaptured === true
-    && nonEmptyString(market.sniperWalletCountSource);
+    && nonEmptyString(market.sniperWalletCountSource)
+    && finite(market.sniperWindowAnchorAtMs)
+    && nonEmptyString(market.sniperWindowAnchorKind)
+    && finite(market.sniperWindowMs)
+    && Number(market.sniperWindowMs) > 0;
 }
 
 function agreementByStateAge(rows = []) {
@@ -661,6 +675,23 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     byReason: countBy(unavailableEvaluations, (row) => row.unavailableReason || 'UNKNOWN')
   };
   const executedPnlAttribution = buildExecutedPnlAttribution(executed, validityPassed);
+  const sniperWindowAnchorComparisons = comparable
+    .map((row) => {
+      const actualRaw = row.actualGuardFamilyInputs?.market?.sniperWindowAnchorAtMs;
+      const shadowRaw = row.shadowGuardFamilyInputs?.market?.sniperWindowAnchorAtMs;
+      if (
+        actualRaw === null || actualRaw === undefined || actualRaw === ''
+        || shadowRaw === null || shadowRaw === undefined || shadowRaw === ''
+      ) return null;
+      const actual = Number(actualRaw);
+      const shadow = Number(shadowRaw);
+      if (!Number.isFinite(actual) || !Number.isFinite(shadow)) return null;
+      return {
+        signedSkewMs: shadow - actual,
+        absoluteSkewMs: Math.abs(shadow - actual)
+      };
+    })
+    .filter(Boolean);
   return {
     generatedAt: new Date().toISOString(),
     sourceTelemetry,
@@ -806,6 +837,25 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
         const shadowAnchored = row.shadowGuardFamilyInputs?.market
           ?.sniperWindowAnchoredAtFirstObservation === true;
         return `${actualAnchored} -> ${shadowAnchored}`;
+      }),
+      sniperWindowAnchorSemantics:
+        'reference_existence_only_true_to_true_does_not_prove_a_shared_anchor_instant',
+      sniperWindowAnchorKindPairs: countBy(comparable, (row) => {
+        const actualKind = row.actualGuardFamilyInputs?.market?.sniperWindowAnchorKind || 'MISSING';
+        const shadowKind = row.shadowGuardFamilyInputs?.market?.sniperWindowAnchorKind || 'MISSING';
+        return `${actualKind} -> ${shadowKind}`;
+      }),
+      sniperWindowAnchorSkew: {
+        semantics: 'shadow_anchor_at_ms_minus_actual_anchor_at_ms',
+        measuredEvaluations: sniperWindowAnchorComparisons.length,
+        missingEvaluations: comparable.length - sniperWindowAnchorComparisons.length,
+        signedMs: stats(sniperWindowAnchorComparisons.map((row) => row.signedSkewMs)),
+        absoluteMs: stats(sniperWindowAnchorComparisons.map((row) => row.absoluteSkewMs))
+      },
+      sniperWindowMsPairs: countBy(comparable, (row) => {
+        const actualMs = row.actualGuardFamilyInputs?.market?.sniperWindowMs ?? 'MISSING';
+        const shadowMs = row.shadowGuardFamilyInputs?.market?.sniperWindowMs ?? 'MISSING';
+        return `${actualMs} -> ${shadowMs}`;
       }),
       baselineControl: {
         semantics: 'actual_lane_observation_history_deliberately_held_constant_for_both_sides',

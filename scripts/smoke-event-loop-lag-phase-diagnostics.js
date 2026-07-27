@@ -62,6 +62,23 @@ const rows = [
     payload: {
       reason: 'SESSION_DURATION_EXCEEDED',
       stats: {
+        pumpPortal: {
+          eventHandlerConcurrency: 6,
+          eventQueueDropped: 0,
+          eventQueueDiscardedOnStop: 0,
+          eventQueueHandlerErrors: 0,
+          eventQueueDrainSchedules: 30,
+          eventQueueDrainCalls: 30,
+          eventQueueDrainItems: 120,
+          eventQueueDrainYields: 20,
+          eventQueueDrainMaxBatch: 6,
+          eventQueueDrainMeanMs: 0.5,
+          eventQueueDrainMaxMs: 3,
+          eventQueueDrainOver50Ms: 0,
+          eventQueueLatencySamples: 120,
+          eventQueueLatencyMeanMs: 4,
+          eventQueueLatencyMaxMs: 40
+        },
         heliusPumpfunShadow: {
           eventQueueDrainCalls: 10,
           eventQueueDrainItems: 640,
@@ -81,6 +98,30 @@ const rows = [
           }
         },
         eventLoopMonitor: {
+          providerTradeTickBursts: {
+            semantics: 'provider_trade_callbacks_grouped_until_next_setImmediate',
+            ticks: 60,
+            events: 120,
+            meanEventsPerTick: 2,
+            maxEventsPerTick: 6,
+            histogram: {
+              one: 30,
+              twoToFour: 20,
+              fiveToNine: 10,
+              tenToTwentyFour: 0,
+              twentyFiveToFortyNine: 0,
+              fiftyPlus: 0
+            },
+            byProvider: {
+              pumpportal: {
+                ticksWithEvents: 60,
+                events: 120,
+                maxEventsPerTick: 6,
+                meanEventsPerTick: 2
+              }
+            },
+            openTickEvents: 0
+          },
           gcPauses: {
             samples: 5,
             meanDurationMs: 3,
@@ -135,6 +176,15 @@ try {
   const report = analyzeTelemetry(telemetryPath);
   assert.strictEqual(report.summary.runtimePhaseDiagnostics.available, true);
   assert.strictEqual(report.summary.runtimePhaseDiagnostics.heliusQueueDrain.maxDurationMs, 80);
+  assert.strictEqual(report.summary.runtimePhaseDiagnostics.pumpPortalQueueDrain.maxBatch, 6);
+  assert.strictEqual(report.summary.runtimePhaseDiagnostics.pumpPortalQueueDrain.maxQueueLatencyMs, 40);
+  assert.strictEqual(report.summary.runtimePhaseDiagnostics.providerTradeTickBursts.maxEventsPerTick, 6);
+  assert.strictEqual(report.summary.runtimePhaseDiagnostics.providerTradeTickBursts.histogram.fiftyPlus, 0);
+  assert.strictEqual(report.summary.pumpPortalBurstControlValidation.verdict, 'BOUNDED_DRAIN_VALIDATED');
+  assert.strictEqual(
+    report.summary.pumpPortalBurstControlValidation.checks.providerBurstWithinConcurrency,
+    true
+  );
   assert.strictEqual(report.summary.runtimePhaseDiagnostics.pumpBondingCurveQueueDrain.maxDurationMs, 60);
   assert.strictEqual(report.summary.runtimePhaseDiagnostics.gcPauses.maxDurationMs, 55);
   assert.strictEqual(report.summary.runtimePhaseDiagnostics.rpcChildTransport.maxSpawnSyncMs, 12.2);

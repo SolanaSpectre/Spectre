@@ -1218,6 +1218,16 @@ function buildPumpPortalHealth(battlefield = {}) {
   const eventQueueProcessed = number(stats.eventQueueProcessed, 0);
   const eventQueueHandlerErrors = number(stats.eventQueueHandlerErrors, 0);
   const eventQueueProcessingActive = number(stats.eventQueueProcessingActive, 0);
+  const eventQueueDrainSchedules = number(stats.eventQueueDrainSchedules, 0);
+  const eventQueueDrainCalls = number(stats.eventQueueDrainCalls, 0);
+  const eventQueueDrainItems = number(stats.eventQueueDrainItems, 0);
+  const eventQueueDrainYields = number(stats.eventQueueDrainYields, 0);
+  const eventQueueDrainMaxBatch = number(stats.eventQueueDrainMaxBatch, 0);
+  const eventQueueDrainMeanMs = number(stats.eventQueueDrainMeanMs, null);
+  const eventQueueDrainMaxMs = number(stats.eventQueueDrainMaxMs, null);
+  const eventQueueDrainOver50Ms = number(stats.eventQueueDrainOver50Ms, 0);
+  const eventQueueLatencyMeanMs = number(stats.eventQueueLatencyMeanMs, null);
+  const eventQueueLatencyMaxMs = number(stats.eventQueueLatencyMaxMs, null);
   const subscriptionAckMessages = number(stats.subscriptionAckMessages, 0);
   const newTokenSubscriptionAcks = number(stats.newTokenSubscriptionAcks, 0);
   const migrationSubscriptionAcks = number(stats.migrationSubscriptionAcks, 0);
@@ -1372,6 +1382,16 @@ function buildPumpPortalHealth(battlefield = {}) {
     eventQueueProcessed,
     eventQueueHandlerErrors,
     eventQueueProcessingActive,
+    eventQueueDrainSchedules,
+    eventQueueDrainCalls,
+    eventQueueDrainItems,
+    eventQueueDrainYields,
+    eventQueueDrainMaxBatch,
+    eventQueueDrainMeanMs,
+    eventQueueDrainMaxMs,
+    eventQueueDrainOver50Ms,
+    eventQueueLatencyMeanMs,
+    eventQueueLatencyMaxMs,
     subscriptionAckMessages,
     newTokenSubscriptionAcks,
     migrationSubscriptionAcks,
@@ -3427,6 +3447,7 @@ function buildSummary(docs) {
     : `${pumpPortalHealth.reconnectResubscribeBatchDelayMs}ms`;
   lines.push(`  - reconnect resubscribe pressure: max=${pumpPortalHealth.reconnectResubscribeMaxMints || 'n/a'}, batch=${pumpPortalHealth.reconnectResubscribeBatchSize || 'n/a'}, delay=${reconnectDelay}, scheduled/sent/dropped=${pumpPortalHealth.tokenTradeReconnectResubscribeScheduled || 0} / ${pumpPortalHealth.tokenTradeReconnectResubscribeSent || 0} / ${pumpPortalHealth.tokenTradeReconnectResubscribeDropped || 0}`);
   lines.push(`  - message handler queue: active=${pumpPortalHealth.eventQueueProcessingActive || 0}, depth/max=${pumpPortalHealth.eventQueueDepth || 0} / ${pumpPortalHealth.eventQueueMaxDepth || 0}, processed/dropped/stop-discarded/errors=${pumpPortalHealth.eventQueueProcessed || 0} / ${pumpPortalHealth.eventQueueDropped || 0} / ${pumpPortalHealth.eventQueueDiscardedOnStop || 0} / ${pumpPortalHealth.eventQueueHandlerErrors || 0}, concurrency=${pumpPortalHealth.eventHandlerConcurrency || 'n/a'}, max=${pumpPortalHealth.eventQueueMaxSize || 'n/a'}`);
+  lines.push(`  - bounded queue drains schedules/calls/items/yields/maxBatch: ${pumpPortalHealth.eventQueueDrainSchedules || 0} / ${pumpPortalHealth.eventQueueDrainCalls || 0} / ${pumpPortalHealth.eventQueueDrainItems || 0} / ${pumpPortalHealth.eventQueueDrainYields || 0} / ${pumpPortalHealth.eventQueueDrainMaxBatch || 0}; drain mean/max/>50ms=${ms(pumpPortalHealth.eventQueueDrainMeanMs)} / ${ms(pumpPortalHealth.eventQueueDrainMaxMs)} / ${pumpPortalHealth.eventQueueDrainOver50Ms || 0}; queue latency mean/max=${ms(pumpPortalHealth.eventQueueLatencyMeanMs)} / ${ms(pumpPortalHealth.eventQueueLatencyMaxMs)}`);
   lines.push(`  - subscription ACKs total/new/migration/token/account/unknown: ${pumpPortalHealth.subscriptionAckMessages || 0} / ${pumpPortalHealth.newTokenSubscriptionAcks || 0} / ${pumpPortalHealth.migrationSubscriptionAcks || 0} / ${pumpPortalHealth.tokenTradeSubscriptionAcks || 0} / ${pumpPortalHealth.accountTradeSubscriptionAcks || 0} / ${pumpPortalHealth.unknownSubscriptionAcks || 0}`);
   if (pumpPortalHealth.lastSubscriptionAckMessage) {
     lines.push(`  - last subscription ACK: kind=${pumpPortalHealth.lastSubscriptionAckKind || 'unknown'} message="${pumpPortalHealth.lastSubscriptionAckMessage}"`);
@@ -3547,6 +3568,11 @@ function buildSummary(docs) {
     lines.push(`  - offline state availability by age bound: ${heliusOfflineBounds.map((row) => `<=${row.boundMs}ms ${fmt(row.coverageRate, 4)}`).join(', ')} (availability only; no retroactive rescoring)`);
   }
   lines.push(`  - wallet feature / tracked-address agreement (diagnostic): ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.walletFeatureAgreementRate', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'agreement.trackedAddressAgreementRate', null), 4)}`);
+  lines.push(`  - complete source-attributed market telemetry: ${get(heliusPumpfunDecisionDivergence, 'counts.comparableGateEvaluationsWithCompleteMarketInputTelemetry', 0)} / ${get(heliusPumpfunDecisionDivergence, 'counts.comparableGateEvaluations', 0)}`);
+  const sniperAnchorSkew = get(heliusPumpfunDecisionDivergence, 'marketInputTelemetry.sniperWindowAnchorSkew', {});
+  lines.push(`  - sniper-window anchor skew measured/missing, signed median, abs median/p90/max: ${sniperAnchorSkew.measuredEvaluations ?? 'n/a'} / ${sniperAnchorSkew.missingEvaluations ?? 'n/a'}, ${fmt(get(sniperAnchorSkew, 'signedMs.median', null), 0)}ms, ${fmt(get(sniperAnchorSkew, 'absoluteMs.median', null), 0)} / ${fmt(get(sniperAnchorSkew, 'absoluteMs.p90', null), 0)} / ${fmt(get(sniperAnchorSkew, 'absoluteMs.max', null), 0)}ms`);
+  objectLines(get(heliusPumpfunDecisionDivergence, 'marketInputTelemetry.sniperWindowAnchorKindPairs', {}), 4).forEach((line) => lines.push(`  - sniper anchor kind pair: ${line}`));
+  objectLines(get(heliusPumpfunDecisionDivergence, 'marketInputTelemetry.sniperWindowMsPairs', {}), 4).forEach((line) => lines.push(`  - sniper window length pair: ${line}`));
   lines.push(`  - Helius queue enqueued/processed/dropped/errors/depth-at-stop: ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.enqueued', 0)} / ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.processed', 0)} / ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.dropped', 0)} / ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.handlerErrors', 0)} / ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.depthAtStop', 0)}`);
   lines.push(`  - Helius queue max depth/saturation/latency mean-max: ${get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.maxDepth', 0)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.maxDepthRatio', null), 4)} / ${fmt(get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.latencyMeanMs', null), 2)}-${fmt(get(heliusPumpfunDecisionDivergence, 'heliusEventQueue.latencyMaxMs', null), 0)}ms`);
   const targetedParitySummary = pumpDevTargetedCurveParity.summary || {};
@@ -3635,12 +3661,18 @@ function buildSummary(docs) {
     const phaseDiagnostics = lagDiag.runtimePhaseDiagnostics || {};
     if (phaseDiagnostics.available) {
       const heliusDrain = phaseDiagnostics.heliusQueueDrain || {};
+      const pumpPortalDrain = phaseDiagnostics.pumpPortalQueueDrain || {};
+      const providerBursts = phaseDiagnostics.providerTradeTickBursts || {};
       const curveDrain = phaseDiagnostics.pumpBondingCurveQueueDrain || {};
       const gcPauses = phaseDiagnostics.gcPauses || {};
       lines.push(`  - Helius drain calls/mean/max/>50ms: ${heliusDrain.calls ?? 'n/a'} / ${ms(heliusDrain.meanDurationMs)} / ${ms(heliusDrain.maxDurationMs)} / ${heliusDrain.over50Ms ?? 'n/a'}`);
+      lines.push(`  - PumpPortal bounded drains calls/items/yields/maxBatch/queueMaxLatency: ${pumpPortalDrain.calls ?? 'n/a'} / ${pumpPortalDrain.items ?? 'n/a'} / ${pumpPortalDrain.yields ?? 'n/a'} / ${pumpPortalDrain.maxBatch ?? 'n/a'} / ${ms(pumpPortalDrain.maxQueueLatencyMs)}`);
+      lines.push(`  - provider trade callbacks ticks/events/mean/max: ${providerBursts.ticks ?? 'n/a'} / ${providerBursts.events ?? 'n/a'} / ${fmt(providerBursts.meanEventsPerTick, 3)} / ${providerBursts.maxEventsPerTick ?? 'n/a'}; buckets=${Object.entries(providerBursts.histogram || {}).map(([bucket, count]) => `${bucket}:${count}`).join(', ') || 'n/a'}`);
       lines.push(`  - curve queue drain calls/scanned/mean/max/>50ms: ${curveDrain.calls ?? 'n/a'} / ${curveDrain.scanned ?? 'n/a'} / ${ms(curveDrain.meanDurationMs)} / ${ms(curveDrain.maxDurationMs)} / ${curveDrain.over50Ms ?? 'n/a'}`);
       lines.push(`  - GC pauses samples/mean/max/>50ms: ${gcPauses.samples ?? 'n/a'} / ${ms(gcPauses.meanDurationMs)} / ${ms(gcPauses.maxDurationMs)} / ${gcPauses.over50Ms ?? 'n/a'}`);
     }
+    const burstValidation = lagDiag.pumpPortalBurstControlValidation || {};
+    lines.push(`  - PumpPortal burst-control validation: ${burstValidation.verdict || 'n/a'}; metricsAvailable=${burstValidation.metricsAvailable === true}; checks=${Object.entries(burstValidation.checks || {}).map(([name, passed]) => `${name}:${passed}`).join(', ') || 'n/a'}`);
   }
   if (pumpDevSubscriptionLifecycle.summary) {
     const sub = pumpDevSubscriptionLifecycle.summary;

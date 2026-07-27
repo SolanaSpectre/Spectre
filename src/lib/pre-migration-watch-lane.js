@@ -164,6 +164,9 @@ class PreMigrationWatchLane {
       sniperWalletCountCaptured: false,
       sniperWalletCountSource: null,
       sniperWindowAnchoredAtFirstObservation: false,
+      sniperWindowAnchorAtMs: null,
+      sniperWindowAnchorKind: null,
+      sniperWindowMs: null,
       bundlerCandidate: false,
       score: 0,
       reasons: [],
@@ -320,6 +323,23 @@ class PreMigrationWatchLane {
       sniperWindowAnchoredAtFirstObservation: hasLaunchSniperWalletCount
         ? launchIntelSummary?.heuristics?.sniperWindowAnchoredAtFirstObservation === true
         : existing.sniperWindowAnchoredAtFirstObservation === true,
+      sniperWindowAnchorAtMs: hasLaunchSniperWalletCount
+        && launchIntelSummary?.heuristics?.sniperWindowAnchorAtMs !== null
+        && launchIntelSummary?.heuristics?.sniperWindowAnchorAtMs !== undefined
+        && launchIntelSummary?.heuristics?.sniperWindowAnchorAtMs !== ''
+        && Number.isFinite(Number(launchIntelSummary.heuristics.sniperWindowAnchorAtMs))
+        ? Number(launchIntelSummary.heuristics.sniperWindowAnchorAtMs)
+        : existing.sniperWindowAnchorAtMs ?? null,
+      sniperWindowAnchorKind: hasLaunchSniperWalletCount
+        ? launchIntelSummary?.heuristics?.sniperWindowAnchorKind || null
+        : existing.sniperWindowAnchorKind || null,
+      sniperWindowMs: hasLaunchSniperWalletCount
+        && launchIntelSummary?.heuristics?.sniperWindowMs !== null
+        && launchIntelSummary?.heuristics?.sniperWindowMs !== undefined
+        && launchIntelSummary?.heuristics?.sniperWindowMs !== ''
+        && Number.isFinite(Number(launchIntelSummary.heuristics.sniperWindowMs))
+        ? Number(launchIntelSummary.heuristics.sniperWindowMs)
+        : existing.sniperWindowMs ?? null,
       bundlerCandidate: Boolean(launchIntelSummary?.heuristics?.bundlerCandidate || existing.bundlerCandidate)
     };
 
@@ -735,6 +755,22 @@ class PreMigrationWatchLane {
       lateChaserCount: Number(state.lateChaserCount || 0),
       sniperWalletCount: Number(state.sniperWalletCount || 0),
       sniperWalletCountCaptured: Boolean(state.sniperWalletCountCaptured),
+      sniperWalletCountSource: state.sniperWalletCountSource || null,
+      sniperWindowAnchoredAtFirstObservation:
+        state.sniperWindowAnchoredAtFirstObservation === true,
+      sniperWindowAnchorAtMs: state.sniperWindowAnchorAtMs !== null
+        && state.sniperWindowAnchorAtMs !== undefined
+        && state.sniperWindowAnchorAtMs !== ''
+        && Number.isFinite(Number(state.sniperWindowAnchorAtMs))
+        ? Number(state.sniperWindowAnchorAtMs)
+        : null,
+      sniperWindowAnchorKind: state.sniperWindowAnchorKind || null,
+      sniperWindowMs: state.sniperWindowMs !== null
+        && state.sniperWindowMs !== undefined
+        && state.sniperWindowMs !== ''
+        && Number.isFinite(Number(state.sniperWindowMs))
+        ? Number(state.sniperWindowMs)
+        : null,
       bundlerCandidate: Boolean(state.bundlerCandidate)
     };
   }

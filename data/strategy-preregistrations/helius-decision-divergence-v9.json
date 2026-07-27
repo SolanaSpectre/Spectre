@@ -66,6 +66,63 @@
     "providerRoutingChanged": false,
     "freshnessThresholdChanged": false
   },
+  "postRunInstrumentationAmendmentV3": {
+    "amendedAt": "2026-07-26T22:40:00-05:00",
+    "sourceTelemetry": "run-logs/telemetry-2026-07-27T02-26-23-803Z.jsonl",
+    "eligibleComparableRunsBeforeAmendment": 0,
+    "reason": "The first post-V2 runtime validation showed that PreMigrationWatchLane stored sniper provenance internally but its toSummary boundary omitted sniperWalletCountSource and sniperWindowAnchoredAtFirstObservation. All 5590 otherwise-comparable evaluations therefore emitted captured sniper counts with null provenance and correctly invalidated the run.",
+    "corrections": [
+      "Carry sniperWalletCountSource and sniperWindowAnchoredAtFirstObservation through PreMigrationWatchLane.toSummary so actual and Helius shadow decision states preserve the producer provenance.",
+      "Emit the same provenance on pre_migration observed telemetry for direct runtime inspection.",
+      "Add a merge-to-summary regression fixture instead of relying only on producer and telemetry source-text assertions.",
+      "State explicitly that the anchor boolean proves only reference existence; true-to-true does not prove that provider windows share an anchor instant.",
+      "Emit each provider's exact sniper-window anchor timestamp, anchor kind, and configured window length; report signed and absolute anchor skew as provenance-only diagnostics.",
+      "Require exact anchor provenance for complete comparable market-input telemetry without treating anchor skew as a causal gate-input mismatch.",
+      "Align the session-started market-input semantics label with the amended completeness rule before the next eligible run."
+    ],
+    "priorRunDisposition": "INVALID_FOR_V9_COMPARATOR_EVIDENCE_AND_NOT_REUSED",
+    "strategyBehaviorChanged": false,
+    "providerRoutingChanged": false,
+    "freshnessThresholdChanged": false
+  },
+  "postRunInfrastructureAmendmentV4": {
+    "amendedAt": "2026-07-26T22:45:57-05:00",
+    "sourceTelemetry": "run-logs/telemetry-2026-07-27T02-26-23-803Z.jsonl",
+    "eligibleComparableRunsBeforeAmendment": 0,
+    "reason": "The same invalid instrumentation run also exposed burst-shaped event-loop pressure. PumpPortal delivered 66589 trade callbacks across 34506 setImmediate-delimited turns, including five turns with at least 50 callbacks and a maximum of 131. PumpPortal trade synchronous-prefix work averaged 11.12273 ms, while runtime lag reached 1277 ms. This is attribution evidence, not causal proof.",
+    "baseline": {
+      "eventLoopLagEvents": 12,
+      "eventLoopLagMedianMs": 400,
+      "eventLoopLagP90Ms": 755,
+      "eventLoopLagMaxMs": 1277,
+      "pumpPortalTradeCallbacks": 66589,
+      "providerTradeTicks": 34506,
+      "providerTradeMaxCallbacksPerTick": 131,
+      "providerTradeFiftyPlusTicks": 5,
+      "pumpPortalTradeSyncPrefixMeanMs": 11.12273,
+      "pumpPortalTradeSyncPrefixMaxMs": 207.5859,
+      "pumpPortalQueueMaxDepth": 13,
+      "pumpPortalQueueDropped": 0
+    },
+    "corrections": [
+      "Replace immediate and duplicate completion-triggered PumpPortal queue drains with one latched setImmediate scheduler.",
+      "Start at most the configured event-handler concurrency per drain turn without changing the configured concurrency.",
+      "Cancel a pending queue drain during shutdown and preserve explicit stop-discard accounting.",
+      "Report drain schedules, calls, items, yields, max batch, queue latency, and provider callback burst histograms."
+    ],
+    "nextRunChecks": [
+      "PumpPortal eventQueueDrainMaxBatch must not exceed eventHandlerConcurrency.",
+      "PumpPortal queue drops, stop discards, and handler errors must remain zero for a clean comparison.",
+      "PumpPortal provider max callbacks per setImmediate-delimited turn should be bounded by eventHandlerConcurrency; failure is a scheduler instrumentation defect.",
+      "Queue latency and state freshness must remain visible and acceptable; reducing callback bursts by hiding backlog is not a pass.",
+      "Event-loop lag changes are descriptive across unequal market loads and cannot alone prove causality."
+    ],
+    "priorRunDisposition": "INVALID_FOR_V9_COMPARATOR_EVIDENCE_AND_NOT_REUSED",
+    "strategyBehaviorChanged": false,
+    "providerRoutingChanged": false,
+    "freshnessThresholdChanged": false,
+    "causalClaimAllowedBeforeFutureRuntimeValidation": false
+  },
   "gateDecisionComparator": {
     "name": "same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context",
     "context": [
@@ -77,7 +134,7 @@
     "positionSemantics": "An active position does not suppress a PAPER_SHADOWED gate pass; gate agreement measures WOULD_ENTER versus WOULD_SKIP.",
     "marketFeatureSemantics": "PumpPortal decisions retain PumpPortal tape-derived features and Helius counterfactuals retain Helius tape-derived features. Diagnostic guard-family payloads must expose the exact market vector each side used.",
     "gatePathTreatment": "Cross-guard-path gate results remain visible as full counterfactual outcomes and are never fed into strategy.",
-    "marketInputTelemetrySemantics": "complete_source_attributed_market_telemetry_missing_score_or_wallet_features_incomparable"
+    "marketInputTelemetrySemantics": "complete_source_attributed_market_and_window_provenance_missing_score_wallet_or_anchor_features_incomparable"
   },
   "decisionComparabilityDiagnostics": {
     "purpose": "Adjudicate PRESET_NOT_ELIGIBLE_FOR_GUARD_OVERRIDE mismatches and stale-state coverage without changing classification or denominator.",

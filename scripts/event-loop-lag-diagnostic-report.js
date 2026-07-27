@@ -165,10 +165,40 @@ function analyzeTelemetry(filePath) {
     : 0;
   const totalEvents = allMinutes.reduce((sum, minute) => sum + minute.events, 0);
   const heliusQueue = sessionRuntimeStats?.heliusPumpfunShadow || {};
+  const pumpPortalQueue = sessionRuntimeStats?.pumpPortal || {};
   const curveQueue = sessionRuntimeStats?.pumpBondingCurveLane?.engineQueueDrain || {};
-  const gcPauses = sessionRuntimeStats?.eventLoopMonitor?.gcPauses || {};
-  const workSamplerSummary = sessionRuntimeStats?.eventLoopMonitor?.workSampler || {};
+  const eventLoopMonitor = sessionRuntimeStats?.eventLoopMonitor || {};
+  const gcPauses = eventLoopMonitor.gcPauses || {};
+  const workSamplerSummary = eventLoopMonitor.workSampler || {};
+  const providerTradeTickBursts = eventLoopMonitor.providerTradeTickBursts || {};
+  const pumpPortalTradeBursts = providerTradeTickBursts.byProvider?.pumpportal || {};
   const rpcChildTransport = sessionRuntimeStats?.solanaRpc?.transport?.childProcess || {};
+  const boundedDrainMetricsAvailable = [
+    pumpPortalQueue.eventHandlerConcurrency,
+    pumpPortalQueue.eventQueueDrainCalls,
+    pumpPortalQueue.eventQueueDrainMaxBatch,
+    pumpPortalQueue.eventQueueLatencySamples,
+    pumpPortalTradeBursts.maxEventsPerTick
+  ].every((value) => Number.isFinite(Number(value)));
+  const boundedDrainChecks = boundedDrainMetricsAvailable
+    ? {
+      maxBatchWithinConcurrency:
+        Number(pumpPortalQueue.eventQueueDrainMaxBatch)
+          <= Number(pumpPortalQueue.eventHandlerConcurrency),
+      providerBurstWithinConcurrency:
+        Number(pumpPortalTradeBursts.maxEventsPerTick)
+          <= Number(pumpPortalQueue.eventHandlerConcurrency),
+      noQueueDrops: Number(pumpPortalQueue.eventQueueDropped || 0) === 0,
+      noStopDiscards: Number(pumpPortalQueue.eventQueueDiscardedOnStop || 0) === 0,
+      noHandlerErrors: Number(pumpPortalQueue.eventQueueHandlerErrors || 0) === 0,
+      queueLatencyObserved: Number(pumpPortalQueue.eventQueueLatencySamples || 0) > 0
+    }
+    : null;
+  const boundedDrainVerdict = !boundedDrainMetricsAvailable
+    ? 'PRE_BOUNDED_DRAIN_BASELINE'
+    : Object.values(boundedDrainChecks).every(Boolean)
+      ? 'BOUNDED_DRAIN_VALIDATED'
+      : 'BOUNDED_DRAIN_VALIDATION_FAILED';
   const stallWindowPhases = new Map();
   for (const row of lagRows) {
     for (const phase of row.stallContext?.workWindow?.topPhases || []) {
@@ -307,6 +337,28 @@ function analyzeTelemetry(filePath) {
           over50Ms: heliusQueue.eventQueueDrainOver50Ms ?? null,
           maxQueueLatencyMs: numberOrNull(heliusQueue.eventQueueLatencyMaxMs, 6)
         },
+        pumpPortalQueueDrain: {
+          schedules: pumpPortalQueue.eventQueueDrainSchedules ?? null,
+          calls: pumpPortalQueue.eventQueueDrainCalls ?? null,
+          items: pumpPortalQueue.eventQueueDrainItems ?? null,
+          yields: pumpPortalQueue.eventQueueDrainYields ?? null,
+          maxBatch: pumpPortalQueue.eventQueueDrainMaxBatch ?? null,
+          meanDurationMs: numberOrNull(pumpPortalQueue.eventQueueDrainMeanMs, 6),
+          maxDurationMs: numberOrNull(pumpPortalQueue.eventQueueDrainMaxMs, 6),
+          over50Ms: pumpPortalQueue.eventQueueDrainOver50Ms ?? null,
+          meanQueueLatencyMs: numberOrNull(pumpPortalQueue.eventQueueLatencyMeanMs, 6),
+          maxQueueLatencyMs: numberOrNull(pumpPortalQueue.eventQueueLatencyMaxMs, 6)
+        },
+        providerTradeTickBursts: {
+          semantics: providerTradeTickBursts.semantics || null,
+          ticks: providerTradeTickBursts.ticks ?? null,
+          events: providerTradeTickBursts.events ?? null,
+          meanEventsPerTick: numberOrNull(providerTradeTickBursts.meanEventsPerTick, 6),
+          maxEventsPerTick: providerTradeTickBursts.maxEventsPerTick ?? null,
+          histogram: providerTradeTickBursts.histogram || {},
+          byProvider: providerTradeTickBursts.byProvider || {},
+          openTickEvents: providerTradeTickBursts.openTickEvents ?? null
+        },
         pumpBondingCurveQueueDrain: {
           calls: curveQueue.calls ?? null,
           scanned: curveQueue.scanned ?? null,
@@ -352,7 +404,16 @@ function analyzeTelemetry(filePath) {
           maxDurationMs: numberOrNull(workSamplerSummary.maxDurationMs, 6),
           byPhase: workSamplerSummary.byPhase || {}
         },
-        note: 'The bounded work sampler aggregates completed synchronous work into 100ms buckets. Phase timers may be nested, so summed duration can exceed wall-clock time; bucket overlap is an attribution upper bound, not causal proof.'
+        note: 'The bounded work sampler aggregates completed synchronous work into 100ms buckets. Phase timers may be nested, so summed duration can exceed wall-clock time; bucket overlap and provider burst alignment are attribution upper bounds, not causal proof.'
+      },
+      pumpPortalBurstControlValidation: {
+        verdict: boundedDrainVerdict,
+        reportOnly: true,
+        causalConclusionAllowed: false,
+        metricsAvailable: boundedDrainMetricsAvailable,
+        eventHandlerConcurrency: pumpPortalQueue.eventHandlerConcurrency ?? null,
+        checks: boundedDrainChecks,
+        note: 'A pass proves bounded callback scheduling and intact queue accounting. It does not by itself prove lower event-loop lag across unequal market loads.'
       }
     },
     interpretation

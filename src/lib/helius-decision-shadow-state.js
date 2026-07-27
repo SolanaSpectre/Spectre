@@ -123,6 +123,9 @@ class HeliusDecisionShadowState {
     const uniqueBuyerCountCaptured = recentTrades.length > 0
       && recentBuys.every((row) => Boolean(row.trader));
     const firstReferenceMs = eligibleTrades[0]?.atMs ?? source.createdAtMs ?? null;
+    const sniperWindowAnchorKind = eligibleTrades.length > 0
+      ? 'first_referenced_trade'
+      : (Number.isFinite(source.createdAtMs) ? 'created_at' : null);
     const earlyBuyWindow = Number.isFinite(firstReferenceMs)
       ? allBuys.filter((row) => row.atMs - firstReferenceMs <= this.sniperWindowMs)
       : [];
@@ -204,7 +207,9 @@ class HeliusDecisionShadowState {
       sniperWalletCountSource: sniperWalletCountCaptured
         ? 'helius_first_reference_buy_window'
         : null,
-      sniperWindowAnchoredAtFirstObservation: sniperWalletCountCaptured,
+      sniperWindowAnchoredAtFirstObservation: Number.isFinite(firstReferenceMs),
+      sniperWindowAnchorAtMs: Number.isFinite(firstReferenceMs) ? firstReferenceMs : null,
+      sniperWindowAnchorKind,
       sniperWindowMs: this.sniperWindowMs,
       bundlerCandidate: false,
       walletClassificationContext: walletContext
@@ -239,6 +244,8 @@ class HeliusDecisionShadowState {
         sniperWalletCountSource: state.sniperWalletCountSource,
         sniperWindowAnchoredAtFirstObservation:
           state.sniperWindowAnchoredAtFirstObservation,
+        sniperWindowAnchorAtMs: state.sniperWindowAnchorAtMs,
+        sniperWindowAnchorKind: state.sniperWindowAnchorKind,
         sniperWindowMs: this.sniperWindowMs,
         curveStateSource,
         accountEnriched: accountUsable,

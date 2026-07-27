@@ -3,6 +3,54 @@
 
 const assert = require('assert');
 const HeliusDecisionShadowState = require('../src/lib/helius-decision-shadow-state');
+const PreMigrationWatchLane = require('../src/lib/pre-migration-watch-lane');
+
+const watchLane = new PreMigrationWatchLane({
+  preMigrationWatchEnabled: true,
+  preMigrationWatchMinScore: 65,
+  preMigrationWatchMinCurveProgress: 0.4,
+  preMigrationWatchFlagCooldownMs: 60_000,
+  preMigrationWatchMaxTrackedMints: 10
+}, null);
+const watchNow = Date.parse('2026-07-20T00:59:59.000Z');
+const watchInitial = watchLane.createInitialState(
+  'SummaryBoundaryMint',
+  { mint: 'SummaryBoundaryMint' },
+  new Date(watchNow).toISOString()
+);
+const watchMerged = watchLane.mergeObservation(
+  watchInitial,
+  {
+    mint: 'SummaryBoundaryMint',
+    recentBuys: 1,
+    recentSells: 0,
+    recentTradeCount: 1,
+    uniqueBuyerCount: 1
+  },
+  {
+    uniqueBuyerCount: 1,
+    heuristics: {
+      sniperWalletCount: 1,
+      sniperWalletCountSource: 'launch_intel_first_reference_buy_window',
+      sniperWindowAnchoredAtFirstObservation: true,
+      sniperWindowAnchorAtMs: watchNow,
+      sniperWindowAnchorKind: 'first_trade',
+      sniperWindowMs: 4000
+    }
+  },
+  null,
+  watchNow,
+  new Date(watchNow).toISOString()
+);
+const watchSummary = watchLane.toSummary(watchMerged);
+assert.strictEqual(
+  watchSummary.sniperWalletCountSource,
+  'launch_intel_first_reference_buy_window'
+);
+assert.strictEqual(watchSummary.sniperWindowAnchoredAtFirstObservation, true);
+assert.strictEqual(watchSummary.sniperWindowAnchorAtMs, watchNow);
+assert.strictEqual(watchSummary.sniperWindowAnchorKind, 'first_trade');
+assert.strictEqual(watchSummary.sniperWindowMs, 4000);
 
 const state = new HeliusDecisionShadowState({ pumpMomentumWindowMs: 60_000 });
 assert.strictEqual(state.ingest('provider.helius_pumpfun.shadow_trade', {
@@ -61,6 +109,12 @@ assert.strictEqual(snapshot.state.sniperWalletCount, 1);
 assert.strictEqual(snapshot.state.sniperWalletCountCaptured, true);
 assert.strictEqual(snapshot.state.sniperWalletCountSource, 'helius_first_reference_buy_window');
 assert.strictEqual(snapshot.state.sniperWindowAnchoredAtFirstObservation, true);
+assert.strictEqual(
+  snapshot.state.sniperWindowAnchorAtMs,
+  Date.parse('2026-07-20T01:00:10.000Z')
+);
+assert.strictEqual(snapshot.state.sniperWindowAnchorKind, 'first_referenced_trade');
+assert.strictEqual(snapshot.state.sniperWindowMs, 4000);
 assert.strictEqual(snapshot.walletContext.touched, true);
 assert.deepStrictEqual(snapshot.walletContext.wallets.map((row) => row.wallet), ['TrackedWallet']);
 assert.strictEqual(snapshot.walletContext.untrustedWallets.length, 1);
@@ -198,7 +252,12 @@ assert.strictEqual(sellOnlySnapshot.available, true);
 assert.strictEqual(sellOnlySnapshot.state.sniperWalletCount, null);
 assert.strictEqual(sellOnlySnapshot.state.sniperWalletCountCaptured, false);
 assert.strictEqual(sellOnlySnapshot.state.sniperWalletCountSource, null);
-assert.strictEqual(sellOnlySnapshot.state.sniperWindowAnchoredAtFirstObservation, false);
+assert.strictEqual(sellOnlySnapshot.state.sniperWindowAnchoredAtFirstObservation, true);
+assert.strictEqual(
+  sellOnlySnapshot.state.sniperWindowAnchorAtMs,
+  Date.parse('2026-07-20T01:05:00.000Z')
+);
+assert.strictEqual(sellOnlySnapshot.state.sniperWindowAnchorKind, 'first_referenced_trade');
 
 const capped = new HeliusDecisionShadowState({ pumpMomentumWindowMs: 60_000 });
 for (let index = 0; index < 250; index += 1) {

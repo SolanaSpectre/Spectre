@@ -50,6 +50,9 @@ const guardInputs = comparatorHarness.decisionShadowGuardFamilyInputs(
     sniperWalletCountCaptured: true,
     sniperWalletCountSource: 'launch_intel_first_reference_buy_window',
     sniperWindowAnchoredAtFirstObservation: true,
+    sniperWindowAnchorAtMs: Date.parse('2026-07-20T01:00:00.000Z'),
+    sniperWindowAnchorKind: 'first_trade',
+    sniperWindowMs: 4000,
     curveProgressSource: 'pump_bonding_curve_rpc'
   }
 );
@@ -63,6 +66,12 @@ assert.strictEqual(
   guardInputs.market.sniperWalletCountSource,
   'launch_intel_first_reference_buy_window'
 );
+assert.strictEqual(
+  guardInputs.market.sniperWindowAnchorAtMs,
+  Date.parse('2026-07-20T01:00:00.000Z')
+);
+assert.strictEqual(guardInputs.market.sniperWindowAnchorKind, 'first_trade');
+assert.strictEqual(guardInputs.market.sniperWindowMs, 4000);
 comparatorHarness.extractProviderCurveProgressForParity = (state) => state.curveProgress ?? null;
 comparatorHarness.extractProviderPriceForParity = (state) => state.priceSol ?? null;
 assert.deepStrictEqual(
@@ -78,7 +87,10 @@ assert.deepStrictEqual(
     sniperWalletCount: 0,
     sniperWalletCountCaptured: true,
     sniperWalletCountSource: 'helius_first_reference_buy_window',
-    sniperWindowAnchoredAtFirstObservation: true
+    sniperWindowAnchoredAtFirstObservation: true,
+    sniperWindowAnchorAtMs: Date.parse('2026-07-20T01:00:00.250Z'),
+    sniperWindowAnchorKind: 'first_referenced_trade',
+    sniperWindowMs: 4000
   }),
   {
     score: 0,
@@ -97,7 +109,10 @@ assert.deepStrictEqual(
     sniperWalletCount: 0,
     sniperWalletCountCaptured: true,
     sniperWalletCountSource: 'helius_first_reference_buy_window',
-    sniperWindowAnchoredAtFirstObservation: true
+    sniperWindowAnchoredAtFirstObservation: true,
+    sniperWindowAnchorAtMs: Date.parse('2026-07-20T01:00:00.250Z'),
+    sniperWindowAnchorKind: 'first_referenced_trade',
+    sniperWindowMs: 4000
   }
 );
 
@@ -111,6 +126,12 @@ assert(
     "sniperWalletCountSource: 'launch_intel_first_reference_buy_window'"
   ),
   'actual-lane launch-intel summaries must emit sniper-count provenance'
+);
+assert(
+  engineSource.includes(
+    preregistration.gateDecisionComparator.marketInputTelemetrySemantics
+  ),
+  'session-started plan telemetry must use the preregistered market-input semantics label'
 );
 const evaluationEmitterStart = engineSource.indexOf(
   "this.telemetry.record('helius_pumpfun.decision_shadow.evaluation'"
@@ -210,7 +231,10 @@ for (let index = 0; index < 500; index += 1) {
           sniperWalletCount: 0,
           sniperWalletCountCaptured: true,
           sniperWalletCountSource: 'launch_intel_first_reference_buy_window',
-          sniperWindowAnchoredAtFirstObservation: true
+          sniperWindowAnchoredAtFirstObservation: true,
+          sniperWindowAnchorAtMs: Date.parse('2026-07-20T01:00:00.000Z'),
+          sniperWindowAnchorKind: 'first_trade',
+          sniperWindowMs: 4000
         }
       },
       shadowGuardFamilyInputs: {
@@ -233,7 +257,10 @@ for (let index = 0; index < 500; index += 1) {
           sniperWalletCount: 0,
           sniperWalletCountCaptured: true,
           sniperWalletCountSource: 'helius_first_reference_buy_window',
-          sniperWindowAnchoredAtFirstObservation: true
+          sniperWindowAnchoredAtFirstObservation: true,
+          sniperWindowAnchorAtMs: Date.parse('2026-07-20T01:00:00.250Z'),
+          sniperWindowAnchorKind: 'first_referenced_trade',
+          sniperWindowMs: 4000
         }
       },
       baselineHistoryHeldConstant: true,
@@ -348,6 +375,20 @@ assert.strictEqual(
   500
 );
 assert.strictEqual(report.marketInputTelemetry.sniperWindowAnchorPairs['true -> true'], 500);
+assert.strictEqual(
+  report.marketInputTelemetry.sniperWindowAnchorSemantics,
+  'reference_existence_only_true_to_true_does_not_prove_a_shared_anchor_instant'
+);
+assert.strictEqual(
+  report.marketInputTelemetry.sniperWindowAnchorKindPairs[
+    'first_trade -> first_referenced_trade'
+  ],
+  500
+);
+assert.strictEqual(report.marketInputTelemetry.sniperWindowAnchorSkew.measuredEvaluations, 500);
+assert.strictEqual(report.marketInputTelemetry.sniperWindowAnchorSkew.signedMs.median, 250);
+assert.strictEqual(report.marketInputTelemetry.sniperWindowAnchorSkew.absoluteMs.median, 250);
+assert.strictEqual(report.marketInputTelemetry.sniperWindowMsPairs['4000 -> 4000'], 500);
 assert.strictEqual(report.marketInputTelemetry.baselineControl.expectedHeldConstant, true);
 assert.strictEqual(report.marketInputTelemetry.baselineControl.heldConstantEvaluations, 500);
 assert.strictEqual(
@@ -445,6 +486,24 @@ assert.strictEqual(
   499
 );
 
+const missingAnchorEvents = structuredClone(events);
+const missingAnchorEvaluation = missingAnchorEvents.find(
+  (event) => event.type === 'helius_pumpfun.decision_shadow.evaluation'
+);
+missingAnchorEvaluation.payload.shadowGuardFamilyInputs.market.sniperWindowAnchorAtMs = null;
+const missingAnchor = analyzeEvents(
+  missingAnchorEvents,
+  preregistration,
+  parity,
+  sourceTelemetry
+);
+assert.strictEqual(missingAnchor.checks.comparableMarketInputTelemetryComplete, false);
+assert.strictEqual(
+  missingAnchor.counts.comparableGateEvaluationsWithCompleteMarketInputTelemetry,
+  499
+);
+assert.strictEqual(missingAnchor.verdict, preregistration.invalidVerdict);
+
 const missingBaselineControlEvents = structuredClone(events);
 const missingBaselineControlEvaluation = missingBaselineControlEvents.find(
   (event) => event.type === 'helius_pumpfun.decision_shadow.evaluation'
@@ -538,6 +597,12 @@ assert(
     (row) => row.jsonPath === 'sniperWalletCountSource'
   ),
   'source lineage must remain visible without being treated as a causal gate-input mismatch'
+);
+assert(
+  unattributed.entryMismatchAttribution.rows[0].guardInputProvenanceDiff.some(
+    (row) => row.jsonPath === 'sniperWindowAnchorAtMs'
+  ),
+  'anchor skew must remain visible without being treated as a causal gate-input mismatch'
 );
 
 const crossPathEvents = events.map((event) => ({ ...event, payload: { ...(event.payload || {}) } }));

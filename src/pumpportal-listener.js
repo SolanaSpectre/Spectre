@@ -52,6 +52,8 @@ class PumpPortalListener {
     this.eventQueueMaxSize = Math.max(1, Number(config.pumpPortalEventQueueMaxSize || 10000));
     this.eventQueue = [];
     this.processingEvents = 0;
+    this.eventQueueDrainScheduled = false;
+    this.eventQueueDrainImmediate = null;
     this.reconnectDelayResetAfterStableMs = 30000;
     this.subscribedMints = new Set();
     this.subscribedMintMeta = new Map();
@@ -170,6 +172,17 @@ class PumpPortalListener {
       eventQueueProcessed: 0,
       eventQueueHandlerErrors: 0,
       eventQueueProcessingActive: 0,
+      eventQueueDrainSchedules: 0,
+      eventQueueDrainCalls: 0,
+      eventQueueDrainItems: 0,
+      eventQueueDrainYields: 0,
+      eventQueueDrainMaxBatch: 0,
+      eventQueueDrainTotalMs: 0,
+      eventQueueDrainMaxMs: 0,
+      eventQueueDrainOver50Ms: 0,
+      eventQueueLatencySamples: 0,
+      eventQueueLatencyTotalMs: 0,
+      eventQueueLatencyMaxMs: 0,
       eventQueueLastDroppedAt: null,
       eventQueueLastProcessedAt: null,
       subscriptionAckMessages: 0,
@@ -357,6 +370,12 @@ class PumpPortalListener {
     for (const state of Object.values(this.connections)) {
       this.clearConnectionTimers(state);
     }
+
+    if (this.eventQueueDrainImmediate) {
+      clearImmediate(this.eventQueueDrainImmediate);
+      this.eventQueueDrainImmediate = null;
+    }
+    this.eventQueueDrainScheduled = false;
 
     if (this.eventQueue.length > 0) {
       this.stats.eventQueueDiscardedOnStop += this.eventQueue.length;
@@ -609,20 +628,47 @@ class PumpPortalListener {
       this.stats.eventQueueLastDroppedAt = Date.now();
     }
 
-    this.eventQueue.push({ payload, sourceRole });
+    this.eventQueue.push({ payload, sourceRole, enqueuedAtMs: Date.now() });
     this.stats.eventQueueDepth = this.eventQueue.length;
     this.stats.eventQueueMaxDepth = Math.max(this.stats.eventQueueMaxDepth || 0, this.eventQueue.length);
-    this.drainEventQueue();
+    this.scheduleEventQueueDrain();
+  }
+
+  scheduleEventQueueDrain(isYield = false) {
+    if (
+      this.eventQueueDrainScheduled
+      || this.eventQueue.length === 0
+      || this.processingEvents >= this.eventHandlerConcurrency
+    ) {
+      return false;
+    }
+
+    this.eventQueueDrainScheduled = true;
+    this.stats.eventQueueDrainSchedules += 1;
+    if (isYield) this.stats.eventQueueDrainYields += 1;
+    this.eventQueueDrainImmediate = setImmediate(() => {
+      this.eventQueueDrainImmediate = null;
+      this.eventQueueDrainScheduled = false;
+      this.drainEventQueue();
+    });
+    return true;
   }
 
   drainEventQueue() {
+    const drainStartedAt = process.hrtime.bigint();
+    let started = 0;
     while (this.processingEvents < this.eventHandlerConcurrency && this.eventQueue.length > 0) {
       const item = this.eventQueue.shift();
       const payload = item?.payload ?? item;
       const sourceRole = item?.sourceRole || 'unknown';
+      const latencyMs = Math.max(0, Date.now() - Number(item?.enqueuedAtMs || Date.now()));
+      this.stats.eventQueueLatencySamples += 1;
+      this.stats.eventQueueLatencyTotalMs += latencyMs;
+      this.stats.eventQueueLatencyMaxMs = Math.max(this.stats.eventQueueLatencyMaxMs, latencyMs);
       this.stats.eventQueueDepth = this.eventQueue.length;
       this.processingEvents += 1;
       this.stats.eventQueueProcessingActive = this.processingEvents;
+      started += 1;
 
       Promise.resolve()
         .then(() => this.handleMessage(payload, sourceRole))
@@ -639,10 +685,18 @@ class PumpPortalListener {
           this.stats.eventQueueProcessingActive = this.processingEvents;
           this.stats.eventQueueDepth = this.eventQueue.length;
           if (this.eventQueue.length > 0) {
-            setImmediate(() => this.drainEventQueue());
+            this.scheduleEventQueueDrain(true);
           }
         });
     }
+
+    const drainDurationMs = Number(process.hrtime.bigint() - drainStartedAt) / 1e6;
+    this.stats.eventQueueDrainCalls += 1;
+    this.stats.eventQueueDrainItems += started;
+    this.stats.eventQueueDrainMaxBatch = Math.max(this.stats.eventQueueDrainMaxBatch, started);
+    this.stats.eventQueueDrainTotalMs += drainDurationMs;
+    this.stats.eventQueueDrainMaxMs = Math.max(this.stats.eventQueueDrainMaxMs, drainDurationMs);
+    if (drainDurationMs >= 50) this.stats.eventQueueDrainOver50Ms += 1;
   }
 
   async handleMessage(payload, sourceRole = 'unknown') {
@@ -1785,7 +1839,14 @@ class PumpPortalListener {
       maxReconnectDelayMs: this.maxReconnectDelayMs,
       tokenTradeSubscriptionTtlMs: this.tokenTradeSubscriptionTtlMs,
       eventQueueDepth: this.eventQueue.length,
-      eventQueueProcessingActive: this.processingEvents
+      eventQueueProcessingActive: this.processingEvents,
+      eventQueueDrainScheduled: this.eventQueueDrainScheduled,
+      eventQueueLatencyMeanMs: this.stats.eventQueueLatencySamples > 0
+        ? this.stats.eventQueueLatencyTotalMs / this.stats.eventQueueLatencySamples
+        : null,
+      eventQueueDrainMeanMs: this.stats.eventQueueDrainCalls > 0
+        ? this.stats.eventQueueDrainTotalMs / this.stats.eventQueueDrainCalls
+        : null
     };
   }
 }

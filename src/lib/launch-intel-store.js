@@ -1052,6 +1052,10 @@ class LaunchIntelStore {
         sniperWalletCount: sniperWallets.length,
         sniperWalletCountSource: 'launch_intel_first_reference_buy_window',
         sniperWindowAnchoredAtFirstObservation: Boolean(record.firstTradeAt),
+        sniperWindowAnchorAtMs: Number.isFinite(firstReferenceMs) ? firstReferenceMs : null,
+        sniperWindowAnchorKind: record.firstTradeAt
+          ? 'first_trade'
+          : (record.createdAt ? 'created_at' : null),
         sniperCrowdingLevel,
         sniperWallets: sniperWallets.slice(0, 8),
         repeatedEarlyBuyerCount: repeatEarlyBuyerSummaries.length,
