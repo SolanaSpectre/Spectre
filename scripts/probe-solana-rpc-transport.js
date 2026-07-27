@@ -1,13 +1,10 @@
 #!/usr/bin/env node
 'use strict';
 
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
-
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const { Connection, PublicKey } = require('@solana/web3.js');
-const Config = require('../src/config');
 const SolanaRpcRouter = require('../src/lib/solana-rpc-router');
 
 const ROOT = path.join(__dirname, '..');
@@ -16,6 +13,8 @@ const BATTLEFIELD_PATH = path.join(ROOT, 'data', 'reports', 'run-battlefield-lat
 const TARGETED_PARITY_PATH = path.join(ROOT, 'data', 'reports', 'pumpdev-targeted-curve-parity-latest.json');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'solana-rpc-transport-probe-latest.json');
 const DEFAULT_PUMP_FUN_PROGRAM_ID = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
+const DEFAULT_SCAN_CHUNK_BYTES = 1024 * 1024;
+const DEFAULT_SCAN_MAX_BYTES = 64 * 1024 * 1024;
 
 function parseArgs(argv) {
   const args = {};
@@ -63,10 +62,135 @@ function battlefieldTelemetryPath() {
 function redactEndpoint(endpoint) {
   try {
     const parsed = new URL(endpoint);
-    return `${parsed.protocol}//${parsed.hostname}${parsed.pathname && parsed.pathname !== '/' ? parsed.pathname : ''}${parsed.search ? '?<redacted>' : ''}`;
+    const port = parsed.port ? `:${parsed.port}` : '';
+    const pathname = parsed.pathname && parsed.pathname !== '/' ? '/<redacted-path>' : '';
+    return `${parsed.protocol}//${parsed.hostname}${port}${pathname}${parsed.search ? '?<redacted>' : ''}`;
   } catch {
     return '<invalid>';
   }
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function endpointSecrets(endpoint) {
+  const secrets = new Set();
+  const raw = String(endpoint || '').trim();
+  if (!raw) return secrets;
+  secrets.add(raw);
+  try {
+    const parsed = new URL(raw);
+    secrets.add(parsed.href);
+    if (parsed.username) secrets.add(decodeURIComponent(parsed.username));
+    if (parsed.password) secrets.add(decodeURIComponent(parsed.password));
+    for (const segment of parsed.pathname.split('/')) {
+      if (segment.length >= 8) secrets.add(decodeURIComponent(segment));
+    }
+    for (const value of parsed.searchParams.values()) {
+      if (value.length >= 8) secrets.add(value);
+    }
+  } catch {
+    // The generic URL scrub below still covers URL-shaped text.
+  }
+  return secrets;
+}
+
+function sanitizeProbeError(error, endpoints = []) {
+  let message = String(error?.message || error || '');
+  const secrets = new Set();
+  for (const endpoint of endpoints) {
+    for (const secret of endpointSecrets(endpoint)) {
+      if (secret) secrets.add(secret);
+    }
+  }
+  for (const secret of Array.from(secrets).sort((a, b) => b.length - a.length)) {
+    message = message.replace(new RegExp(escapeRegExp(secret), 'g'), '<redacted>');
+  }
+  message = message
+    .replace(/https?:\/\/[^\s"'`<>)\]}]+/gi, '<redacted-url>')
+    .replace(/\b(api[-_]?key|token|key)=([^\s&"'`]+)/gi, '$1=<redacted>');
+  return message.slice(0, 300);
+}
+
+function forEachRecentJsonlSync(filePath, onRow, options = {}) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    return {
+      fileSizeBytes: 0,
+      bytesRead: 0,
+      rowsVisited: 0,
+      malformedLines: 0,
+      stoppedEarly: false,
+      hitByteLimit: false
+    };
+  }
+
+  const chunkBytes = Math.max(16, Number(options.chunkBytes || DEFAULT_SCAN_CHUNK_BYTES));
+  const maxBytes = Math.max(chunkBytes, Number(options.maxBytes || DEFAULT_SCAN_MAX_BYTES));
+  const fd = fs.openSync(filePath, 'r');
+  const fileSizeBytes = fs.fstatSync(fd).size;
+  let position = fileSizeBytes;
+  let carry = Buffer.alloc(0);
+  let bytesRead = 0;
+  let rowsVisited = 0;
+  let malformedLines = 0;
+  let stoppedEarly = false;
+
+  const visit = (lineBuffer) => {
+    const line = lineBuffer.toString('utf8').replace(/^\uFEFF/, '').trim();
+    if (!line) return true;
+    let row;
+    try {
+      row = JSON.parse(line);
+    } catch {
+      malformedLines += 1;
+      return true;
+    }
+    rowsVisited += 1;
+    if (onRow(row, line) === false) {
+      stoppedEarly = true;
+      return false;
+    }
+    return true;
+  };
+
+  try {
+    while (position > 0 && bytesRead < maxBytes && !stoppedEarly) {
+      const length = Math.min(chunkBytes, position, maxBytes - bytesRead);
+      if (length <= 0) break;
+      const start = position - length;
+      const chunk = Buffer.allocUnsafe(length);
+      const actualBytes = fs.readSync(fd, chunk, 0, length, start);
+      position = start;
+      bytesRead += actualBytes;
+
+      const combined = carry.length
+        ? Buffer.concat([chunk.subarray(0, actualBytes), carry])
+        : chunk.subarray(0, actualBytes);
+      let lineEnd = combined.length;
+      for (let index = combined.length - 1; index >= 0; index -= 1) {
+        if (combined[index] !== 0x0a) continue;
+        if (!visit(combined.subarray(index + 1, lineEnd))) break;
+        lineEnd = index;
+      }
+      carry = stoppedEarly ? Buffer.alloc(0) : Buffer.from(combined.subarray(0, lineEnd));
+    }
+
+    if (!stoppedEarly && position === 0 && carry.length) {
+      visit(carry);
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+
+  return {
+    fileSizeBytes,
+    bytesRead,
+    rowsVisited,
+    malformedLines,
+    stoppedEarly,
+    hitByteLimit: position > 0 && bytesRead >= maxBytes
+  };
 }
 
 function deriveBondingCurveAddress(mint, programId) {
@@ -89,11 +213,12 @@ function addTarget(targets, target) {
   targets.set(target.address, target);
 }
 
-function collectTargets(maxTargets) {
-  const programId = new PublicKey(process.env.PUMP_BONDING_CURVE_PROGRAM_ID || DEFAULT_PUMP_FUN_PROGRAM_ID);
+function collectTargets(maxTargets, options = {}) {
+  const programId = new PublicKey(options.pumpProgramId || DEFAULT_PUMP_FUN_PROGRAM_ID);
   const targets = new Map();
-  const targeted = readJson(TARGETED_PARITY_PATH, { rows: [], highDeltaRows: [] });
+  const targeted = readJson(options.targetedParityPath || TARGETED_PARITY_PATH, { rows: [], highDeltaRows: [] });
   for (const row of [...(targeted.rows || []), ...(targeted.highDeltaRows || [])]) {
+    if (targets.size >= maxTargets) break;
     const address = row.bondingCurveAddress || row.expectedBondingCurveAddress;
     if (address) {
       addTarget(targets, {
@@ -105,18 +230,10 @@ function collectTargets(maxTargets) {
     }
   }
 
-  const telemetryPath = battlefieldTelemetryPath();
-  if (telemetryPath && fs.existsSync(telemetryPath)) {
-    const lines = fs.readFileSync(telemetryPath, 'utf8').split(/\r?\n/).reverse();
-    for (const line of lines) {
-      if (targets.size >= maxTargets) break;
-      if (!line.trim()) continue;
-      let event;
-      try {
-        event = JSON.parse(line);
-      } catch {
-        continue;
-      }
+  const telemetryPath = options.telemetryPath || battlefieldTelemetryPath();
+  let telemetryScan = null;
+  if (targets.size < maxTargets && telemetryPath && fs.existsSync(telemetryPath)) {
+    telemetryScan = forEachRecentJsonlSync(telemetryPath, (event) => {
       if (![
         'pump_bonding_curve.provider_snapshot',
         'provider.pumpdev.shadow_trade',
@@ -124,11 +241,11 @@ function collectTargets(maxTargets) {
         'provider.pumpdev.shadow_new_token',
         'provider.pumpdev.runtime_new_token'
       ].includes(event.type)) {
-        continue;
+        return true;
       }
       const payload = event.payload || event.data || {};
       const mint = payload.mint || payload.token || payload.mintAddress || null;
-      if (!mint) continue;
+      if (!mint) return true;
       try {
         const address = payload.bondingCurveAddress || payload.bondingCurveKey || deriveBondingCurveAddress(mint, programId);
         addTarget(targets, {
@@ -140,10 +257,18 @@ function collectTargets(maxTargets) {
       } catch {
         // Ignore malformed mints; the probe needs valid account targets only.
       }
-    }
+      return targets.size < maxTargets;
+    }, {
+      chunkBytes: options.scanChunkBytes,
+      maxBytes: options.scanMaxBytes
+    });
   }
 
-  return Array.from(targets.values()).slice(0, maxTargets);
+  return {
+    targets: Array.from(targets.values()).slice(0, maxTargets),
+    telemetryPath,
+    telemetryScan
+  };
 }
 
 function classifyError(error) {
@@ -258,8 +383,8 @@ async function web3Call({ url, mode, method, commitment, addresses, timeoutMs })
   };
 }
 
-function makeRouter() {
-  return new SolanaRpcRouter(Config, {
+function makeRouter(config) {
+  return new SolanaRpcRouter(config, {
     info: () => {},
     warn: () => {},
     error: () => {}
@@ -268,7 +393,7 @@ function makeRouter() {
 
 async function routerCall({ context, method, commitment, addresses }) {
   if (!context.router) {
-    context.router = makeRouter();
+    context.router = makeRouter(context.config);
   }
   const pubkeys = addresses.map((address) => new PublicKey(address));
   const startedAt = Date.now();
@@ -367,15 +492,17 @@ async function runOne(rowConfig) {
       latencyMs: Date.now() - startedAt,
       accountCount: 0,
       errorClass: classifyError(error),
-      errorMessage: String(error?.message || error).slice(0, 300),
+      errorMessage: sanitizeProbeError(error, rowConfig.sensitiveEndpoints),
       startedAt: new Date(startedAt).toISOString()
     };
   }
 }
 
 async function main() {
+  require('dotenv').config({ path: path.join(ROOT, '.env') });
+  const Config = require('../src/config');
   const args = parseArgs(process.argv.slice(2));
-  const url = String(args.url || process.env.SOLANA_RPC_URL || '').trim();
+  const url = String(args.url || Config.solanaRpcUrl || '').trim();
   if (!url) {
     throw new Error('SOLANA_RPC_URL is required, or pass --url <rpc-url>.');
   }
@@ -384,10 +511,25 @@ async function main() {
   const attempts = Math.max(1, Number(args.attempts || process.env.SOLANA_RPC_TRANSPORT_PROBE_ATTEMPTS || 2));
   const timeoutMs = Math.max(1000, Number(args.timeoutMs || process.env.SOLANA_RPC_TRANSPORT_PROBE_TIMEOUT_MS || process.env.SOLANA_RPC_CALL_TIMEOUT_MS || 10000));
   const delayMs = Math.max(0, Number(args.delayMs || process.env.SOLANA_RPC_TRANSPORT_PROBE_DELAY_MS || 250));
-  const targets = collectTargets(maxTargets);
+  const scanMaxBytes = Math.max(
+    DEFAULT_SCAN_CHUNK_BYTES,
+    Number(args.scanMaxBytes || process.env.SOLANA_RPC_TRANSPORT_PROBE_SCAN_MAX_BYTES || DEFAULT_SCAN_MAX_BYTES)
+  );
+  const targetCollection = collectTargets(maxTargets, {
+    pumpProgramId: Config.pumpBondingCurveProgramId,
+    telemetryPath: args.telemetry ? path.resolve(ROOT, String(args.telemetry)) : null,
+    scanMaxBytes
+  });
+  const targets = targetCollection.targets;
   if (!targets.length) {
     throw new Error('No probe targets found from latest targeted parity report or telemetry.');
   }
+  const sensitiveEndpoints = [
+    url,
+    Config.solanaRpcUrl,
+    Config.solanaRpcFallback,
+    Config.solanaRpcAccountReadUrl
+  ].filter(Boolean);
   const addresses = targets.map((target) => target.address);
   const modes = [
     'router-current',
@@ -407,7 +549,7 @@ async function main() {
   console.log(`Targets: ${targets.length}, attempts per combo: ${attempts}, timeout=${timeoutMs}ms`);
 
   for (const mode of modes) {
-    const context = {};
+    const context = { config: Config };
     const runMode = async () => {
       for (const method of methods) {
         for (const commitment of commitments) {
@@ -419,7 +561,8 @@ async function main() {
               commitment,
               addresses: method === 'getAccountInfo' ? addresses.slice(0, 1) : addresses,
               timeoutMs,
-              context
+              context,
+              sensitiveEndpoints
             });
             row.attempt = attempt;
             rows.push(row);
@@ -452,8 +595,15 @@ async function main() {
       attempts,
       timeoutMs,
       delayMs,
+      scanMaxBytes,
       node: process.version,
-      targets
+      targets,
+      targetCollection: {
+        telemetryPath: targetCollection.telemetryPath
+          ? path.relative(ROOT, targetCollection.telemetryPath)
+          : null,
+        telemetryScan: targetCollection.telemetryScan
+      }
     },
     skippedModes,
     summary: summarizeRows(rows),
@@ -465,7 +615,16 @@ async function main() {
   console.log(`Wrote ${path.relative(ROOT, OUTPUT_PATH)}`);
 }
 
-main().catch((error) => {
-  console.error(error.stack || error.message || error);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(sanitizeProbeError(error));
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  collectTargets,
+  forEachRecentJsonlSync,
+  redactEndpoint,
+  sanitizeProbeError
+};
