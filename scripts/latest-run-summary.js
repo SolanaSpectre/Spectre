@@ -337,6 +337,15 @@ function buildDecisiveSummary(docs) {
   const runnerWatchCurrent = runnerWatch.currentRun || {};
   const runnerWatchValidation = runnerWatchCurrent.validation || {};
   const runnerWatchCumulative = runnerWatch.cumulative || {};
+  const aiLifecycle = runner.simpleRuntimeAiLifecycle || {};
+  const aiAuditAttempts = number(aiLifecycle.attempts);
+  const aiAuditCompleted = number(aiLifecycle.completed);
+  const aiAuditFailed = number(aiLifecycle.failed);
+  const aiEvidenceStatus = aiAuditAttempts === 0
+    ? 'NO_MODEL_EVIDENCE'
+    : aiAuditCompleted > 0
+      ? 'MODEL_RUNTIME_EVIDENCE_OBSERVED'
+      : 'MODEL_ATTEMPTS_WITHOUT_COMPLETION';
   const currentRunPnl = summarizeCurrentRunPnl(paper.exitsDetail || []);
   const parity = docs.heliusPumpfunShadowParity?.data || {};
   const divergence = docs.heliusPumpfunDecisionDivergence?.data || {};
@@ -385,7 +394,12 @@ function buildDecisiveSummary(docs) {
     `Current episodes: ${Array.isArray(runnerWatchCurrent.episodes) ? runnerWatchCurrent.episodes.length : 0}`,
     `Cumulative verdict: ${runnerWatchCumulative.verdict || 'n/a'}`,
     `Valid/excluded runs: ${number(runnerWatchCumulative.validRuns)}/${number(runnerWatchCumulative.excludedRuns)}; unique episodes: ${number(runnerWatchCumulative.realizedUniqueMintEpisodes)}`,
+    `Valid/excluded run PnL: ${sol(runnerWatchCumulative.validRunPnlSol, 6)} / ${sol(runnerWatchCumulative.excludedRunPnlSol, 6)} (excluded is context only)`,
     `Cumulative PnL: ${sol(runnerWatchCumulative.totalPnlSol, 6)}; median: ${sol(runnerWatchCumulative.medianEpisodePnlSol, 6)}; ex-top-3: ${sol(runnerWatchCumulative.pnlAfterRemovingTop3WinnersSol, 6)}`,
+    '',
+    'AI Auditor',
+    '----------',
+    `Audits attempted/completed/failed: ${aiAuditAttempts}/${aiAuditCompleted}/${aiAuditFailed} - ${aiEvidenceStatus}`,
     '',
     'Helius',
     '------',
@@ -841,6 +855,11 @@ function buildAiReachability(battlefield = {}) {
   const lifecycleAttempts = number(lifecycle.attempts, number(eventCounts['simple_runtime_ai.review_started'], 0));
   const lifecycleCompleted = number(lifecycle.completed, number(eventCounts['simple_runtime_ai.review_completed'], 0));
   const lifecycleFailed = number(lifecycle.failed, number(eventCounts['simple_runtime_ai.review_failed'], 0));
+  const evidenceStatus = lifecycleAttempts === 0
+    ? 'NO_MODEL_EVIDENCE'
+    : lifecycleCompleted > 0
+      ? 'MODEL_RUNTIME_EVIDENCE_OBSERVED'
+      : 'MODEL_ATTEMPTS_WITHOUT_COMPLETION';
   const lifecycleAttemptsExceedingOuterTimeout = number(lifecycle.attemptsExceedingOuterTimeout, 0);
   const lifecycleCompletedLatencyMs = lifecycle.completedLatencyMs || {};
   const lifecycleFailedLatencyMs = lifecycle.failedLatencyMs || {};
@@ -876,6 +895,7 @@ function buildAiReachability(battlefield = {}) {
     lifecycleAttempts,
     lifecycleCompleted,
     lifecycleFailed,
+    evidenceStatus,
     lifecycleAttemptsExceedingOuterTimeout,
     lifecycleCompletedLatencyMs,
     lifecycleFailedLatencyMs,
@@ -3344,7 +3364,7 @@ function buildSummary(docs) {
   lines.push('- AI path reachability:');
   lines.push(`  - runner/scalper signals generated/executed: ${aiReachability.generatedSignals} / ${aiReachability.executedSignals}`);
   lines.push(`  - trade rejects before signal execution: ${aiReachability.rejectedTrades}`);
-  lines.push(`  - Simple Runtime lifecycle attempts/completed/failed this run: ${aiReachability.lifecycleAttempts} / ${aiReachability.lifecycleCompleted} / ${aiReachability.lifecycleFailed}`);
+  lines.push(`  - Simple Runtime lifecycle attempts/completed/failed this run: ${aiReachability.lifecycleAttempts} / ${aiReachability.lifecycleCompleted} / ${aiReachability.lifecycleFailed} - ${aiReachability.evidenceStatus}`);
   if (runnerLifecycle.attempts !== undefined) {
     const completedLatency = runnerLifecycle.completedLatencyMs || {};
     const failedLatency = runnerLifecycle.failedLatencyMs || {};
@@ -3387,7 +3407,7 @@ function buildSummary(docs) {
     const concentrationLabel = evidence.concentrationDependent === true
       ? 'CONCENTRATION_DEPENDENT'
       : 'not_detected';
-    lines.push(`  - runner-watch prereg evidence: ${evidence.verdict || 'unknown'}; validRuns=${evidence.validRuns ?? 0}, episodes=${evidence.realizedUniqueMintEpisodes ?? 0}/20, episodesPerHour=${evidence.episodesPerFullCoverageHour ?? 'n/a'}, total=${evidence.totalPnlSol ?? 'n/a'} SOL, median=${evidence.medianEpisodePnlSol ?? 'n/a'} SOL, exTop3=${evidence.pnlAfterRemovingTop3WinnersSol ?? 'n/a'} SOL, concentration=${concentrationLabel}, live=${evidence.liveAction || 'KEEP_LIVE_DISABLED'}`);
+    lines.push(`  - runner-watch prereg evidence: ${evidence.verdict || 'unknown'}; validRuns=${evidence.validRuns ?? 0}, excludedRuns=${evidence.excludedRuns ?? 0}, valid/excludedPnl=${evidence.validRunPnlSol ?? 'n/a'}/${evidence.excludedRunPnlSol ?? 'n/a'} SOL, episodes=${evidence.realizedUniqueMintEpisodes ?? 0}/20, episodesPerHour=${evidence.episodesPerFullCoverageHour ?? 'n/a'}, total=${evidence.totalPnlSol ?? 'n/a'} SOL, median=${evidence.medianEpisodePnlSol ?? 'n/a'} SOL, exTop3=${evidence.pnlAfterRemovingTop3WinnersSol ?? 'n/a'} SOL, concentration=${concentrationLabel}, live=${evidence.liveAction || 'KEEP_LIVE_DISABLED'}`);
     const currentEconomics = runnerWatchFullCoverageEvidence.currentRun?.economics;
     if (currentEconomics?.concentrationDependent === true) {
       lines.push(`  - current runner-watch run warning: CONCENTRATION_DEPENDENT; total=${currentEconomics.totalPnlSol ?? 'n/a'} SOL but exTop3=${currentEconomics.pnlAfterRemovingTop3WinnersSol ?? 'n/a'} SOL (median=${currentEconomics.medianEpisodePnlSol ?? 'n/a'} SOL).`);

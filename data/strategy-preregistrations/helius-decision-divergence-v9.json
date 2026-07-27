@@ -50,6 +50,22 @@
     "providerRoutingChanged": false,
     "freshnessThresholdChanged": false
   },
+  "postRunInstrumentationAmendmentV2": {
+    "amendedAt": "2026-07-26T19:30:43.1868652-05:00",
+    "sourceTelemetry": "run-logs/telemetry-2026-07-26T21-37-39-255Z.jsonl",
+    "eligibleComparableRunsBeforeAmendment": 0,
+    "reason": "The run exposed three data-integrity defects: a shutdown close was counted as an active provider failure, the exact-market-input count only tested shadow field presence and accepted false capture flags, and the Helius counterfactual scored a synthetic zero sniper count while declaring it uncaptured.",
+    "corrections": [
+      "Classify Helius shutdown errors and disconnects only from explicit listener-emitted STOPPING phase fields within a bounded shutdown window; retain separate shutdown counters and do not infer phase from event ordering.",
+      "Rename exact-market-input telemetry to complete source-attributed market-input telemetry and require complete actual and shadow score, curve, flow, buyer, and sniper fields.",
+      "Reconstruct sniperWalletCount from Helius first-reference early buys using the frozen launch-intel sniper window; emit INCOMPARABLE_WALLET_FEATURES when reconstruction is incomplete.",
+      "Expose current curve and sniper-count sources; encode actual-lane observation history as one held-constant baseline control, never as independently sourced actual-versus-shadow evidence."
+    ],
+    "priorRunDisposition": "INVALID_FOR_V9_COMPARATOR_EVIDENCE_AND_NOT_REUSED",
+    "strategyBehaviorChanged": false,
+    "providerRoutingChanged": false,
+    "freshnessThresholdChanged": false
+  },
   "gateDecisionComparator": {
     "name": "same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context",
     "context": [
@@ -61,7 +77,46 @@
     "positionSemantics": "An active position does not suppress a PAPER_SHADOWED gate pass; gate agreement measures WOULD_ENTER versus WOULD_SKIP.",
     "marketFeatureSemantics": "PumpPortal decisions retain PumpPortal tape-derived features and Helius counterfactuals retain Helius tape-derived features. Diagnostic guard-family payloads must expose the exact market vector each side used.",
     "gatePathTreatment": "Cross-guard-path gate results remain visible as full counterfactual outcomes and are never fed into strategy.",
-    "marketInputTelemetrySemantics": "exact_counterfactual_score_and_sniper_capture_exposed_null_score_incomparable"
+    "marketInputTelemetrySemantics": "complete_source_attributed_market_telemetry_missing_score_or_wallet_features_incomparable"
+  },
+  "decisionComparabilityDiagnostics": {
+    "purpose": "Adjudicate PRESET_NOT_ELIGIBLE_FOR_GUARD_OVERRIDE mismatches and stale-state coverage without changing classification or denominator.",
+    "requiredFields": [
+      "actualEvaluatedPreset",
+      "shadowEvaluatedPreset",
+      "shadowPresetSelectionMode",
+      "actualAllowedPresetNames",
+      "shadowAllowedPresetNames",
+      "guardOverrideAllowListAgreement",
+      "actualGuardOverrideEligibilityState",
+      "shadowGuardOverrideEligibilityState",
+      "actualGuardFamilyInputs",
+      "shadowGuardFamilyInputs",
+      "bestAvailableStateAgeMs",
+      "bestAvailableStateSource",
+      "shadowCurveProgressDelta",
+      "shadowCurveProgressThreshold",
+      "shadowCurveProgressThresholdMarginAbs",
+      "shadowBaselineCurveProgress",
+      "shadowBaselineAt",
+      "baselineHistoryHeldConstant",
+      "baselineControlSource",
+      "baselineControlHistoryRows"
+    ],
+    "eligibilityStateValues": [
+      "ELIGIBLE",
+      "NOT_ELIGIBLE",
+      "NO_OVERRIDE_FAMILY_SELECTED"
+    ],
+    "presetPolicy": "Hold the actual selected preset constant in the shadow evaluation; any evaluated-preset disagreement is instrumentation failure, not provider divergence.",
+    "allowListPolicy": "Record both allow-list snapshots and a tri-state eligibility value. Do not encode no selected override family as eligible.",
+    "familyInputPolicy": "Record curve-regime, first-curve-snapshot, crowding, and family-selection inputs on both sides so family divergence is attributable.",
+    "baselinePolicy": "Hold actual-lane observation history constant for both decisions and report it as one explicit control; never represent it as independently sourced actual-versus-shadow evidence.",
+    "staleStatePolicy": "Every non-comparable row records the best available state age and source; the report emits an age histogram without relaxing freshness.",
+    "confusionMatrixPolicy": "Report the ENTER/SKIP 2x2 matrix and entry precision/recall separately from overall agreement.",
+    "strategyConsumptionAllowed": false,
+    "populationFilteringAllowed": false,
+    "retroactiveRescoringAllowed": false
   },
   "executedActionComparator": {
     "name": "gate_coupled_same_guard_path_entry_and_same_instant_exit_with_actual_lane_context",

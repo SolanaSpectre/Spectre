@@ -41,8 +41,16 @@ const guardInputs = comparatorHarness.decisionShadowGuardFamilyInputs(
     curveProgress: 0.77,
     recentVolumeSol: 12.5,
     tradeVelocityPerMin: 44,
+    recentTradeCount: 44,
+    buyRatio: 0.75,
+    buyRatioCaptured: true,
     uniqueBuyerCount: 31,
-    sniperWalletCount: 2
+    uniqueBuyerCountCaptured: true,
+    sniperWalletCount: 2,
+    sniperWalletCountCaptured: true,
+    sniperWalletCountSource: 'launch_intel_first_reference_buy_window',
+    sniperWindowAnchoredAtFirstObservation: true,
+    curveProgressSource: 'pump_bonding_curve_rpc'
   }
 );
 assert.strictEqual(guardInputs.curveRegimeBucket, '75_TO_90');
@@ -50,33 +58,60 @@ assert.strictEqual(guardInputs.market.score, 88);
 assert.strictEqual(guardInputs.market.scoreCaptured, true);
 assert.strictEqual(guardInputs.market.recentVolumeSol, 12.5);
 assert.strictEqual(guardInputs.market.sniperWalletCount, 2);
-assert.strictEqual(guardInputs.market.sniperWalletCountCaptured, null);
+assert.strictEqual(guardInputs.market.sniperWalletCountCaptured, true);
+assert.strictEqual(
+  guardInputs.market.sniperWalletCountSource,
+  'launch_intel_first_reference_buy_window'
+);
 comparatorHarness.extractProviderCurveProgressForParity = (state) => state.curveProgress ?? null;
 comparatorHarness.extractProviderPriceForParity = (state) => state.priceSol ?? null;
 assert.deepStrictEqual(
   comparatorHarness.decisionShadowMarket({
     score: 0,
     curveProgress: 0.5,
+    curveProgressSource: 'helius_pump_trade_event_virtual_token_reserves',
     priceSol: 0.000001,
+    buyRatio: 0.5,
+    buyRatioCaptured: true,
+    uniqueBuyerCount: 0,
+    uniqueBuyerCountCaptured: true,
     sniperWalletCount: 0,
-    sniperWalletCountCaptured: false
+    sniperWalletCountCaptured: true,
+    sniperWalletCountSource: 'helius_first_reference_buy_window',
+    sniperWindowAnchoredAtFirstObservation: true
   }),
   {
     score: 0,
     curveProgress: 0.5,
+    curveProgressSource: 'helius_pump_trade_event_virtual_token_reserves',
     priceSol: 0.000001,
     recentBuys: null,
     recentSells: null,
     recentTradeCount: null,
     recentVolumeSol: null,
     tradeVelocityPerMin: null,
-    uniqueBuyerCount: null,
+    buyRatio: 0.5,
+    buyRatioCaptured: true,
+    uniqueBuyerCount: 0,
+    uniqueBuyerCountCaptured: true,
     sniperWalletCount: 0,
-    sniperWalletCountCaptured: false
+    sniperWalletCountCaptured: true,
+    sniperWalletCountSource: 'helius_first_reference_buy_window',
+    sniperWindowAnchoredAtFirstObservation: true
   }
 );
 
 const engineSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'trading-engine.js'), 'utf8');
+const launchIntelSource = fs.readFileSync(
+  path.join(__dirname, '..', 'src', 'lib', 'launch-intel-store.js'),
+  'utf8'
+);
+assert(
+  launchIntelSource.includes(
+    "sniperWalletCountSource: 'launch_intel_first_reference_buy_window'"
+  ),
+  'actual-lane launch-intel summaries must emit sniper-count provenance'
+);
 const evaluationEmitterStart = engineSource.indexOf(
   "this.telemetry.record('helius_pumpfun.decision_shadow.evaluation'"
 );
@@ -163,8 +198,19 @@ for (let index = 0; index < 500; index += 1) {
         market: {
           score: 80,
           scoreCaptured: true,
+          curveProgress: 0.6,
+          curveProgressSource: 'pump_bonding_curve_rpc',
+          recentVolumeSol: 5,
+          recentTradeCount: 10,
+          tradeVelocityPerMin: 10,
+          buyRatio: 0.7,
+          buyRatioCaptured: true,
+          uniqueBuyerCount: 7,
+          uniqueBuyerCountCaptured: true,
           sniperWalletCount: 0,
-          sniperWalletCountCaptured: false
+          sniperWalletCountCaptured: true,
+          sniperWalletCountSource: 'launch_intel_first_reference_buy_window',
+          sniperWindowAnchoredAtFirstObservation: true
         }
       },
       shadowGuardFamilyInputs: {
@@ -173,10 +219,26 @@ for (let index = 0; index < 500; index += 1) {
         market: {
           score: 80,
           scoreCaptured: true,
+          curveProgress: index === 0 ? 0.6 : 0.61,
+          curveProgressSource: index === 0
+            ? 'pump_bonding_curve_rpc'
+            : 'helius_pump_trade_event_virtual_token_reserves',
+          recentVolumeSol: index === 0 ? 5 : 5.2,
+          recentTradeCount: 10,
+          tradeVelocityPerMin: 10,
+          buyRatio: 0.7,
+          buyRatioCaptured: true,
+          uniqueBuyerCount: 7,
+          uniqueBuyerCountCaptured: true,
           sniperWalletCount: 0,
-          sniperWalletCountCaptured: false
+          sniperWalletCountCaptured: true,
+          sniperWalletCountSource: 'helius_first_reference_buy_window',
+          sniperWindowAnchoredAtFirstObservation: true
         }
       },
+      baselineHistoryHeldConstant: true,
+      baselineControlSource: 'pumpportal_actual_lane_observation_history',
+      baselineControlHistoryRows: 12,
       shadowAccountEnriched: true,
       accountVerifierSubscribed: true,
       accountVerifierHasUpdate: true,
@@ -271,7 +333,36 @@ assert.strictEqual(report.agreement.executedActionAgreementRate, 1);
 assert.strictEqual(report.agreement.walletFeatureAgreementRate, 1);
 assert.strictEqual(report.checks.correctPaidTapeBudget, true);
 assert.strictEqual(report.checks.correctMarketInputSemantics, true);
-assert.strictEqual(report.checks.comparableMarketInputsComplete, true);
+assert.strictEqual(report.checks.comparableMarketInputTelemetryComplete, true);
+assert.strictEqual(report.counts.comparableGateEvaluationsWithCompleteMarketInputTelemetry, 500);
+assert.strictEqual(
+  report.marketInputTelemetry.curveProgressSourcePairs[
+    'pump_bonding_curve_rpc -> helius_pump_trade_event_virtual_token_reserves'
+  ],
+  499
+);
+assert.strictEqual(
+  report.marketInputTelemetry.sniperWalletCountSourcePairs[
+    'launch_intel_first_reference_buy_window -> helius_first_reference_buy_window'
+  ],
+  500
+);
+assert.strictEqual(report.marketInputTelemetry.sniperWindowAnchorPairs['true -> true'], 500);
+assert.strictEqual(report.marketInputTelemetry.baselineControl.expectedHeldConstant, true);
+assert.strictEqual(report.marketInputTelemetry.baselineControl.heldConstantEvaluations, 500);
+assert.strictEqual(
+  report.marketInputTelemetry.baselineControl.sourceCounts[
+    'pumpportal_actual_lane_observation_history'
+  ],
+  500
+);
+assert.strictEqual(
+  Object.prototype.hasOwnProperty.call(
+    report.marketInputTelemetry,
+    'baselineSourcePairs'
+  ),
+  false
+);
 assert.strictEqual(report.checks.correctAccountVerifierTtl, true);
 assert.strictEqual(report.checks.correctAccountVerifierSelectionTrigger, true);
 assert.strictEqual(report.checks.correctWalletEvidenceWindow, true);
@@ -301,6 +392,79 @@ assert.strictEqual(report.checks.minimumComparableExecutedEntriesForAttribution,
 assert.strictEqual(report.checks.minimumEntryMismatchesForAttribution, false);
 assert.strictEqual(report.agreementByStateAge[0].bucket, 'LTE_100_MS');
 assert.strictEqual(report.offlineComparabilityByBound[0].coverageRate, 1);
+
+const incompleteMarketEvents = structuredClone(events);
+const incompleteMarketEvaluation = incompleteMarketEvents.find(
+  (event) => event.type === 'helius_pumpfun.decision_shadow.evaluation'
+);
+incompleteMarketEvaluation.payload.shadowGuardFamilyInputs.market.sniperWalletCountCaptured = false;
+const incompleteMarket = analyzeEvents(
+  incompleteMarketEvents,
+  preregistration,
+  parity,
+  sourceTelemetry
+);
+assert.strictEqual(incompleteMarket.checks.comparableMarketInputTelemetryComplete, false);
+assert.strictEqual(
+  incompleteMarket.counts.comparableGateEvaluationsWithCompleteMarketInputTelemetry,
+  499
+);
+assert.strictEqual(incompleteMarket.verdict, preregistration.invalidVerdict);
+
+const missingCurveSourceEvents = structuredClone(events);
+const missingCurveSourceEvaluation = missingCurveSourceEvents.find(
+  (event) => event.type === 'helius_pumpfun.decision_shadow.evaluation'
+);
+missingCurveSourceEvaluation.payload.shadowGuardFamilyInputs.market.curveProgressSource = '';
+const missingCurveSource = analyzeEvents(
+  missingCurveSourceEvents,
+  preregistration,
+  parity,
+  sourceTelemetry
+);
+assert.strictEqual(missingCurveSource.checks.comparableMarketInputTelemetryComplete, false);
+assert.strictEqual(
+  missingCurveSource.counts.comparableGateEvaluationsWithCompleteMarketInputTelemetry,
+  499
+);
+
+const missingSniperSourceEvents = structuredClone(events);
+const missingSniperSourceEvaluation = missingSniperSourceEvents.find(
+  (event) => event.type === 'helius_pumpfun.decision_shadow.evaluation'
+);
+missingSniperSourceEvaluation.payload.actualGuardFamilyInputs.market.sniperWalletCountSource = null;
+const missingSniperSource = analyzeEvents(
+  missingSniperSourceEvents,
+  preregistration,
+  parity,
+  sourceTelemetry
+);
+assert.strictEqual(missingSniperSource.checks.comparableMarketInputTelemetryComplete, false);
+assert.strictEqual(
+  missingSniperSource.counts.comparableGateEvaluationsWithCompleteMarketInputTelemetry,
+  499
+);
+
+const missingBaselineControlEvents = structuredClone(events);
+const missingBaselineControlEvaluation = missingBaselineControlEvents.find(
+  (event) => event.type === 'helius_pumpfun.decision_shadow.evaluation'
+);
+missingBaselineControlEvaluation.payload.baselineHistoryHeldConstant = false;
+missingBaselineControlEvaluation.payload.baselineControlSource = null;
+const missingBaselineControl = analyzeEvents(
+  missingBaselineControlEvents,
+  preregistration,
+  parity,
+  sourceTelemetry
+);
+assert.strictEqual(
+  missingBaselineControl.marketInputTelemetry.baselineControl.heldConstantEvaluations,
+  499
+);
+assert.strictEqual(
+  missingBaselineControl.marketInputTelemetry.baselineControl.missingOrUnconfirmedEvaluations,
+  1
+);
 
 const staleEvents = events.map((event) => ({ ...event, payload: { ...(event.payload || {}) } }));
 for (const event of staleEvents) {
@@ -368,6 +532,13 @@ const unattributed = analyzeEvents(unattributedEvents, preregistration, parity, 
 assert.strictEqual(unattributed.verdict, preregistration.failVerdict);
 assert.strictEqual(unattributed.entryMismatchAttribution.unattributedMismatches, 1);
 assert.strictEqual(unattributed.entryMismatchAttribution.rows[0].cause, 'UNATTRIBUTED');
+assert.strictEqual(unattributed.entryMismatchAttribution.rows[0].guardInputDiff.length, 0);
+assert(
+  unattributed.entryMismatchAttribution.rows[0].guardInputProvenanceDiff.some(
+    (row) => row.jsonPath === 'sniperWalletCountSource'
+  ),
+  'source lineage must remain visible without being treated as a causal gate-input mismatch'
+);
 
 const crossPathEvents = events.map((event) => ({ ...event, payload: { ...(event.payload || {}) } }));
 const crossPathEntry = crossPathEvents.find(

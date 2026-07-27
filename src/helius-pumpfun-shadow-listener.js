@@ -28,6 +28,9 @@ class HeliusPumpfunShadowListener {
     this.currentReconnectDelayMs = this.reconnectDelayMs;
     this.ws = null;
     this.running = false;
+    this.stopInProgress = false;
+    this.stopInitiatedAtMs = null;
+    this.shutdownGraceMs = 1000;
     this.pingTimer = null;
     this.reconnectTimer = null;
     this.subscriptionRequestId = 7101;
@@ -103,6 +106,9 @@ class HeliusPumpfunShadowListener {
       lastPongAt: null,
       lastCloseCode: null,
       lastCloseReason: null,
+      shutdownPhaseDisconnects: 0,
+      shutdownPhaseErrors: 0,
+      stopCloseTimedOut: false,
       lastErrorAt: null,
       lastErrorMessage: null,
       eventByteLengths: {}
@@ -120,24 +126,27 @@ class HeliusPumpfunShadowListener {
       return;
     }
     if (this.running) return;
+    this.stopInProgress = false;
+    this.stopInitiatedAtMs = null;
     this.running = true;
     this.connect();
   }
 
   async stop() {
+    this.stopInProgress = true;
+    this.stopInitiatedAtMs = Date.now();
     this.running = false;
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.stopHeartbeat();
     const socket = this.ws;
     this.ws = null;
-    if (socket) {
-      if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
-      else if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
-        socket.close(1000, 'shadow listener stop');
-      }
+    try {
+      if (socket) await this.closeSocketForStop(socket);
+      await this.drainEventQueueBeforeStop();
+    } finally {
+      this.stopInProgress = false;
     }
-    await this.drainEventQueueBeforeStop();
   }
 
   connect() {
@@ -174,23 +183,74 @@ class HeliusPumpfunShadowListener {
       this.stats.lastPongAt = new Date().toISOString();
     });
     socket.on('error', (error) => {
-      this.stats.errorEvents += 1;
+      const lifecycle = this.lifecyclePhase();
+      if (lifecycle.shutdownPhase) this.stats.shutdownPhaseErrors += 1;
+      else this.stats.errorEvents += 1;
       this.stats.lastErrorAt = new Date().toISOString();
       this.stats.lastErrorMessage = error.message;
-      this.emitLifecycle('provider.helius_pumpfun.shadow_error', { errorMessage: error.message });
+      this.emitLifecycle('provider.helius_pumpfun.shadow_error', {
+        errorMessage: error.message,
+        sessionPhase: lifecycle.sessionPhase,
+        shutdownError: lifecycle.shutdownPhase,
+        shutdownAgeMs: lifecycle.shutdownAgeMs
+      });
     });
     socket.on('close', (code, reasonBuffer) => {
+      const lifecycle = this.lifecyclePhase();
       this.stopHeartbeat();
       this.stats.connected = false;
       this.stats.closeEvents += 1;
       this.stats.lastDisconnectedAt = new Date().toISOString();
       this.stats.lastCloseCode = Number(code || 0) || 0;
       this.stats.lastCloseReason = reasonBuffer ? reasonBuffer.toString() : '';
+      if (lifecycle.shutdownPhase) this.stats.shutdownPhaseDisconnects += 1;
       this.emitLifecycle('provider.helius_pumpfun.shadow_disconnected', {
         code: this.stats.lastCloseCode,
-        reason: this.stats.lastCloseReason
+        reason: this.stats.lastCloseReason,
+        sessionPhase: lifecycle.sessionPhase,
+        shutdownDisconnect: lifecycle.shutdownPhase,
+        shutdownInitiatedAt: Number.isFinite(this.stopInitiatedAtMs)
+          ? new Date(this.stopInitiatedAtMs).toISOString()
+          : null,
+        shutdownAgeMs: lifecycle.shutdownAgeMs
       });
       if (this.running && this.ws === socket) this.scheduleReconnect();
+    });
+  }
+
+  lifecyclePhase(nowMs = Date.now()) {
+    const shutdownAgeMs = Number.isFinite(this.stopInitiatedAtMs)
+      ? Math.max(0, nowMs - this.stopInitiatedAtMs)
+      : null;
+    const shutdownPhase = this.stopInProgress
+      && shutdownAgeMs !== null
+      && shutdownAgeMs <= this.shutdownGraceMs;
+    return {
+      sessionPhase: this.running ? 'ACTIVE' : (shutdownPhase ? 'STOPPING' : 'STOPPED'),
+      shutdownPhase,
+      shutdownAgeMs
+    };
+  }
+
+  async closeSocketForStop(socket, timeoutMs = 750) {
+    if (!socket || socket.readyState === WebSocket.CLOSED) return;
+    await new Promise((resolve) => {
+      let settled = false;
+      let timer = null;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
+      timer = setTimeout(() => {
+        this.stats.stopCloseTimedOut = true;
+        if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+        finish();
+      }, timeoutMs);
+      socket.once('close', finish);
+      if (socket.readyState === WebSocket.CONNECTING) socket.terminate();
+      else if (socket.readyState === WebSocket.OPEN) socket.close(1000, 'shadow listener stop');
     });
   }
 

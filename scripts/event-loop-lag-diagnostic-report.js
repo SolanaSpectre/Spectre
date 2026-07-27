@@ -294,6 +294,11 @@ function analyzeTelemetry(filePath) {
       },
       runtimePhaseDiagnostics: {
         available: Boolean(sessionRuntimeStats),
+        attributionSemantics: {
+          nestedPhaseDurationsMayDoubleCount: true,
+          bucketOverlapAttributionIsUpperBound: true,
+          causalConclusionAllowed: false
+        },
         heliusQueueDrain: {
           calls: heliusQueue.eventQueueDrainCalls ?? null,
           items: heliusQueue.eventQueueDrainItems ?? null,
@@ -347,7 +352,7 @@ function analyzeTelemetry(filePath) {
           maxDurationMs: numberOrNull(workSamplerSummary.maxDurationMs, 6),
           byPhase: workSamplerSummary.byPhase || {}
         },
-        note: 'The bounded work sampler aggregates completed synchronous work into 100ms buckets and reconstructs phases overlapping each delayed timer window.'
+        note: 'The bounded work sampler aggregates completed synchronous work into 100ms buckets. Phase timers may be nested, so summed duration can exceed wall-clock time; bucket overlap is an attribution upper bound, not causal proof.'
       }
     },
     interpretation

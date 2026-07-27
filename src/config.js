@@ -1457,7 +1457,7 @@ class Config {
   }
 
   static get pumpDevShadowEnabled() {
-    return process.env.PUMPDEV_SHADOW_ENABLED !== 'false';
+    return process.env.PUMPDEV_SHADOW_ENABLED === 'true';
   }
 
   static get pumpDevFeedMode() {

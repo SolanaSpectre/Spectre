@@ -287,6 +287,9 @@ function summarizeLedger(rows, prereg) {
     };
   });
   const validRuns = effectiveRunRows.filter((row) => row.valid);
+  const excludedRuns = effectiveRunRows.filter((row) => !row.valid);
+  const validRunPnlSol = validRuns.reduce((sum, row) => sum + number(row.pnlSol, 0), 0);
+  const excludedRunPnlSol = excludedRuns.reduce((sum, row) => sum + number(row.pnlSol, 0), 0);
   const episodes = validRuns.flatMap((row) => row.episodes.map((episode) => ({ ...episode, telemetryPath: row.telemetryPath })))
     .filter((episode) => episode.exits > 0);
   const pnlValues = episodes.map((episode) => number(episode.pnlSol, 0));
@@ -321,7 +324,10 @@ function summarizeLedger(rows, prereg) {
   return {
     verdict,
     validRuns: validRuns.length,
-    excludedRuns: effectiveRunRows.length - validRuns.length,
+    excludedRuns: excludedRuns.length,
+    validRunPnlSol: round(validRunPnlSol),
+    excludedRunPnlSol: round(excludedRunPnlSol),
+    pnlInclusionSemantics: 'valid_run_pnl_drives_checkpoint_excluded_run_pnl_is_context_only',
     realizedUniqueMintEpisodes: episodes.length,
     fullPaidTapeHours: round(fullHours, 4),
     episodesPerFullCoverageHour: round(episodesPerFullCoverageHour, 6),

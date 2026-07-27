@@ -41,8 +41,11 @@ assert(
   'decision-shadow telemetry must expose distance from the curve-progress threshold'
 );
 assert(
-  engineSource.includes("shadowBaselineSource: Array.isArray(actualLaneContext?.history)"),
-  'decision-shadow telemetry must identify its PumpPortal baseline-history source'
+  engineSource.includes('baselineHistoryHeldConstant: Array.isArray(actualLaneContext?.history)')
+    && engineSource.includes(
+      "baselineControlSource: Array.isArray(actualLaneContext?.history)"
+    ),
+  'decision-shadow telemetry must identify actual-lane history as a held-constant control'
 );
 assert(
   engineSource.includes("shadowPresetSelectionMode: 'actual_preset_held_constant'"),

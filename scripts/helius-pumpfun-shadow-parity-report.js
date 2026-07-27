@@ -267,7 +267,9 @@ function createState() {
       subscriptionErrors: 0,
       decodeErrors: 0,
       unexpectedDisconnects: 0,
-      normalDisconnects: 0
+      normalDisconnects: 0,
+      shutdownPhaseDisconnects: 0,
+      shutdownPhaseErrors: 0
     }
   };
 }
@@ -293,7 +295,13 @@ function ingestEvent(state, event) {
   }
   if (type === 'provider.helius_pumpfun.shadow_error'
     || type === 'provider.helius_pumpfun.shadow_config_error') {
-    state.heliusLifecycle.errors += 1;
+    const explicitShutdownError = type === 'provider.helius_pumpfun.shadow_error'
+      && payload.shutdownError === true
+      && payload.sessionPhase === 'STOPPING'
+      && Number.isFinite(Number(payload.shutdownAgeMs))
+      && Number(payload.shutdownAgeMs) <= 1000;
+    if (explicitShutdownError) state.heliusLifecycle.shutdownPhaseErrors += 1;
+    else state.heliusLifecycle.errors += 1;
     return;
   }
   if (type === 'provider.helius_pumpfun.shadow_subscription_error') {
@@ -305,8 +313,15 @@ function ingestEvent(state, event) {
     return;
   }
   if (type === 'provider.helius_pumpfun.shadow_disconnected') {
+    const explicitShutdownDisconnect = payload.shutdownDisconnect === true
+      && payload.sessionPhase === 'STOPPING'
+      && Number.isFinite(Number(payload.shutdownAgeMs))
+      && Number(payload.shutdownAgeMs) <= 1000;
     const normalStop = Number(payload.code) === 1000 && payload.reason === 'shadow listener stop';
-    if (normalStop) state.heliusLifecycle.normalDisconnects += 1;
+    if (explicitShutdownDisconnect) {
+      state.heliusLifecycle.shutdownPhaseDisconnects += 1;
+      state.heliusLifecycle.normalDisconnects += 1;
+    } else if (normalStop) state.heliusLifecycle.normalDisconnects += 1;
     else state.heliusLifecycle.unexpectedDisconnects += 1;
     return;
   }

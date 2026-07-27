@@ -362,6 +362,31 @@ class LiveExecutionDryRunLane {
             const classifiedSimulationError = this.classifySimulationError(simulation.error, simulation.logs);
             payload.simulationErrorClass = classifiedSimulationError;
             this.bump(this.stats.simulationErrors, classifiedSimulationError);
+            if (classifiedSimulationError === 'BONDING_CURVE_MINT_MISMATCH') {
+              payload.bondingCurveMintMismatchDiagnostic = {
+                requestedMint: payload.bondingCurveValidation?.requestedMint || mint || null,
+                transactionBaseMintAddress:
+                  payload.bondingCurveValidation?.transactionBaseMintAddress || null,
+                transactionBondingCurveAddress:
+                  payload.bondingCurveValidation?.transactionBondingCurveAddress || null,
+                expectedFromRequestedMintAddress:
+                  payload.bondingCurveValidation?.expectedFromRequestedMintAddress || null,
+                expectedFromTransactionBaseMintAddress:
+                  payload.bondingCurveValidation?.expectedFromTransactionBaseMintAddress || null,
+                fetchedBondingCurveAddress:
+                  payload.bondingCurveValidation?.fetchedBondingCurveAddress || null,
+                requestedMintMatchesTransactionBaseMint:
+                  payload.bondingCurveValidation?.requestedMintMatchesTransactionBaseMint ?? null,
+                transactionBondingCurveMatchesRequestedDerivation:
+                  payload.bondingCurveValidation?.transactionBondingCurveMatchesRequestedDerivation ?? null,
+                transactionBondingCurveMatchesTransactionMintDerivation:
+                  payload.bondingCurveValidation?.transactionBondingCurveMatchesTransactionMintDerivation ?? null,
+                accountOwner: payload.bondingCurveValidation?.owner || null,
+                accountDataLength: payload.bondingCurveValidation?.accountDataLength ?? null,
+                accountDiscriminator: payload.bondingCurveValidation?.discriminator || null,
+                accountQuoteMint: payload.bondingCurveValidation?.quoteMint || null
+              };
+            }
             if (classifiedSimulationError === 'BONDING_CURVE_COMPLETE') {
               payload.postMigrationRouteProbe = await this.probePostMigrationRoute({
                 mint,
@@ -840,6 +865,11 @@ class LiveExecutionDryRunLane {
     const bondingDetail = Array.isArray(accountDetails)
       ? accountDetails.find((account) => account?.name === 'bonding_curve')
       : null;
+    const baseMintDetail = Array.isArray(accountDetails)
+      ? accountDetails.find((account) => account?.name === 'base_mint')
+      : null;
+    const requestedMint = publicKeyString(mint);
+    const transactionBaseMintAddress = publicKeyString(baseMintDetail?.pubkey);
     const provided = publicKeyString(
       bondingDetail?.pubkey
       || providedBondingCurveAddress
@@ -854,13 +884,50 @@ class LiveExecutionDryRunLane {
         expected = null;
       }
     }
+    let expectedFromTransactionBaseMintAddress = null;
+    if (this.deriveBondingCurveAddress && transactionBaseMintAddress) {
+      try {
+        expectedFromTransactionBaseMintAddress = publicKeyString(
+          this.deriveBondingCurveAddress(transactionBaseMintAddress)
+        );
+      } catch {
+        expectedFromTransactionBaseMintAddress = null;
+      }
+    }
     const diagnostic = {
       checked: true,
-      mint: mint || null,
+      mint: requestedMint || mint || null,
+      requestedMint: requestedMint || null,
+      transactionBaseMintAddress,
+      transactionBondingCurveAddress: publicKeyString(bondingDetail?.pubkey),
       bondingCurveAddress: provided,
       expectedBondingCurveAddress: expected,
+      expectedFromRequestedMintAddress: expected,
+      expectedFromTransactionBaseMintAddress,
+      requestedMintMatchesTransactionBaseMint: Boolean(
+        requestedMint
+        && transactionBaseMintAddress
+        && requestedMint === transactionBaseMintAddress
+      ),
+      transactionBondingCurveMatchesRequestedDerivation: Boolean(
+        provided
+        && expected
+        && provided === expected
+      ),
+      transactionBondingCurveMatchesTransactionMintDerivation: Boolean(
+        provided
+        && expectedFromTransactionBaseMintAddress
+        && provided === expectedFromTransactionBaseMintAddress
+      ),
       source: bondingDetail?.pubkey ? 'tx_account_details' : 'state_update'
     };
+    if (
+      requestedMint
+      && transactionBaseMintAddress
+      && requestedMint !== transactionBaseMintAddress
+    ) {
+      return { ok: false, reason: 'BONDING_CURVE_BASE_MINT_INPUT_MISMATCH', diagnostic };
+    }
     if (!provided) {
       return { ok: false, reason: 'BONDING_CURVE_ACCOUNT_DETAIL_MISSING', diagnostic };
     }
@@ -884,18 +951,22 @@ class LiveExecutionDryRunLane {
       const account = Array.isArray(infos) ? infos[0] : null;
       diagnostic.fetchLatencyMs = Date.now() - startedAt;
       if (!account) return { ok: false, reason: 'BONDING_CURVE_ACCOUNT_NOT_FOUND', diagnostic };
+      diagnostic.fetchedBondingCurveAddress = pubkey.toBase58();
+      diagnostic.accountDataLength = account.data?.length ?? null;
       const owner = account.owner?.toBase58?.() || (account.owner ? String(account.owner) : null);
       diagnostic.owner = owner;
       if (owner && owner !== this.pumpProgramId.toBase58()) {
         return { ok: false, reason: 'BONDING_CURVE_OWNER_MISMATCH', diagnostic };
       }
       const decoded = this.decodeBondingCurveForValidation(account.data);
+      diagnostic.discriminator = decoded.discriminator || null;
       diagnostic.complete = decoded.complete === true;
       diagnostic.curveProgress = compact(decoded.curveProgress, 6);
       diagnostic.virtualSolReservesSol = compact(decoded.virtualSolReservesSol, 6);
       diagnostic.virtualTokenReservesTokens = compact(decoded.virtualTokenReservesTokens, 6);
       diagnostic.realSolReservesSol = compact(decoded.realSolReservesSol, 6);
       diagnostic.creator = decoded.creator || null;
+      diagnostic.quoteMint = publicKeyString(decoded.quoteMint) || null;
       diagnostic.isMayhemMode = decoded.isMayhemMode === true;
       if (diagnostic.complete) return { ok: false, reason: 'BONDING_CURVE_COMPLETE', diagnostic };
       if (

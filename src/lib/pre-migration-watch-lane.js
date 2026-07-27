@@ -162,6 +162,8 @@ class PreMigrationWatchLane {
       lateChaserCount: 0,
       sniperWalletCount: 0,
       sniperWalletCountCaptured: false,
+      sniperWalletCountSource: null,
+      sniperWindowAnchoredAtFirstObservation: false,
       bundlerCandidate: false,
       score: 0,
       reasons: [],
@@ -312,6 +314,12 @@ class PreMigrationWatchLane {
         ? launchSniperWalletCount
         : Number(existing.sniperWalletCount || 0),
       sniperWalletCountCaptured,
+      sniperWalletCountSource: hasLaunchSniperWalletCount
+        ? launchIntelSummary?.heuristics?.sniperWalletCountSource || null
+        : existing.sniperWalletCountSource || null,
+      sniperWindowAnchoredAtFirstObservation: hasLaunchSniperWalletCount
+        ? launchIntelSummary?.heuristics?.sniperWindowAnchoredAtFirstObservation === true
+        : existing.sniperWindowAnchoredAtFirstObservation === true,
       bundlerCandidate: Boolean(launchIntelSummary?.heuristics?.bundlerCandidate || existing.bundlerCandidate)
     };
 

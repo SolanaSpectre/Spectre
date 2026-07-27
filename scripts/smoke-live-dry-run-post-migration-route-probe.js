@@ -2,6 +2,7 @@
 'use strict';
 
 const assert = require('assert');
+const { PublicKey } = require('@solana/web3.js');
 const LiveExecutionDryRunLane = require('../src/lib/live-execution-dry-run-lane');
 const TradingEngine = require('../src/trading-engine');
 
@@ -89,6 +90,58 @@ async function main() {
   assert.strictEqual(route.outputAmount, '999');
   assert.strictEqual(route.routePlanSteps, 1);
   assert.strictEqual(executeCalls, 0);
+
+  const pumpProgramId = new PublicKey('6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P');
+  const validationMint = new PublicKey('So11111111111111111111111111111111111111112');
+  const derivedCurve = PublicKey.findProgramAddressSync(
+    [Buffer.from('bonding-curve'), validationMint.toBuffer()],
+    pumpProgramId
+  )[0];
+  const validationLane = new LiveExecutionDryRunLane({
+    liveDryRunEnabled: true,
+    liveDryRunPumpBuyV2BuilderEnabled: false,
+    pumpBondingCurveProgramId: pumpProgramId.toBase58()
+  }, {}, {
+    accountReader: {
+      async getMultipleAccountsInfo() {
+        return [{
+          owner: pumpProgramId,
+          data: Buffer.alloc(150)
+        }];
+      }
+    },
+    deriveBondingCurveAddress: (mint) => PublicKey.findProgramAddressSync(
+      [Buffer.from('bonding-curve'), new PublicKey(mint).toBuffer()],
+      pumpProgramId
+    )[0],
+    decodeBondingCurveAccount: () => ({
+      discriminator: 'fixture-discriminator',
+      complete: false,
+      curveProgress: 0.5,
+      virtualSolReservesSol: 30,
+      virtualTokenReservesTokens: 1_000_000,
+      realSolReservesSol: 1,
+      quoteMint: PublicKey.default
+    })
+  });
+  const validation = await validationLane.validateBondingCurveForSimulation({
+    mint: validationMint.toBase58(),
+    accountDetails: [
+      { name: 'base_mint', pubkey: validationMint.toBase58() },
+      { name: 'bonding_curve', pubkey: derivedCurve.toBase58() }
+    ],
+    expectedBondingCurveAddress: derivedCurve.toBase58(),
+    providedBondingCurveAddress: derivedCurve.toBase58()
+  });
+  assert.strictEqual(validation.ok, true);
+  assert.strictEqual(validation.diagnostic.requestedMintMatchesTransactionBaseMint, true);
+  assert.strictEqual(validation.diagnostic.transactionBondingCurveMatchesRequestedDerivation, true);
+  assert.strictEqual(
+    validation.diagnostic.transactionBondingCurveMatchesTransactionMintDerivation,
+    true
+  );
+  assert.strictEqual(validation.diagnostic.fetchedBondingCurveAddress, derivedCurve.toBase58());
+  assert.strictEqual(validation.diagnostic.accountDataLength, 150);
 
   console.log('Live dry-run post-migration route probe smoke passed');
 }

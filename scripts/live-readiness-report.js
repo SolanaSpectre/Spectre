@@ -16,6 +16,13 @@ const {
   summarizeSimulationFailureCounts
 } = require('../src/lib/simulation-error-classifier');
 
+const EXPECTED_QUOTE_RACE_POLICY = Object.freeze({
+  maximumRate: 0.02,
+  requireLatencyTelemetry: true,
+  lowLatencyCutoff: 'strictly_below_all_simulation_blockhash_latency_median',
+  disposition: 'escalate_all_quote_races_to_critical_when_any_bound_fails'
+});
+
 const ROOT = path.resolve(__dirname, '..');
 const TELEMETRY_DIR = path.join(ROOT, 'run-logs');
 const REPORT_DIR = path.join(ROOT, 'data', 'reports');
@@ -232,6 +239,8 @@ async function readTelemetry(filePath) {
       simulationOk: { true: 0, false: 0, null: 0 },
       simulationErrors: {},
       simulationFailureMintsByClass: {},
+      simulationFailureBlockhashLatencyMsByClass: {},
+      bondingCurveMintMismatchDiagnostics: [],
       simulationMissingAccounts: {},
       simulationPassedWithPreflightMissingAccounts: {},
       postMigrationRouteProbes: {
@@ -443,10 +452,26 @@ function recordSimulationAccountDiagnostic(stats, payload = {}) {
 function recordSimulationFailure(stats, payload = {}) {
   const failureClass = classifySimulationFailure(payload);
   increment(stats.dryRun.simulationErrors, failureClass);
+  if (!stats.dryRun.simulationFailureBlockhashLatencyMsByClass[failureClass]) {
+    stats.dryRun.simulationFailureBlockhashLatencyMsByClass[failureClass] = [];
+  }
+  pushNumber(
+    stats.dryRun.simulationFailureBlockhashLatencyMsByClass[failureClass],
+    payload.blockhashLatencyMs
+  );
   if (!stats.dryRun.simulationFailureMintsByClass[failureClass]) {
     stats.dryRun.simulationFailureMintsByClass[failureClass] = {};
   }
   increment(stats.dryRun.simulationFailureMintsByClass[failureClass], payload.mint || payload.symbol || 'unknown');
+  if (
+    failureClass === 'BONDING_CURVE_MINT_MISMATCH'
+    && payload.bondingCurveMintMismatchDiagnostic
+    && stats.dryRun.bondingCurveMintMismatchDiagnostics.length < 25
+  ) {
+    stats.dryRun.bondingCurveMintMismatchDiagnostics.push(
+      payload.bondingCurveMintMismatchDiagnostic
+    );
+  }
 }
 
 function classifyDryRunBlockReason(payload = {}) {
@@ -504,8 +529,38 @@ function buildVerdict(stats) {
     stats.dryRun.simulationErrors
   );
   const drySimulationFailures = drySimulationFailureSummary.total;
+  // A literal stop-row zero is authoritative; any observed quote-race event then fails closed below.
+  const drySimulationAttempts = number(
+    dryRunStop.simulations,
+    number(stats.dryRun.simulationOk?.true, 0) + number(stats.dryRun.simulationOk?.false, 0)
+  );
   const dryExpectedStateRaceSimulationFailures = drySimulationFailureSummary.expectedStateRace;
-  const dryCriticalSimulationFailures = drySimulationFailureSummary.critical;
+  const dryExpectedQuoteRaceSimulationFailures = drySimulationFailureSummary.expectedQuoteRace;
+  const dryExpectedQuoteRaceRate = drySimulationAttempts > 0
+    ? dryExpectedQuoteRaceSimulationFailures / drySimulationAttempts
+    : 0;
+  const allSimulationBlockhashLatencyMedianMs = pct(stats.dryRun.blockhashLatencyMs || [], 50);
+  const quoteRaceBlockhashLatencies = (
+    stats.dryRun.simulationFailureBlockhashLatencyMsByClass?.QUOTE_SLIPPAGE_RACE || []
+  ).map(Number).filter(Number.isFinite);
+  const dryExpectedQuoteRaceMissingLatencyFailures = Math.max(
+    0,
+    dryExpectedQuoteRaceSimulationFailures - quoteRaceBlockhashLatencies.length
+  );
+  const dryExpectedQuoteRaceLowLatencyFailures = Number.isFinite(allSimulationBlockhashLatencyMedianMs)
+    ? quoteRaceBlockhashLatencies.filter(
+      (latencyMs) => latencyMs < allSimulationBlockhashLatencyMedianMs
+    ).length
+    : dryExpectedQuoteRaceSimulationFailures;
+  const dryExpectedQuoteRaceWithinBound = dryExpectedQuoteRaceSimulationFailures === 0
+    || (
+      drySimulationAttempts > 0
+      && dryExpectedQuoteRaceRate <= EXPECTED_QUOTE_RACE_POLICY.maximumRate
+      && dryExpectedQuoteRaceMissingLatencyFailures === 0
+      && dryExpectedQuoteRaceLowLatencyFailures === 0
+    );
+  const dryCriticalSimulationFailures = drySimulationFailureSummary.critical
+    + (dryExpectedQuoteRaceWithinBound ? 0 : dryExpectedQuoteRaceSimulationFailures);
   const dryPostMigrationRouteProbeStats = stats.dryRun.postMigrationRouteProbes || {};
   const dryPostMigrationRouteProbes = number(dryPostMigrationRouteProbeStats.attempted, 0);
   const dryPostMigrationRoutesAvailable = number(dryPostMigrationRouteProbeStats.available, 0);
@@ -519,7 +574,11 @@ function buildVerdict(stats) {
     'UNSUPPORTED_QUOTE_PAIR',
     'MISSING_SOL_RESERVES',
     'QUOTE_RESERVE_DRIFT'
-  ]);
+  ]) + (
+    dryExpectedQuoteRaceWithinBound
+      ? countOnly(stats.dryRun.blockReasons, ['QUOTE_SLIPPAGE_RACE'])
+      : 0
+  );
   const dryCriticalBlocks = Math.max(0, dryWouldBlock - dryPolicyBlocks);
   const dryAmountSol = number(dryRunStop.amountSol, 0.1);
   const drySignedTrue = number(stats.dryRun.signedOk.true, 0);
@@ -597,13 +656,22 @@ function buildVerdict(stats) {
       );
     }
   }
+  if (dryExpectedQuoteRaceSimulationFailures > 0 && dryExpectedQuoteRaceWithinBound) {
+    warnings.push(
+      `Dry-run observed ${dryExpectedQuoteRaceSimulationFailures} bounded quote-slippage race(s) (${(dryExpectedQuoteRaceRate * 100).toFixed(2)}% of simulations); each occurred at or above the run's median blockhash latency and remains report-only.`
+    );
+  } else if (dryExpectedQuoteRaceSimulationFailures > 0) {
+    blockers.push(
+      `Dry-run quote-slippage races exceeded the frozen benign bound (count=${dryExpectedQuoteRaceSimulationFailures}, rate=${(dryExpectedQuoteRaceRate * 100).toFixed(2)}%, lowLatency=${dryExpectedQuoteRaceLowLatencyFailures}, missingLatency=${dryExpectedQuoteRaceMissingLatencyFailures}); all are critical for readiness.`
+    );
+  }
   if (drySimulationFailureAccountingMismatch) {
     blockers.push(
       `Dry-run simulation failure accounting disagrees (session stop=${dryRunStopSimulationFailures}, classified events=${drySimulationFailures}); readiness remains blocked until the telemetry lifecycle is reconciled.`
     );
   }
   if (dryCriticalSimulationFailures > 0) {
-    blockers.push(`Dry-run transaction simulation is failing (${dryCriticalSimulationFailures}/${dryAttempts} critical; ${dryExpectedStateRaceSimulationFailures} expected curve-completion races excluded); live execution cannot be reviewed until critical simulations pass.`);
+    blockers.push(`Dry-run transaction simulation is failing (${dryCriticalSimulationFailures}/${dryAttempts} critical; ${dryExpectedStateRaceSimulationFailures} expected curve-completion races and ${dryExpectedQuoteRaceWithinBound ? dryExpectedQuoteRaceSimulationFailures : 0} bounded quote races excluded); live execution cannot be reviewed until critical simulations pass.`);
   } else if (dryAttempts >= 20 && dryWouldSend >= 20 && dryCriticalBlocks === 0 && dryErrors === 0) {
     passes.push(`Dry-run tx builder is healthy (${dryWouldSend}/${dryAttempts} would_send, criticalBlocks=${dryCriticalBlocks}, policyBlocks=${dryPolicyBlocks}, errors=0).`);
   } else if (dryAttempts > 0 && dryWouldSend > 0 && dryCriticalBlocks === 0 && dryErrors === 0) {
@@ -683,8 +751,15 @@ function buildVerdict(stats) {
       dryCriticalBlocks,
       dryErrors,
       dryRunStopSimulationFailures,
+      drySimulationAttempts,
       drySimulationFailures,
       dryExpectedStateRaceSimulationFailures,
+      dryExpectedQuoteRaceSimulationFailures,
+      dryExpectedQuoteRaceRate,
+      dryExpectedQuoteRaceWithinBound,
+      dryExpectedQuoteRaceLowLatencyFailures,
+      dryExpectedQuoteRaceMissingLatencyFailures,
+      expectedQuoteRacePolicy: EXPECTED_QUOTE_RACE_POLICY,
       dryCriticalSimulationFailures,
       dryPostMigrationRouteProbes,
       dryPostMigrationRoutesAvailable,
@@ -747,6 +822,10 @@ function buildReport(stats) {
         simulationOk: stats.dryRun.simulationOk,
         simulationErrors: stats.dryRun.simulationErrors,
         simulationFailureMintsByClass: stats.dryRun.simulationFailureMintsByClass,
+        simulationFailureBlockhashLatencyMsByClass:
+          stats.dryRun.simulationFailureBlockhashLatencyMsByClass,
+        bondingCurveMintMismatchDiagnostics:
+          stats.dryRun.bondingCurveMintMismatchDiagnostics,
         simulationMissingAccounts: stats.dryRun.simulationMissingAccounts,
         simulationPassedWithPreflightMissingAccounts: stats.dryRun.simulationPassedWithPreflightMissingAccounts,
         postMigrationRouteProbes: stats.dryRun.postMigrationRouteProbes || {
@@ -839,6 +918,7 @@ function writeText(report) {
   lines.push(`- Dry-run simulation accounting mismatch: ${m.drySimulationFailureAccountingMismatch}`);
   lines.push(`- Dry-run critical simulation failures: ${m.dryCriticalSimulationFailures}`);
   lines.push(`- Dry-run expected curve-completion races: ${m.dryExpectedStateRaceSimulationFailures}`);
+  lines.push(`- Dry-run expected quote races/count/rate/within bound: ${m.dryExpectedQuoteRaceSimulationFailures} / ${fmt(m.dryExpectedQuoteRaceRate * 100, 2)}% / ${m.dryExpectedQuoteRaceWithinBound}`);
   lines.push(`- Dry-run post-migration route probes/available/errors: ${m.dryPostMigrationRouteProbes} / ${m.dryPostMigrationRoutesAvailable} / ${m.dryPostMigrationRouteProbeErrors} (report-only)`);
   lines.push(`- Dry-run signedOk true/false/null: ${m.drySignedTrue} / ${m.drySignedFalse} / ${m.drySignedNull}`);
   lines.push(`- Dry-run broadcastEnabled true/false/null: ${m.dryBroadcastTrue} / ${m.dryBroadcastFalse} / ${m.dryBroadcastNull}`);

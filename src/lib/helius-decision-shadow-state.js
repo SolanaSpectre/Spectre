@@ -3,6 +3,7 @@
 class HeliusDecisionShadowState {
   constructor(config = {}) {
     this.windowMs = Math.max(10_000, Number(config.pumpMomentumWindowMs || 60_000));
+    this.sniperWindowMs = Math.max(1, Number(config.launchIntelSniperWindowMs || 4000));
     // Portal retains 200 prior rows and then appends the current trade.
     this.recentTradeCap = 201;
     this.maxTradeAgeMs = Math.max(this.windowMs * 3, 5 * 60_000);
@@ -119,6 +120,18 @@ class HeliusDecisionShadowState {
     const recentVolumeSol = recentTrades.reduce((sum, row) => sum + Number(row.volumeSol || 0), 0);
     const totalVolumeSol = eligibleTrades.reduce((sum, row) => sum + Number(row.volumeSol || 0), 0);
     const uniqueBuyers = new Set(recentBuys.map((row) => row.trader).filter(Boolean));
+    const uniqueBuyerCountCaptured = recentTrades.length > 0
+      && recentBuys.every((row) => Boolean(row.trader));
+    const firstReferenceMs = eligibleTrades[0]?.atMs ?? source.createdAtMs ?? null;
+    const earlyBuyWindow = Number.isFinite(firstReferenceMs)
+      ? allBuys.filter((row) => row.atMs - firstReferenceMs <= this.sniperWindowMs)
+      : [];
+    const sniperWalletCountCaptured = Number.isFinite(firstReferenceMs)
+      && earlyBuyWindow.length > 0
+      && earlyBuyWindow.every((row) => Boolean(row.trader));
+    const sniperWalletCount = sniperWalletCountCaptured
+      ? new Set(earlyBuyWindow.map((row) => row.trader)).size
+      : null;
     const walletContext = this.buildWalletContext(eligibleWalletTrades, portalState, resolveWallet);
     const tradeCurveProgress = this.finite(source.curveProgress);
     const tradePriceSol = this.finite(source.priceSol);
@@ -184,10 +197,15 @@ class HeliusDecisionShadowState {
       buyRatio: recentTrades.length ? recentBuys.length / recentTrades.length : 0.5,
       buyRatioCaptured: recentTrades.length > 0,
       uniqueBuyerCount: uniqueBuyers.size,
-      uniqueBuyerCountCaptured: recentTrades.length > 0,
+      uniqueBuyerCountCaptured,
       uniqueBuyerRatio: recentBuys.length ? Math.min(uniqueBuyers.size / recentBuys.length, 1) : null,
-      sniperWalletCount: 0,
-      sniperWalletCountCaptured: false,
+      sniperWalletCount,
+      sniperWalletCountCaptured,
+      sniperWalletCountSource: sniperWalletCountCaptured
+        ? 'helius_first_reference_buy_window'
+        : null,
+      sniperWindowAnchoredAtFirstObservation: sniperWalletCountCaptured,
+      sniperWindowMs: this.sniperWindowMs,
       bundlerCandidate: false,
       walletClassificationContext: walletContext
     };
@@ -215,6 +233,13 @@ class HeliusDecisionShadowState {
         recentVolumeSol,
         tradeVelocityPerMin: state.tradeVelocityPerMin,
         uniqueBuyerCount: uniqueBuyers.size,
+        uniqueBuyerCountCaptured,
+        sniperWalletCount,
+        sniperWalletCountCaptured,
+        sniperWalletCountSource: state.sniperWalletCountSource,
+        sniperWindowAnchoredAtFirstObservation:
+          state.sniperWindowAnchoredAtFirstObservation,
+        sniperWindowMs: this.sniperWindowMs,
         curveStateSource,
         accountEnriched: accountUsable,
         recentTapeCaptured: recentTrades.length > 0,

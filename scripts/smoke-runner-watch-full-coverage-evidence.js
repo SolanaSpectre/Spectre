@@ -175,6 +175,8 @@ const summary = summarizeLedger([
 ], prereg);
 assert.strictEqual(summary.realizedUniqueMintEpisodes, 2);
 assert.strictEqual(summary.excludedRuns, 0, 'coverage annotations must not count as excluded runs');
+assert.strictEqual(summary.validRunPnlSol, 0.025);
+assert.strictEqual(summary.excludedRunPnlSol, 0);
 assert.strictEqual(summary.episodesPerFullCoverageHour, 2);
 assert.strictEqual(summary.economicCheckpointReady, true);
 assert.strictEqual(summary.liveAction, 'KEEP_LIVE_DISABLED');
@@ -198,7 +200,32 @@ const correctedSummary = summarizeLedger([
 ], prereg);
 assert.strictEqual(correctedSummary.validRuns, 0, 'coverage correction must exclude a previously accepted run');
 assert.strictEqual(correctedSummary.excludedRuns, 1);
+assert.strictEqual(correctedSummary.validRunPnlSol, 0);
+assert.strictEqual(correctedSummary.excludedRunPnlSol, 0.025);
 assert.strictEqual(correctedSummary.realizedUniqueMintEpisodes, 0);
+
+const splitPnlSummary = summarizeLedger([
+  {
+    valid: true,
+    telemetryPath: 'run-logs/valid.jsonl',
+    fullPaidTapeMinutes: 60,
+    pnlSol: -0.0674,
+    episodes
+  },
+  {
+    valid: false,
+    telemetryPath: 'run-logs/excluded.jsonl',
+    fullPaidTapeMinutes: 12,
+    pnlSol: 0.035469,
+    episodes
+  }
+], prereg);
+assert.strictEqual(splitPnlSummary.validRunPnlSol, -0.0674);
+assert.strictEqual(splitPnlSummary.excludedRunPnlSol, 0.035469);
+assert.strictEqual(
+  splitPnlSummary.pnlInclusionSemantics,
+  'valid_run_pnl_drives_checkpoint_excluded_run_pnl_is_context_only'
+);
 
 const telemetryPath = path.join(os.tmpdir(), `spectre-runner-watch-coverage-${process.pid}.jsonl`);
 fs.writeFileSync(telemetryPath, [

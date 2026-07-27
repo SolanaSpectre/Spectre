@@ -71,15 +71,28 @@ assert.strictEqual(
   classifySimulationError('Error Number: 6004', ['MintDoesNotMatchBondingCurve']),
   'BONDING_CURVE_MINT_MISMATCH'
 );
+assert.strictEqual(
+  classifySimulationError(
+    'Error Number: 6002',
+    ['Error Code: TooMuchSolRequired', 'slippage: Too much SOL required']
+  ),
+  'QUOTE_SLIPPAGE_RACE'
+);
+assert.strictEqual(
+  classifySimulationError('custom program error: 0x1772'),
+  'QUOTE_SLIPPAGE_RACE'
+);
 assert.deepStrictEqual(
   summarizeSimulationFailureCounts({
     BONDING_CURVE_COMPLETE: 2,
+    QUOTE_SLIPPAGE_RACE: 1,
     SIMULATION_SLIPPAGE: 1,
     SIMULATION_INSUFFICIENT_FUNDS: 3
   }),
   {
-    total: 6,
+    total: 7,
     expectedStateRace: 2,
+    expectedQuoteRace: 1,
     critical: 4
   }
 );

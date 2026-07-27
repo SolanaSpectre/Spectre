@@ -12,6 +12,7 @@ const original = {
   heliusDecisionShadowEnabled: process.env.HELIUS_PUMPFUN_DECISION_SHADOW_ENABLED,
   finalistMaxSubscriptions: process.env.FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS,
   finalistTtlMs: process.env.FINALIST_ACCOUNT_VERIFIER_TTL_MS,
+  pumpDevShadowEnabled: process.env.PUMPDEV_SHADOW_ENABLED,
   coldWalletAddress: process.env.COLD_WALLET_ADDRESS
 };
 
@@ -25,7 +26,13 @@ try {
   process.env.PUMPPORTAL_TRADE_SUBSCRIPTION_MODE = 'targeted_curve';
   process.env.PUMP_BONDING_CURVE_RUNTIME_RPC_ENABLED = 'false';
   process.env.HELIUS_PUMPFUN_SHADOW_ENABLED = 'false';
+  delete process.env.PUMPDEV_SHADOW_ENABLED;
   delete process.env.COLD_WALLET_ADDRESS;
+
+  assert.strictEqual(Config.pumpDevShadowEnabled, false, 'PumpDev shadow must default off');
+  process.env.PUMPDEV_SHADOW_ENABLED = 'true';
+  assert.strictEqual(Config.pumpDevShadowEnabled, true, 'PumpDev shadow must require explicit opt-in');
+  process.env.PUMPDEV_SHADOW_ENABLED = 'false';
 
   assert.throws(
     () => Config.validate(),
@@ -69,6 +76,7 @@ try {
   restore('HELIUS_PUMPFUN_DECISION_SHADOW_ENABLED', original.heliusDecisionShadowEnabled);
   restore('FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS', original.finalistMaxSubscriptions);
   restore('FINALIST_ACCOUNT_VERIFIER_TTL_MS', original.finalistTtlMs);
+  restore('PUMPDEV_SHADOW_ENABLED', original.pumpDevShadowEnabled);
   restore('COLD_WALLET_ADDRESS', original.coldWalletAddress);
 }
 

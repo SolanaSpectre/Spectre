@@ -171,6 +171,51 @@ const unexpectedDisconnect = analyzeEvents([
 assert.strictEqual(unexpectedDisconnect.checks.cleanHeliusLifecycle, false);
 assert.strictEqual(unexpectedDisconnect.verdict, PREREGISTERED.failVerdict);
 
+const explicitShutdownDisconnect = analyzeEvents([
+  ...events,
+  event('provider.helius_pumpfun.shadow_disconnected', iso(3_598_998), {
+    code: 1006,
+    reason: '',
+    sessionPhase: 'STOPPING',
+    shutdownDisconnect: true,
+    shutdownAgeMs: 35
+  })
+]);
+assert.strictEqual(explicitShutdownDisconnect.checks.cleanHeliusLifecycle, true);
+assert.strictEqual(explicitShutdownDisconnect.counts.heliusLifecycle.shutdownPhaseDisconnects, 1);
+
+const unstampedShutdownDisconnect = analyzeEvents([
+  ...events,
+  event('provider.helius_pumpfun.shadow_disconnected', iso(3_598_998), {
+    code: 1006,
+    reason: ''
+  })
+]);
+assert.strictEqual(unstampedShutdownDisconnect.checks.cleanHeliusLifecycle, false);
+
+const explicitShutdownError = analyzeEvents([
+  ...events,
+  event('provider.helius_pumpfun.shadow_error', iso(3_598_998), {
+    errorMessage: 'socket closed during stop',
+    sessionPhase: 'STOPPING',
+    shutdownError: true,
+    shutdownAgeMs: 35
+  })
+]);
+assert.strictEqual(explicitShutdownError.checks.cleanHeliusLifecycle, true);
+assert.strictEqual(explicitShutdownError.counts.heliusLifecycle.shutdownPhaseErrors, 1);
+
+const staleShutdownError = analyzeEvents([
+  ...events,
+  event('provider.helius_pumpfun.shadow_error', iso(3_598_998), {
+    errorMessage: 'late socket failure',
+    sessionPhase: 'STOPPING',
+    shutdownError: true,
+    shutdownAgeMs: 1001
+  })
+]);
+assert.strictEqual(staleShutdownError.checks.cleanHeliusLifecycle, false);
+
 const eventDecodeFailure = analyzeEvents([
   ...events,
   event('provider.helius_pumpfun.shadow_decode_error', iso(100_000), {

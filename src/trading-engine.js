@@ -278,6 +278,25 @@ class TradingEngine {
       lastLagMs: 0,
       startedAt: null
     };
+    this.providerTradeTickBurstState = {
+      currentCount: 0,
+      currentByProvider: {},
+      flushScheduled: false,
+      totals: {
+        ticks: 0,
+        events: 0,
+        maxEventsPerTick: 0,
+        histogram: {
+          one: 0,
+          twoToFour: 0,
+          fiveToNine: 0,
+          tenToTwentyFour: 0,
+          twentyFiveToFortyNine: 0,
+          fiftyPlus: 0
+        },
+        byProvider: {}
+      }
+    };
     this.gcObserver = null;
     this.gcPauseStats = {
       samples: 0,
@@ -538,7 +557,7 @@ class TradingEngine {
         eventQueueBatchSize: this.config.heliusPumpfunShadowEventQueueBatchSize,
         gateDecisionComparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context',
         executedActionComparator: 'gate_coupled_same_guard_path_entry_and_same_instant_exit_with_actual_lane_context',
-        decisionShadowMarketInputSemantics: 'exact_counterfactual_score_and_sniper_capture_exposed_null_score_incomparable'
+        decisionShadowMarketInputSemantics: 'complete_source_attributed_market_telemetry_missing_score_or_wallet_features_incomparable'
       },
       strategyPreregistration: {
         id: 'runner_watch_full_coverage_v5_2026-07-26',
@@ -623,6 +642,7 @@ class TradingEngine {
       this.pumpBondingCurveQueueTimer = null;
     }
     this.clearPumpDevPrimarySilenceWatchdog();
+    this.flushProviderTradeTickBurst();
     this.stopEventLoopMonitor(reason);
     this.queuedPumpBondingCurveSyncs.clear();
     this.finalistAccountVerifier?.stop?.('SESSION_STOP');
@@ -1282,6 +1302,94 @@ class TradingEngine {
     return this.eventLoopWorkSampler.measure(phase, fn, details);
   }
 
+  recordProviderTradeTickBurst(provider = 'unknown') {
+    const state = this.providerTradeTickBurstState;
+    if (!state) return;
+
+    const normalizedProvider = String(provider || 'unknown');
+    state.currentCount += 1;
+    state.currentByProvider[normalizedProvider] = (
+      state.currentByProvider[normalizedProvider] || 0
+    ) + 1;
+    if (state.flushScheduled) return;
+
+    state.flushScheduled = true;
+    const immediate = setImmediate(() => {
+      state.flushScheduled = false;
+      this.flushProviderTradeTickBurst();
+    });
+    if (typeof immediate.unref === 'function') immediate.unref();
+  }
+
+  flushProviderTradeTickBurst() {
+    const state = this.providerTradeTickBurstState;
+    const count = Number(state?.currentCount || 0);
+    if (!state || count <= 0) return;
+
+    const totals = state.totals;
+    totals.ticks += 1;
+    totals.events += count;
+    totals.maxEventsPerTick = Math.max(totals.maxEventsPerTick, count);
+    const bucket = count === 1
+      ? 'one'
+      : count <= 4
+        ? 'twoToFour'
+        : count <= 9
+          ? 'fiveToNine'
+          : count <= 24
+            ? 'tenToTwentyFour'
+            : count <= 49
+              ? 'twentyFiveToFortyNine'
+              : 'fiftyPlus';
+    totals.histogram[bucket] += 1;
+
+    for (const [provider, providerCount] of Object.entries(state.currentByProvider)) {
+      const providerTotals = totals.byProvider[provider] || {
+        ticksWithEvents: 0,
+        events: 0,
+        maxEventsPerTick: 0
+      };
+      providerTotals.ticksWithEvents += 1;
+      providerTotals.events += providerCount;
+      providerTotals.maxEventsPerTick = Math.max(
+        providerTotals.maxEventsPerTick,
+        providerCount
+      );
+      totals.byProvider[provider] = providerTotals;
+    }
+
+    state.currentCount = 0;
+    state.currentByProvider = {};
+  }
+
+  providerTradeTickBurstSummary() {
+    const state = this.providerTradeTickBurstState;
+    const totals = state?.totals || {};
+    const ticks = Number(totals.ticks || 0);
+    return {
+      semantics: 'provider_trade_callbacks_grouped_until_next_set_immediate_turn',
+      ticks,
+      events: Number(totals.events || 0),
+      meanEventsPerTick: ticks > 0
+        ? Number((Number(totals.events || 0) / ticks).toFixed(6))
+        : null,
+      maxEventsPerTick: Number(totals.maxEventsPerTick || 0),
+      histogram: { ...(totals.histogram || {}) },
+      byProvider: Object.fromEntries(
+        Object.entries(totals.byProvider || {}).map(([provider, row]) => [
+          provider,
+          {
+            ...row,
+            meanEventsPerTick: row.ticksWithEvents > 0
+              ? Number((row.events / row.ticksWithEvents).toFixed(6))
+              : null
+          }
+        ])
+      ),
+      openTickEvents: Number(state?.currentCount || 0)
+    };
+  }
+
   eventLoopStallContext(now = Date.now(), expectedAt = now, intervalMs = 1000) {
     const activeHandleTypes = {};
     if (typeof process._getActiveHandles === 'function') {
@@ -1317,6 +1425,7 @@ class TradingEngine {
       ...this.eventLoopMonitorStats,
       gcPauses: this.gcPauseSummary(),
       workSampler: this.eventLoopWorkSampler?.summary?.() || null,
+      providerTradeTickBursts: this.providerTradeTickBurstSummary(),
       reason,
       stoppedAt: new Date().toISOString()
     });
@@ -3872,7 +3981,7 @@ class TradingEngine {
     if (shadowStateFresh) {
       const shadowWatch = this.heliusDecisionShadowWatchLane.observeToken(
         snapshot.state,
-        this.sanitizeLaunchIntelForHeliusDecisionShadow(launchIntelSummary),
+        this.sanitizeLaunchIntelForHeliusDecisionShadow(launchIntelSummary, snapshot.state),
         snapshot.walletContext
       );
       shadowState = shadowWatch.state || snapshot.state;
@@ -3890,24 +3999,36 @@ class TradingEngine {
         timestamp,
         actual.payload?.preset || 'unknown'
       ].join('|');
-      const counterfactual = shadowStateFresh
-        ? (
-          shadowMarket?.score === null || shadowMarket?.score === undefined
-            ? {
-                comparable: false,
-                wouldEnter: false,
-                action: 'WOULD_SKIP',
-                reason: 'INCOMPARABLE_SCORE_INPUT'
-              }
-            : this.preMigrationPaperLane.evaluateCounterfactualGateDecision({
-              state: shadowState,
-              timestamp,
-              presetName: actual.payload?.preset,
-              flagged: Boolean(result.flagged),
-              context: actualLaneContext || {}
-            })
-        )
-        : null;
+      let counterfactual = null;
+      if (shadowStateFresh) {
+        if (shadowMarket?.score === null || shadowMarket?.score === undefined) {
+          counterfactual = {
+            comparable: false,
+            wouldEnter: false,
+            action: 'WOULD_SKIP',
+            reason: 'INCOMPARABLE_SCORE_INPUT'
+          };
+        } else if (
+          shadowMarket?.sniperWalletCountCaptured !== true
+          || shadowMarket?.sniperWalletCount === null
+          || shadowMarket?.sniperWalletCount === undefined
+        ) {
+          counterfactual = {
+            comparable: false,
+            wouldEnter: false,
+            action: 'WOULD_SKIP',
+            reason: 'INCOMPARABLE_WALLET_FEATURES'
+          };
+        } else {
+          counterfactual = this.preMigrationPaperLane.evaluateCounterfactualGateDecision({
+            state: shadowState,
+            timestamp,
+            presetName: actual.payload?.preset,
+            flagged: Boolean(result.flagged),
+            context: actualLaneContext || {}
+          });
+        }
+      }
       const comparable = Boolean(shadowStateFresh && counterfactual?.comparable !== false);
       const actualAction = this.normalizePaperDecisionAction(actual.payload?.decision);
       const shadowAction = comparable ? counterfactual.action : null;
@@ -4061,10 +4182,11 @@ class TradingEngine {
           ? this.roundNumber(shadowBaselineCurveProgress, 6)
           : null,
         shadowBaselineAt: shadowDecisionDetails.baselineAt || shadowGuardDetails.baselineAt || null,
-        shadowBaselineSource: Array.isArray(actualLaneContext?.history)
+        baselineHistoryHeldConstant: Array.isArray(actualLaneContext?.history),
+        baselineControlSource: Array.isArray(actualLaneContext?.history)
           ? 'pumpportal_actual_lane_observation_history'
           : null,
-        shadowBaselineHistoryRows: Array.isArray(actualLaneContext?.history)
+        baselineControlHistoryRows: Array.isArray(actualLaneContext?.history)
           ? actualLaneContext.history.length
           : 0,
         actionAgreement: comparable ? actualAction === shadowAction : null,
@@ -4228,15 +4350,23 @@ class TradingEngine {
     };
   }
 
-  sanitizeLaunchIntelForHeliusDecisionShadow(summary = null) {
-    if (!summary) return null;
-    const heuristics = summary.heuristics || {};
+  sanitizeLaunchIntelForHeliusDecisionShadow(summary = null, shadowState = null) {
+    const sniperWalletCountCaptured = shadowState?.sniperWalletCountCaptured === true;
+    if (!summary && !sniperWalletCountCaptured) return null;
+    const heuristics = summary?.heuristics || {};
     return {
-      ...summary,
+      ...(summary || {}),
       uniqueBuyerCount: null,
       heuristics: {
         ...heuristics,
-        sniperWalletCount: null,
+        sniperWalletCount: sniperWalletCountCaptured
+          ? Number(shadowState.sniperWalletCount)
+          : null,
+        sniperWalletCountSource: sniperWalletCountCaptured
+          ? shadowState.sniperWalletCountSource || 'helius_first_reference_buy_window'
+          : null,
+        sniperWindowAnchoredAtFirstObservation:
+          shadowState?.sniperWindowAnchoredAtFirstObservation === true,
         repeatedEarlyBuyerCount: 0,
         bundlerCandidate: false,
         kolOverlap: {
@@ -4309,12 +4439,24 @@ class TradingEngine {
           && score !== ''
           && Number.isFinite(Number(score)),
         curveProgress,
+        curveProgressSource: marketValue('curveProgressSource'),
         curveProgressDelta: marketValue('curveProgressDelta'),
         curveProgressDelta60s: marketValue('curveProgressDelta60s'),
+        baselineCurveProgress: marketValue('baselineCurveProgress'),
+        baselineAt: marketValue('baselineAt'),
+        baselineCurveProgress60s: marketValue('baselineCurveProgress60s'),
+        baselineAt60s: marketValue('baselineAt60s'),
         recentVolumeSol: marketValue('recentVolumeSol'),
+        recentTradeCount: marketValue('recentTradeCount'),
         tradeVelocityPerMin: marketValue('tradeVelocityPerMin'),
+        buyRatio: marketValue('buyRatio'),
+        buyRatioCaptured: marketValue('buyRatioCaptured'),
         uniqueBuyerCount: marketValue('uniqueBuyerCount'),
+        uniqueBuyerCountCaptured: marketValue('uniqueBuyerCountCaptured'),
         sniperWalletCount,
+        sniperWalletCountSource: marketValue('sniperWalletCountSource'),
+        sniperWindowAnchoredAtFirstObservation:
+          marketValue('sniperWindowAnchoredAtFirstObservation'),
         sniperWalletCountCaptured: typeof sniperWalletCountCaptured === 'boolean'
           ? sniperWalletCountCaptured
           : null
@@ -4375,15 +4517,22 @@ class TradingEngine {
     return {
       score: finite(state.score),
       curveProgress: this.extractProviderCurveProgressForParity(state),
+      curveProgressSource: state.curveProgressSource || null,
       priceSol: this.extractProviderPriceForParity(state),
       recentBuys: finite(state.recentBuys),
       recentSells: finite(state.recentSells),
       recentTradeCount: finite(state.recentTradeCount),
       recentVolumeSol: finite(state.recentVolumeSol),
       tradeVelocityPerMin: finite(state.tradeVelocityPerMin),
+      buyRatio: finite(state.buyRatio),
+      buyRatioCaptured: state.buyRatioCaptured === true,
       uniqueBuyerCount: finite(state.uniqueBuyerCount),
+      uniqueBuyerCountCaptured: state.uniqueBuyerCountCaptured === true,
       sniperWalletCount: finite(state.sniperWalletCount),
-      sniperWalletCountCaptured: state.sniperWalletCountCaptured === true
+      sniperWalletCountCaptured: state.sniperWalletCountCaptured === true,
+      sniperWalletCountSource: state.sniperWalletCountSource || null,
+      sniperWindowAnchoredAtFirstObservation:
+        state.sniperWindowAnchoredAtFirstObservation === true
     };
   }
 
@@ -6855,6 +7004,7 @@ class TradingEngine {
 
   async handlePumpPortalTrade(event) {
     return this.handleProviderTrade(event, {
+      provider: 'pumpportal',
       telemetryType: 'provider.pumpportal.trade',
       defaultSource: 'pumpportal_trade'
     });
@@ -6862,127 +7012,190 @@ class TradingEngine {
 
   async handlePumpDevTrade(event) {
     return this.handleProviderTrade(event, {
+      provider: 'pumpdev',
       telemetryType: 'provider.pumpdev.runtime_trade',
       defaultSource: 'pumpdev_trade'
     });
   }
 
   async handleProviderTrade(event, options = {}) {
-    if (this.maybeStopExpiredSession('provider_trade')) {
+    const provider = String(options.provider || 'unknown');
+    const phase = (name) => `provider.${provider}.trade.${name}`;
+    const workDetails = { type: `${provider}_trade` };
+
+    const stopExpired = this.measureEventLoopWork(
+      phase('session_stop_check'),
+      () => this.maybeStopExpiredSession('provider_trade'),
+      workDetails
+    );
+    if (stopExpired) {
       return;
     }
-    this.executeDuePreMigrationPaperRechecks();
+    this.recordProviderTradeTickBurst(provider);
+    this.measureEventLoopWork(
+      phase('due_paper_rechecks'),
+      () => this.executeDuePreMigrationPaperRechecks(),
+      workDetails
+    );
     const mint = event.mint || event.token || event.mintAddress;
     if (!mint) {
       return;
     }
 
-    const current = this.latestPumpPortalTokens.get(mint) || {
-      mint,
-      createdAt: Date.now()
-    };
-
-    current.source = current.source || event.source || options.defaultSource || 'provider_trade';
-    current.lastTradeAt = Date.now();
-    current.firstTradeAt = current.firstTradeAt || current.lastTradeAt;
-    current.tradeCount = (current.tradeCount || 0) + 1;
-    const tradeVolumeSol = Number(event.solAmount || 0);
-    current.volumeSol = (current.volumeSol || 0) + tradeVolumeSol;
-    current.liquiditySol = Number(event.virtualSolReservesSol || current.liquiditySol || 0);
-    current.marketCapSol = Number(event.marketCapSol || current.marketCapSol || 0);
-    current.bondingStage = this.inferBondingStage(event, current.bondingStage);
-    const providerCurveSnapshotApplied = this.applyProviderCurveSnapshot(current, event, 'trade');
-    this.maybeUpdateCurveConfirmationShadow({
-      telemetryType: options.telemetryType || 'provider.pumpportal.trade',
-      payload: {
-        ...event,
+    let current;
+    let tradeVolumeSol;
+    let providerCurveSnapshotApplied;
+    this.measureEventLoopWork(phase('state_mutation'), () => {
+      current = this.latestPumpPortalTokens.get(mint) || {
         mint,
-        curveProgress: current.curveProgress,
-        providerCurveProgress: event.providerCurveProgress ?? event.curveProgress ?? current.curveProgress,
-        priceSol: event.priceSol ?? current.priceSol ?? null,
-        timestamp: new Date().toISOString()
-      }
-    });
+        createdAt: Date.now()
+      };
+      current.source = current.source || event.source || options.defaultSource || 'provider_trade';
+      current.lastTradeAt = Date.now();
+      current.firstTradeAt = current.firstTradeAt || current.lastTradeAt;
+      current.tradeCount = (current.tradeCount || 0) + 1;
+      tradeVolumeSol = Number(event.solAmount || 0);
+      current.volumeSol = (current.volumeSol || 0) + tradeVolumeSol;
+      current.liquiditySol = Number(event.virtualSolReservesSol || current.liquiditySol || 0);
+      current.marketCapSol = Number(event.marketCapSol || current.marketCapSol || 0);
+      current.bondingStage = this.inferBondingStage(event, current.bondingStage);
+      providerCurveSnapshotApplied = this.applyProviderCurveSnapshot(current, event, 'trade');
+    }, workDetails);
 
-    if (event.txType === 'buy') {
-      current.buys = (current.buys || 0) + 1;
-    } else if (event.txType === 'sell') {
-      current.sells = (current.sells || 0) + 1;
-    }
-
-    const side = event.txType === 'sell' ? 'sell' : 'buy';
-    current.tradeWindow = (current.tradeWindow || [])
-      .filter((trade) => current.lastTradeAt - trade.timestamp <= this.config.pumpMomentumWindowMs)
-      .slice(-200);
-    current.tradeWindow.push({
-      timestamp: current.lastTradeAt,
-      side,
-      volumeSol: tradeVolumeSol
-    });
-
-    const trader = this.extractProviderTradeWallet(event);
-    this.heliusDecisionShadowState?.ingestPortalTradeIdentity?.({
-      mint,
-      signature: event.signature || event.txSignature || event.transactionSignature || null,
-      trader,
-      receivedAt: current.lastTradeAt
-    });
-    const trackedAccounts = Array.isArray(this.config.pumpPortalTrackedAccounts)
-      ? this.config.pumpPortalTrackedAccounts
-      : [];
-    const trackedAccountMatch = Boolean(trader && trackedAccounts.includes(trader));
-    const tradeWalletProfile = trader ? this.launchIntelStore.buildKolWalletSummary(trader) : null;
-    const kolWalletProfileMatch = Boolean(tradeWalletProfile);
-    const shadowWalletProfileMatch = tradeWalletProfile?.shadowOnly === true;
-    if (trackedAccountMatch) {
-      current.accountTradeCount = (current.accountTradeCount || 0) + 1;
-    }
-
-    current.rawTrade = event;
-    const launchIntelSummary = this.launchIntelStore.registerTrade(event);
-    if (launchIntelSummary) {
-      current.launchIntelSummary = launchIntelSummary;
-    }
-    this.latestPumpPortalTokens.set(mint, current);
-    const walletLedgerRecord = this.recordWatchedWalletTrade(event, current, launchIntelSummary);
-    const curveRefreshDue = Boolean(this.pumpBondingCurveLane?.isRefreshDue?.(mint));
-    const hasUsableCurveState = Number.isFinite(Number(current.curveProgress));
-    this.scheduleProviderBackedBondingCurveSync(mint, current, launchIntelSummary, providerCurveSnapshotApplied);
-    const watchedWalletPaperObserve = Boolean(walletLedgerRecord && this.executionModeManager?.isPaper?.());
-    if (!curveRefreshDue || hasUsableCurveState || providerCurveSnapshotApplied || watchedWalletPaperObserve) {
-      if (watchedWalletPaperObserve && curveRefreshDue && !hasUsableCurveState && !providerCurveSnapshotApplied) {
-        this.telemetry.record('pre_migration_paper.wallet_context_observe_forced', {
+    this.measureEventLoopWork(phase('curve_confirmation_shadow'), () => {
+      this.maybeUpdateCurveConfirmationShadow({
+        telemetryType: options.telemetryType || 'provider.pumpportal.trade',
+        payload: {
+          ...event,
           mint,
-          symbol: current.symbol || null,
-          wallet: walletLedgerRecord.wallet || null,
-          side: walletLedgerRecord.side || null,
-          watchedReason: walletLedgerRecord.watchedReason || null,
-          reason: 'WATCHED_WALLET_TRADE_WITH_PENDING_CURVE_REFRESH'
-        });
+          curveProgress: current.curveProgress,
+          providerCurveProgress: event.providerCurveProgress ?? event.curveProgress ?? current.curveProgress,
+          priceSol: event.priceSol ?? current.priceSol ?? null,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }, workDetails);
+
+    let side;
+    this.measureEventLoopWork(phase('trade_window'), () => {
+      if (event.txType === 'buy') {
+        current.buys = (current.buys || 0) + 1;
+      } else if (event.txType === 'sell') {
+        current.sells = (current.sells || 0) + 1;
       }
-      this.observePreMigrationToken(current, launchIntelSummary);
+      side = event.txType === 'sell' ? 'sell' : 'buy';
+      current.tradeWindow = (current.tradeWindow || [])
+        .filter((trade) => current.lastTradeAt - trade.timestamp <= this.config.pumpMomentumWindowMs)
+        .slice(-200);
+      current.tradeWindow.push({
+        timestamp: current.lastTradeAt,
+        side,
+        volumeSol: tradeVolumeSol
+      });
+    }, workDetails);
+
+    let trader;
+    this.measureEventLoopWork(phase('helius_identity_ingest'), () => {
+      trader = this.extractProviderTradeWallet(event);
+      this.heliusDecisionShadowState?.ingestPortalTradeIdentity?.({
+        mint,
+        signature: event.signature || event.txSignature || event.transactionSignature || null,
+        trader,
+        receivedAt: current.lastTradeAt
+      });
+    }, workDetails);
+
+    let trackedAccountMatch;
+    let tradeWalletProfile;
+    let kolWalletProfileMatch;
+    let shadowWalletProfileMatch;
+    this.measureEventLoopWork(phase('wallet_profile_lookup'), () => {
+      const trackedAccounts = Array.isArray(this.config.pumpPortalTrackedAccounts)
+        ? this.config.pumpPortalTrackedAccounts
+        : [];
+      trackedAccountMatch = Boolean(trader && trackedAccounts.includes(trader));
+      tradeWalletProfile = trader ? this.launchIntelStore.buildKolWalletSummary(trader) : null;
+      kolWalletProfileMatch = Boolean(tradeWalletProfile);
+      shadowWalletProfileMatch = tradeWalletProfile?.shadowOnly === true;
+      if (trackedAccountMatch) {
+        current.accountTradeCount = (current.accountTradeCount || 0) + 1;
+      }
+    }, workDetails);
+
+    let launchIntelSummary;
+    this.measureEventLoopWork(phase('launch_intel_register'), () => {
+      current.rawTrade = event;
+      launchIntelSummary = this.launchIntelStore.registerTrade(event);
+      if (launchIntelSummary) {
+        current.launchIntelSummary = launchIntelSummary;
+      }
+      this.latestPumpPortalTokens.set(mint, current);
+    }, workDetails);
+
+    const walletLedgerRecord = this.measureEventLoopWork(
+      phase('watched_wallet_ledger'),
+      () => this.recordWatchedWalletTrade(event, current, launchIntelSummary),
+      workDetails
+    );
+    let curveRefreshDue;
+    let hasUsableCurveState;
+    this.measureEventLoopWork(phase('curve_sync_scheduling'), () => {
+      curveRefreshDue = Boolean(this.pumpBondingCurveLane?.isRefreshDue?.(mint));
+      hasUsableCurveState = Number.isFinite(Number(current.curveProgress));
+      this.scheduleProviderBackedBondingCurveSync(
+        mint,
+        current,
+        launchIntelSummary,
+        providerCurveSnapshotApplied
+      );
+    }, workDetails);
+
+    const watchedWalletPaperObserve = Boolean(
+      walletLedgerRecord && this.executionModeManager?.isPaper?.()
+    );
+    if (!curveRefreshDue || hasUsableCurveState || providerCurveSnapshotApplied || watchedWalletPaperObserve) {
+      this.measureEventLoopWork(phase('paper_observe'), () => {
+        if (
+          watchedWalletPaperObserve
+          && curveRefreshDue
+          && !hasUsableCurveState
+          && !providerCurveSnapshotApplied
+        ) {
+          this.telemetry.record('pre_migration_paper.wallet_context_observe_forced', {
+            mint,
+            symbol: current.symbol || null,
+            wallet: walletLedgerRecord.wallet || null,
+            side: walletLedgerRecord.side || null,
+            watchedReason: walletLedgerRecord.watchedReason || null,
+            reason: 'WATCHED_WALLET_TRADE_WITH_PENDING_CURVE_REFRESH'
+          });
+        }
+        this.observePreMigrationToken(current, launchIntelSummary);
+      }, workDetails);
     }
-    this.telemetry.record(options.telemetryType || 'provider.pumpportal.trade', {
-      mint,
-      signature: event.signature || event.txSignature || null,
-      eventAt: event.eventAt || event.timestamp || event.createdAt || null,
-      receivedAt: new Date().toISOString(),
-      txType: side,
-      solAmount: Number.isFinite(tradeVolumeSol) ? tradeVolumeSol : null,
-      traderPublicKey: trader || null,
-      quoteMint: event.quoteMint || null,
-      pairBase: event.pairBase || 'SOL',
-      curveProgress: Number.isFinite(Number(current.curveProgress))
-        ? Number(current.curveProgress)
-        : null,
-      tradeCount: current.tradeCount,
-      traderPresent: Boolean(trader),
-      trackedAccountMatch,
-      kolWalletProfileMatch,
-      shadowWalletProfileMatch,
-      watchedWallet: Boolean(walletLedgerRecord),
-      watchedWalletReason: walletLedgerRecord?.watchedReason || null
-    });
+    this.measureEventLoopWork(phase('provider_telemetry'), () => {
+      this.telemetry.record(options.telemetryType || 'provider.pumpportal.trade', {
+        mint,
+        signature: event.signature || event.txSignature || null,
+        eventAt: event.eventAt || event.timestamp || event.createdAt || null,
+        receivedAt: new Date().toISOString(),
+        txType: side,
+        solAmount: Number.isFinite(tradeVolumeSol) ? tradeVolumeSol : null,
+        traderPublicKey: trader || null,
+        quoteMint: event.quoteMint || null,
+        pairBase: event.pairBase || 'SOL',
+        curveProgress: Number.isFinite(Number(current.curveProgress))
+          ? Number(current.curveProgress)
+          : null,
+        tradeCount: current.tradeCount,
+        traderPresent: Boolean(trader),
+        trackedAccountMatch,
+        kolWalletProfileMatch,
+        shadowWalletProfileMatch,
+        watchedWallet: Boolean(walletLedgerRecord),
+        watchedWalletReason: walletLedgerRecord?.watchedReason || null
+      });
+    }, workDetails);
   }
 
   scheduleProviderBackedBondingCurveSync(mint, token = {}, launchIntelSummary = null, providerCurveSnapshotApplied = false) {
@@ -7828,7 +8041,8 @@ class TradingEngine {
       eventLoopMonitor: {
         ...this.eventLoopMonitorStats,
         gcPauses: this.gcPauseSummary(),
-        workSampler: this.eventLoopWorkSampler?.summary?.() || null
+        workSampler: this.eventLoopWorkSampler?.summary?.() || null,
+        providerTradeTickBursts: this.providerTradeTickBurstSummary()
       },
       eventFlow: this.eventFlow.getSummary(),
       strategyLedger: this.strategyLedger.getSummary(),

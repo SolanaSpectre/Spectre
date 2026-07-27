@@ -56,6 +56,11 @@ assert.strictEqual(snapshot.state.recentBuys, 1);
 assert.strictEqual(snapshot.state.recentSells, 1);
 assert.strictEqual(snapshot.state.recentVolumeSol, 1.5);
 assert.strictEqual(snapshot.state.uniqueBuyerCount, 1);
+assert.strictEqual(snapshot.state.uniqueBuyerCountCaptured, true);
+assert.strictEqual(snapshot.state.sniperWalletCount, 1);
+assert.strictEqual(snapshot.state.sniperWalletCountCaptured, true);
+assert.strictEqual(snapshot.state.sniperWalletCountSource, 'helius_first_reference_buy_window');
+assert.strictEqual(snapshot.state.sniperWindowAnchoredAtFirstObservation, true);
 assert.strictEqual(snapshot.walletContext.touched, true);
 assert.deepStrictEqual(snapshot.walletContext.wallets.map((row) => row.wallet), ['TrackedWallet']);
 assert.strictEqual(snapshot.walletContext.untrustedWallets.length, 1);
@@ -171,6 +176,29 @@ const accountOnly = new HeliusDecisionShadowState({ pumpMomentumWindowMs: 60_000
 assert.strictEqual(accountOnly.available, true);
 assert.strictEqual(accountOnly.accountEnriched, true);
 assert.strictEqual(accountOnly.state.recentTradeCount, 0);
+assert.strictEqual(accountOnly.state.sniperWalletCountCaptured, false);
+
+const sellOnlyState = new HeliusDecisionShadowState({ pumpMomentumWindowMs: 60_000 });
+sellOnlyState.ingest('provider.helius_pumpfun.shadow_trade', {
+  mint: 'SellOnlyMint',
+  receivedAt: '2026-07-20T01:05:00.000Z',
+  txType: 'sell',
+  solAmount: 0.25,
+  traderPublicKey: 'SellerWallet',
+  curveProgress: 0.2,
+  priceSol: 0.0000005,
+  pairBase: 'SOL'
+});
+const sellOnlySnapshot = sellOnlyState.snapshot({
+  portalToken: { mint: 'SellOnlyMint' },
+  portalState: { mint: 'SellOnlyMint', score: 60 },
+  timestamp: '2026-07-20T01:05:01.000Z'
+});
+assert.strictEqual(sellOnlySnapshot.available, true);
+assert.strictEqual(sellOnlySnapshot.state.sniperWalletCount, null);
+assert.strictEqual(sellOnlySnapshot.state.sniperWalletCountCaptured, false);
+assert.strictEqual(sellOnlySnapshot.state.sniperWalletCountSource, null);
+assert.strictEqual(sellOnlySnapshot.state.sniperWindowAnchoredAtFirstObservation, false);
 
 const capped = new HeliusDecisionShadowState({ pumpMomentumWindowMs: 60_000 });
 for (let index = 0; index < 250; index += 1) {

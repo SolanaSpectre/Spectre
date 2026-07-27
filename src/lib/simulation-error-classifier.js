@@ -30,6 +30,13 @@ function classifySimulationError(error, logs = [], fallback = null) {
   ) {
     return 'BONDING_CURVE_COMPLETE';
   }
+  if (
+    /TooMuchSolRequired/i.test(text)
+    || /Error Number:\s*6002/i.test(text)
+    || /custom program error:\s*0x1772\b/i.test(text)
+  ) {
+    return 'QUOTE_SLIPPAGE_RACE';
+  }
   if (/Slippage/i.test(text)) return 'SIMULATION_SLIPPAGE';
   if (
     /insufficient funds/i.test(text)
@@ -63,6 +70,7 @@ function normalizeDryRunReason(payload = {}) {
 function summarizeSimulationFailureCounts(counts = {}) {
   let total = 0;
   let expectedStateRace = 0;
+  let expectedQuoteRace = 0;
   let critical = 0;
 
   for (const [failureClass, rawCount] of Object.entries(counts || {})) {
@@ -71,12 +79,14 @@ function summarizeSimulationFailureCounts(counts = {}) {
     total += count;
     if (failureClass === 'BONDING_CURVE_COMPLETE') {
       expectedStateRace += count;
+    } else if (failureClass === 'QUOTE_SLIPPAGE_RACE') {
+      expectedQuoteRace += count;
     } else {
       critical += count;
     }
   }
 
-  return { total, expectedStateRace, critical };
+  return { total, expectedStateRace, expectedQuoteRace, critical };
 }
 
 module.exports = {

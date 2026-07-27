@@ -59,6 +59,9 @@ const stats = {
     wouldBlock: 0,
     errors: 0,
     simulationErrors: {},
+    simulationFailureBlockhashLatencyMsByClass: {},
+    bondingCurveMintMismatchDiagnostics: [],
+    blockhashLatencyMs: [],
     blockReasons: {},
     signedOk: { true: 20, false: 0, null: 0 },
     broadcastEnabled: { true: 0, false: 20, null: 0 }
@@ -88,5 +91,51 @@ assert(
   !verdict.blockers.some((reason) => reason.includes('Hot wallet is not funded')),
   'an unavailable PAPER balance must not be presented as a verified zero balance'
 );
+
+const boundedQuoteRaceStats = structuredClone(stats);
+boundedQuoteRaceStats.lastStopStats.liveExecutionDryRun = {
+  ...boundedQuoteRaceStats.lastStopStats.liveExecutionDryRun,
+  attempts: 100,
+  wouldSend: 99,
+  wouldBlock: 1,
+  simulations: 100,
+  simulationFailed: 1
+};
+boundedQuoteRaceStats.dryRun = {
+  ...boundedQuoteRaceStats.dryRun,
+  attempts: 100,
+  wouldSend: 99,
+  wouldBlock: 1,
+  simulationOk: { true: 99, false: 1, null: 0 },
+  simulationErrors: { QUOTE_SLIPPAGE_RACE: 1 },
+  simulationFailureBlockhashLatencyMsByClass: {
+    QUOTE_SLIPPAGE_RACE: [250]
+  },
+  blockhashLatencyMs: [...Array(99).fill(100), 250],
+  blockReasons: { QUOTE_SLIPPAGE_RACE: 1 }
+};
+const boundedQuoteRace = buildVerdict(boundedQuoteRaceStats);
+assert.strictEqual(boundedQuoteRace.metrics.dryExpectedQuoteRaceSimulationFailures, 1);
+assert.strictEqual(boundedQuoteRace.metrics.dryExpectedQuoteRaceWithinBound, true);
+assert.strictEqual(boundedQuoteRace.metrics.dryCriticalSimulationFailures, 0);
+
+const excessiveQuoteRaceStats = structuredClone(boundedQuoteRaceStats);
+excessiveQuoteRaceStats.lastStopStats.liveExecutionDryRun.attempts = 20;
+excessiveQuoteRaceStats.lastStopStats.liveExecutionDryRun.wouldSend = 19;
+excessiveQuoteRaceStats.lastStopStats.liveExecutionDryRun.simulations = 20;
+excessiveQuoteRaceStats.dryRun.attempts = 20;
+excessiveQuoteRaceStats.dryRun.wouldSend = 19;
+excessiveQuoteRaceStats.dryRun.simulationOk = { true: 19, false: 1, null: 0 };
+excessiveQuoteRaceStats.dryRun.blockhashLatencyMs = [...Array(19).fill(100), 250];
+const excessiveQuoteRace = buildVerdict(excessiveQuoteRaceStats);
+assert.strictEqual(excessiveQuoteRace.metrics.dryExpectedQuoteRaceWithinBound, false);
+assert.strictEqual(excessiveQuoteRace.metrics.dryCriticalSimulationFailures, 1);
+
+const missingDenominatorStats = structuredClone(boundedQuoteRaceStats);
+missingDenominatorStats.lastStopStats.liveExecutionDryRun.simulations = 0;
+missingDenominatorStats.dryRun.simulationOk = { true: 0, false: 0, null: 0 };
+const missingDenominator = buildVerdict(missingDenominatorStats);
+assert.strictEqual(missingDenominator.metrics.dryExpectedQuoteRaceWithinBound, false);
+assert.strictEqual(missingDenominator.metrics.dryCriticalSimulationFailures, 1);
 
 console.log('Live-readiness report smoke passed');

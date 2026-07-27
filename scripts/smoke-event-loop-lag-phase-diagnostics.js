@@ -145,6 +145,14 @@ try {
   assert.strictEqual(report.summary.topLagEvents[0].workWindow.topPhases[0].phase, 'telemetry.json_serialize');
   assert.strictEqual(report.summary.topStallWindowPhases[0].totalDurationMs, 80);
   assert.strictEqual(report.summary.runtimePhaseDiagnostics.workSampler.samples, 1000);
+  assert.deepStrictEqual(
+    report.summary.runtimePhaseDiagnostics.attributionSemantics,
+    {
+      nestedPhaseDurationsMayDoubleCount: true,
+      bucketOverlapAttributionIsUpperBound: true,
+      causalConclusionAllowed: false
+    }
+  );
 } finally {
   fs.rmSync(telemetryPath, { force: true });
 }
