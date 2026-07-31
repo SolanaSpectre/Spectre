@@ -264,6 +264,18 @@ for (let index = 0; index < 500; index += 1) {
         }
       },
       baselineHistoryHeldConstant: true,
+      shadowBaselineAnchorHeldConstant: true,
+      actualBaselineMatchesControl: true,
+      shadowBaselineMatchesControl: true,
+      baselineControlCaptured: true,
+      baselineControlValid: true,
+      baselineControlSelected: true,
+      baselineControlCurveProgress: 0.55,
+      baselineControlAt: '2026-07-27T14:29:55.000Z',
+      actualBaselineSelectedAtMs: Date.parse('2026-07-27T14:29:55.000Z'),
+      shadowBaselineSelectedAtMs: Date.parse('2026-07-27T14:29:55.000Z'),
+      baselineAnchorSkewMs: 0,
+      baselineCurveProgressSkew: 0,
       baselineControlSource: 'pumpportal_actual_lane_observation_history',
       baselineControlHistoryRows: 12,
       shadowAccountEnriched: true,
@@ -394,6 +406,21 @@ assert.strictEqual(report.marketInputTelemetry.sniperWindowAnchorSkew.signedMs.m
 assert.strictEqual(report.marketInputTelemetry.sniperWindowAnchorSkew.absoluteMs.median, 250);
 assert.strictEqual(report.marketInputTelemetry.sniperWindowMsPairs['4000 -> 4000'], 500);
 assert.strictEqual(report.marketInputTelemetry.baselineControl.expectedHeldConstant, true);
+assert.strictEqual(
+  report.marketInputTelemetry.baselineControl.shadowAnchorHeldConstantEvaluations,
+  500
+);
+assert.strictEqual(
+  report.marketInputTelemetry.baselineControl.anchorNotConfirmedFieldsAbsent,
+  0
+);
+assert.strictEqual(
+  report.marketInputTelemetry.baselineControl.shadowAnchorMismatchedEvaluations,
+  0
+);
+assert.strictEqual(report.marketInputTelemetry.baselineControl.postEpochInvariantPassed, true);
+assert.strictEqual(report.marketInputTelemetry.baselineControl.anchorSkewMs.median, 0);
+assert.strictEqual(report.marketInputTelemetry.baselineControl.curveProgressSkew.median, 0);
 assert.strictEqual(report.marketInputTelemetry.baselineControl.heldConstantEvaluations, 500);
 assert.strictEqual(
   report.marketInputTelemetry.baselineControl.sourceCounts[

@@ -922,8 +922,73 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
         return `${actualMs} -> ${shadowMs}`;
       }),
       baselineControl: {
-        semantics: 'actual_lane_observation_history_deliberately_held_constant_for_both_sides',
+        semantics: 'actual_lane_effective_baseline_anchor_deliberately_held_constant_for_shadow_counterfactual',
         expectedHeldConstant: true,
+        shadowAnchorHeldConstantEvaluations: comparable.filter(
+          (row) => row.shadowBaselineAnchorHeldConstant === true
+        ).length,
+        anchorNotConfirmedFieldsAbsent: comparable.filter(
+          (row) => !Object.prototype.hasOwnProperty.call(
+            row,
+            'shadowBaselineAnchorHeldConstant'
+          )
+        ).length,
+        controlMissingOrInvalidEvaluations: comparable.filter(
+          (row) => Object.prototype.hasOwnProperty.call(
+            row,
+            'shadowBaselineAnchorHeldConstant'
+          ) && (row.baselineControlCaptured !== true || row.baselineControlValid !== true)
+        ).length,
+        shadowAnchorMismatchedEvaluations: comparable.filter(
+          (row) => Object.prototype.hasOwnProperty.call(
+            row,
+            'shadowBaselineAnchorHeldConstant'
+          )
+            && row.baselineControlCaptured === true
+            && row.baselineControlValid === true
+            && row.shadowBaselineAnchorHeldConstant !== true
+        ).length,
+        postEpochInvariantPassed: comparable.some(
+          (row) => Object.prototype.hasOwnProperty.call(
+            row,
+            'shadowBaselineAnchorHeldConstant'
+          )
+        )
+          ? comparable
+            .filter((row) => Object.prototype.hasOwnProperty.call(
+              row,
+              'shadowBaselineAnchorHeldConstant'
+            ))
+            .every((row) => row.shadowBaselineAnchorHeldConstant === true
+              && Number(row.baselineAnchorSkewMs) === 0
+              && Number(row.baselineCurveProgressSkew) === 0)
+          : null,
+        controlCapturedEvaluations: comparable.filter(
+          (row) => row.baselineControlCaptured === true
+        ).length,
+        controlValidEvaluations: comparable.filter(
+          (row) => row.baselineControlValid === true
+        ).length,
+        controlSelectedEvaluations: comparable.filter(
+          (row) => row.baselineControlSelected === true
+        ).length,
+        actualTelemetryMatchesControlEvaluations: comparable.filter(
+          (row) => row.actualBaselineMatchesControl === true
+        ).length,
+        actualTelemetryOmittedEvaluations: comparable.filter(
+          (row) => row.actualBaselineMatchesControl === null
+            || row.actualBaselineMatchesControl === undefined
+        ).length,
+        shadowMatchesControlEvaluations: comparable.filter(
+          (row) => row.shadowBaselineMatchesControl === true
+        ).length,
+        anchorSkewMs: stats(comparable.map((row) => row.baselineAnchorSkewMs)),
+        curveProgressSkew: stats(
+          comparable.map((row) => row.baselineCurveProgressSkew)
+        ),
+        controlCurveProgress: stats(
+          comparable.map((row) => row.baselineControlCurveProgress)
+        ),
         heldConstantEvaluations: comparable.filter(
           (row) => row.baselineHistoryHeldConstant === true
         ).length,

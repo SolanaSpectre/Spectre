@@ -3875,7 +3875,8 @@ class TradingEngine {
     this.recordPreMigrationLaneInput(result.state, paperLaneOptions);
     const heliusCounterfactualContext = this.preMigrationPaperLane.captureCounterfactualContext(
       result.state.mint,
-      paperLaneOptions.timestamp
+      paperLaneOptions.timestamp,
+      result.state
     );
     const paperEvents = this.preMigrationPaperLane.observe(result.state, paperLaneOptions);
     if (shouldRequestDecisionShadowSubscription({
@@ -4062,6 +4063,58 @@ class TradingEngine {
         || shadowBaselineCurveProgressRaw === undefined
         ? null
         : Number(shadowBaselineCurveProgressRaw);
+      const actualBaselineCurveProgressRaw = actual.payload?.baselineCurveProgress;
+      const actualBaselineCurveProgress = actualBaselineCurveProgressRaw === null
+        || actualBaselineCurveProgressRaw === undefined
+        ? null
+        : Number(actualBaselineCurveProgressRaw);
+      const actualBaselineAt = actual.payload?.baselineAt || null;
+      const shadowBaselineAt = shadowDecisionDetails.baselineAt
+        || shadowGuardDetails.baselineAt
+        || null;
+      const baselineControl = actualLaneContext?.curveProgressBaselineControl || null;
+      const baselineControlCurveProgress = baselineControl?.curveProgress === null
+        || baselineControl?.curveProgress === undefined
+        ? null
+        : Number(baselineControl.curveProgress);
+      const baselineControlSelected = baselineControl?.selected === true;
+      const baselineControlAt = baselineControl?.at || null;
+      const baselineValueMatchesControl = (baselineAt, baselineCurveProgress) => {
+        if (baselineControl?.captured !== true || baselineControl?.valid !== true) return false;
+        if (!baselineControlSelected) {
+          return !baselineAt && !Number.isFinite(baselineCurveProgress);
+        }
+        return baselineAt === baselineControlAt
+          && Number.isFinite(baselineCurveProgress)
+          && Number.isFinite(baselineControlCurveProgress)
+          && this.roundNumber(baselineCurveProgress, 6)
+            === this.roundNumber(baselineControlCurveProgress, 6);
+      };
+      const actualBaselineTelemetryPresent = Boolean(actualBaselineAt)
+        || Number.isFinite(actualBaselineCurveProgress);
+      const actualBaselineMatchesControl = actualBaselineTelemetryPresent
+        ? baselineValueMatchesControl(actualBaselineAt, actualBaselineCurveProgress)
+        : (baselineControlSelected ? null : baselineControl?.valid === true);
+      const shadowBaselineMatchesControl = baselineValueMatchesControl(
+        shadowBaselineAt,
+        shadowBaselineCurveProgress
+      );
+      const shadowBaselineAnchorHeldConstant = counterfactual?.baselineControlApplied === true
+        && shadowBaselineMatchesControl;
+      const actualBaselineSelectedAtMs = Number.isFinite(Date.parse(baselineControlAt))
+        ? Date.parse(baselineControlAt)
+        : null;
+      const shadowBaselineSelectedAtMs = Number.isFinite(Date.parse(shadowBaselineAt))
+        ? Date.parse(shadowBaselineAt)
+        : null;
+      const baselineAnchorSkewMs = actualBaselineSelectedAtMs !== null
+        && shadowBaselineSelectedAtMs !== null
+        ? shadowBaselineSelectedAtMs - actualBaselineSelectedAtMs
+        : null;
+      const baselineCurveProgressSkew = Number.isFinite(baselineControlCurveProgress)
+        && Number.isFinite(shadowBaselineCurveProgress)
+        ? shadowBaselineCurveProgress - baselineControlCurveProgress
+        : null;
       const shadowThresholdMarginAbs = Number.isFinite(shadowCurveProgressDelta)
         && Number.isFinite(shadowCurveProgressThreshold)
         ? Math.abs(shadowCurveProgressDelta - shadowCurveProgressThreshold)
@@ -4192,7 +4245,24 @@ class TradingEngine {
         shadowBaselineCurveProgress: Number.isFinite(shadowBaselineCurveProgress)
           ? this.roundNumber(shadowBaselineCurveProgress, 6)
           : null,
-        shadowBaselineAt: shadowDecisionDetails.baselineAt || shadowGuardDetails.baselineAt || null,
+        shadowBaselineAt,
+        actualBaselineSelectedAtMs,
+        shadowBaselineSelectedAtMs,
+        baselineAnchorSkewMs,
+        baselineCurveProgressSkew: baselineCurveProgressSkew === null
+          ? null
+          : this.roundNumber(baselineCurveProgressSkew, 6),
+        shadowBaselineAnchorHeldConstant,
+        baselineAnchorInvariantSemantics: 'shadow_matches_actual_lane_derived_control',
+        actualBaselineMatchesControl,
+        shadowBaselineMatchesControl,
+        baselineControlCaptured: baselineControl?.captured === true,
+        baselineControlValid: baselineControl?.valid === true,
+        baselineControlSelected,
+        baselineControlCurveProgress: Number.isFinite(baselineControlCurveProgress)
+          ? this.roundNumber(baselineControlCurveProgress, 6)
+          : null,
+        baselineControlAt,
         baselineHistoryHeldConstant: Array.isArray(actualLaneContext?.history),
         baselineControlSource: Array.isArray(actualLaneContext?.history)
           ? 'pumpportal_actual_lane_observation_history'

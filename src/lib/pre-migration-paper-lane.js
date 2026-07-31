@@ -1836,8 +1836,8 @@ class PreMigrationPaperLane {
     return this.evaluateStrategyThresholds(state, strategy).passed;
   }
 
-  evaluateEntryGuards(state, history, timestamp) {
-    const curveGuard = this.evaluateCurveProgressGuard(state, history, timestamp);
+  evaluateEntryGuards(state, history, timestamp, options = {}) {
+    const curveGuard = this.evaluateCurveProgressGuard(state, history, timestamp, options);
     if (!curveGuard.passed) {
       return curveGuard;
     }
@@ -1870,7 +1870,7 @@ class PreMigrationPaperLane {
     };
   }
 
-  evaluateCurveProgressGuard(state, history = [], timestamp) {
+  evaluateCurveProgressGuard(state, history = [], timestamp, options = {}) {
     if (!Number.isFinite(this.minCurveProgressDelta) || this.minCurveProgressDelta <= 0) {
       return { passed: true };
     }
@@ -1883,7 +1883,18 @@ class PreMigrationPaperLane {
       };
     }
 
-    const baseline = this.findCurveProgressBaseline(history, curveProgress, timestamp);
+    const baselineControl = options.curveProgressBaselineControl;
+    const baselineControlApplied = baselineControl?.captured === true
+      && baselineControl?.valid === true;
+    const baseline = baselineControlApplied
+      ? (baselineControl.selected === true
+        ? {
+          curveProgress: Number(baselineControl.curveProgress),
+          timestamp: baselineControl.at
+        }
+        : null)
+      : this.findCurveProgressBaseline(history, curveProgress, timestamp);
+    // The 60s baseline is time-anchored, so only the provider's current value should vary.
     const delta60s = this.computeCurveProgressDeltaForWindow(history, curveProgress, timestamp);
     if (!baseline) {
       const lateFastTrack = this.evaluateLateFastTrack(state);
@@ -3133,7 +3144,11 @@ class PreMigrationPaperLane {
       .find((position) => position.mint === mint) || null;
   }
 
-  captureCounterfactualContext(mint, timestamp = new Date().toISOString()) {
+  captureCounterfactualContext(
+    mint,
+    timestamp = new Date().toISOString(),
+    currentState = {}
+  ) {
     const positionsByPreset = {};
     for (const position of this.openPositions.values()) {
       if (position.mint !== mint) continue;
@@ -3145,10 +3160,36 @@ class PreMigrationPaperLane {
           : null
       };
     }
+    const history = (this.observationHistory.get(mint) || []).map((row) => ({ ...row }));
+    const actualCurveProgress = this.toCurveProgress(currentState?.curveProgress);
+    // observe() appends the same current value, which baseline selection deliberately skips.
+    const selectedBaseline = Number.isFinite(actualCurveProgress)
+      ? this.findCurveProgressBaseline(history, actualCurveProgress, timestamp)
+      : null;
+    const curveProgressBaselineControl = {
+      captured: Number.isFinite(actualCurveProgress),
+      valid: Number.isFinite(actualCurveProgress)
+        && (
+          !selectedBaseline
+          || (
+            Number.isFinite(this.toCurveProgress(selectedBaseline.curveProgress))
+            && Number.isFinite(Date.parse(selectedBaseline.timestamp))
+          )
+        ),
+      selected: Boolean(selectedBaseline),
+      actualCurveProgress: Number.isFinite(actualCurveProgress) ? actualCurveProgress : null,
+      curveProgress: selectedBaseline
+        ? this.toCurveProgress(selectedBaseline.curveProgress)
+        : null,
+      at: selectedBaseline?.timestamp || null
+    };
+
     return {
       mint,
       capturedAt: timestamp,
-      history: (this.observationHistory.get(mint) || []).map((row) => ({ ...row })),
+      history,
+      requireCurveProgressBaselineControl: true,
+      curveProgressBaselineControl,
       positionsByPreset,
       activePosition: this.getActivePositionForMint(mint)
         ? { ...this.getActivePositionForMint(mint) }
@@ -3190,8 +3231,24 @@ class PreMigrationPaperLane {
     if (context.sameMintCooldown?.active) {
       return { comparable: true, wouldEnter: false, action: 'WOULD_SKIP', reason: 'RECENT_SAME_MINT_EXIT_COOLDOWN' };
     }
+    if (
+      context.requireCurveProgressBaselineControl === true
+      && (
+        context.curveProgressBaselineControl?.captured !== true
+        || context.curveProgressBaselineControl?.valid !== true
+      )
+    ) {
+      return {
+        comparable: false,
+        wouldEnter: false,
+        action: 'WOULD_SKIP',
+        reason: 'INCOMPARABLE_BASELINE_CONTROL'
+      };
+    }
 
-    const guards = this.evaluateEntryGuards(state, context.history || [], timestamp);
+    const guards = this.evaluateEntryGuards(state, context.history || [], timestamp, {
+      curveProgressBaselineControl: context.curveProgressBaselineControl
+    });
     const decision = this.evaluateEntryDecision(state, preset, guards, timestamp, {
       presetEntries: context.presetEntries?.[presetName]
     });
@@ -3201,7 +3258,9 @@ class PreMigrationPaperLane {
       action: decision.passed === true ? 'WOULD_ENTER' : 'WOULD_SKIP',
       reason: decision.reason || (decision.passed ? 'PAPER_ENTERED' : 'ENTRY_REJECTED'),
       decision,
-      entryGuards: guards
+      entryGuards: guards,
+      baselineControlApplied: context.curveProgressBaselineControl?.captured === true
+        && context.curveProgressBaselineControl?.valid === true
     };
   }
 
@@ -3237,7 +3296,23 @@ class PreMigrationPaperLane {
       if (context.sameMintCooldown?.active) {
         return { wouldExecute: false, action: 'NO_ENTRY', reason: 'RECENT_SAME_MINT_EXIT_COOLDOWN' };
       }
-      const guards = this.evaluateEntryGuards(state, context.history || [], timestamp);
+      if (
+        context.requireCurveProgressBaselineControl === true
+        && (
+          context.curveProgressBaselineControl?.captured !== true
+          || context.curveProgressBaselineControl?.valid !== true
+        )
+      ) {
+        return {
+          comparable: false,
+          wouldExecute: false,
+          action: 'NO_ENTRY',
+          reason: 'INCOMPARABLE_BASELINE_CONTROL'
+        };
+      }
+      const guards = this.evaluateEntryGuards(state, context.history || [], timestamp, {
+        curveProgressBaselineControl: context.curveProgressBaselineControl
+      });
       const decision = this.evaluateEntryDecision(state, preset, guards, timestamp, {
         presetEntries: context.presetEntries?.[presetName]
       });
@@ -3247,7 +3322,9 @@ class PreMigrationPaperLane {
         action: decision.passed === true ? 'ENTRY' : 'NO_ENTRY',
         reason: decision.reason || (decision.passed ? 'PAPER_ENTERED' : 'ENTRY_REJECTED'),
         decision,
-        entryGuards: guards
+        entryGuards: guards,
+        baselineControlApplied: context.curveProgressBaselineControl?.captured === true
+          && context.curveProgressBaselineControl?.valid === true
       };
     }
 
