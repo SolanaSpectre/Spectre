@@ -1837,7 +1837,18 @@ class PreMigrationPaperLane {
   }
 
   evaluateEntryGuards(state, history, timestamp, options = {}) {
-    const curveGuard = this.evaluateCurveProgressGuard(state, history, timestamp, options);
+    const baselineControl = options.curveProgressBaselineControl;
+    const baselineControlProvided = baselineControl?.captured === true
+      && baselineControl?.valid === true;
+    const baselineControlConsumed = baselineControlProvided
+      && Number.isFinite(this.minCurveProgressDelta)
+      && this.minCurveProgressDelta > 0
+      && Number.isFinite(Number(state.curveProgress));
+    const curveGuard = {
+      ...this.evaluateCurveProgressGuard(state, history, timestamp, options),
+      baselineControlProvided,
+      baselineControlConsumed
+    };
     if (!curveGuard.passed) {
       return curveGuard;
     }
@@ -1859,7 +1870,18 @@ class PreMigrationPaperLane {
 
     const cloneGuard = this.evaluateCloneGuard(state, timestamp);
     if (!cloneGuard.passed) {
-      return cloneGuard;
+      return {
+        ...cloneGuard,
+        baselineControlProvided: curveGuard.baselineControlProvided,
+        baselineControlConsumed: curveGuard.baselineControlConsumed,
+        curveProgressDelta: curveGuard.curveProgressDelta,
+        threshold: curveGuard.threshold,
+        baselineCurveProgress: curveGuard.baselineCurveProgress,
+        baselineAt: curveGuard.baselineAt,
+        curveProgressDelta60s: curveGuard.curveProgressDelta60s,
+        baselineCurveProgress60s: curveGuard.baselineCurveProgress60s,
+        baselineAt60s: curveGuard.baselineAt60s
+      };
     }
 
     return {
@@ -3259,8 +3281,9 @@ class PreMigrationPaperLane {
       reason: decision.reason || (decision.passed ? 'PAPER_ENTERED' : 'ENTRY_REJECTED'),
       decision,
       entryGuards: guards,
-      baselineControlApplied: context.curveProgressBaselineControl?.captured === true
-        && context.curveProgressBaselineControl?.valid === true
+      baselineControlProvided: guards.baselineControlProvided === true,
+      baselineControlConsumed: guards.baselineControlConsumed === true,
+      baselineControlApplied: guards.baselineControlConsumed === true
     };
   }
 
@@ -3323,8 +3346,9 @@ class PreMigrationPaperLane {
         reason: decision.reason || (decision.passed ? 'PAPER_ENTERED' : 'ENTRY_REJECTED'),
         decision,
         entryGuards: guards,
-        baselineControlApplied: context.curveProgressBaselineControl?.captured === true
-          && context.curveProgressBaselineControl?.valid === true
+        baselineControlProvided: guards.baselineControlProvided === true,
+        baselineControlConsumed: guards.baselineControlConsumed === true,
+        baselineControlApplied: guards.baselineControlConsumed === true
       };
     }
 

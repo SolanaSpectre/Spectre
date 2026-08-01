@@ -1,0 +1,95 @@
+{
+  "id": "helius_pumpfun_decision_divergence_v11_2026-07-31",
+  "extends": "data/strategy-preregistrations/helius-decision-divergence-v10.json",
+  "basePreregistrationSha256": "6b6052bbbdf668a5efd12ef79c35a814b71ea700f29c9a9b229461cd033a022c",
+  "frozenAt": "2026-07-31T22:12:17.7324706-05:00",
+  "amendedBeforeFirstComparableRunAt": "2026-07-31T22:12:17.7324706-05:00",
+  "mode": "paper_only_report_only_same_guard_path_v11_branch_aware_comparability",
+  "evaluationMode": "entry_mismatch_attribution",
+  "question": "After excluding decisions that did not consume the controlled curve baseline and decisions lacking either lane's complete frozen market-input schema, can every same-path executed-entry mismatch still be assigned by the frozen V10 attribution priority?",
+  "comparabilityPlanSemantics": "complete_market_inputs_and_consumed_baseline_only",
+  "methodologyBoundary": {
+    "reason": "V10 correctly froze the effective baseline value but treated deterministic pre-guard cooldowns as baseline mismatches, dropped consumed baseline telemetry when the clone guard rejected, and left rows with incomplete actual buy-ratio telemetry marked comparable.",
+    "sourceTelemetry": "run-logs/telemetry-2026-08-01T01-56-25-997Z.jsonl",
+    "v10Verdict": "HELIUS_DECISION_SHADOW_V10_INVALID_RUN",
+    "v10ComparableGateEvaluations": 6638,
+    "v10BaselineInvariantFailures": 330,
+    "v10BaselineNotConsumedCooldownRows": 200,
+    "v10ConsumedBaselineTelemetryDroppedByCloneRows": 130,
+    "v10IncompleteActualMarketRows": 330,
+    "v10IncompleteActualMarketFieldPattern": [
+      "buyRatio",
+      "buyRatioCaptured"
+    ],
+    "v10UnexpectedHeliusDisconnects": 1,
+    "v10EvidenceReuseAllowed": false,
+    "strategyBehaviorChanged": false,
+    "providerRoutingChanged": false,
+    "freshnessThresholdChanged": false,
+    "subscriptionCapacityChanged": false
+  },
+  "classifierEpoch": {
+    "id": "helius_decision_mismatch_classifier_v11_2026-07-31",
+    "beginsAt": "2026-07-31T22:12:17.7324706-05:00",
+    "primaryCauseSelection": "Inherit the frozen V10 cause priority after V11 comparability exclusions.",
+    "contributingCausePolicy": "Record every detected contributing cause even when only one primary cause grades attribution.",
+    "preV11RowsEligible": false
+  },
+  "marketInputComparability": {
+    "requiredForComparableEvaluation": true,
+    "sharedValidator": "src/lib/helius-decision-shadow-comparability.js",
+    "actualIncompleteReason": "INCOMPARABLE_ACTUAL_MARKET_INPUTS",
+    "shadowIncompleteReason": "INCOMPARABLE_SHADOW_MARKET_INPUTS",
+    "missingFieldTelemetryRequired": true,
+    "missingRowsRemainVisibleAsUnavailable": true,
+    "missingRowsMayCountTowardAgreementOrAttribution": false
+  },
+  "baselineControl": {
+    "requiredForValidity": true,
+    "incomparableReason": "INCOMPARABLE_BASELINE_CONTROL",
+    "notConsumedReason": "COUNTERFACTUAL_BASELINE_NOT_CONSUMED",
+    "controlSource": "pumpportal_actual_lane_effective_pre_observe_baseline",
+    "requiredComparableFields": [
+      "baselineControlCaptured",
+      "baselineControlValid",
+      "baselineControlSelected",
+      "baselineControlProvided",
+      "baselineControlConsumed",
+      "baselineControlCurveProgress",
+      "baselineControlAt",
+      "shadowBaselineCurveProgress",
+      "shadowBaselineAt",
+      "shadowBaselineMatchesControl",
+      "shadowBaselineAnchorHeldConstant",
+      "baselineAnchorSkewMs",
+      "baselineCurveProgressSkew"
+    ],
+    "selectedInvariant": "For comparable selected-baseline rows, baselineControlConsumed and shadowBaselineAnchorHeldConstant are true and both anchor and curve-progress skew equal exactly zero.",
+    "unselectedInvariant": "For a comparable valid frozen no-baseline control, baselineControlConsumed and shadowBaselineAnchorHeldConstant are true, baselineControlSelected is false, and both skew fields are null.",
+    "notConsumedTreatment": "A deterministic branch that returns before evaluateEntryGuards remains visible but is scope-incomparable and cannot inflate gate agreement or fail the baseline invariant.",
+    "cloneGuardTreatment": "A clone rejection occurs after the curve guard and must retain the consumed controlled-baseline telemetry even though the clone reason remains authoritative.",
+    "actualTelemetryAgreementRole": "actualBaselineMatchesControl remains a separate telemetry-consistency diagnostic and is not substituted for the shadow control invariant.",
+    "historicalFieldAbsenceTreatment": "Pre-V11 rows lacking baselineControlConsumed are historical fields-absent, never baseline mismatches."
+  },
+  "supersedes": {
+    "id": "helius_pumpfun_decision_divergence_v10_2026-07-31",
+    "disposition": "INVALID_RUN_COMPARABILITY_AND_LIFECYCLE_DEFECTS",
+    "evidenceReuseAllowed": false,
+    "sourceTelemetry": "run-logs/telemetry-2026-08-01T01-56-25-997Z.jsonl",
+    "observedResults": {
+      "comparableGateEvaluations": 6638,
+      "samePathEntryMismatches": 6,
+      "baselineInvariantFailures": 330,
+      "incompleteMarketInputRows": 330,
+      "unexpectedHeliusDisconnects": 1,
+      "postV11Rows": 0
+    }
+  },
+  "checkpointDisposition": null,
+  "passVerdict": "HELIUS_DECISION_SHADOW_V11_SAME_PATH_MISMATCHES_ATTRIBUTED_REPORT_ONLY",
+  "failVerdict": "HELIUS_DECISION_SHADOW_V11_UNATTRIBUTED_SAME_PATH_ENTRY_MISMATCH",
+  "insufficientVerdict": "HELIUS_DECISION_SHADOW_V11_INSUFFICIENT_SAME_PATH_ATTRIBUTION_EVIDENCE",
+  "invalidVerdict": "HELIUS_DECISION_SHADOW_V11_INVALID_RUN",
+  "nextIfPass": "Keep Helius report-only and repeat under the unchanged V11 contract before proposing provider routing or strategy consumption.",
+  "nextIfFail": "Fix only the demonstrated V11 instrumentation defect. Do not change strategy, freshness bounds, gates, exits, capacity, or provider routing."
+}

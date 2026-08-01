@@ -101,6 +101,8 @@ const gate = lane.evaluateCounterfactualGateDecision({
 });
 assert.strictEqual(gate.comparable, true);
 assert.strictEqual(gate.baselineControlApplied, true);
+assert.strictEqual(gate.baselineControlProvided, true);
+assert.strictEqual(gate.baselineControlConsumed, true);
 assert.strictEqual(gate.entryGuards.baselineCurveProgress, 0.703163);
 assert.strictEqual(gate.entryGuards.baselineAt, oldBaselineAt);
 
@@ -114,6 +116,8 @@ const executedEntry = lane.evaluateCounterfactualExecutedAction({
 });
 assert.strictEqual(executedEntry.comparable, true);
 assert.strictEqual(executedEntry.baselineControlApplied, true);
+assert.strictEqual(executedEntry.baselineControlProvided, true);
+assert.strictEqual(executedEntry.baselineControlConsumed, true);
 assert.strictEqual(executedEntry.entryGuards.baselineCurveProgress, 0.703163);
 assert.strictEqual(executedEntry.entryGuards.baselineAt, oldBaselineAt);
 
@@ -166,9 +170,34 @@ const noBaselineGate = lane.evaluateCounterfactualGateDecision({
 });
 assert.strictEqual(noBaselineGate.comparable, true);
 assert.strictEqual(noBaselineGate.baselineControlApplied, true);
+assert.strictEqual(noBaselineGate.baselineControlConsumed, true);
 assert.strictEqual(noBaselineGate.entryGuards.reason, 'NO_PRIOR_CURVE_PROGRESS');
 assert.strictEqual(noBaselineGate.entryGuards.baselineAt, undefined);
 assert.strictEqual(noBaselineGate.entryGuards.baselineCurveProgress, undefined);
+
+lane.evaluateCloneGuard = () => ({ passed: false, reason: 'CLONE_SYMBOL_GUARD' });
+const cloneBlockedGate = lane.evaluateCounterfactualGateDecision({
+  state: shadowState,
+  timestamp: decisionAt,
+  presetName: preset.name,
+  flagged: true,
+  context
+});
+assert.strictEqual(cloneBlockedGate.reason, 'CLONE_SYMBOL_GUARD');
+assert.strictEqual(cloneBlockedGate.baselineControlConsumed, true);
+assert.strictEqual(cloneBlockedGate.entryGuards.baselineCurveProgress, 0.703163);
+assert.strictEqual(cloneBlockedGate.entryGuards.baselineAt, oldBaselineAt);
+lane.evaluateCloneGuard = () => ({ passed: true });
+
+const cooldownGate = lane.evaluateCounterfactualGateDecision({
+  state: shadowState,
+  timestamp: decisionAt,
+  presetName: preset.name,
+  flagged: true,
+  context: { ...context, badExitCooldown: { active: true } }
+});
+assert.strictEqual(cooldownGate.reason, 'RECENT_BAD_EXIT_COOLDOWN');
+assert.notStrictEqual(cooldownGate.baselineControlConsumed, true);
 
 const source = fs.readFileSync(
   path.join(__dirname, '..', 'src', 'trading-engine.js'),

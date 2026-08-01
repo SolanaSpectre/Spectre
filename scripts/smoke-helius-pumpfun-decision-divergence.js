@@ -9,17 +9,22 @@ const {
   PREWARM_TRIGGER_REASON_ORDER
 } = require('../src/lib/helius-decision-shadow-subscription-policy');
 const {
+  decisionShadowComparisonUnavailableReason,
+  marketInputTelemetryMissingFields
+} = require('../src/lib/helius-decision-shadow-comparability');
+const {
   analyzeEvents,
   buildEntryMismatchAttribution,
   loadPreregistration
 } = require('./helius-pumpfun-decision-divergence-report');
 const preregistration = loadPreregistration();
-assert.strictEqual(preregistration.id, 'helius_pumpfun_decision_divergence_v10_2026-07-31');
+assert.strictEqual(preregistration.id, 'helius_pumpfun_decision_divergence_v11_2026-07-31');
 assert.deepStrictEqual(
   preregistration.preregistrationInheritance.map((item) => item.id),
   [
     'helius_pumpfun_decision_divergence_v7_2026-07-25',
-    'helius_pumpfun_decision_divergence_v9_2026-07-26'
+    'helius_pumpfun_decision_divergence_v9_2026-07-26',
+    'helius_pumpfun_decision_divergence_v10_2026-07-31'
   ]
 );
 assert.deepStrictEqual(
@@ -96,6 +101,43 @@ assert.strictEqual(
 );
 assert.strictEqual(guardInputs.market.sniperWindowAnchorKind, 'first_trade');
 assert.strictEqual(guardInputs.market.sniperWindowMs, 4000);
+assert.strictEqual(
+  decisionShadowComparisonUnavailableReason({
+    shadowStateFresh: true,
+    counterfactual: { comparable: true },
+    actualGuardFamilyInputs: guardInputs,
+    shadowGuardFamilyInputs: guardInputs,
+    baselineControlConsumed: true
+  }),
+  null
+);
+const missingBuyRatioInputs = structuredClone(guardInputs);
+missingBuyRatioInputs.market.buyRatio = null;
+missingBuyRatioInputs.market.buyRatioCaptured = false;
+assert.deepStrictEqual(
+  marketInputTelemetryMissingFields(missingBuyRatioInputs),
+  ['buyRatio', 'buyRatioCaptured']
+);
+assert.strictEqual(
+  decisionShadowComparisonUnavailableReason({
+    shadowStateFresh: true,
+    counterfactual: { comparable: true },
+    actualGuardFamilyInputs: missingBuyRatioInputs,
+    shadowGuardFamilyInputs: guardInputs,
+    baselineControlConsumed: true
+  }),
+  'INCOMPARABLE_ACTUAL_MARKET_INPUTS'
+);
+assert.strictEqual(
+  decisionShadowComparisonUnavailableReason({
+    shadowStateFresh: true,
+    counterfactual: { comparable: true },
+    actualGuardFamilyInputs: guardInputs,
+    shadowGuardFamilyInputs: guardInputs,
+    baselineControlConsumed: false
+  }),
+  'COUNTERFACTUAL_BASELINE_NOT_CONSUMED'
+);
 comparatorHarness.extractProviderCurveProgressForParity = (state) => state.curveProgress ?? null;
 comparatorHarness.extractProviderPriceForParity = (state) => state.priceSol ?? null;
 assert.deepStrictEqual(
@@ -175,7 +217,7 @@ for (const field of [
 ]) {
   assert(
     new RegExp(`\\b${field}\\s*[, :]`).test(evaluationEmitter),
-    `V10 required telemetry field must be emitted: ${field}`
+    `V11 required telemetry field must be emitted: ${field}`
   );
 }
 const executedEmitterStart = engineSource.indexOf(
@@ -218,7 +260,9 @@ const events = [{
       gateDecisionComparator: preregistration.gateDecisionComparator.name,
       executedActionComparator: preregistration.executedActionComparator.name,
       decisionShadowMarketInputSemantics:
-        preregistration.gateDecisionComparator.marketInputTelemetrySemantics
+        preregistration.gateDecisionComparator.marketInputTelemetrySemantics,
+      decisionShadowComparabilitySemantics:
+        preregistration.comparabilityPlanSemantics
     }
   }
 }];
@@ -300,6 +344,9 @@ for (let index = 0; index < 500; index += 1) {
       },
       baselineHistoryHeldConstant: true,
       shadowBaselineAnchorHeldConstant: true,
+      baselineControlProvided: true,
+      baselineControlConsumed: true,
+      baselineControlApplied: true,
       actualBaselineMatchesControl: true,
       shadowBaselineMatchesControl: true,
       baselineControlCaptured: true,
@@ -419,6 +466,7 @@ assert.strictEqual(report.agreement.executedActionAgreementRate, 1);
 assert.strictEqual(report.agreement.walletFeatureAgreementRate, 1);
 assert.strictEqual(report.checks.correctPaidTapeBudget, true);
 assert.strictEqual(report.checks.correctMarketInputSemantics, true);
+assert.strictEqual(report.checks.correctComparabilitySemantics, true);
 assert.strictEqual(report.checks.comparableMarketInputTelemetryComplete, true);
 assert.strictEqual(report.counts.comparableGateEvaluationsWithCompleteMarketInputTelemetry, 500);
 assert.strictEqual(
@@ -449,6 +497,13 @@ assert.strictEqual(report.marketInputTelemetry.sniperWindowAnchorSkew.signedMs.m
 assert.strictEqual(report.marketInputTelemetry.sniperWindowAnchorSkew.absoluteMs.median, 250);
 assert.strictEqual(report.marketInputTelemetry.sniperWindowMsPairs['4000 -> 4000'], 500);
 assert.strictEqual(report.marketInputTelemetry.baselineControl.expectedHeldConstant, true);
+assert.strictEqual(report.marketInputTelemetry.actualIncompleteEvaluations, 0);
+assert.strictEqual(report.marketInputTelemetry.shadowIncompleteEvaluations, 0);
+assert.strictEqual(report.marketInputTelemetry.baselineControl.consumedEvaluations, 500);
+assert.strictEqual(
+  report.marketInputTelemetry.baselineControl.notConsumedUnavailableEvaluations,
+  0
+);
 assert.strictEqual(
   report.marketInputTelemetry.baselineControl.shadowAnchorHeldConstantEvaluations,
   500

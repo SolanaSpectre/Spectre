@@ -51,6 +51,10 @@ const {
   decisionShadowVerifierPolicyActive,
   shouldRequestDecisionShadowSubscription
 } = require('./lib/helius-decision-shadow-subscription-policy');
+const {
+  decisionShadowComparisonUnavailableReason,
+  marketInputTelemetryMissingFields
+} = require('./lib/helius-decision-shadow-comparability');
 
 const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
   '11111111111111111111111111111111',
@@ -58,7 +62,7 @@ const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
   'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
 ]);
-const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v10_2026-07-31';
+const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v11_2026-07-31';
 const HELIUS_DECISION_SHADOW_MAX_STATE_AGE_MS = 1000;
 const HELIUS_DECISION_SHADOW_RECENT_TRADE_CAP = 201;
 
@@ -559,7 +563,9 @@ class TradingEngine {
         gateDecisionComparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context',
         executedActionComparator: 'gate_coupled_same_guard_path_entry_and_same_instant_exit_with_actual_lane_context',
         decisionShadowMarketInputSemantics:
-          'complete_source_attributed_market_and_window_provenance_missing_score_wallet_or_anchor_features_incomparable'
+          'complete_source_attributed_market_and_window_provenance_missing_score_wallet_or_anchor_features_incomparable',
+        decisionShadowComparabilitySemantics:
+          'complete_market_inputs_and_consumed_baseline_only'
       },
       strategyPreregistration: {
         id: 'runner_watch_full_coverage_v5_2026-07-26',
@@ -4019,6 +4025,16 @@ class TradingEngine {
         timestamp,
         actual.payload?.preset || 'unknown'
       ].join('|');
+      const actualEvaluatedPreset = actual.payload?.preset || null;
+      const actualGuardFamilyInputs = this.decisionShadowGuardFamilyInputs(
+        actual.payload || {},
+        {},
+        actualEvaluatedPreset,
+        this.decisionShadowMarket(result.state)
+      );
+      const actualMarketInputMissingFields = marketInputTelemetryMissingFields(
+        actualGuardFamilyInputs
+      );
       let counterfactual = null;
       if (shadowStateFresh) {
         if (shadowMarket?.score === null || shadowMarket?.score === undefined) {
@@ -4049,12 +4065,31 @@ class TradingEngine {
           });
         }
       }
-      const comparable = Boolean(shadowStateFresh && counterfactual?.comparable !== false);
+      const shadowGuardDetails = counterfactual?.entryGuards || {};
+      const shadowDecisionDetails = counterfactual?.decision || {};
+      const shadowGuardFamilyInputs = this.decisionShadowGuardFamilyInputs(
+        shadowDecisionDetails,
+        shadowGuardDetails,
+        actualEvaluatedPreset,
+        shadowMarket || {}
+      );
+      const shadowMarketInputMissingFields = marketInputTelemetryMissingFields(
+        shadowGuardFamilyInputs
+      );
+      const baselineControlConsumed = counterfactual?.baselineControlConsumed === true
+        || counterfactual?.entryGuards?.baselineControlConsumed === true;
+      const comparisonUnavailableReason = decisionShadowComparisonUnavailableReason({
+        shadowStateFresh,
+        shadowUnavailableReason: unavailableReason,
+        counterfactual,
+        actualGuardFamilyInputs,
+        shadowGuardFamilyInputs,
+        baselineControlConsumed
+      });
+      const comparable = comparisonUnavailableReason === null;
       const actualAction = this.normalizePaperDecisionAction(actual.payload?.decision);
       const shadowAction = comparable ? counterfactual.action : null;
       const walletComparison = this.compareDecisionShadowWalletContext(portalWalletContext, snapshot.walletContext);
-      const shadowGuardDetails = counterfactual?.entryGuards || {};
-      const shadowDecisionDetails = counterfactual?.decision || {};
       const shadowCurveProgressDeltaRaw = shadowDecisionDetails.curveProgressDelta
         ?? shadowGuardDetails.curveProgressDelta;
       const shadowCurveProgressThresholdRaw = shadowDecisionDetails.threshold
@@ -4109,7 +4144,7 @@ class TradingEngine {
         shadowBaselineAt,
         shadowBaselineCurveProgress
       );
-      const shadowBaselineAnchorHeldConstant = counterfactual?.baselineControlApplied === true
+      const shadowBaselineAnchorHeldConstant = baselineControlConsumed
         && shadowBaselineMatchesControl;
       const actualBaselineSelectedAtMs = Number.isFinite(Date.parse(baselineControlAt))
         ? Date.parse(baselineControlAt)
@@ -4129,7 +4164,6 @@ class TradingEngine {
         && Number.isFinite(shadowCurveProgressThreshold)
         ? Math.abs(shadowCurveProgressDelta - shadowCurveProgressThreshold)
         : null;
-      const actualEvaluatedPreset = actual.payload?.preset || null;
       const shadowEvaluatedPreset = actualEvaluatedPreset;
       const actualAllowedPresetNames = Array.isArray(actual.payload?.allowedPresetNames)
         ? actual.payload.allowedPresetNames.slice()
@@ -4172,7 +4206,7 @@ class TradingEngine {
         actualGuardOverride,
         shadowGuardOverride,
         guardOverridePathAgreement,
-        unavailableReason: comparable ? null : (counterfactual?.reason || unavailableReason)
+        unavailableReason: comparable ? null : comparisonUnavailableReason
       });
       gateComparisonsByPreset.set(actual.payload?.preset, presetComparisons);
       this.telemetry.record('helius_pumpfun.decision_shadow.evaluation', {
@@ -4186,7 +4220,7 @@ class TradingEngine {
         preset: actualEvaluatedPreset,
         lane: actual.payload?.lane || null,
         comparable,
-        unavailableReason: comparable ? null : (counterfactual?.reason || unavailableReason),
+        unavailableReason: comparable ? null : comparisonUnavailableReason,
         shadowDecisionMissing: false,
         shadowStateAgeMs: snapshot.ageMs ?? null,
         bestAvailableStateAgeMs: snapshot.ageMs ?? null,
@@ -4219,12 +4253,10 @@ class TradingEngine {
         actualPresetEligibleForGuardOverride: !actualAllowedPresetNames
           || actualAllowedPresetNames.includes(actualEvaluatedPreset),
         actualGuardOverrideEligibilityState,
-        actualGuardFamilyInputs: this.decisionShadowGuardFamilyInputs(
-          actual.payload || {},
-          {},
-          actualEvaluatedPreset,
-          this.decisionShadowMarket(result.state)
-        ),
+        actualGuardFamilyInputs,
+        actualMarketInputTelemetryComplete:
+          actualMarketInputMissingFields.length === 0,
+        actualMarketInputMissingFields,
         shadowDecision: comparable
           ? (counterfactual?.wouldEnter === true ? 'PAPER_ELIGIBLE' : 'PAPER_SKIPPED')
           : null,
@@ -4237,12 +4269,10 @@ class TradingEngine {
         shadowPresetEligibleForGuardOverride: !shadowAllowedPresetNames
           || shadowAllowedPresetNames.includes(shadowEvaluatedPreset),
         shadowGuardOverrideEligibilityState,
-        shadowGuardFamilyInputs: this.decisionShadowGuardFamilyInputs(
-          shadowDecisionDetails,
-          shadowGuardDetails,
-          shadowEvaluatedPreset,
-          shadowMarket || {}
-        ),
+        shadowGuardFamilyInputs,
+        shadowMarketInputTelemetryComplete:
+          shadowMarketInputMissingFields.length === 0,
+        shadowMarketInputMissingFields,
         evaluatedPresetAgreement: actualEvaluatedPreset === shadowEvaluatedPreset,
         guardOverrideAllowListAgreement,
         guardOverridePathAgreement,
@@ -4269,7 +4299,12 @@ class TradingEngine {
           ? null
           : this.roundNumber(baselineCurveProgressSkew, 6),
         shadowBaselineAnchorHeldConstant,
-        baselineAnchorInvariantSemantics: 'shadow_matches_actual_lane_derived_control',
+        baselineAnchorInvariantSemantics:
+          'comparable_only_when_control_consumed_and_shadow_matches_actual_lane_derived_control',
+        baselineControlProvided: baselineControl?.captured === true
+          && baselineControl?.valid === true,
+        baselineControlConsumed,
+        baselineControlApplied: baselineControlConsumed,
         actualBaselineMatchesControl,
         shadowBaselineMatchesControl,
         baselineControlCaptured: baselineControl?.captured === true,

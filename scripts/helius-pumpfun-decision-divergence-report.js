@@ -5,10 +5,14 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { forEachJsonlSync } = require('./lib/jsonl');
+const {
+  marketInputTelemetryComplete,
+  marketInputTelemetryMissingFields
+} = require('../src/lib/helius-decision-shadow-comparability');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
-const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v10.json');
+const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v11.json');
 const PARITY_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity-latest.json');
 const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence');
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence-latest.json');
@@ -164,33 +168,6 @@ function marketProvenance(inputs = {}) {
   };
 }
 
-function marketInputTelemetryComplete(inputs = {}) {
-  const market = inputs.market || {};
-  const finite = (value) => value !== null
-    && value !== undefined
-    && value !== ''
-    && Number.isFinite(Number(value));
-  const nonEmptyString = (value) => typeof value === 'string' && value.length > 0;
-  return finite(market.score)
-    && market.scoreCaptured === true
-    && finite(market.curveProgress)
-    && nonEmptyString(market.curveProgressSource)
-    && finite(market.recentVolumeSol)
-    && finite(market.recentTradeCount)
-    && finite(market.tradeVelocityPerMin)
-    && finite(market.buyRatio)
-    && market.buyRatioCaptured === true
-    && finite(market.uniqueBuyerCount)
-    && market.uniqueBuyerCountCaptured === true
-    && finite(market.sniperWalletCount)
-    && market.sniperWalletCountCaptured === true
-    && nonEmptyString(market.sniperWalletCountSource)
-    && finite(market.sniperWindowAnchorAtMs)
-    && nonEmptyString(market.sniperWindowAnchorKind)
-    && finite(market.sniperWindowMs)
-    && Number(market.sniperWindowMs) > 0;
-}
-
 function hasOwn(row, key) {
   return Object.prototype.hasOwnProperty.call(row || {}, key);
 }
@@ -204,6 +181,7 @@ function hasFiniteNumber(value) {
 
 function baselineControlInvariantHolds(row = {}) {
   if (!hasOwn(row, 'shadowBaselineAnchorHeldConstant')) return false;
+  if (row.baselineControlConsumed !== true) return false;
   if (row.baselineControlCaptured !== true || row.baselineControlValid !== true) return false;
   if (row.shadowBaselineAnchorHeldConstant !== true || row.shadowBaselineMatchesControl !== true) return false;
   if (row.baselineControlSelected === true) {
@@ -683,6 +661,15 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
   );
   const sourceMatches = !sourceTelemetry || parity.sourceTelemetry === sourceTelemetry;
   const unavailableEvaluations = evaluations.filter((row) => row.comparable !== true);
+  const actualMarketInputIncompleteEvaluations = evaluations.filter(
+    (row) => !marketInputTelemetryComplete(row.actualGuardFamilyInputs)
+  );
+  const shadowMarketInputIncompleteEvaluations = evaluations.filter(
+    (row) => !marketInputTelemetryComplete(row.shadowGuardFamilyInputs)
+  );
+  const baselineNotConsumedEvaluations = evaluations.filter(
+    (row) => row.unavailableReason === preregistration.baselineControl?.notConsumedReason
+  );
   const comparableWithCompleteMarketInputTelemetry = comparable.filter((row) => (
     marketInputTelemetryComplete(row.actualGuardFamilyInputs)
     && marketInputTelemetryComplete(row.shadowGuardFamilyInputs)
@@ -722,6 +709,8 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     correctExecutedActionComparator: plan.executedActionComparator === preregistration.executedActionComparator.name,
     correctMarketInputSemantics: plan.decisionShadowMarketInputSemantics
       === preregistration.gateDecisionComparator.marketInputTelemetrySemantics,
+    correctComparabilitySemantics: plan.decisionShadowComparabilitySemantics
+      === preregistration.comparabilityPlanSemantics,
     correctMaximumStateAge: Number(plan.decisionShadowMaximumStateAgeMs) === preregistration.maximumShadowStateAgeMs,
     correctRecentTradeCap: Number(plan.decisionShadowRecentTradeCap) === preregistration.semanticAlignment.recentTradeCap,
     accountStateEnrichmentEnabled: plan.decisionShadowAccountStateEnrichment === 'finalist_account_verifier_latest_update',
@@ -817,6 +806,7 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     'correctGateDecisionComparator',
     'correctExecutedActionComparator',
     'correctMarketInputSemantics',
+    'correctComparabilitySemantics',
     'correctMaximumStateAge',
     'correctRecentTradeCap',
     'accountStateEnrichmentEnabled',
@@ -920,6 +910,11 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       comparableGateEvaluationsWithCompleteMarketInputTelemetry:
         comparableWithCompleteMarketInputTelemetry.length,
       unavailableGateEvaluations: evaluations.length - comparable.length,
+      actualMarketInputIncompleteEvaluations:
+        actualMarketInputIncompleteEvaluations.length,
+      shadowMarketInputIncompleteEvaluations:
+        shadowMarketInputIncompleteEvaluations.length,
+      baselineNotConsumedEvaluations: baselineNotConsumedEvaluations.length,
       gateActionMatches: actionMatches.length,
       gateActionDivergences: divergences.length,
       reasonMatches: reasonMatches.length,
@@ -1108,6 +1103,26 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     divergenceByReason,
     marketInputTelemetry: {
       semantics: 'complete_source_attributed_inputs_not_equal_provider_values',
+      actualIncompleteEvaluations: actualMarketInputIncompleteEvaluations.length,
+      shadowIncompleteEvaluations: shadowMarketInputIncompleteEvaluations.length,
+      actualMissingFieldCounts: actualMarketInputIncompleteEvaluations.reduce(
+        (counts, row) => {
+          for (const field of marketInputTelemetryMissingFields(row.actualGuardFamilyInputs)) {
+            counts[field] = (counts[field] || 0) + 1;
+          }
+          return counts;
+        },
+        {}
+      ),
+      shadowMissingFieldCounts: shadowMarketInputIncompleteEvaluations.reduce(
+        (counts, row) => {
+          for (const field of marketInputTelemetryMissingFields(row.shadowGuardFamilyInputs)) {
+            counts[field] = (counts[field] || 0) + 1;
+          }
+          return counts;
+        },
+        {}
+      ),
       curveProgressSourcePairs: countBy(comparable, (row) => {
         const actualSource = row.actualGuardFamilyInputs?.market?.curveProgressSource || 'MISSING';
         const shadowSource = row.shadowGuardFamilyInputs?.market?.curveProgressSource || 'MISSING';
@@ -1145,8 +1160,12 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
         return `${actualMs} -> ${shadowMs}`;
       }),
       baselineControl: {
-        semantics: 'actual_lane_effective_baseline_anchor_deliberately_held_constant_for_shadow_counterfactual',
+        semantics: 'actual_lane_effective_baseline_anchor_consumed_and_deliberately_held_constant_for_comparable_shadow_counterfactual',
         expectedHeldConstant: true,
+        consumedEvaluations: comparable.filter(
+          (row) => row.baselineControlConsumed === true
+        ).length,
+        notConsumedUnavailableEvaluations: baselineNotConsumedEvaluations.length,
         shadowAnchorHeldConstantEvaluations: comparable.filter(
           (row) => row.shadowBaselineAnchorHeldConstant === true
         ).length,
@@ -1226,6 +1245,12 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
           mint: row.mint || null,
           actualComplete: marketInputTelemetryComplete(row.actualGuardFamilyInputs),
           shadowComplete: marketInputTelemetryComplete(row.shadowGuardFamilyInputs),
+          actualMissingFields: marketInputTelemetryMissingFields(
+            row.actualGuardFamilyInputs
+          ),
+          shadowMissingFields: marketInputTelemetryMissingFields(
+            row.shadowGuardFamilyInputs
+          ),
           actualMarket: row.actualGuardFamilyInputs?.market || null,
           shadowMarket: row.shadowGuardFamilyInputs?.market || null
         }))
@@ -1287,6 +1312,7 @@ module.exports = {
   loadPreregistration,
   marketProvenance,
   marketInputTelemetryComplete,
+  marketInputTelemetryMissingFields,
   offlineComparabilityByBound,
   stats,
   withoutMarketProvenance

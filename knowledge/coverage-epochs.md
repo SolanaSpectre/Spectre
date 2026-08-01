@@ -60,3 +60,23 @@ V10 also freezes deterministic mismatch-family priority and records immutable
 prewarm trigger/path provenance. These are report-only measurement changes.
 Paper strategy, provider routing, freshness, subscription capacity, and live
 status remain unchanged.
+
+## 2026-07-31: Helius Decision Comparator V10 Invalid, V11 Begins
+
+The first V10 run, `run-logs/telemetry-2026-08-01T01-56-25-997Z.jsonl`, is
+permanently invalid. It had one genuine mid-session Helius disconnect, 330
+rows whose actual lane lacked the frozen buy-ratio telemetry, and 330 separate
+rows that failed the baseline invariant for comparator-shape reasons rather
+than anchor drift. Of those baseline rows, 200 returned through deterministic
+cooldown branches before the curve guard consumed the control; another 130
+reached the curve guard but a later clone rejection discarded its baseline
+fields. The run is not regraded after these findings.
+
+V11 makes comparability branch-aware. A row counts only when both lanes satisfy
+the shared frozen market-input schema and the counterfactual curve guard
+actually consumes the valid baseline control. Non-consumed and incomplete rows
+remain visible with explicit unavailable reasons but cannot inflate agreement,
+enter mismatch attribution, or fail the baseline invariant. Clone rejections
+retain the already-consumed anchor telemetry. These are report-only data
+integrity changes; strategy, provider routing, freshness, capacity, and live
+status remain unchanged.
