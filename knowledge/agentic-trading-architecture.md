@@ -210,8 +210,8 @@ results. Raw model opinions do not become doctrine automatically.
 
 ### Current Priority: Finish Evidence Work
 
-Complete the frozen Helius V12 experiment before changing provider routing,
-strategy behavior, freshness bounds, or execution architecture.
+Complete the frozen Helius V13 controlled-anchor experiment before changing
+provider routing, strategy behavior, freshness bounds, or execution architecture.
 
 ### Next Design Priority: Contracts
 
@@ -259,7 +259,7 @@ promote none directly to LIVE.
 
 ## Sequence From Here
 
-1. finish and grade Helius V12 under its frozen contract
+1. finish and grade Helius V13 under its frozen controlled-anchor contract
 2. continue bounded Qwen auditor evaluation without making AI mandatory
 3. specify the five contracts above as report-only data
 4. shadow the policy gateway in DRY_RUN
@@ -267,4 +267,3 @@ promote none directly to LIVE.
 6. add a signer abstraction
 7. unify receipts and decision diaries
 8. reconsider live execution only after strategy and operational graduation
-

@@ -53,7 +53,8 @@ const {
 } = require('./lib/helius-decision-shadow-subscription-policy');
 const {
   decisionShadowComparisonUnavailableReason,
-  marketInputTelemetryMissingFields
+  marketInputTelemetryMissingFields,
+  sniperWindowAnchorControlMatches
 } = require('./lib/helius-decision-shadow-comparability');
 
 const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
@@ -62,7 +63,7 @@ const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
   'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
 ]);
-const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v12_2026-08-01';
+const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v13_2026-08-01';
 const HELIUS_DECISION_SHADOW_MAX_STATE_AGE_MS = 1000;
 const HELIUS_DECISION_SHADOW_RECENT_TRADE_CAP = 201;
 
@@ -560,12 +561,14 @@ class TradingEngine {
         decisionShadowWalletEvidenceTradeCapPerMint: this.heliusDecisionShadowState.maxWalletEvidenceTradesPerMint,
         eventQueueMaxSize: this.config.heliusPumpfunShadowEventQueueMaxSize,
         eventQueueBatchSize: this.config.heliusPumpfunShadowEventQueueBatchSize,
-        gateDecisionComparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context',
+        gateDecisionComparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context_and_controlled_sniper_anchor',
         executedActionComparator: 'gate_coupled_same_guard_path_entry_and_same_instant_exit_with_actual_lane_context',
         decisionShadowMarketInputSemantics:
           'complete_source_attributed_market_and_window_provenance_missing_score_wallet_or_anchor_features_incomparable',
         decisionShadowComparabilitySemantics:
-          'complete_market_inputs_consumed_baseline_and_current_gap_free_transport_only',
+          'complete_market_inputs_consumed_baseline_controlled_first_trade_sniper_anchor_and_current_gap_free_transport_only',
+        decisionShadowSniperWindowAnchorControlSemantics:
+          'actual_lane_first_trade_anchor_and_window_held_constant_helius_buyers_recomputed_inside_exact_window',
         decisionShadowTransportComparabilitySemantics:
           'raw_logs_current_ack_epoch_no_active_or_recent_window_gap_account_updates_current_web3_generation_only',
         decisionShadowTransportGapExclusionWindowMs: this.heliusDecisionShadowState.windowMs,
@@ -4089,6 +4092,10 @@ class TradingEngine {
       const shadowMarketInputMissingFields = marketInputTelemetryMissingFields(
         shadowGuardFamilyInputs
       );
+      const sniperAnchorControlMatches = sniperWindowAnchorControlMatches(
+        actualGuardFamilyInputs,
+        shadowGuardFamilyInputs
+      );
       const baselineControlConsumed = counterfactual?.baselineControlConsumed === true
         || counterfactual?.entryGuards?.baselineControlConsumed === true;
       const comparisonUnavailableReason = decisionShadowComparisonUnavailableReason({
@@ -4305,6 +4312,11 @@ class TradingEngine {
         shadowMarketInputTelemetryComplete:
           shadowMarketInputMissingFields.length === 0,
         shadowMarketInputMissingFields,
+        sniperWindowAnchorControlApplied:
+          snapshot.state?.sniperWindowAnchorControlApplied === true,
+        sniperWindowAnchorControlSource:
+          snapshot.state?.sniperWindowAnchorControlSource || null,
+        sniperWindowAnchorControlMatches: sniperAnchorControlMatches,
         evaluatedPresetAgreement: actualEvaluatedPreset === shadowEvaluatedPreset,
         guardOverrideAllowListAgreement,
         guardOverridePathAgreement,

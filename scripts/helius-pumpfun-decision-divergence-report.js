@@ -7,12 +7,13 @@ const crypto = require('crypto');
 const { forEachJsonlSync } = require('./lib/jsonl');
 const {
   marketInputTelemetryComplete,
-  marketInputTelemetryMissingFields
+  marketInputTelemetryMissingFields,
+  sniperWindowAnchorControlMatches
 } = require('../src/lib/helius-decision-shadow-comparability');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
-const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v12.json');
+const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v13.json');
 const PARITY_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity-latest.json');
 const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence');
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence-latest.json');
@@ -316,8 +317,7 @@ const SNIPER_INPUT_PATHS = new Set([
   'market.sniperWalletCountCaptured'
 ]);
 
-const SNIPER_PROVENANCE_PATHS = new Set([
-  'sniperWalletCountSource',
+const SNIPER_ANCHOR_DEFINITION_PATHS = new Set([
   'sniperWindowAnchoredAtFirstObservation',
   'sniperWindowAnchorAtMs',
   'sniperWindowAnchorKind',
@@ -350,7 +350,7 @@ function mismatchContributingCauses({ evaluation, row, guardInputDiff, guardInpu
   if (walletIdentityMismatch) causes.push('WALLET_IDENTITY_COVERAGE_MISMATCH');
 
   const sniperProvenanceMismatch = guardInputProvenanceDiff.some(
-    (diff) => SNIPER_PROVENANCE_PATHS.has(diff.jsonPath)
+    (diff) => SNIPER_ANCHOR_DEFINITION_PATHS.has(diff.jsonPath)
   );
   const sniperCountMismatch = guardInputDiff.some(
     (diff) => SNIPER_INPUT_PATHS.has(diff.jsonPath)
@@ -721,6 +721,15 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     marketInputTelemetryComplete(row.actualGuardFamilyInputs)
     && marketInputTelemetryComplete(row.shadowGuardFamilyInputs)
   ));
+  const sniperAnchorControlInvariantEvaluations = comparable.filter((row) => (
+    sniperWindowAnchorControlMatches(
+      row.actualGuardFamilyInputs,
+      row.shadowGuardFamilyInputs
+    )
+    && row.sniperWindowAnchorControlApplied === true
+    && row.sniperWindowAnchorControlMatches === true
+    && row.sniperWindowAnchorControlSource === 'pumpportal_actual_lane_sniper_window'
+  ));
   const plan = state.sessionStarted?.payload?.heliusPumpfunShadowPlan || {};
   const paidTapePlan = state.sessionStarted?.payload?.pumpPortalPaidTapePlan || {};
   const heliusQueueStats = state.sessionStopped?.payload?.stats?.heliusPumpfunShadow || {};
@@ -758,6 +767,9 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       === preregistration.gateDecisionComparator.marketInputTelemetrySemantics,
     correctComparabilitySemantics: plan.decisionShadowComparabilitySemantics
       === preregistration.comparabilityPlanSemantics,
+    correctSniperWindowAnchorControlSemantics:
+      plan.decisionShadowSniperWindowAnchorControlSemantics
+        === preregistration.sniperWindowAnchorControl?.planSemantics,
     correctTransportComparabilitySemantics: plan.decisionShadowTransportComparabilitySemantics
       === preregistration.transportComparability?.planSemantics,
     correctSubscriptionAckTimeout: Number(plan.subscriptionAckTimeoutMs)
@@ -849,6 +861,9 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     )),
     comparableMarketInputTelemetryComplete:
       comparableWithCompleteMarketInputTelemetry.length === comparable.length,
+    sniperWindowAnchorControlInvariant:
+      !preregistration.sniperWindowAnchorControl?.requiredForValidity
+      || sniperAnchorControlInvariantEvaluations.length === comparable.length,
     comparableExecutedActionCoverage: ratio(comparableExecuted.length, executed.length)
       >= preregistration.minimumComparableExecutedActionCoverageRate,
     minimumExecutedEntries: entryActions.length >= preregistration.minimumExecutedEntries,
@@ -879,6 +894,7 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     'correctExecutedActionComparator',
     'correctMarketInputSemantics',
     'correctComparabilitySemantics',
+    'correctSniperWindowAnchorControlSemantics',
     'correctTransportComparabilitySemantics',
     'correctSubscriptionAckTimeout',
     'correctPongTimeout',
@@ -917,7 +933,8 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     'accountEnrichmentTransportProvenance',
     'comparableExecutedTransportProvenance',
     'comparableExecutedTransportFieldsPresent',
-    'comparableMarketInputTelemetryComplete'
+    'comparableMarketInputTelemetryComplete',
+    'sniperWindowAnchorControlInvariant'
   ];
   const validityPassed = validityChecks.every((key) => checks[key]);
   const attributionExperiment = preregistration.evaluationMode === 'entry_mismatch_attribution';
@@ -1236,7 +1253,8 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
         return `${actualAnchored} -> ${shadowAnchored}`;
       }),
       sniperWindowAnchorSemantics:
-        'reference_existence_only_true_to_true_does_not_prove_a_shared_anchor_instant',
+        preregistration.sniperWindowAnchorControl?.planSemantics
+          || 'reference_existence_only_true_to_true_does_not_prove_a_shared_anchor_instant',
       sniperWindowAnchorKindPairs: countBy(comparable, (row) => {
         const actualKind = row.actualGuardFamilyInputs?.market?.sniperWindowAnchorKind || 'MISSING';
         const shadowKind = row.shadowGuardFamilyInputs?.market?.sniperWindowAnchorKind || 'MISSING';
@@ -1248,6 +1266,13 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
         missingEvaluations: comparable.length - sniperWindowAnchorComparisons.length,
         signedMs: stats(sniperWindowAnchorComparisons.map((row) => row.signedSkewMs)),
         absoluteMs: stats(sniperWindowAnchorComparisons.map((row) => row.absoluteSkewMs))
+      },
+      sniperWindowAnchorControl: {
+        requiredForValidity:
+          preregistration.sniperWindowAnchorControl?.requiredForValidity === true,
+        exactMatchEvaluations: sniperAnchorControlInvariantEvaluations.length,
+        comparableEvaluations: comparable.length,
+        allComparableExact: sniperAnchorControlInvariantEvaluations.length === comparable.length
       },
       sniperWindowMsPairs: countBy(comparable, (row) => {
         const actualMs = row.actualGuardFamilyInputs?.market?.sniperWindowMs ?? 'MISSING';

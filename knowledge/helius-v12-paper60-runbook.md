@@ -1,5 +1,10 @@
 # Helius V12 PAPER60 Morning Runbook
 
+Historical only. V12 completed with a mechanically valid attribution pass, but
+all comparable rows used different sniper-window anchor definitions. Its causal
+interpretation is superseded by V13. Do not start a new run under this runbook.
+Use `helius-v13-paper60-runbook.md`.
+
 This is an operator runbook. It does not alter the frozen experiment and should
 not be injected into trade-review prompts.
 

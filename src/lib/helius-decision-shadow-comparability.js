@@ -42,6 +42,22 @@ function marketInputTelemetryComplete(inputs = {}) {
   return marketInputTelemetryMissingFields(inputs).length === 0;
 }
 
+function sniperWindowAnchorControlMatches(actualInputs = {}, shadowInputs = {}) {
+  const actual = actualInputs.market || {};
+  const shadow = shadowInputs.market || {};
+  return actual.sniperWindowAnchoredAtFirstObservation === true
+    && shadow.sniperWindowAnchoredAtFirstObservation === true
+    && actual.sniperWindowAnchorKind === 'first_trade'
+    && shadow.sniperWindowAnchorKind === actual.sniperWindowAnchorKind
+    && finiteNumber(actual.sniperWindowAnchorAtMs)
+    && finiteNumber(shadow.sniperWindowAnchorAtMs)
+    && Number(shadow.sniperWindowAnchorAtMs) === Number(actual.sniperWindowAnchorAtMs)
+    && finiteNumber(actual.sniperWindowMs)
+    && finiteNumber(shadow.sniperWindowMs)
+    && Number(actual.sniperWindowMs) > 0
+    && Number(shadow.sniperWindowMs) === Number(actual.sniperWindowMs);
+}
+
 function decisionShadowComparisonUnavailableReason({
   shadowStateFresh,
   shadowUnavailableReason = null,
@@ -71,6 +87,9 @@ function decisionShadowComparisonUnavailableReason({
   if (!marketInputTelemetryComplete(shadowGuardFamilyInputs)) {
     return 'INCOMPARABLE_SHADOW_MARKET_INPUTS';
   }
+  if (!sniperWindowAnchorControlMatches(actualGuardFamilyInputs, shadowGuardFamilyInputs)) {
+    return 'INCOMPARABLE_SNIPER_ANCHOR_CONTROL';
+  }
   if (baselineControlConsumed !== true) {
     return 'COUNTERFACTUAL_BASELINE_NOT_CONSUMED';
   }
@@ -80,5 +99,6 @@ function decisionShadowComparisonUnavailableReason({
 module.exports = {
   decisionShadowComparisonUnavailableReason,
   marketInputTelemetryComplete,
-  marketInputTelemetryMissingFields
+  marketInputTelemetryMissingFields,
+  sniperWindowAnchorControlMatches
 };

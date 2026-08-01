@@ -10,7 +10,8 @@ const {
 } = require('../src/lib/helius-decision-shadow-subscription-policy');
 const {
   decisionShadowComparisonUnavailableReason,
-  marketInputTelemetryMissingFields
+  marketInputTelemetryMissingFields,
+  sniperWindowAnchorControlMatches
 } = require('../src/lib/helius-decision-shadow-comparability');
 const {
   analyzeEvents,
@@ -23,14 +24,15 @@ const crlfHashes = preregistrationByteHashes(Buffer.from('{\r\n  "ok": true\r\n}
 assert.strictEqual(lfHashes.canonicalLfSha256, crlfHashes.canonicalLfSha256);
 assert.notStrictEqual(lfHashes.rawSha256, crlfHashes.rawSha256);
 const preregistration = loadPreregistration();
-assert.strictEqual(preregistration.id, 'helius_pumpfun_decision_divergence_v12_2026-08-01');
+assert.strictEqual(preregistration.id, 'helius_pumpfun_decision_divergence_v13_2026-08-01');
 assert.deepStrictEqual(
   preregistration.preregistrationInheritance.map((item) => item.id),
   [
     'helius_pumpfun_decision_divergence_v7_2026-07-25',
     'helius_pumpfun_decision_divergence_v9_2026-07-26',
     'helius_pumpfun_decision_divergence_v10_2026-07-31',
-    'helius_pumpfun_decision_divergence_v11_2026-07-31'
+    'helius_pumpfun_decision_divergence_v11_2026-07-31',
+    'helius_pumpfun_decision_divergence_v12_2026-08-01'
   ]
 );
 assert.strictEqual(preregistration.transportComparability.rawGapExclusionWindowMs, 120000);
@@ -55,11 +57,16 @@ assert.strictEqual(
 for (const cause of [
   'BASELINE_ANCHOR_MISMATCH',
   'WALLET_IDENTITY_COVERAGE_MISMATCH',
-  'SNIPER_ANCHOR_DEFINITION_MISMATCH',
   'RESIDUAL_PROVIDER_STATE_MISMATCH'
 ]) {
   assert(preregistration.entryMismatchAttribution.allowedAttributedCauses.includes(cause));
 }
+assert.strictEqual(
+  preregistration.entryMismatchAttribution.allowedAttributedCauses.includes(
+    'SNIPER_ANCHOR_DEFINITION_MISMATCH'
+  ),
+  false
+);
 assert.strictEqual(
   preregistration.executedActionComparator.name,
   'gate_coupled_same_guard_path_entry_and_same_instant_exit_with_actual_lane_context'
@@ -109,6 +116,13 @@ assert.strictEqual(
 );
 assert.strictEqual(guardInputs.market.sniperWindowAnchorKind, 'first_trade');
 assert.strictEqual(guardInputs.market.sniperWindowMs, 4000);
+assert.strictEqual(sniperWindowAnchorControlMatches(guardInputs, guardInputs), true);
+const mismatchedSniperAnchorInputs = structuredClone(guardInputs);
+mismatchedSniperAnchorInputs.market.sniperWindowAnchorAtMs += 1;
+assert.strictEqual(
+  sniperWindowAnchorControlMatches(guardInputs, mismatchedSniperAnchorInputs),
+  false
+);
 assert.strictEqual(
   decisionShadowComparisonUnavailableReason({
     shadowStateFresh: true,
@@ -118,6 +132,16 @@ assert.strictEqual(
     baselineControlConsumed: true
   }),
   null
+);
+assert.strictEqual(
+  decisionShadowComparisonUnavailableReason({
+    shadowStateFresh: true,
+    counterfactual: { comparable: true },
+    actualGuardFamilyInputs: guardInputs,
+    shadowGuardFamilyInputs: mismatchedSniperAnchorInputs,
+    baselineControlConsumed: true
+  }),
+  'INCOMPARABLE_SNIPER_ANCHOR_CONTROL'
 );
 const missingBuyRatioInputs = structuredClone(guardInputs);
 missingBuyRatioInputs.market.buyRatio = null;
@@ -301,6 +325,8 @@ const events = [{
         preregistration.gateDecisionComparator.marketInputTelemetrySemantics,
       decisionShadowComparabilitySemantics:
         preregistration.comparabilityPlanSemantics,
+      decisionShadowSniperWindowAnchorControlSemantics:
+        preregistration.sniperWindowAnchorControl.planSemantics,
       decisionShadowTransportComparabilitySemantics:
         preregistration.transportComparability.planSemantics,
       decisionShadowTransportGapExclusionWindowMs:
@@ -394,13 +420,16 @@ for (let index = 0; index < 500; index += 1) {
           uniqueBuyerCountCaptured: true,
           sniperWalletCount: 0,
           sniperWalletCountCaptured: true,
-          sniperWalletCountSource: 'helius_first_reference_buy_window',
+          sniperWalletCountSource: 'helius_actual_first_trade_anchored_buy_window',
           sniperWindowAnchoredAtFirstObservation: true,
-          sniperWindowAnchorAtMs: Date.parse('2026-07-20T01:00:00.250Z'),
-          sniperWindowAnchorKind: 'first_referenced_trade',
+          sniperWindowAnchorAtMs: Date.parse('2026-07-20T01:00:00.000Z'),
+          sniperWindowAnchorKind: 'first_trade',
           sniperWindowMs: 4000
         }
       },
+      sniperWindowAnchorControlApplied: true,
+      sniperWindowAnchorControlSource: 'pumpportal_actual_lane_sniper_window',
+      sniperWindowAnchorControlMatches: true,
       baselineHistoryHeldConstant: true,
       shadowBaselineAnchorHeldConstant: true,
       baselineControlProvided: true,
@@ -556,24 +585,27 @@ assert.strictEqual(
 );
 assert.strictEqual(
   report.marketInputTelemetry.sniperWalletCountSourcePairs[
-    'launch_intel_first_reference_buy_window -> helius_first_reference_buy_window'
+    'launch_intel_first_reference_buy_window -> helius_actual_first_trade_anchored_buy_window'
   ],
   500
 );
 assert.strictEqual(report.marketInputTelemetry.sniperWindowAnchorPairs['true -> true'], 500);
 assert.strictEqual(
   report.marketInputTelemetry.sniperWindowAnchorSemantics,
-  'reference_existence_only_true_to_true_does_not_prove_a_shared_anchor_instant'
+  preregistration.sniperWindowAnchorControl.planSemantics
 );
 assert.strictEqual(
   report.marketInputTelemetry.sniperWindowAnchorKindPairs[
-    'first_trade -> first_referenced_trade'
+    'first_trade -> first_trade'
   ],
   500
 );
 assert.strictEqual(report.marketInputTelemetry.sniperWindowAnchorSkew.measuredEvaluations, 500);
-assert.strictEqual(report.marketInputTelemetry.sniperWindowAnchorSkew.signedMs.median, 250);
-assert.strictEqual(report.marketInputTelemetry.sniperWindowAnchorSkew.absoluteMs.median, 250);
+assert.strictEqual(report.marketInputTelemetry.sniperWindowAnchorSkew.signedMs.median, 0);
+assert.strictEqual(report.marketInputTelemetry.sniperWindowAnchorSkew.absoluteMs.median, 0);
+assert.strictEqual(report.marketInputTelemetry.sniperWindowAnchorControl.allComparableExact, true);
+assert.strictEqual(report.checks.correctSniperWindowAnchorControlSemantics, true);
+assert.strictEqual(report.checks.sniperWindowAnchorControlInvariant, true);
 assert.strictEqual(report.marketInputTelemetry.sniperWindowMsPairs['4000 -> 4000'], 500);
 assert.strictEqual(report.marketInputTelemetry.baselineControl.expectedHeldConstant, true);
 assert.strictEqual(report.marketInputTelemetry.actualIncompleteEvaluations, 0);
@@ -937,11 +969,12 @@ assert(
   ),
   'source lineage must remain visible without being treated as causal alone'
 );
-assert(
+assert.strictEqual(
   provenanceOnly.entryMismatchAttribution.rows[0].guardInputProvenanceDiff.some(
     (row) => row.jsonPath === 'sniperWindowAnchorAtMs'
   ),
-  'anchor skew must remain visible without being treated as causal alone'
+  false,
+  'the controlled fixture must not manufacture anchor skew'
 );
 
 const baseEvaluation = structuredClone(events.find(
@@ -994,6 +1027,9 @@ assert.strictEqual(residualAttribution.rows[0].cause, 'RESIDUAL_PROVIDER_STATE_M
 
 const sniperMismatchEvaluation = structuredClone(baseEvaluation);
 sniperMismatchEvaluation.shadowGuardFamilyInputs.market.sniperWalletCount = 2;
+sniperMismatchEvaluation.shadowGuardFamilyInputs.market.sniperWindowAnchorAtMs += 250;
+sniperMismatchEvaluation.shadowGuardFamilyInputs.market.sniperWindowAnchorKind =
+  'first_referenced_trade';
 const sniperAttribution = buildEntryMismatchAttribution(
   [sniperMismatchEvaluation],
   [baseExecutedEntry],
@@ -1003,6 +1039,7 @@ assert.strictEqual(
   sniperAttribution.rows[0].cause,
   'SNIPER_ANCHOR_DEFINITION_MISMATCH'
 );
+assert.strictEqual(sniperAttribution.rows[0].attributed, false);
 
 const overlappingMismatchEvaluation = structuredClone(walletMismatchEvaluation);
 overlappingMismatchEvaluation.shadowBaselineAnchorHeldConstant = false;

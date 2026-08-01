@@ -119,6 +119,54 @@ assert.strictEqual(snapshot.walletContext.touched, true);
 assert.deepStrictEqual(snapshot.walletContext.wallets.map((row) => row.wallet), ['TrackedWallet']);
 assert.strictEqual(snapshot.walletContext.untrustedWallets.length, 1);
 
+const controlledAnchor = new HeliusDecisionShadowState({
+  pumpMomentumWindowMs: 60_000,
+  launchIntelSniperWindowMs: 4000
+});
+for (const [receivedAt, traderPublicKey] of [
+  ['2026-07-20T01:10:10.000Z', 'BeforeActualAnchor'],
+  ['2026-07-20T01:10:16.000Z', 'InsideActualWindow'],
+  ['2026-07-20T01:10:20.000Z', 'AfterActualWindow']
+]) {
+  controlledAnchor.ingest('provider.helius_pumpfun.shadow_trade', {
+    mint: 'ControlledAnchorMint',
+    receivedAt,
+    txType: 'buy',
+    solAmount: 0.25,
+    traderPublicKey,
+    curveProgress: 0.5,
+    priceSol: 0.000001,
+    pairBase: 'SOL'
+  });
+}
+const controlledAnchorSnapshot = controlledAnchor.snapshot({
+  portalToken: { mint: 'ControlledAnchorMint' },
+  portalState: {
+    mint: 'ControlledAnchorMint',
+    sniperWindowAnchorAtMs: Date.parse('2026-07-20T01:10:15.000Z'),
+    sniperWindowAnchorKind: 'first_trade',
+    sniperWindowMs: 4000
+  },
+  timestamp: '2026-07-20T01:10:25.000Z'
+});
+assert.strictEqual(controlledAnchorSnapshot.state.sniperWalletCount, 1);
+assert.strictEqual(controlledAnchorSnapshot.state.sniperWalletCountCaptured, true);
+assert.strictEqual(
+  controlledAnchorSnapshot.state.sniperWalletCountSource,
+  'helius_actual_first_trade_anchored_buy_window'
+);
+assert.strictEqual(controlledAnchorSnapshot.state.sniperWindowAnchorControlApplied, true);
+assert.strictEqual(
+  controlledAnchorSnapshot.state.sniperWindowAnchorControlSource,
+  'pumpportal_actual_lane_sniper_window'
+);
+assert.strictEqual(
+  controlledAnchorSnapshot.state.sniperWindowAnchorAtMs,
+  Date.parse('2026-07-20T01:10:15.000Z')
+);
+assert.strictEqual(controlledAnchorSnapshot.state.sniperWindowAnchorKind, 'first_trade');
+assert.strictEqual(controlledAnchorSnapshot.state.sniperWindowMs, 4000);
+
 const accountEnriched = state.snapshot({
   portalToken: { mint: 'DecisionMint' },
   portalState: { mint: 'DecisionMint', score: 70 },

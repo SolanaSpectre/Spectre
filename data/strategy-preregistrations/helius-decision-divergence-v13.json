@@ -1,0 +1,110 @@
+{
+  "id": "helius_pumpfun_decision_divergence_v13_2026-08-01",
+  "extends": "data/strategy-preregistrations/helius-decision-divergence-v12.json",
+  "basePreregistrationSha256": "bc05fbc981de9c59ed29181ca7fb7ea9d6deb67dddf74c85c0b698e2e4fc98f1",
+  "frozenAt": "2026-08-01T12:40:06.717-05:00",
+  "mode": "paper_only_report_only_same_guard_path_v13_controlled_sniper_anchor",
+  "evaluationMode": "entry_mismatch_attribution",
+  "question": "After holding the actual lane's first-trade sniper-window anchor and window length constant, can every same-path executed-entry mismatch be assigned by the frozen attribution priority while transport, account provenance, baseline control, and sniper-anchor control remain gap-safe?",
+  "comparabilityPlanSemantics": "complete_market_inputs_consumed_baseline_controlled_first_trade_sniper_anchor_and_current_gap_free_transport_only",
+  "gateDecisionComparator": {
+    "name": "same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context_and_controlled_sniper_anchor",
+    "context": [
+      "pre-decision observation history",
+      "same-mint cooldown",
+      "bad-exit cooldown",
+      "preset entry count"
+    ],
+    "positionSemantics": "An active position does not suppress a PAPER_SHADOWED gate pass; gate agreement measures WOULD_ENTER versus WOULD_SKIP.",
+    "marketFeatureSemantics": "PumpPortal decisions retain PumpPortal tape-derived features and Helius counterfactuals retain Helius tape-derived features. The actual lane's first-trade sniper-window anchor and window length are held constant while Helius buyers are recomputed inside that exact interval.",
+    "gatePathTreatment": "Cross-guard-path gate results remain visible as full counterfactual outcomes and are never fed into strategy.",
+    "marketInputTelemetrySemantics": "complete_source_attributed_market_and_window_provenance_missing_score_wallet_or_anchor_features_incomparable"
+  },
+  "sniperWindowAnchorControl": {
+    "requiredForValidity": true,
+    "planSemantics": "actual_lane_first_trade_anchor_and_window_held_constant_helius_buyers_recomputed_inside_exact_window",
+    "controlSource": "pumpportal_actual_lane_sniper_window",
+    "anchorKind": "first_trade",
+    "lowerBoundInclusive": true,
+    "upperBoundInclusive": true,
+    "comparableRule": "Actual and shadow anchored flags, first-trade anchor timestamps, anchor kinds, and window lengths must match exactly. Rows without the consumed control are incomparable.",
+    "sourceLineageRule": "PumpPortal and Helius producer labels remain different and visible, but source-label difference alone is not an anchor-definition mismatch.",
+    "strategyConsumptionAllowed": false
+  },
+  "entryMismatchAttribution": {
+    "passRule": "At least one comparable same-path executed ENTRY and one same-path mismatch must be observed. Every mismatch must have one deterministic allowed primary cause. All contributing causes remain visible, and zero mismatches or cross-path-only samples are insufficient evidence.",
+    "minimumComparableExecutedEntries": 1,
+    "minimumMismatches": 1,
+    "causePriority": [
+      "MISSING_PAIRED_EVALUATION",
+      "EVALUATED_PRESET_MISMATCH",
+      "PRESET_FAMILY_MISMATCH",
+      "GUARD_ELIGIBILITY_MISMATCH",
+      "GUARD_ALLOW_LIST_MISMATCH",
+      "BASELINE_ANCHOR_MISMATCH",
+      "WALLET_IDENTITY_COVERAGE_MISMATCH",
+      "RESIDUAL_PROVIDER_STATE_MISMATCH"
+    ],
+    "allowedAttributedCauses": [
+      "EVALUATED_PRESET_MISMATCH",
+      "GUARD_ELIGIBILITY_MISMATCH",
+      "GUARD_ALLOW_LIST_MISMATCH",
+      "BASELINE_ANCHOR_MISMATCH",
+      "WALLET_IDENTITY_COVERAGE_MISMATCH",
+      "RESIDUAL_PROVIDER_STATE_MISMATCH"
+    ],
+    "walletIdentityDefinition": "A wallet feature disagreement or uniqueBuyerCount/capture disagreement is wallet identity coverage; correlated score differences remain visible as contributing residual state but do not outrank the wallet cause.",
+    "sniperAnchorDefinition": "Anchor-definition differences are comparator-control failures and make the row incomparable under V13. Producer-source labels remain provenance only and cannot create this cause.",
+    "residualDefinition": "Any remaining causal market or guard input difference not assigned to wallet identity.",
+    "strategyConsumptionAllowed": false,
+    "freshnessThresholdChangeAllowed": false,
+    "postHocMismatchRelabelingAllowed": false,
+    "historicalMismatchRelabelingAllowed": false,
+    "positionStatePolicy": "Use actual pre-observation position context as a held-constant control.",
+    "guardPathPolicy": "Different selected guard-override families are scope-incomparable and excluded before attribution."
+  },
+  "methodologyBoundary": {
+    "reason": "V12 earned a mechanically valid attribution pass, but both mismatches carried three contributing causes and all 7181 comparable rows used first_trade on the actual lane versus first_referenced_trade on the shadow lane. The systematic anchor-definition defect prevents causal interpretation of the primary-cause ordering.",
+    "sourceTelemetry": "run-logs/telemetry-2026-08-01T15-43-07-013Z.jsonl",
+    "v12Verdict": "HELIUS_DECISION_SHADOW_V12_SAME_PATH_MISMATCHES_ATTRIBUTED_REPORT_ONLY",
+    "v12ValidRun": true,
+    "v12ComparableGateEvaluations": 7181,
+    "v12ComparableExecutedEntries": 3,
+    "v12EntryMismatches": 2,
+    "v12AttributedMismatches": 2,
+    "v12MultiCauseMismatches": 2,
+    "v12SystematicSniperAnchorRows": 7181,
+    "v12EvidenceReuseAllowed": false,
+    "strategyBehaviorChanged": false,
+    "providerRoutingChanged": false,
+    "freshnessThresholdChanged": false,
+    "subscriptionCapacityChanged": false
+  },
+  "classifierEpoch": {
+    "id": "helius_decision_mismatch_classifier_v13_2026-08-01",
+    "beginsAt": "2026-08-01T12:40:06.717-05:00",
+    "primaryCauseSelection": "Inherit the frozen V12 priority after excluding sniper-anchor control failures; sniper producer-source differences are provenance only.",
+    "contributingCausePolicy": "Record every detected contributing cause even when only one primary cause grades attribution.",
+    "preV13RowsEligible": false
+  },
+  "supersedes": {
+    "id": "helius_pumpfun_decision_divergence_v12_2026-08-01",
+    "disposition": "MECHANICALLY_VALID_PASS_SUPERSEDED_FOR_CAUSAL_INTERPRETATION",
+    "evidenceReuseAllowed": false,
+    "sourceTelemetry": "run-logs/telemetry-2026-08-01T15-43-07-013Z.jsonl",
+    "observedResults": {
+      "reportedVerdict": "HELIUS_DECISION_SHADOW_V12_SAME_PATH_MISMATCHES_ATTRIBUTED_REPORT_ONLY",
+      "comparableGateEvaluations": 7181,
+      "samePathEntryMismatches": 2,
+      "mismatchesWithMultipleContributingCauses": 2,
+      "systematicSniperAnchorRows": 7181
+    }
+  },
+  "checkpointDisposition": null,
+  "passVerdict": "HELIUS_DECISION_SHADOW_V13_CONTROLLED_ANCHOR_MISMATCHES_ATTRIBUTED_REPORT_ONLY",
+  "failVerdict": "HELIUS_DECISION_SHADOW_V13_UNATTRIBUTED_SAME_PATH_ENTRY_MISMATCH",
+  "insufficientVerdict": "HELIUS_DECISION_SHADOW_V13_INSUFFICIENT_CONTROLLED_ANCHOR_ATTRIBUTION_EVIDENCE",
+  "invalidVerdict": "HELIUS_DECISION_SHADOW_V13_INVALID_RUN",
+  "nextIfPass": "Keep Helius report-only and repeat under the unchanged V13 contract before proposing a wallet-identity experiment, provider routing, or strategy consumption.",
+  "nextIfFail": "Fix only the demonstrated V13 instrumentation defect. Do not change strategy, freshness bounds, gates, exits, capacity, or provider routing."
+}

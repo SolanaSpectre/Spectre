@@ -78,7 +78,22 @@
       "allEntryMismatchesAttributed": true
     }
   },
-  "checkpointDisposition": null,
+  "checkpointDisposition": {
+    "disposition": "MECHANICALLY_VALID_PASS_SUPERSEDED_FOR_CAUSAL_INTERPRETATION",
+    "latchedAt": "2026-08-01T12:40:06.717-05:00",
+    "sourceTelemetry": "run-logs/telemetry-2026-08-01T15-43-07-013Z.jsonl",
+    "reportedVerdict": "HELIUS_DECISION_SHADOW_V12_SAME_PATH_MISMATCHES_ATTRIBUTED_REPORT_ONLY",
+    "validRun": true,
+    "evidenceReuseAllowed": false,
+    "comparableGateEvaluations": 7181,
+    "comparableExecutedEntries": 3,
+    "samePathEntryMismatches": 2,
+    "attributedMismatches": 2,
+    "mismatchesWithMultipleContributingCauses": 2,
+    "systematicSniperAnchorKindPair": "first_trade -> first_referenced_trade",
+    "systematicSniperAnchorRows": 7181,
+    "interpretation": "V12 earned its narrow mechanical attribution pass, but both entry mismatches carried wallet-identity, sniper-anchor-definition, and residual-provider causes. Every comparable row used different actual and shadow sniper-window anchor definitions, so V12 cannot isolate a primary cause or establish decision parity. V13 starts a fresh report-only epoch with the actual first-trade anchor held constant."
+  },
   "passVerdict": "HELIUS_DECISION_SHADOW_V12_SAME_PATH_MISMATCHES_ATTRIBUTED_REPORT_ONLY",
   "failVerdict": "HELIUS_DECISION_SHADOW_V12_UNATTRIBUTED_SAME_PATH_ENTRY_MISMATCH",
   "insufficientVerdict": "HELIUS_DECISION_SHADOW_V12_INSUFFICIENT_SAME_PATH_ATTRIBUTION_EVIDENCE",
