@@ -76,25 +76,37 @@ from their normal startup output. Do not echo secret-bearing environment values.
 Keep other GPU-heavy applications and additional local models closed during the
 session.
 
-## Frozen Validity Checks
+## Frozen Evaluation Contract
 
-The decisive report must evaluate the inherited and V12-specific contract:
+V12 is an executed-entry mismatch-attribution experiment. Its validity gate
+requires the frozen plan plus clean lifecycle, transport, queue, provenance,
+baseline-control, and market-input telemetry. Relevant bounds include:
 
 1. raw recovery exclusion window: `120000 ms`
 2. maximum shadow state age: `1000 ms`
-3. minimum comparable gate evaluations: `500`
-4. minimum comparable evaluation coverage: `90%`
-5. minimum gate-action agreement: `99%`
-6. minimum wallet-feature agreement: `99%`
-7. minimum tracked-address agreement: `99%`
-8. maximum unexpected reconnects: `3/hour`
-9. maximum single transport gap: `5000 ms`
-10. maximum cumulative transport gap: `15000 ms/hour`
-11. at least one comparable executed entry for attribution evaluation
-12. at least one same-path mismatch for a pass or fail attribution verdict
+3. maximum unexpected reconnects: `3/hour`
+4. maximum single transport gap: `5000 ms`
+5. maximum cumulative transport gap: `15000 ms/hour`
 
-No mismatch or no comparable executed entry means insufficient evidence, not a
-failure. A transport, lifecycle, plan, or provenance violation makes the run
+Once the run is valid, attribution evidence requires at least one comparable
+executed entry, one executed exit, and one same-path executed-entry mismatch. A
+pass requires every such mismatch to receive a frozen V11 cause. No mismatch or
+no comparable executed entry means insufficient evidence, not failure.
+
+The artifact also reports inherited broad-comparator diagnostics:
+
+1. minimum comparable gate evaluations: `500`
+2. minimum comparable evaluation coverage: `90%`
+3. minimum gate-action agreement: `99%`
+4. minimum wallet-feature agreement: `99%`
+5. minimum tracked-address agreement: `99%`
+6. minimum comparable executed-action coverage: `90%`
+7. executed-action agreement: `100%`
+
+Those broad diagnostics remain visible and must be reported honestly, but they
+are not V12 pass/fail gates while `evaluationMode` is
+`entry_mismatch_attribution`. A transport, lifecycle, plan, provenance,
+baseline-control, or comparable-market-input violation still makes the run
 invalid.
 
 ## Start Command
