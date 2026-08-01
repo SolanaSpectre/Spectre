@@ -13,6 +13,8 @@ This directory holds compact local context files meant to improve AI judgment fo
 - `aws-model-benchmark-checklist.md`
 - `live-risk-framework.md`
 - `agent-policy-patterns.md`
+- `agentic-trading-architecture.md`
+- `helius-v12-paper60-runbook.md`
 - `rick-venum-spectre-bridge.md`
 - `wallet-intel.md`
 - `wallet-pnl-evidence.md`
@@ -36,6 +38,8 @@ These files are designed to teach the local model:
 - how to benchmark stronger AWS-hosted models without contaminating the current baseline
 - how live portfolio-aware and lane-aware sizing should work later without affecting paper runs
 - how other local agent systems can improve this bot structurally without polluting the current lane
+- how agent mandates, trade intents, policy decisions, signers, and receipts should remain separated
+- how to run and grade the frozen Helius V12 PAPER60 without changing its contract
 - how Rick, Venum, and Spectre should hand off narrative and regime intelligence cleanly
 - how future venue and sniper lanes may fit without contaminating the runner baseline
 - what the April 2026 Pump fee-recipient upgrade means for future live-executor compatibility
@@ -61,6 +65,7 @@ The best pattern is selective retrieval:
   - `aws-model-benchmark-checklist.md`
 - `live-risk-framework.md`
 - `agent-policy-patterns.md`
+- `agentic-trading-architecture.md`
 - `rick-venum-spectre-bridge.md`
 - `wallet-intel.md`
 - `wallet-pnl-evidence.md`
@@ -74,3 +79,6 @@ For the next context expansion layer, use:
 - `rick-integration-roadmap.md`
 
 Keep prompts compact. The goal is grounded judgment, not maximal prompt length.
+
+`helius-v12-paper60-runbook.md` is operator-only. Do not include it in runtime
+trade-review context.
