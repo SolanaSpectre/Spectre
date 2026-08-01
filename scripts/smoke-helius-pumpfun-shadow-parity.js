@@ -187,6 +187,10 @@ const unexpectedDisconnect = analyzeEvents([
 ]);
 assert.strictEqual(unexpectedDisconnect.checks.cleanHeliusLifecycle, false);
 assert.strictEqual(unexpectedDisconnect.verdict, PREREGISTERED.failVerdict);
+assert.strictEqual(
+  unexpectedDisconnect.counts.heliusLifecycle.unexpectedDisconnectsWithoutGapSequence,
+  1
+);
 
 const boundedReconnectEvents = events.filter((row) => (
   row.type !== 'provider.helius_pumpfun.shadow_disconnected'
@@ -229,6 +233,30 @@ assert.strictEqual(boundedReconnect.checks.cleanHeliusLifecycle, true);
 assert.strictEqual(boundedReconnect.counts.heliusLifecycle.unexpectedDisconnects, 1);
 assert.strictEqual(boundedReconnect.counts.heliusLifecycle.transportGapsClosed, 1);
 assert.strictEqual(boundedReconnect.counts.heliusLifecycle.transportGapDurationStats.max, 1500);
+
+const successfulReconnectIndex = boundedReconnectEvents.findIndex((row) => (
+  row.type === 'provider.helius_pumpfun.shadow_connected'
+  && row.payload.connectionEpoch === 2
+));
+const continuousGapReconnectEvents = [
+  ...boundedReconnectEvents.slice(0, successfulReconnectIndex),
+  event('provider.helius_pumpfun.shadow_disconnected', iso(100_500), {
+    code: 1006,
+    reason: 'reconnect attempt failed before open',
+    connectionEpoch: null,
+    transportGapSequence: 1
+  }),
+  ...boundedReconnectEvents.slice(successfulReconnectIndex)
+];
+const continuousGapReconnect = analyzeEvents(continuousGapReconnectEvents);
+assert.strictEqual(continuousGapReconnect.checks.cleanHeliusLifecycle, true);
+assert.strictEqual(continuousGapReconnect.counts.heliusLifecycle.unexpectedDisconnects, 2);
+assert.strictEqual(continuousGapReconnect.counts.heliusLifecycle.transportGapsStarted, 1);
+assert.strictEqual(continuousGapReconnect.counts.heliusLifecycle.transportGapsClosed, 1);
+assert.strictEqual(
+  continuousGapReconnect.counts.heliusLifecycle.unexpectedDisconnectsWithoutGapSequence,
+  0
+);
 
 const explicitShutdownDisconnect = analyzeEvents([
   ...events,

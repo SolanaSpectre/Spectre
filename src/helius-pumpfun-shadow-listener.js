@@ -145,6 +145,7 @@ class HeliusPumpfunShadowListener {
       lastTransportGapDurationMs: null,
       firstNotificationsAfterGap: 0,
       duplicateNotifications: 0,
+      notificationsWithoutDedupKey: 0,
       outOfOrderNotifications: 0,
       highestNotificationSlot: null,
       notificationDedupMaxKeys: this.maxSeenNotificationKeys,
@@ -247,12 +248,13 @@ class HeliusPumpfunShadowListener {
     socket.on('pong', () => this.handlePong(socket, socketEpoch));
     socket.on('error', (error) => {
       const lifecycle = this.lifecyclePhase();
+      const errorMessage = this.sanitizeErrorMessage(error);
       if (lifecycle.shutdownPhase) this.stats.shutdownPhaseErrors += 1;
       else this.stats.errorEvents += 1;
       this.stats.lastErrorAt = new Date().toISOString();
-      this.stats.lastErrorMessage = error.message;
+      this.stats.lastErrorMessage = errorMessage;
       this.emitLifecycle('provider.helius_pumpfun.shadow_error', {
-        errorMessage: error.message,
+        errorMessage,
         sessionPhase: lifecycle.sessionPhase,
         shutdownError: lifecycle.shutdownPhase,
         shutdownAgeMs: lifecycle.shutdownAgeMs,
@@ -324,19 +326,26 @@ class HeliusPumpfunShadowListener {
 
   armSubscriptionAckTimer(socket, connectionEpoch, requestId) {
     this.clearSubscriptionAckTimer();
-    this.subscriptionAckTimer = setTimeout(() => {
-      if (
-        !this.running
-        || this.ws !== socket
-        || this.connectionEpoch !== connectionEpoch
-        || this.activeSubscriptionRequestId !== requestId
-        || this.subscriptionReady
-      ) return;
-      this.stats.subscriptionAckTimeouts += 1;
-      this.recordSubscriptionFailure('ACK_TIMEOUT', connectionEpoch, requestId, null);
-      if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
-    }, this.subscriptionAckTimeoutMs);
+    this.subscriptionAckTimer = setTimeout(
+      () => this.handleSubscriptionAckTimeout(socket, connectionEpoch, requestId),
+      this.subscriptionAckTimeoutMs
+    );
     this.subscriptionAckTimer.unref?.();
+  }
+
+  handleSubscriptionAckTimeout(socket, connectionEpoch, requestId) {
+    if (
+      !this.running
+      || this.ws !== socket
+      || this.connectionEpoch !== connectionEpoch
+      || this.activeSubscriptionRequestId !== requestId
+      || this.subscriptionReady
+    ) return false;
+    this.stats.subscriptionAckTimeouts += 1;
+    const recorded = this.recordSubscriptionFailure('ACK_TIMEOUT', connectionEpoch, requestId, null);
+    if (!recorded) return false;
+    if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+    return true;
   }
 
   clearSubscriptionAckTimer() {
@@ -479,6 +488,24 @@ class HeliusPumpfunShadowListener {
       shutdownPhase,
       shutdownAgeMs
     };
+  }
+
+  sanitizeErrorMessage(error) {
+    let message = String(error?.message || error || 'unknown websocket error');
+    if (this.url && message.includes(this.url)) {
+      message = message.split(this.url).join('<redacted-websocket-url>');
+    }
+    return message
+      .replace(/\b(?:wss?|https?):\/\/[^\s"'`<>)\]}]+/gi, '<redacted-url>')
+      .replace(
+        /([?&](?:api-key|apikey|key|token|access_token)=)[^&\s"'`<>)\]}]+/gi,
+        '$1<redacted>'
+      )
+      .replace(
+        /\b(api[-_]?key|apikey|token|access[_-]?token)(\s*[:=]\s*)[^\s,;]+/gi,
+        '$1$2<redacted>'
+      )
+      .slice(0, 500);
   }
 
   async closeSocketForStop(socket, timeoutMs = 750) {
@@ -713,6 +740,7 @@ class HeliusPumpfunShadowListener {
     const slot = Number(result?.context?.slot);
     const signature = value.signature || null;
     const notificationKey = Number.isFinite(slot) && signature ? `${slot}|${signature}` : null;
+    if (!notificationKey) this.stats.notificationsWithoutDedupKey += 1;
     if (notificationKey && this.seenNotificationKeys.has(notificationKey)) {
       this.stats.duplicateNotifications += 1;
       return;
@@ -760,7 +788,7 @@ class HeliusPumpfunShadowListener {
       notificationOutOfOrder,
       slotLagFromHighWater: notificationOutOfOrder && Number.isFinite(slot)
         ? this.highestNotificationSlot - slot
-        : 0
+        : null
     };
     const logs = Array.isArray(value.logs) ? value.logs : [];
     this.stats.logLines += logs.length;

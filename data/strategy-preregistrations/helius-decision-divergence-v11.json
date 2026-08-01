@@ -42,6 +42,7 @@
     "maximumCumulativeTransportGapMsPerHour": 15000,
     "rawGapExclusionWindowMs": 60000,
     "rawComparableRule": "The socket is open and subscription-ACK ready, the mint state was refreshed in the current connection epoch, no gap is active, and no recovered gap intersects the trailing market-feature window.",
+    "cumulativeFeatureGapCaveat": "The 60-second exclusion fully protects rolling trade-window features. It cannot reconstruct a trade missed from lifetime or first-reference features such as the sniper window; reconnect cohorts must remain separately visible when interpreting those diagnostics.",
     "accountComparableRule": "Any selected websocket account update must come from the current inspectable web3 transport generation; HTTP initial snapshots remain independently provenance-labeled.",
     "lifecycleRule": "Every socket-open epoch must ACK logsSubscribe. Unexpected reconnects and cumulative gaps must remain within the frozen bounds, every gap must close, and gap-affected comparison rows must remain visible but incomparable.",
     "duplicateRule": "Exact slot-signature notification duplicates are counted and suppressed before shadow-state ingestion; out-of-order notifications are counted and source-attributed.",

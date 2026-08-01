@@ -243,4 +243,49 @@ listener.handleRawMessage(Buffer.from(JSON.stringify({
 assert.strictEqual(listener.getStats().subscriptionAcks, ackCount);
 assert.strictEqual(listener.getStats().staleSubscriptionResponses, 1);
 
+const secret = 'DO_NOT_LEAK_HELIUS_KEY';
+const sanitizedError = listener.sanitizeErrorMessage(
+  new Error(`handshake failed at wss://mainnet.example.invalid/?api-key=${secret}`)
+);
+assert.strictEqual(sanitizedError.includes(secret), false);
+assert.strictEqual(sanitizedError.includes('wss://'), false);
+
+let ackTimeoutTerminated = false;
+const ackTimeoutSocket = {
+  readyState: 1,
+  terminate() {
+    ackTimeoutTerminated = true;
+  }
+};
+listener.running = true;
+listener.ws = ackTimeoutSocket;
+listener.connectionEpoch = 3;
+listener.activeSubscriptionRequestId = 7103;
+listener.subscriptionReady = false;
+const subscriptionErrorsBeforeTimeout = listener.getStats().subscriptionErrors;
+assert.strictEqual(listener.handleSubscriptionAckTimeout(ackTimeoutSocket, 3, 7103), true);
+assert.strictEqual(ackTimeoutTerminated, true);
+assert.strictEqual(listener.getStats().subscriptionAckTimeouts, 1);
+assert.strictEqual(listener.getStats().subscriptionErrors, subscriptionErrorsBeforeTimeout + 1);
+assert.strictEqual(listener.handleSubscriptionAckTimeout(ackTimeoutSocket, 3, 7103), false);
+assert.strictEqual(listener.getStats().subscriptionAckTimeouts, 1);
+
+let pongTimeoutTerminated = false;
+const pongTimeoutSocket = {
+  readyState: 1,
+  terminate() {
+    pongTimeoutTerminated = true;
+  }
+};
+listener.ws = pongTimeoutSocket;
+listener.connectionEpoch = 4;
+listener.awaitingPong = true;
+listener.stats.lastPingAt = new Date().toISOString();
+assert.strictEqual(listener.handlePongTimeout(pongTimeoutSocket, 4), true);
+assert.strictEqual(pongTimeoutTerminated, true);
+assert.strictEqual(listener.getStats().pongTimeouts, 1);
+assert.strictEqual(listener.handlePongTimeout(pongTimeoutSocket, 4), false);
+listener.running = false;
+listener.ws = null;
+
 console.log('Helius Pump.fun shadow listener smoke passed');

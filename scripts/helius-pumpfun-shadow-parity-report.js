@@ -328,6 +328,7 @@ function createState() {
       shutdownPhaseErrors: 0,
       transportGapsStarted: 0,
       transportGapsClosed: 0,
+      unexpectedDisconnectsWithoutGapSequence: 0,
       transportGapDurationsMs: [],
       activeTransportGapSequences: new Set()
     }
@@ -410,6 +411,8 @@ function ingestEvent(state, event) {
           state.heliusLifecycle.transportGapsStarted += 1;
           state.heliusLifecycle.activeTransportGapSequences.add(sequence);
         }
+      } else {
+        state.heliusLifecycle.unexpectedDisconnectsWithoutGapSequence += 1;
       }
     }
     return;
@@ -846,7 +849,8 @@ function buildReport(state, sourceTelemetry = null) {
   const boundedReconnects = state.heliusLifecycle.unexpectedDisconnects
     <= maximumUnexpectedReconnects;
   const measuredTransportGaps = state.heliusLifecycle.transportGapsStarted
-    === state.heliusLifecycle.unexpectedDisconnects
+    <= state.heliusLifecycle.unexpectedDisconnects
+    && state.heliusLifecycle.unexpectedDisconnectsWithoutGapSequence === 0
     && state.heliusLifecycle.transportGapsClosed === state.heliusLifecycle.transportGapsStarted
     && activeTransportGaps === 0;
   const boundedTransportGaps = (gapDurationStats.max ?? 0)
