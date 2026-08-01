@@ -6,10 +6,26 @@ const fs = require('fs');
 const path = require('path');
 const TradingEngine = require('../src/trading-engine');
 const {
+  PREWARM_TRIGGER_REASON_ORDER
+} = require('../src/lib/helius-decision-shadow-subscription-policy');
+const {
   analyzeEvents,
+  buildEntryMismatchAttribution,
   loadPreregistration
 } = require('./helius-pumpfun-decision-divergence-report');
 const preregistration = loadPreregistration();
+assert.strictEqual(preregistration.id, 'helius_pumpfun_decision_divergence_v10_2026-07-31');
+assert.deepStrictEqual(
+  preregistration.preregistrationInheritance.map((item) => item.id),
+  [
+    'helius_pumpfun_decision_divergence_v7_2026-07-25',
+    'helius_pumpfun_decision_divergence_v9_2026-07-26'
+  ]
+);
+assert.deepStrictEqual(
+  preregistration.prewarmDiagnostics.triggerPriority,
+  PREWARM_TRIGGER_REASON_ORDER
+);
 assert.strictEqual(
   preregistration.entryMismatchAttribution.allowedAttributedCauses.includes(
     'POSITION_OCCUPANCY_MISMATCH'
@@ -19,10 +35,18 @@ assert.strictEqual(
 assert.strictEqual(preregistration.entryMismatchAttribution.minimumMismatches, 1);
 assert.strictEqual(
   preregistration.entryMismatchAttribution.allowedAttributedCauses.includes(
-    'PRESET_FAMILY_MISMATCH'
+    'MARKET_OR_GUARD_INPUT_MISMATCH'
   ),
   false
 );
+for (const cause of [
+  'BASELINE_ANCHOR_MISMATCH',
+  'WALLET_IDENTITY_COVERAGE_MISMATCH',
+  'SNIPER_ANCHOR_DEFINITION_MISMATCH',
+  'RESIDUAL_PROVIDER_STATE_MISMATCH'
+]) {
+  assert(preregistration.entryMismatchAttribution.allowedAttributedCauses.includes(cause));
+}
 assert.strictEqual(
   preregistration.executedActionComparator.name,
   'gate_coupled_same_guard_path_entry_and_same_instant_exit_with_actual_lane_context'
@@ -144,6 +168,16 @@ for (const field of preregistration.decisionComparabilityDiagnostics.requiredFie
     `V8 inherited required diagnostic field must be emitted: ${field}`
   );
 }
+for (const field of [
+  ...preregistration.baselineControl.requiredComparableFields,
+  ...preregistration.prewarmDiagnostics.requiredActiveSubscriptionFields,
+  ...preregistration.prewarmDiagnostics.requiredPrewarmedFields
+]) {
+  assert(
+    new RegExp(`\\b${field}\\s*[, :]`).test(evaluationEmitter),
+    `V10 required telemetry field must be emitted: ${field}`
+  );
+}
 const executedEmitterStart = engineSource.indexOf(
   "this.telemetry.record('helius_pumpfun.decision_shadow.executed_action'"
 );
@@ -157,7 +191,7 @@ assert.strictEqual(executedEmitter.includes('actualPositionOccupiedAtDecision'),
 const sourceTelemetry = 'run-logs/synthetic-decision-shadow.jsonl';
 const events = [{
   type: 'session.started',
-    timestamp: '2026-07-27T14:30:00.000Z',
+    timestamp: '2026-08-01T14:30:00.000Z',
   payload: {
     mode: 'PAPER',
     pumpPortalPaidTapePlan: {
@@ -175,6 +209,7 @@ const events = [{
       decisionShadowAccountVerifierMaxSubscriptions: preregistration.accountVerifierSelection.minimumMaxSubscriptions,
       decisionShadowAccountVerifierTtlMs: preregistration.accountVerifierSelection.requiredTtlMs,
       decisionShadowAccountVerifierSelectionTrigger: preregistration.accountVerifierSelection.selectionTrigger,
+      decisionShadowPrewarmPathSemantics: preregistration.prewarmDiagnostics.planSemantics,
       decisionShadowWalletIdentityAlignment: 'pumpportal_signature_alias_then_helius_event_user',
       decisionShadowWalletEvidenceWindow: preregistration.semanticAlignment.walletEvidenceWindow,
       decisionShadowWalletEvidenceTradeCapPerMint: preregistration.semanticAlignment.walletEvidenceTradeCapPerMint,
@@ -192,7 +227,7 @@ for (let index = 0; index < 500; index += 1) {
   const enter = index < 20;
   events.push({
     type: 'helius_pumpfun.decision_shadow.evaluation',
-    timestamp: new Date(Date.parse('2026-07-27T14:30:01.000Z') + index).toISOString(),
+    timestamp: new Date(Date.parse('2026-08-01T14:30:01.000Z') + index).toISOString(),
     payload: {
       preregistrationId: preregistration.id,
       pairedDecisionKey: index === 0 ? 'fixture-entry' : `fixture-${index}`,
@@ -271,9 +306,11 @@ for (let index = 0; index < 500; index += 1) {
       baselineControlValid: true,
       baselineControlSelected: true,
       baselineControlCurveProgress: 0.55,
-      baselineControlAt: '2026-07-27T14:29:55.000Z',
-      actualBaselineSelectedAtMs: Date.parse('2026-07-27T14:29:55.000Z'),
-      shadowBaselineSelectedAtMs: Date.parse('2026-07-27T14:29:55.000Z'),
+      baselineControlAt: '2026-08-01T14:29:55.000Z',
+      shadowBaselineCurveProgress: 0.55,
+      shadowBaselineAt: '2026-08-01T14:29:55.000Z',
+      actualBaselineSelectedAtMs: Date.parse('2026-08-01T14:29:55.000Z'),
+      shadowBaselineSelectedAtMs: Date.parse('2026-08-01T14:29:55.000Z'),
       baselineAnchorSkewMs: 0,
       baselineCurveProgressSkew: 0,
       baselineControlSource: 'pumpportal_actual_lane_observation_history',
@@ -284,6 +321,12 @@ for (let index = 0; index < 500; index += 1) {
       accountVerifierPrewarmed: true,
       accountVerifierPrewarmLeadMs: 500,
       accountVerifierFirstUpdateBeforeComparison: true,
+      accountVerifierPrewarmTriggerReason: 'OBSERVED_INTEREST',
+      accountVerifierPrewarmTriggerReasons: ['OBSERVED_INTEREST'],
+      accountVerifierPrewarmTriggerReasonsSeen: ['OBSERVED_INTEREST', 'FLAGGED'],
+      accountVerifierPrewarmDuplicateRequests: 1,
+      accountVerifierComparisonTrigger: 'helius_decision_shadow_comparison',
+      accountVerifierPrewarmToComparisonPath: 'PREWARM_THEN_COMPARISON',
       walletComparison: {
         portal: { touched: false },
         helius: { touched: false },
@@ -299,7 +342,7 @@ for (let index = 0; index < 500; index += 1) {
 for (const action of ['ENTRY', 'EXIT']) {
   events.push({
     type: 'helius_pumpfun.decision_shadow.executed_action',
-    timestamp: '2026-07-27T14:40:00.000Z',
+    timestamp: '2026-08-01T14:40:00.000Z',
     payload: {
       preregistrationId: preregistration.id,
       action,
@@ -334,7 +377,7 @@ for (const action of ['ENTRY', 'EXIT']) {
 }
 events.push({
   type: 'session.stopped',
-  timestamp: '2026-07-27T15:30:00.000Z',
+  timestamp: '2026-08-01T15:30:00.000Z',
   payload: {
     reason: 'SESSION_DURATION_EXCEEDED',
     stats: {
@@ -437,6 +480,10 @@ assert.strictEqual(
 );
 assert.strictEqual(report.checks.correctAccountVerifierTtl, true);
 assert.strictEqual(report.checks.correctAccountVerifierSelectionTrigger, true);
+assert.strictEqual(report.checks.correctPrewarmPathSemantics, true);
+assert.strictEqual(report.checks.accountVerifierPrewarmTelemetryComplete, true);
+assert.strictEqual(report.checks.baselineControlFieldsPresent, true);
+assert.strictEqual(report.checks.baselineControlInvariant, true);
 assert.strictEqual(report.checks.correctWalletEvidenceWindow, true);
 assert.strictEqual(report.checks.correctWalletEvidenceTradeCap, true);
 assert.strictEqual(report.checks.correctHeliusQueueMaxSize, true);
@@ -448,6 +495,16 @@ assert.strictEqual(report.heliusEventQueue.maxDepthRatio, 0.0048);
 assert.strictEqual(report.heliusEventQueue.latencyMaxMs, 18);
 assert.strictEqual(report.counts.accountEnrichedGateEvaluations, 500);
 assert.strictEqual(report.counts.accountVerifierPrewarmedEvaluations, 500);
+assert.strictEqual(report.accountVerifierPrewarm.telemetryIncompleteEvaluations, 0);
+assert.strictEqual(report.accountVerifierPrewarm.byPrimaryTriggerReason.OBSERVED_INTEREST, 500);
+assert.strictEqual(
+  report.accountVerifierPrewarm.byPrewarmToComparisonPath.PREWARM_THEN_COMPARISON,
+  500
+);
+assert.strictEqual(
+  report.accountVerifierPrewarm.leadMsByPrimaryTriggerReason.OBSERVED_INTEREST.median,
+  500
+);
 assert.strictEqual(report.agreement.prewarmedComparableEvaluationCoverageRate, 1);
 assert.strictEqual(report.entryConfusionMatrix.actualEnterShadowEnter, 20);
 assert.strictEqual(report.entryConfusionMatrix.actualSkipShadowSkip, 480);
@@ -556,6 +613,118 @@ assert.strictEqual(
   1
 );
 
+const brokenBaselineInvariantEvents = structuredClone(events);
+const brokenBaselineInvariantEvaluation = brokenBaselineInvariantEvents.find(
+  (event) => event.type === 'helius_pumpfun.decision_shadow.evaluation'
+);
+brokenBaselineInvariantEvaluation.payload.shadowBaselineAnchorHeldConstant = false;
+brokenBaselineInvariantEvaluation.payload.shadowBaselineMatchesControl = false;
+brokenBaselineInvariantEvaluation.payload.baselineAnchorSkewMs = 25;
+const brokenBaselineInvariant = analyzeEvents(
+  brokenBaselineInvariantEvents,
+  preregistration,
+  parity,
+  sourceTelemetry
+);
+assert.strictEqual(brokenBaselineInvariant.checks.baselineControlInvariant, false);
+assert.strictEqual(brokenBaselineInvariant.verdict, preregistration.invalidVerdict);
+
+const missingBaselineFieldEvents = structuredClone(events);
+const missingBaselineFieldEvaluation = missingBaselineFieldEvents.find(
+  (event) => event.type === 'helius_pumpfun.decision_shadow.evaluation'
+);
+delete missingBaselineFieldEvaluation.payload.baselineCurveProgressSkew;
+const missingBaselineField = analyzeEvents(
+  missingBaselineFieldEvents,
+  preregistration,
+  parity,
+  sourceTelemetry
+);
+assert.strictEqual(missingBaselineField.checks.baselineControlFieldsPresent, false);
+assert.strictEqual(missingBaselineField.verdict, preregistration.invalidVerdict);
+
+const nullBaselineSkewEvents = structuredClone(events);
+const nullBaselineSkewEvaluation = nullBaselineSkewEvents.find(
+  (event) => event.type === 'helius_pumpfun.decision_shadow.evaluation'
+);
+nullBaselineSkewEvaluation.payload.baselineCurveProgressSkew = null;
+const nullBaselineSkew = analyzeEvents(
+  nullBaselineSkewEvents,
+  preregistration,
+  parity,
+  sourceTelemetry
+);
+assert.strictEqual(nullBaselineSkew.checks.baselineControlInvariant, false);
+
+const frozenNoBaselineEvents = structuredClone(events);
+const frozenNoBaselineEvaluation = frozenNoBaselineEvents.find(
+  (event) => event.type === 'helius_pumpfun.decision_shadow.evaluation'
+);
+frozenNoBaselineEvaluation.payload.baselineControlSelected = false;
+frozenNoBaselineEvaluation.payload.baselineControlCurveProgress = null;
+frozenNoBaselineEvaluation.payload.baselineControlAt = null;
+frozenNoBaselineEvaluation.payload.shadowBaselineCurveProgress = null;
+frozenNoBaselineEvaluation.payload.shadowBaselineAt = null;
+frozenNoBaselineEvaluation.payload.actualBaselineSelectedAtMs = null;
+frozenNoBaselineEvaluation.payload.shadowBaselineSelectedAtMs = null;
+frozenNoBaselineEvaluation.payload.baselineAnchorSkewMs = null;
+frozenNoBaselineEvaluation.payload.baselineCurveProgressSkew = null;
+const frozenNoBaseline = analyzeEvents(
+  frozenNoBaselineEvents,
+  preregistration,
+  parity,
+  sourceTelemetry
+);
+assert.strictEqual(frozenNoBaseline.checks.baselineControlInvariant, true);
+
+const missingPrewarmProvenanceEvents = structuredClone(events);
+const missingPrewarmProvenanceEvaluation = missingPrewarmProvenanceEvents.find(
+  (event) => event.type === 'helius_pumpfun.decision_shadow.evaluation'
+);
+delete missingPrewarmProvenanceEvaluation.payload.accountVerifierPrewarmTriggerReason;
+const missingPrewarmProvenance = analyzeEvents(
+  missingPrewarmProvenanceEvents,
+  preregistration,
+  parity,
+  sourceTelemetry
+);
+assert.strictEqual(
+  missingPrewarmProvenance.checks.accountVerifierPrewarmTelemetryComplete,
+  false
+);
+assert.strictEqual(missingPrewarmProvenance.verdict, preregistration.invalidVerdict);
+
+const nullPrewarmLeadEvents = structuredClone(events);
+const nullPrewarmLeadEvaluation = nullPrewarmLeadEvents.find(
+  (event) => event.type === 'helius_pumpfun.decision_shadow.evaluation'
+);
+nullPrewarmLeadEvaluation.payload.accountVerifierPrewarmLeadMs = null;
+const nullPrewarmLead = analyzeEvents(
+  nullPrewarmLeadEvents,
+  preregistration,
+  parity,
+  sourceTelemetry
+);
+assert.strictEqual(nullPrewarmLead.checks.accountVerifierPrewarmTelemetryComplete, false);
+
+const directComparisonEvents = structuredClone(events);
+const directComparisonEvaluation = directComparisonEvents.find(
+  (event) => event.type === 'helius_pumpfun.decision_shadow.evaluation'
+);
+directComparisonEvaluation.payload.accountVerifierPrewarmed = false;
+directComparisonEvaluation.payload.accountVerifierPrewarmLeadMs = null;
+directComparisonEvaluation.payload.accountVerifierPrewarmTriggerReason = null;
+directComparisonEvaluation.payload.accountVerifierPrewarmTriggerReasons = [];
+directComparisonEvaluation.payload.accountVerifierPrewarmToComparisonPath =
+  'DIRECT_COMPARISON_SUBSCRIPTION';
+const directComparison = analyzeEvents(
+  directComparisonEvents,
+  preregistration,
+  parity,
+  sourceTelemetry
+);
+assert.strictEqual(directComparison.checks.accountVerifierPrewarmTelemetryComplete, true);
+
 const staleEvents = events.map((event) => ({ ...event, payload: { ...(event.payload || {}) } }));
 for (const event of staleEvents) {
   if (event.type.startsWith('helius_pumpfun.decision_shadow.')) {
@@ -611,30 +780,113 @@ assert.strictEqual(
   'GUARD_ALLOW_LIST_MISMATCH'
 );
 
-const unattributedEvents = events.map((event) => ({ ...event, payload: { ...(event.payload || {}) } }));
-const unattributedEntry = unattributedEvents.find(
+const provenanceOnlyEvents = events.map((event) => ({ ...event, payload: { ...(event.payload || {}) } }));
+const provenanceOnlyEntry = provenanceOnlyEvents.find(
   (event) => event.type === 'helius_pumpfun.decision_shadow.executed_action'
     && event.payload.action === 'ENTRY'
 );
-unattributedEntry.payload.actionAgreement = false;
-unattributedEntry.payload.shadowAction = 'NO_ENTRY';
-const unattributed = analyzeEvents(unattributedEvents, preregistration, parity, sourceTelemetry);
-assert.strictEqual(unattributed.verdict, preregistration.failVerdict);
-assert.strictEqual(unattributed.entryMismatchAttribution.unattributedMismatches, 1);
-assert.strictEqual(unattributed.entryMismatchAttribution.rows[0].cause, 'UNATTRIBUTED');
-assert.strictEqual(unattributed.entryMismatchAttribution.rows[0].guardInputDiff.length, 0);
+provenanceOnlyEntry.payload.actionAgreement = false;
+provenanceOnlyEntry.payload.shadowAction = 'NO_ENTRY';
+const provenanceOnly = analyzeEvents(
+  provenanceOnlyEvents,
+  preregistration,
+  parity,
+  sourceTelemetry
+);
+assert.strictEqual(provenanceOnly.verdict, preregistration.failVerdict);
+assert.strictEqual(provenanceOnly.entryMismatchAttribution.unattributedMismatches, 1);
+assert.strictEqual(provenanceOnly.entryMismatchAttribution.rows[0].cause, 'UNATTRIBUTED');
+assert.strictEqual(provenanceOnly.entryMismatchAttribution.rows[0].guardInputDiff.length, 0);
 assert(
-  unattributed.entryMismatchAttribution.rows[0].guardInputProvenanceDiff.some(
+  provenanceOnly.entryMismatchAttribution.rows[0].guardInputProvenanceDiff.some(
     (row) => row.jsonPath === 'sniperWalletCountSource'
   ),
-  'source lineage must remain visible without being treated as a causal gate-input mismatch'
+  'source lineage must remain visible without being treated as causal alone'
 );
 assert(
-  unattributed.entryMismatchAttribution.rows[0].guardInputProvenanceDiff.some(
+  provenanceOnly.entryMismatchAttribution.rows[0].guardInputProvenanceDiff.some(
     (row) => row.jsonPath === 'sniperWindowAnchorAtMs'
   ),
-  'anchor skew must remain visible without being treated as a causal gate-input mismatch'
+  'anchor skew must remain visible without being treated as causal alone'
 );
+
+const baseEvaluation = structuredClone(events.find(
+  (event) => event.type === 'helius_pumpfun.decision_shadow.evaluation'
+    && event.payload.pairedDecisionKey === 'fixture-entry'
+).payload);
+const baseExecutedEntry = structuredClone(events.find(
+  (event) => event.type === 'helius_pumpfun.decision_shadow.executed_action'
+    && event.payload.action === 'ENTRY'
+).payload);
+baseExecutedEntry.actionAgreement = false;
+baseExecutedEntry.shadowAction = 'NO_ENTRY';
+
+function alignedAttributionFixture() {
+  const evaluationRow = structuredClone(baseEvaluation);
+  evaluationRow.shadowGuardFamilyInputs = structuredClone(evaluationRow.actualGuardFamilyInputs);
+  evaluationRow.walletComparison.featureAgreement = true;
+  return evaluationRow;
+}
+
+const baselineMismatchEvaluation = alignedAttributionFixture();
+baselineMismatchEvaluation.shadowBaselineAnchorHeldConstant = false;
+baselineMismatchEvaluation.shadowBaselineMatchesControl = false;
+baselineMismatchEvaluation.baselineAnchorSkewMs = 10;
+const baselineAttribution = buildEntryMismatchAttribution(
+  [baselineMismatchEvaluation],
+  [baseExecutedEntry],
+  preregistration
+);
+assert.strictEqual(baselineAttribution.rows[0].cause, 'BASELINE_ANCHOR_MISMATCH');
+
+const walletMismatchEvaluation = alignedAttributionFixture();
+walletMismatchEvaluation.shadowGuardFamilyInputs.market.uniqueBuyerCount = 3;
+walletMismatchEvaluation.walletComparison.featureAgreement = false;
+const walletAttribution = buildEntryMismatchAttribution(
+  [walletMismatchEvaluation],
+  [baseExecutedEntry],
+  preregistration
+);
+assert.strictEqual(walletAttribution.rows[0].cause, 'WALLET_IDENTITY_COVERAGE_MISMATCH');
+
+const residualMismatchEvaluation = alignedAttributionFixture();
+residualMismatchEvaluation.shadowGuardFamilyInputs.market.recentVolumeSol = 6;
+const residualAttribution = buildEntryMismatchAttribution(
+  [residualMismatchEvaluation],
+  [baseExecutedEntry],
+  preregistration
+);
+assert.strictEqual(residualAttribution.rows[0].cause, 'RESIDUAL_PROVIDER_STATE_MISMATCH');
+
+const sniperMismatchEvaluation = structuredClone(baseEvaluation);
+sniperMismatchEvaluation.shadowGuardFamilyInputs.market.sniperWalletCount = 2;
+const sniperAttribution = buildEntryMismatchAttribution(
+  [sniperMismatchEvaluation],
+  [baseExecutedEntry],
+  preregistration
+);
+assert.strictEqual(
+  sniperAttribution.rows[0].cause,
+  'SNIPER_ANCHOR_DEFINITION_MISMATCH'
+);
+
+const overlappingMismatchEvaluation = structuredClone(walletMismatchEvaluation);
+overlappingMismatchEvaluation.shadowBaselineAnchorHeldConstant = false;
+overlappingMismatchEvaluation.shadowBaselineMatchesControl = false;
+overlappingMismatchEvaluation.baselineCurveProgressSkew = 0.01;
+overlappingMismatchEvaluation.shadowGuardFamilyInputs.market.recentVolumeSol = 6;
+const overlappingAttribution = buildEntryMismatchAttribution(
+  [overlappingMismatchEvaluation],
+  [baseExecutedEntry],
+  preregistration
+);
+assert.strictEqual(overlappingAttribution.rows[0].cause, 'BASELINE_ANCHOR_MISMATCH');
+assert.deepStrictEqual(overlappingAttribution.rows[0].contributingCauses, [
+  'BASELINE_ANCHOR_MISMATCH',
+  'WALLET_IDENTITY_COVERAGE_MISMATCH',
+  'RESIDUAL_PROVIDER_STATE_MISMATCH'
+]);
+assert.strictEqual(overlappingAttribution.mismatchesWithMultipleContributingCauses, 1);
 
 const crossPathEvents = events.map((event) => ({ ...event, payload: { ...(event.payload || {}) } }));
 const crossPathEntry = crossPathEvents.find(

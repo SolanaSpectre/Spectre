@@ -47,8 +47,8 @@ const {
   runnerRejectRuntimeShadowMarketState
 } = require('./lib/runner-reject-runtime-shadow');
 const {
+  decisionShadowPrewarmTriggerReasons,
   decisionShadowVerifierPolicyActive,
-  shouldPrewarmDecisionShadowSubscription,
   shouldRequestDecisionShadowSubscription
 } = require('./lib/helius-decision-shadow-subscription-policy');
 
@@ -58,7 +58,7 @@ const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
   'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
 ]);
-const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v9_2026-07-26';
+const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v10_2026-07-31';
 const HELIUS_DECISION_SHADOW_MAX_STATE_AGE_MS = 1000;
 const HELIUS_DECISION_SHADOW_RECENT_TRADE_CAP = 201;
 
@@ -550,6 +550,7 @@ class TradingEngine {
         decisionShadowAccountVerifierMaxSubscriptions: this.config.finalistAccountVerifierMaxSubscriptions,
         decisionShadowAccountVerifierTtlMs: this.config.finalistAccountVerifierTtlMs,
         decisionShadowAccountVerifierSelectionTrigger: 'prewarm_interest_or_position_then_refresh_on_comparison',
+        decisionShadowPrewarmPathSemantics: 'first_trigger_and_timestamp_immutable_duplicates_counted_candidate_upgrade_marks_comparison',
         decisionShadowWalletIdentityAlignment: 'pumpportal_signature_alias_then_helius_event_user',
         decisionShadowWalletEvidenceWindow: 'earliest_50_tracked_and_earliest_50_untrusted',
         decisionShadowWalletEvidenceTradeCapPerMint: this.heliusDecisionShadowState.maxWalletEvidenceTradesPerMint,
@@ -3848,23 +3849,32 @@ class TradingEngine {
         newlyConfirmed: Boolean(result.newlyConfirmed),
         flagType: result.flagType || null
       });
-    } else if (shouldPrewarmDecisionShadowSubscription({
-      heliusShadowEnabled: this.config.heliusPumpfunShadowEnabled === true,
-      decisionShadowEnabled: this.config.heliusPumpfunDecisionShadowEnabled !== false,
-      paperMode: this.executionModeManager?.isPaper?.() === true,
-      result,
-      activePosition: Boolean(this.preMigrationPaperLane.getActivePositionForMint(result.state.mint))
-    })) {
-      this.requestFinalistAccountVerification(result.state, {
-        source: 'helius_decision_shadow_prewarm',
-        reportOnlyDecisionShadowPrewarm: true,
-        flagged: Boolean(result.flagged),
-        confirmed: Boolean(result.state.confirmed),
-        newlyConfirmed: Boolean(result.newlyConfirmed),
-        observedInterest: Boolean(result.observedInterest),
-        observedSignal: Boolean(result.observedSignal),
-        flagType: result.flagType || null
+    } else {
+      const activePosition = Boolean(
+        this.preMigrationPaperLane.getActivePositionForMint(result.state.mint)
+      );
+      const prewarmTriggerReasons = decisionShadowPrewarmTriggerReasons({
+        heliusShadowEnabled: this.config.heliusPumpfunShadowEnabled === true,
+        decisionShadowEnabled: this.config.heliusPumpfunDecisionShadowEnabled !== false,
+        paperMode: this.executionModeManager?.isPaper?.() === true,
+        result,
+        activePosition
       });
+      if (prewarmTriggerReasons.length > 0) {
+        this.requestFinalistAccountVerification(result.state, {
+          source: 'helius_decision_shadow_prewarm',
+          reportOnlyDecisionShadowPrewarm: true,
+          decisionShadowPrewarmTriggerReason: prewarmTriggerReasons[0],
+          decisionShadowPrewarmTriggerReasons: prewarmTriggerReasons,
+          flagged: Boolean(result.flagged),
+          confirmed: Boolean(result.state.confirmed),
+          newlyConfirmed: Boolean(result.newlyConfirmed),
+          observedInterest: Boolean(result.observedInterest),
+          observedSignal: Boolean(result.observedSignal),
+          activePosition,
+          flagType: result.flagType || null
+        });
+      }
     }
 
     const paperLaneOptions = {
@@ -4194,6 +4204,12 @@ class TradingEngine {
         accountVerifierPrewarmed: accountVerifierStatus.prewarmed === true,
         accountVerifierPrewarmLeadMs: accountVerifierStatus.prewarmLeadMs ?? null,
         accountVerifierFirstUpdateBeforeComparison: accountVerifierStatus.firstUpdateBeforeComparison,
+        accountVerifierPrewarmTriggerReason: accountVerifierStatus.prewarmTriggerReason,
+        accountVerifierPrewarmTriggerReasons: accountVerifierStatus.prewarmTriggerReasons,
+        accountVerifierPrewarmTriggerReasonsSeen: accountVerifierStatus.prewarmTriggerReasonsSeen,
+        accountVerifierPrewarmDuplicateRequests: accountVerifierStatus.prewarmDuplicateRequests,
+        accountVerifierComparisonTrigger: accountVerifierStatus.comparisonTrigger,
+        accountVerifierPrewarmToComparisonPath: accountVerifierStatus.prewarmToComparisonPath,
         actualDecision: actual.payload?.decision || null,
         actualAction,
         actualReason: actual.payload?.reason || null,
@@ -4369,6 +4385,12 @@ class TradingEngine {
         accountVerifierPrewarmed: accountVerifierStatus.prewarmed === true,
         accountVerifierPrewarmLeadMs: accountVerifierStatus.prewarmLeadMs ?? null,
         accountVerifierFirstUpdateBeforeComparison: accountVerifierStatus.firstUpdateBeforeComparison,
+        accountVerifierPrewarmTriggerReason: accountVerifierStatus.prewarmTriggerReason,
+        accountVerifierPrewarmTriggerReasons: accountVerifierStatus.prewarmTriggerReasons,
+        accountVerifierPrewarmTriggerReasonsSeen: accountVerifierStatus.prewarmTriggerReasonsSeen,
+        accountVerifierPrewarmDuplicateRequests: accountVerifierStatus.prewarmDuplicateRequests,
+        accountVerifierComparisonTrigger: accountVerifierStatus.comparisonTrigger,
+        accountVerifierPrewarmToComparisonPath: accountVerifierStatus.prewarmToComparisonPath,
         positionContextOccupiedAtDecision: Boolean(actualLaneContext?.activePosition),
         positionContextPresetAtDecision: actualLaneContext?.activePosition?.presetName || null,
         positionContextPolicy: 'actual_pre_observation_context_held_constant',

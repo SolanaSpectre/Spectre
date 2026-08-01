@@ -1,0 +1,145 @@
+{
+  "id": "helius_pumpfun_decision_divergence_v10_2026-07-31",
+  "extends": "data/strategy-preregistrations/helius-decision-divergence-v9.json",
+  "basePreregistrationSha256": "3ef8be6106a566df9ddf64ec39a92939fc5f8aab67a9cba649688dd96b99b84f",
+  "frozenAt": "2026-07-31T20:45:24.6474802-05:00",
+  "amendedBeforeFirstComparableRunAt": "2026-07-31T20:45:24.6474802-05:00",
+  "mode": "paper_only_report_only_same_guard_path_v10_controlled_attribution",
+  "evaluationMode": "entry_mismatch_attribution",
+  "question": "After freezing the actual lane's effective curve baseline and recording prewarm trigger provenance, can every same-path executed-entry mismatch be assigned by a deterministic pre-registered priority to baseline control, wallet identity coverage, sniper anchor definition, or residual provider state?",
+  "methodologyBoundary": {
+    "reason": "V9 recomputed the shadow short-window curve baseline from shared history after the actual row was appended, so four of six historical same-path entry mismatches were contaminated by a comparator control defect.",
+    "sourceTelemetry": "run-logs/telemetry-2026-07-27T20-31-18-183Z.jsonl",
+    "historicalComparableGateEvaluations": 10118,
+    "historicalSamePathEntryMismatches": 6,
+    "historicalRowsWithV10BaselineFields": 0,
+    "historicalMismatchReuseAllowed": false,
+    "strategyBehaviorChanged": false,
+    "providerRoutingChanged": false,
+    "freshnessThresholdChanged": false,
+    "subscriptionCapacityChanged": false
+  },
+  "classifierEpoch": {
+    "id": "helius_decision_mismatch_classifier_v10_2026-07-31",
+    "beginsAt": "2026-07-31T20:45:24.6474802-05:00",
+    "primaryCauseSelection": "First matching cause in the frozen causePriority list.",
+    "contributingCausePolicy": "Record every detected contributing cause even when only one primary cause grades attribution.",
+    "preV10RowsEligible": false
+  },
+  "baselineControl": {
+    "requiredForValidity": true,
+    "incomparableReason": "INCOMPARABLE_BASELINE_CONTROL",
+    "controlSource": "pumpportal_actual_lane_effective_pre_observe_baseline",
+    "requiredComparableFields": [
+      "baselineControlCaptured",
+      "baselineControlValid",
+      "baselineControlSelected",
+      "baselineControlCurveProgress",
+      "baselineControlAt",
+      "shadowBaselineCurveProgress",
+      "shadowBaselineAt",
+      "shadowBaselineMatchesControl",
+      "shadowBaselineAnchorHeldConstant",
+      "baselineAnchorSkewMs",
+      "baselineCurveProgressSkew"
+    ],
+    "selectedInvariant": "For selected baselines, shadowBaselineAnchorHeldConstant is true and both anchor and curve-progress skew equal exactly zero.",
+    "unselectedInvariant": "For a valid frozen no-baseline control, shadowBaselineAnchorHeldConstant is true, baselineControlSelected is false, and both skew fields are null.",
+    "actualTelemetryAgreementRole": "actualBaselineMatchesControl remains a separate telemetry-consistency diagnostic and is not substituted for the shadow control invariant.",
+    "historicalFieldAbsenceTreatment": "Pre-V10 rows lacking the invariant fields are historical fields-absent, never baseline mismatches."
+  },
+  "prewarmDiagnostics": {
+    "requiredForValidity": true,
+    "planSemantics": "first_trigger_and_timestamp_immutable_duplicates_counted_candidate_upgrade_marks_comparison",
+    "triggerPriority": [
+      "FLAGGED",
+      "NEWLY_CONFIRMED",
+      "CONFIRMED",
+      "OBSERVED_SIGNAL",
+      "OBSERVED_INTEREST",
+      "ACTIVE_POSITION"
+    ],
+    "pathValues": [
+      "PREWARM_THEN_COMPARISON",
+      "DIRECT_COMPARISON_SUBSCRIPTION"
+    ],
+    "firstTriggerPolicy": "The first prewarm timestamp, primary trigger, and trigger set are immutable. Duplicate prewarm observations are counted and may add seen-trigger diagnostics but do not extend TTL or rewrite the first trigger.",
+    "candidateUpgradePolicy": "A comparison request records the first comparison timestamp and distinguishes a prewarm upgrade from a direct comparison subscription.",
+    "requiredActiveSubscriptionFields": [
+      "accountVerifierPrewarmToComparisonPath",
+      "accountVerifierComparisonTrigger"
+    ],
+    "requiredPrewarmedFields": [
+      "accountVerifierPrewarmTriggerReason",
+      "accountVerifierPrewarmTriggerReasons",
+      "accountVerifierPrewarmLeadMs"
+    ],
+    "diagnosticOnly": true,
+    "capacityOrTriggerRetuningAllowedFromOneRun": false
+  },
+  "entryMismatchAttribution": {
+    "passRule": "At least one comparable same-path executed ENTRY and one same-path mismatch must be observed. Every mismatch must have one deterministic allowed primary cause. All contributing causes remain visible, and zero mismatches or cross-path-only samples are insufficient evidence.",
+    "minimumComparableExecutedEntries": 1,
+    "minimumMismatches": 1,
+    "causePriority": [
+      "MISSING_PAIRED_EVALUATION",
+      "EVALUATED_PRESET_MISMATCH",
+      "PRESET_FAMILY_MISMATCH",
+      "GUARD_ELIGIBILITY_MISMATCH",
+      "GUARD_ALLOW_LIST_MISMATCH",
+      "BASELINE_ANCHOR_MISMATCH",
+      "WALLET_IDENTITY_COVERAGE_MISMATCH",
+      "SNIPER_ANCHOR_DEFINITION_MISMATCH",
+      "RESIDUAL_PROVIDER_STATE_MISMATCH"
+    ],
+    "allowedAttributedCauses": [
+      "EVALUATED_PRESET_MISMATCH",
+      "GUARD_ELIGIBILITY_MISMATCH",
+      "GUARD_ALLOW_LIST_MISMATCH",
+      "BASELINE_ANCHOR_MISMATCH",
+      "WALLET_IDENTITY_COVERAGE_MISMATCH",
+      "SNIPER_ANCHOR_DEFINITION_MISMATCH",
+      "RESIDUAL_PROVIDER_STATE_MISMATCH"
+    ],
+    "walletIdentityDefinition": "A wallet feature disagreement or uniqueBuyerCount/capture disagreement is wallet identity coverage; correlated score differences remain visible as contributing residual state but do not outrank the wallet cause.",
+    "sniperAnchorDefinition": "A sniper count/capture disagreement plus a sniper source, first-reference anchor kind, anchor timestamp, anchored flag, or window-length disagreement is a sniper anchor-definition mismatch. Provenance-only differences are non-causal diagnostics; count differences without anchor-provenance disagreement remain residual provider state.",
+    "residualDefinition": "Any remaining causal market or guard input difference not assigned to wallet identity or a demonstrated sniper-anchor definition difference.",
+    "strategyConsumptionAllowed": false,
+    "freshnessThresholdChangeAllowed": false,
+    "postHocMismatchRelabelingAllowed": false,
+    "historicalV9MismatchRelabelingAllowed": false,
+    "positionStatePolicy": "Use actual pre-observation position context as a held-constant control.",
+    "guardPathPolicy": "Different selected guard-override families are scope-incomparable and excluded before attribution."
+  },
+  "supersedes": {
+    "id": "helius_pumpfun_decision_divergence_v9_2026-07-26",
+    "disposition": "INVALID_RUN_BASELINE_ANCHOR_CONTROL_DEFECT",
+    "evidenceReuseAllowed": false,
+    "sourceTelemetry": "run-logs/telemetry-2026-07-27T20-31-18-183Z.jsonl",
+    "observedResults": {
+      "comparableGateEvaluations": 10118,
+      "samePathEntryMismatches": 6,
+      "preV10BaselineFieldsAbsent": 10118,
+      "postEpochInvariantPassed": null
+    }
+  },
+  "checkpointDisposition": null,
+  "freezePolicy": {
+    "minimumConsecutiveFutureValidRunsBeforeSchemaChange": 3,
+    "allowedEarlyAmendmentReasons": [
+      "secret_or_fund_safety_defect",
+      "runtime_data_integrity_defect"
+    ],
+    "strategyOrThresholdRetuningAllowed": false,
+    "providerRoutingChangeAllowed": false,
+    "freshnessThresholdChangeAllowed": false,
+    "subscriptionCapacityChangeAllowed": false,
+    "note": "V10 begins a fresh evidence epoch. Historical V9 mismatches cannot be relabeled or counted."
+  },
+  "passVerdict": "HELIUS_DECISION_SHADOW_V10_SAME_PATH_MISMATCHES_ATTRIBUTED_REPORT_ONLY",
+  "failVerdict": "HELIUS_DECISION_SHADOW_V10_UNATTRIBUTED_SAME_PATH_ENTRY_MISMATCH",
+  "insufficientVerdict": "HELIUS_DECISION_SHADOW_V10_INSUFFICIENT_SAME_PATH_ATTRIBUTION_EVIDENCE",
+  "invalidVerdict": "HELIUS_DECISION_SHADOW_V10_INVALID_RUN",
+  "nextIfPass": "Keep Helius report-only and repeat under the unchanged V10 contract before proposing provider routing or strategy consumption.",
+  "nextIfFail": "Fix only the demonstrated V10 instrumentation defect. Do not change strategy, freshness bounds, gates, exits, capacity, or provider routing."
+}

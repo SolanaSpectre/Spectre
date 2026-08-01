@@ -8,7 +8,7 @@ const { forEachJsonlSync } = require('./lib/jsonl');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
-const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v9.json');
+const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v10.json');
 const PARITY_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity-latest.json');
 const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence');
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence-latest.json');
@@ -17,7 +17,11 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
 }
 
-function loadPreregistration(filePath = PREREG_PATH) {
+function loadPreregistration(filePath = PREREG_PATH, ancestors = new Set()) {
+  const resolvedPath = path.resolve(filePath);
+  if (ancestors.has(resolvedPath)) {
+    throw new Error(`Helius decision preregistration inheritance cycle: ${resolvedPath}`);
+  }
   const extension = readJson(filePath);
   if (!extension.extends) return extension;
   const basePath = path.resolve(ROOT, extension.extends);
@@ -26,13 +30,24 @@ function loadPreregistration(filePath = PREREG_PATH) {
   if (actualHash !== extension.basePreregistrationSha256) {
     throw new Error(`Helius decision preregistration base hash mismatch: ${extension.extends}`);
   }
+  const nextAncestors = new Set(ancestors);
+  nextAncestors.add(resolvedPath);
+  const base = loadPreregistration(basePath, nextAncestors);
   return {
-    ...readJson(basePath),
+    ...base,
     ...extension,
     basePreregistration: {
       path: extension.extends,
       sha256: actualHash
-    }
+    },
+    preregistrationInheritance: [
+      ...(base.preregistrationInheritance || []),
+      {
+        id: readJson(basePath).id || null,
+        path: extension.extends,
+        sha256: actualHash
+      }
+    ]
   };
 }
 
@@ -176,6 +191,64 @@ function marketInputTelemetryComplete(inputs = {}) {
     && Number(market.sniperWindowMs) > 0;
 }
 
+function hasOwn(row, key) {
+  return Object.prototype.hasOwnProperty.call(row || {}, key);
+}
+
+function hasFiniteNumber(value) {
+  return value !== null
+    && value !== undefined
+    && value !== ''
+    && Number.isFinite(Number(value));
+}
+
+function baselineControlInvariantHolds(row = {}) {
+  if (!hasOwn(row, 'shadowBaselineAnchorHeldConstant')) return false;
+  if (row.baselineControlCaptured !== true || row.baselineControlValid !== true) return false;
+  if (row.shadowBaselineAnchorHeldConstant !== true || row.shadowBaselineMatchesControl !== true) return false;
+  if (row.baselineControlSelected === true) {
+    return typeof row.baselineControlAt === 'string'
+      && row.baselineControlAt.length > 0
+      && row.shadowBaselineAt === row.baselineControlAt
+      && hasFiniteNumber(row.baselineControlCurveProgress)
+      && hasFiniteNumber(row.shadowBaselineCurveProgress)
+      && Number(row.shadowBaselineCurveProgress) === Number(row.baselineControlCurveProgress)
+      && hasFiniteNumber(row.baselineAnchorSkewMs)
+      && Number(row.baselineAnchorSkewMs) === 0
+      && hasFiniteNumber(row.baselineCurveProgressSkew)
+      && Number(row.baselineCurveProgressSkew) === 0;
+  }
+  return row.baselineControlSelected === false
+    && (row.baselineControlAt === null || row.baselineControlAt === undefined)
+    && (row.shadowBaselineAt === null || row.shadowBaselineAt === undefined)
+    && !hasFiniteNumber(row.baselineControlCurveProgress)
+    && !hasFiniteNumber(row.shadowBaselineCurveProgress)
+    && (row.baselineAnchorSkewMs === null || row.baselineAnchorSkewMs === undefined)
+    && (row.baselineCurveProgressSkew === null || row.baselineCurveProgressSkew === undefined);
+}
+
+function prewarmTelemetryComplete(row = {}) {
+  if (row.accountVerifierSubscribed !== true) return true;
+  if (
+    typeof row.accountVerifierComparisonTrigger !== 'string'
+    || row.accountVerifierComparisonTrigger.length === 0
+  ) return false;
+  if (row.accountVerifierPrewarmed === true) {
+    return typeof row.accountVerifierPrewarmTriggerReason === 'string'
+      && row.accountVerifierPrewarmTriggerReason.length > 0
+      && Array.isArray(row.accountVerifierPrewarmTriggerReasons)
+      && row.accountVerifierPrewarmTriggerReasons.length > 0
+      && row.accountVerifierPrewarmTriggerReasons.every(
+        (reason) => typeof reason === 'string' && reason.length > 0
+      )
+      && row.accountVerifierPrewarmTriggerReasons[0]
+        === row.accountVerifierPrewarmTriggerReason
+      && row.accountVerifierPrewarmToComparisonPath === 'PREWARM_THEN_COMPARISON'
+      && hasFiniteNumber(row.accountVerifierPrewarmLeadMs);
+  }
+  return row.accountVerifierPrewarmToComparisonPath === 'DIRECT_COMPARISON_SUBSCRIPTION';
+}
+
 function agreementByStateAge(rows = []) {
   return Object.entries(
     rows.reduce((groups, row) => {
@@ -233,6 +306,78 @@ function executedGuardOverrideFamily(row = {}, side = 'actual') {
   return row[legacyKey] ?? 'UNKNOWN';
 }
 
+const DEFAULT_ENTRY_MISMATCH_CAUSE_PRIORITY = Object.freeze([
+  'MISSING_PAIRED_EVALUATION',
+  'EVALUATED_PRESET_MISMATCH',
+  'PRESET_FAMILY_MISMATCH',
+  'GUARD_ELIGIBILITY_MISMATCH',
+  'GUARD_ALLOW_LIST_MISMATCH',
+  'BASELINE_ANCHOR_MISMATCH',
+  'WALLET_IDENTITY_COVERAGE_MISMATCH',
+  'SNIPER_ANCHOR_DEFINITION_MISMATCH',
+  'RESIDUAL_PROVIDER_STATE_MISMATCH'
+]);
+
+const WALLET_IDENTITY_INPUT_PATHS = new Set([
+  'market.uniqueBuyerCount',
+  'market.uniqueBuyerCountCaptured'
+]);
+
+const SNIPER_INPUT_PATHS = new Set([
+  'market.sniperWalletCount',
+  'market.sniperWalletCountCaptured'
+]);
+
+const SNIPER_PROVENANCE_PATHS = new Set([
+  'sniperWalletCountSource',
+  'sniperWindowAnchoredAtFirstObservation',
+  'sniperWindowAnchorAtMs',
+  'sniperWindowAnchorKind',
+  'sniperWindowMs'
+]);
+
+function mismatchContributingCauses({ evaluation, row, guardInputDiff, guardInputProvenanceDiff }) {
+  if (!evaluation) return ['MISSING_PAIRED_EVALUATION'];
+  const causes = [];
+  if (evaluation.actualEvaluatedPreset !== evaluation.shadowEvaluatedPreset) {
+    causes.push('EVALUATED_PRESET_MISMATCH');
+  }
+  if (executedGuardOverrideFamily(row, 'actual') !== executedGuardOverrideFamily(row, 'shadow')) {
+    causes.push('PRESET_FAMILY_MISMATCH');
+  }
+  if (
+    evaluation.actualGuardOverrideEligibilityState
+    !== evaluation.shadowGuardOverrideEligibilityState
+  ) causes.push('GUARD_ELIGIBILITY_MISMATCH');
+  if (evaluation.guardOverrideAllowListAgreement === false) {
+    causes.push('GUARD_ALLOW_LIST_MISMATCH');
+  }
+
+  const baselineMismatch = hasOwn(evaluation, 'shadowBaselineAnchorHeldConstant')
+    && !baselineControlInvariantHolds(evaluation);
+  if (baselineMismatch) causes.push('BASELINE_ANCHOR_MISMATCH');
+
+  const walletIdentityMismatch = evaluation.walletComparison?.featureAgreement === false
+    || guardInputDiff.some((diff) => WALLET_IDENTITY_INPUT_PATHS.has(diff.jsonPath));
+  if (walletIdentityMismatch) causes.push('WALLET_IDENTITY_COVERAGE_MISMATCH');
+
+  const sniperProvenanceMismatch = guardInputProvenanceDiff.some(
+    (diff) => SNIPER_PROVENANCE_PATHS.has(diff.jsonPath)
+  );
+  const sniperCountMismatch = guardInputDiff.some(
+    (diff) => SNIPER_INPUT_PATHS.has(diff.jsonPath)
+  );
+  const sniperAnchorDefinitionMismatch = sniperCountMismatch && sniperProvenanceMismatch;
+  if (sniperAnchorDefinitionMismatch) causes.push('SNIPER_ANCHOR_DEFINITION_MISMATCH');
+
+  const residualInputMismatch = guardInputDiff.some((diff) => (
+    !WALLET_IDENTITY_INPUT_PATHS.has(diff.jsonPath)
+    && !(sniperAnchorDefinitionMismatch && SNIPER_INPUT_PATHS.has(diff.jsonPath))
+  ));
+  if (residualInputMismatch) causes.push('RESIDUAL_PROVIDER_STATE_MISMATCH');
+  return [...new Set(causes)];
+}
+
 function buildEntryMismatchAttribution(evaluations = [], executed = [], preregistration = {}) {
   const evaluationByPair = new Map(
     evaluations.filter((row) => row.pairedDecisionKey)
@@ -257,21 +402,20 @@ function buildEntryMismatchAttribution(evaluations = [], executed = [], preregis
         marketProvenance(evaluation.shadowGuardFamilyInputs)
       )
       : [];
-    let cause = 'UNATTRIBUTED';
-    if (!evaluation) cause = 'MISSING_PAIRED_EVALUATION';
-    else if (evaluation.actualEvaluatedPreset !== evaluation.shadowEvaluatedPreset) {
-      cause = 'EVALUATED_PRESET_MISMATCH';
-    } else if (
-      executedGuardOverrideFamily(row, 'actual')
-      !== executedGuardOverrideFamily(row, 'shadow')
-    ) cause = 'PRESET_FAMILY_MISMATCH';
-    else if (
-      evaluation.actualGuardOverrideEligibilityState
-      !== evaluation.shadowGuardOverrideEligibilityState
-    ) cause = 'GUARD_ELIGIBILITY_MISMATCH';
-    else if (evaluation.guardOverrideAllowListAgreement === false) cause = 'GUARD_ALLOW_LIST_MISMATCH';
-    else if (evaluation.walletComparison?.featureAgreement === false) cause = 'WALLET_CONTEXT_MISMATCH';
-    else if (guardInputDiff.length > 0) cause = 'MARKET_OR_GUARD_INPUT_MISMATCH';
+    const contributingCauses = mismatchContributingCauses({
+      evaluation,
+      row,
+      guardInputDiff,
+      guardInputProvenanceDiff
+    });
+    const causePriority = Array.isArray(
+      preregistration.entryMismatchAttribution?.causePriority
+    )
+      ? preregistration.entryMismatchAttribution.causePriority
+      : DEFAULT_ENTRY_MISMATCH_CAUSE_PRIORITY;
+    const cause = causePriority.find((candidate) => contributingCauses.includes(candidate))
+      || contributingCauses[0]
+      || 'UNATTRIBUTED';
     const allowed = preregistration.entryMismatchAttribution?.allowedAttributedCauses || [];
     return {
       pairedDecisionKey: row.pairedDecisionKey || null,
@@ -284,6 +428,8 @@ function buildEntryMismatchAttribution(evaluations = [], executed = [], preregis
       positionContextPolicy: row.positionContextPolicy || null,
       independentShadowPositionStateAvailable: row.independentShadowPositionStateAvailable === true,
       cause,
+      contributingCauses,
+      multipleContributingCauses: contributingCauses.length > 1,
       attributed: allowed.includes(cause),
       guardInputDiff,
       guardInputProvenanceDiff
@@ -308,6 +454,15 @@ function buildEntryMismatchAttribution(evaluations = [], executed = [], preregis
     attributedMismatches: mismatches.filter((row) => row.attributed).length,
     unattributedMismatches: mismatches.filter((row) => !row.attributed).length,
     byCause: countBy(mismatches, (row) => row.cause),
+    byContributingCause: mismatches.reduce((counts, row) => {
+      for (const cause of row.contributingCauses) {
+        counts[cause] = (counts[cause] || 0) + 1;
+      }
+      return counts;
+    }, {}),
+    mismatchesWithMultipleContributingCauses: mismatches.filter(
+      (row) => row.multipleContributingCauses
+    ).length,
     allMismatchesAttributed: mismatches.length >= minimumMismatchesRequired
       && mismatches.every((row) => row.attributed),
     rows: mismatches
@@ -477,6 +632,13 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
   const updatedBeforeComparison = evaluations.filter(
     (row) => row.accountVerifierFirstUpdateBeforeComparison === true
   );
+  const prewarmTelemetryCompleteEvaluations = evaluations.filter(prewarmTelemetryComplete);
+  const baselineInvariantEvaluations = comparable.filter(baselineControlInvariantHolds);
+  const baselineRequiredFields = preregistration.baselineControl?.requiredComparableFields
+    || ['shadowBaselineAnchorHeldConstant'];
+  const baselineFieldsPresentEvaluations = comparable.filter(
+    (row) => baselineRequiredFields.every((field) => hasOwn(row, field))
+  );
   const aliasedWalletTrades = comparable.reduce(
     (sum, row) => sum + Number(row.walletComparison?.helius?.portalSignatureAliasTradeCount || 0),
     0
@@ -569,6 +731,16 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       === preregistration.accountVerifierSelection.requiredTtlMs,
     correctAccountVerifierSelectionTrigger: plan.decisionShadowAccountVerifierSelectionTrigger
       === preregistration.accountVerifierSelection.selectionTrigger,
+    correctPrewarmPathSemantics: !preregistration.prewarmDiagnostics?.requiredForValidity
+      || plan.decisionShadowPrewarmPathSemantics
+        === preregistration.prewarmDiagnostics.planSemantics,
+    accountVerifierPrewarmTelemetryComplete:
+      !preregistration.prewarmDiagnostics?.requiredForValidity
+      || prewarmTelemetryCompleteEvaluations.length === evaluations.length,
+    baselineControlFieldsPresent: !preregistration.baselineControl?.requiredForValidity
+      || baselineFieldsPresentEvaluations.length === comparable.length,
+    baselineControlInvariant: !preregistration.baselineControl?.requiredForValidity
+      || baselineInvariantEvaluations.length === comparable.length,
     noAccountVerifierCapacitySkips: state.accountVerifierMaxSubscriptionSkips.length === 0,
     heliusQueueStatsAvailable,
     noHeliusQueueDrops: state.heliusQueueFailures.length === 0
@@ -651,6 +823,10 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     'sufficientAccountVerifierCapacity',
     'correctAccountVerifierTtl',
     'correctAccountVerifierSelectionTrigger',
+    'correctPrewarmPathSemantics',
+    'accountVerifierPrewarmTelemetryComplete',
+    'baselineControlFieldsPresent',
+    'baselineControlInvariant',
     'noAccountVerifierCapacitySkips',
     'heliusQueueStatsAvailable',
     'noHeliusQueueDrops',
@@ -858,6 +1034,53 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     },
     accountVerifierPrewarm: {
       prewarmLeadMs: stats(prewarmed.map((row) => row.accountVerifierPrewarmLeadMs)),
+      telemetryCompleteEvaluations: prewarmTelemetryCompleteEvaluations.length,
+      telemetryIncompleteEvaluations: evaluations.length - prewarmTelemetryCompleteEvaluations.length,
+      byPrimaryTriggerReason: countBy(
+        prewarmed,
+        (row) => row.accountVerifierPrewarmTriggerReason || 'MISSING'
+      ),
+      byTriggerCombination: countBy(prewarmed, (row) => (
+        Array.isArray(row.accountVerifierPrewarmTriggerReasons)
+          && row.accountVerifierPrewarmTriggerReasons.length > 0
+          ? row.accountVerifierPrewarmTriggerReasons.join('+')
+          : 'MISSING'
+      )),
+      byPrewarmToComparisonPath: countBy(
+        evaluations,
+        (row) => row.accountVerifierPrewarmToComparisonPath || 'MISSING'
+      ),
+      leadMsByPrimaryTriggerReason: Object.fromEntries(
+        [...new Set(prewarmed.map(
+          (row) => row.accountVerifierPrewarmTriggerReason || 'MISSING'
+        ))].sort().map((reason) => [
+          reason,
+          stats(prewarmed
+            .filter((row) => (row.accountVerifierPrewarmTriggerReason || 'MISSING') === reason)
+            .map((row) => row.accountVerifierPrewarmLeadMs))
+        ])
+      ),
+      firstUpdateBeforeComparisonByPath: Object.fromEntries(
+        [...new Set(evaluations.map(
+          (row) => row.accountVerifierPrewarmToComparisonPath || 'MISSING'
+        ))].sort().map((pathName) => {
+          const pathRows = evaluations.filter(
+            (row) => (row.accountVerifierPrewarmToComparisonPath || 'MISSING') === pathName
+          );
+          return [pathName, {
+            evaluations: pathRows.length,
+            updatedBeforeComparison: pathRows.filter(
+              (row) => row.accountVerifierFirstUpdateBeforeComparison === true
+            ).length,
+            rate: ratio(
+              pathRows.filter(
+                (row) => row.accountVerifierFirstUpdateBeforeComparison === true
+              ).length,
+              pathRows.length
+            )
+          }];
+        })
+      ),
       comparisonCapacitySkips: state.accountVerifierMaxSubscriptionSkips.length,
       prewarmCapacitySkips: state.accountVerifierPrewarmCapacitySkips.length
     },
@@ -948,20 +1171,9 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
             && row.baselineControlValid === true
             && row.shadowBaselineAnchorHeldConstant !== true
         ).length,
-        postEpochInvariantPassed: comparable.some(
-          (row) => Object.prototype.hasOwnProperty.call(
-            row,
-            'shadowBaselineAnchorHeldConstant'
-          )
-        )
-          ? comparable
-            .filter((row) => Object.prototype.hasOwnProperty.call(
-              row,
-              'shadowBaselineAnchorHeldConstant'
-            ))
-            .every((row) => row.shadowBaselineAnchorHeldConstant === true
-              && Number(row.baselineAnchorSkewMs) === 0
-              && Number(row.baselineCurveProgressSkew) === 0)
+        postEpochInvariantPassed: baselineFieldsPresentEvaluations.length > 0
+          ? baselineFieldsPresentEvaluations.length === comparable.length
+            && baselineInvariantEvaluations.length === comparable.length
           : null,
         controlCapturedEvaluations: comparable.filter(
           (row) => row.baselineControlCaptured === true

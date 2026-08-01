@@ -39,3 +39,24 @@ provider-coverage period.
 The boundary is the first `provider.pumpportal.metered_budget_reached` telemetry
 event. A capped run is valid mixed-coverage evidence, not a full-session
 paid-tape run.
+
+## 2026-07-31: Helius Decision Comparator V9 Baseline Epoch Closed
+
+V9 decision-shadow telemetry recomputed the shadow short-window curve baseline
+from shared observation history after the actual lane appended its current row.
+That allowed the two sides to select different effective anchors even though the
+history array itself was nominally held constant. The six V9 same-path entry
+mismatches from `run-logs/telemetry-2026-07-27T20-31-18-183Z.jsonl` are therefore
+invalid comparator evidence and may not be relabeled or reused under V10.
+
+V10 begins only after the effective actual-lane baseline is captured before
+`observe()`, passed as an explicit counterfactual control, and checked at value
+level. Every comparable V10 row must carry a valid control and prove either an
+exact selected-anchor match (zero timestamp and curve skew) or an exact frozen
+no-baseline match (both skew fields null). Historical rows lacking these fields
+are classified as fields-absent, never as anchor mismatches.
+
+V10 also freezes deterministic mismatch-family priority and records immutable
+prewarm trigger/path provenance. These are report-only measurement changes.
+Paper strategy, provider routing, freshness, subscription capacity, and live
+status remain unchanged.

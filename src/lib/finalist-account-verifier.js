@@ -7,6 +7,28 @@ const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
   'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
 ]);
 
+function normalizedTriggerReasons(value) {
+  const values = Array.isArray(value) ? value : [value];
+  return [...new Set(values
+    .filter((item) => typeof item === 'string' && item.length > 0)
+    .map((item) => item.slice(0, 64)))]
+    .slice(0, 12);
+}
+
+function prewarmToComparisonPath(subscription) {
+  if (!subscription) return null;
+  const hasTimestamp = (value) => value !== null
+    && value !== undefined
+    && value !== ''
+    && Number.isFinite(Number(value));
+  const prewarmed = hasTimestamp(subscription.prewarmRequestedAt);
+  const comparisonRequested = hasTimestamp(subscription.comparisonRequestedAt);
+  if (prewarmed && comparisonRequested) return 'PREWARM_THEN_COMPARISON';
+  if (prewarmed) return 'PREWARM_ONLY';
+  if (comparisonRequested) return 'DIRECT_COMPARISON_SUBSCRIPTION';
+  return 'NON_DECISION_SHADOW_SUBSCRIPTION';
+}
+
 class FinalistAccountVerifier {
   constructor(config, logger, options = {}) {
     this.config = config;
@@ -108,6 +130,17 @@ class FinalistAccountVerifier {
 
     const decisionShadowCandidate = meta.reportOnlyDecisionShadowCandidate === true;
     const decisionShadowPrewarm = meta.reportOnlyDecisionShadowPrewarm === true;
+    const rawPrewarmTriggerReasons = Array.isArray(meta.decisionShadowPrewarmTriggerReasons)
+      && meta.decisionShadowPrewarmTriggerReasons.length > 0
+      ? meta.decisionShadowPrewarmTriggerReasons
+      : meta.decisionShadowPrewarmTriggerReason;
+    const prewarmTriggerReasons = decisionShadowPrewarm
+      ? normalizedTriggerReasons(rawPrewarmTriggerReasons)
+      : [];
+    const prewarmTriggerReason = prewarmTriggerReasons[0] || null;
+    const comparisonTrigger = decisionShadowCandidate
+      ? String(meta.source || 'helius_decision_shadow_comparison').slice(0, 64)
+      : null;
     const selectionClass = decisionShadowCandidate
       ? 'decision_shadow_candidate'
       : decisionShadowPrewarm
@@ -160,6 +193,7 @@ class FinalistAccountVerifier {
       if (decisionShadowCandidate) {
         existing.lastRequestedAt = requestedAt;
         existing.comparisonRequestedAt = existing.comparisonRequestedAt || requestedAt;
+        existing.comparisonTrigger = existing.comparisonTrigger || comparisonTrigger;
         if (existing.selectionClass === 'decision_shadow_prewarm') {
           existing.selectionClass = 'decision_shadow_candidate';
           existing.selectionPriority = 2;
@@ -168,6 +202,11 @@ class FinalistAccountVerifier {
         existing.expiresAt = Math.max(existing.expiresAt, requestedAt + this.ttlMs);
       } else if (decisionShadowPrewarm) {
         this.stats.decisionShadowPrewarmDuplicateRequests += 1;
+        existing.prewarmDuplicateRequests = Number(existing.prewarmDuplicateRequests || 0) + 1;
+        existing.prewarmTriggerReasonsSeen = [...new Set([
+          ...(existing.prewarmTriggerReasonsSeen || []),
+          ...prewarmTriggerReasons
+        ])];
       } else {
         existing.expiresAt = Math.max(existing.expiresAt, requestedAt + this.ttlMs);
       }
@@ -197,6 +236,8 @@ class FinalistAccountVerifier {
         derivedBondingCurveAddress,
         reason: decisionShadowPrewarm ? 'MAX_SUBSCRIPTIONS_PREWARM' : 'MAX_SUBSCRIPTIONS',
         selectionClass,
+        prewarmTriggerReason,
+        prewarmTriggerReasons,
         active: this.subscriptions.size,
         maxSubscriptions: this.maxSubscriptions
       });
@@ -237,6 +278,11 @@ class FinalistAccountVerifier {
         selectionPriority: decisionShadowCandidate ? 2 : decisionShadowPrewarm ? 1 : 0,
         prewarmRequestedAt: decisionShadowPrewarm ? subscribedAt : null,
         comparisonRequestedAt: decisionShadowCandidate ? subscribedAt : null,
+        prewarmTriggerReason,
+        prewarmTriggerReasons,
+        prewarmTriggerReasonsSeen: prewarmTriggerReasons.slice(),
+        prewarmDuplicateRequests: 0,
+        comparisonTrigger,
         providerCurveProgressAtSubscribe: Number.isFinite(Number(state.curveProgress)) ? Number(state.curveProgress) : null,
         scoreAtSubscribe: Number.isFinite(Number(state.score)) ? Number(state.score) : null,
         subscriptionId,
@@ -262,6 +308,11 @@ class FinalistAccountVerifier {
         selectionTrigger: decisionShadowCandidate
           ? 'emitted_paper_decision_or_executed_action'
           : decisionShadowPrewarm ? 'pre_decision_interest_or_position' : null,
+        prewarmTriggerReason,
+        prewarmTriggerReasons,
+        prewarmToComparisonPath: decisionShadowCandidate
+          ? 'DIRECT_COMPARISON_SUBSCRIPTION'
+          : decisionShadowPrewarm ? 'PREWARM_ONLY' : 'NON_DECISION_SHADOW_SUBSCRIPTION',
         subscriptionId,
         score: Number.isFinite(Number(state.score)) ? Number(state.score) : null,
         curveProgress: Number.isFinite(Number(state.curveProgress)) ? Number(state.curveProgress) : null,
@@ -476,6 +527,16 @@ class FinalistAccountVerifier {
       prewarmed: prewarmRequestedAt !== null,
       prewarmRequestedAt,
       comparisonRequestedAt,
+      prewarmTriggerReason: subscription?.prewarmTriggerReason || null,
+      prewarmTriggerReasons: Array.isArray(subscription?.prewarmTriggerReasons)
+        ? subscription.prewarmTriggerReasons.slice()
+        : [],
+      prewarmTriggerReasonsSeen: Array.isArray(subscription?.prewarmTriggerReasonsSeen)
+        ? subscription.prewarmTriggerReasonsSeen.slice()
+        : [],
+      prewarmDuplicateRequests: Number(subscription?.prewarmDuplicateRequests || 0),
+      comparisonTrigger: subscription?.comparisonTrigger || null,
+      prewarmToComparisonPath: prewarmToComparisonPath(subscription),
       prewarmLeadMs: prewarmRequestedAt !== null && comparisonRequestedAt !== null
         ? Math.max(0, comparisonRequestedAt - prewarmRequestedAt)
         : null,
@@ -615,6 +676,16 @@ class FinalistAccountVerifier {
         comparisonRequestedAt: subscription.comparisonRequestedAt
           ? new Date(subscription.comparisonRequestedAt).toISOString()
           : null,
+        prewarmTriggerReason: subscription.prewarmTriggerReason || null,
+        prewarmTriggerReasons: Array.isArray(subscription.prewarmTriggerReasons)
+          ? subscription.prewarmTriggerReasons.slice()
+          : [],
+        prewarmTriggerReasonsSeen: Array.isArray(subscription.prewarmTriggerReasonsSeen)
+          ? subscription.prewarmTriggerReasonsSeen.slice()
+          : [],
+        prewarmDuplicateRequests: Number(subscription.prewarmDuplicateRequests || 0),
+        comparisonTrigger: subscription.comparisonTrigger || null,
+        prewarmToComparisonPath: prewarmToComparisonPath(subscription),
         providerCurveProgressAtSubscribe: subscription.providerCurveProgressAtSubscribe,
         scoreAtSubscribe: subscription.scoreAtSubscribe,
         subscribedAt: new Date(subscription.subscribedAt).toISOString(),

@@ -3,11 +3,22 @@
 
 const assert = require('assert');
 const {
+  PREWARM_TRIGGER_REASON_ORDER,
+  decisionShadowPrewarmTriggerReasons,
   decisionShadowVerifierPolicyActive,
   hasDecisionShadowComparisonEvent,
   shouldPrewarmDecisionShadowSubscription,
   shouldRequestDecisionShadowSubscription
 } = require('../src/lib/helius-decision-shadow-subscription-policy');
+
+assert.deepStrictEqual(PREWARM_TRIGGER_REASON_ORDER, [
+  'FLAGGED',
+  'NEWLY_CONFIRMED',
+  'CONFIRMED',
+  'OBSERVED_SIGNAL',
+  'OBSERVED_INTEREST',
+  'ACTIVE_POSITION'
+]);
 
 const active = {
   heliusShadowEnabled: true,
@@ -48,6 +59,22 @@ assert.strictEqual(shouldPrewarmDecisionShadowSubscription({
   ...active,
   result: { state: { mint: 'Mint' } }
 }), false);
+assert.deepStrictEqual(decisionShadowPrewarmTriggerReasons({
+  ...active,
+  activePosition: true,
+  result: {
+    flagged: true,
+    newlyConfirmed: true,
+    observedSignal: true,
+    observedInterest: true,
+    state: { mint: 'Mint', confirmed: true }
+  }
+}), PREWARM_TRIGGER_REASON_ORDER);
+assert.deepStrictEqual(decisionShadowPrewarmTriggerReasons({
+  ...active,
+  paperMode: false,
+  result: { flagged: true, state: { mint: 'Mint' } }
+}), []);
 assert.strictEqual(shouldPrewarmDecisionShadowSubscription({
   ...active,
   activePosition: true,
