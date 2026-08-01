@@ -7,6 +7,16 @@ const FinalistAccountVerifier = require('../src/lib/finalist-account-verifier');
 async function main() {
   let nextSubscriptionId = 1;
   const lifecycle = [];
+  const connection = {
+    _rpcWebSocketGeneration: 0,
+    _rpcWebSocketConnected: true,
+    onAccountChange() {
+      const id = nextSubscriptionId;
+      nextSubscriptionId += 1;
+      return id;
+    },
+    removeAccountChangeListener() {}
+  };
   const verifier = new FinalistAccountVerifier({
     pumpBondingCurveProgramId: '11111111111111111111111111111111',
     finalistAccountVerifierEnabled: true,
@@ -14,14 +24,7 @@ async function main() {
     finalistAccountVerifierTtlMs: 120000,
     finalistAccountVerifierInitialSnapshotEnabled: false
   }, { warn() {} }, {
-    connection: {
-      onAccountChange() {
-        const id = nextSubscriptionId;
-        nextSubscriptionId += 1;
-        return id;
-      },
-      removeAccountChangeListener() {}
-    },
+    connection,
     deriveBondingCurveAddress(mint) {
       return {
         A: 'So11111111111111111111111111111111111111112',
@@ -120,6 +123,45 @@ async function main() {
     && row.payload.prewarmTriggerReason === 'OBSERVED_SIGNAL'
     && row.payload.prewarmToComparisonPath === 'PREWARM_ONLY'
   )));
+
+  verifier.decodeBondingCurveAccount = () => ({
+    curveProgress: 0.5,
+    curveProgressByVirtualTokenReserves: 0.5,
+    priceSol: 0.000001,
+    virtualSolReservesSol: 30,
+    virtualTokenReservesTokens: 900_000_000,
+    creator: null,
+    isMayhemMode: false,
+    complete: false,
+    bondingStage: 'bonding_curve'
+  });
+  verifier.handleAccountUpdate(
+    'B',
+    verifier.subscriptions.get('B').bondingCurveAddress,
+    {
+      owner: { toBase58: () => '11111111111111111111111111111111' },
+      data: Buffer.alloc(0)
+    },
+    { slot: 123 }
+  );
+  assert.strictEqual(verifier.getLatestUpdate('B').transportGeneration, 0);
+  assert.strictEqual(
+    verifier.getLatestUpdate('B').transportDependency,
+    'websocket_account_subscription'
+  );
+  assert.strictEqual(verifier.getSubscriptionStatus('B').transportGapAffected, false);
+  connection._rpcWebSocketConnected = false;
+  connection._rpcWebSocketGeneration = 1;
+  const gapStatus = verifier.getSubscriptionStatus('B');
+  assert.strictEqual(gapStatus.accountTransportInspectable, true);
+  assert.strictEqual(gapStatus.transportGapAffected, true);
+  connection._rpcWebSocketConnected = true;
+  assert.strictEqual(verifier.getSubscriptionStatus('B').transportGapAffected, true);
+  verifier.subscriptions.get('B').latestUpdate.transportGeneration = 1;
+  assert.strictEqual(verifier.getSubscriptionStatus('B').transportGapAffected, false);
+  assert.strictEqual(verifier.getStats().transportGenerationChanges, 1);
+  assert.strictEqual(verifier.getStats().transportDisconnectObservations, 1);
+  assert.strictEqual(verifier.getStats().transportReconnectObservations, 1);
 
   console.log('Finalist account verifier priority smoke passed');
 }

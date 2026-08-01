@@ -588,6 +588,31 @@ function collect(events = []) {
 function buildReport({ state, preregistration, parity = {}, sourceTelemetry = null }) {
   const evaluations = state.evaluations.filter((row) => row.preregistrationId === preregistration.id);
   const comparable = evaluations.filter((row) => row.comparable === true);
+  const transportGapUnavailable = evaluations.filter((row) => (
+    row.unavailableReason === 'HELIUS_SHADOW_TRANSPORT_GAP'
+    || row.unavailableReason === 'FINALIST_ACCOUNT_TRANSPORT_GAP'
+  ));
+  const comparableRawTransportGaps = comparable.filter(
+    (row) => row.rawTransportGapAffected === true
+  );
+  const comparableAccountTransportGaps = comparable.filter((row) => (
+    row.shadowAccountEnriched === true && row.accountTransportGapAffected === true
+  ));
+  const accountTransportGapEvaluations = evaluations.filter(
+    (row) => row.accountTransportGapAffected === true
+  );
+  const comparableRawTransportProvenance = comparable.filter((row) => (
+    row.rawTransportConnected === true
+    && row.rawTransportSubscriptionReady === true
+    && row.rawTransportGapAffected === false
+    && hasFiniteNumber(row.rawTransportEpoch)
+    && hasFiniteNumber(row.rawStateTransportEpoch)
+    && Number(row.rawTransportEpoch) === Number(row.rawStateTransportEpoch)
+  ));
+  const requiredTransportFields = preregistration.transportComparability?.requiredComparableFields || [];
+  const comparableTransportFieldsPresent = comparable.filter((row) => (
+    requiredTransportFields.every((field) => hasOwn(row, field))
+  ));
   const actionMatches = comparable.filter((row) => row.actionAgreement === true);
   const reasonMatches = comparable.filter((row) => row.reasonAgreement === true);
   const walletCharacterized = comparable.filter((row) => row.walletComparison?.portal && row.walletComparison?.helius);
@@ -630,6 +655,18 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
   const comparableExecuted = executed.filter((row) => (
     row.comparable === true
     && (row.action !== 'ENTRY' || row.guardOverridePathAgreement !== false)
+  ));
+  const comparableExecutedTransportProvenance = comparableExecuted.filter((row) => (
+    row.rawTransportConnected === true
+    && row.rawTransportSubscriptionReady === true
+    && row.rawTransportGapAffected === false
+    && hasFiniteNumber(row.rawTransportEpoch)
+    && hasFiniteNumber(row.rawStateTransportEpoch)
+    && Number(row.rawTransportEpoch) === Number(row.rawStateTransportEpoch)
+    && !(row.shadowAccountEnriched === true && row.accountTransportGapAffected === true)
+  ));
+  const comparableExecutedTransportFieldsPresent = comparableExecuted.filter((row) => (
+    requiredTransportFields.every((field) => hasOwn(row, field))
   ));
   const executedMatches = comparableExecuted.filter((row) => row.actionAgreement === true);
   const entryActions = comparableExecuted.filter((row) => row.action === 'ENTRY');
@@ -711,6 +748,14 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       === preregistration.gateDecisionComparator.marketInputTelemetrySemantics,
     correctComparabilitySemantics: plan.decisionShadowComparabilitySemantics
       === preregistration.comparabilityPlanSemantics,
+    correctTransportComparabilitySemantics: plan.decisionShadowTransportComparabilitySemantics
+      === preregistration.transportComparability?.planSemantics,
+    correctSubscriptionAckTimeout: Number(plan.subscriptionAckTimeoutMs)
+      === Number(preregistration.transportComparability?.subscriptionAckTimeoutMs),
+    correctPongTimeout: Number(plan.pongTimeoutMs)
+      === Number(preregistration.transportComparability?.pongTimeoutMs),
+    correctTransportGapExclusionWindow: Number(plan.decisionShadowTransportGapExclusionWindowMs)
+      === Number(preregistration.transportComparability?.rawGapExclusionWindowMs),
     correctMaximumStateAge: Number(plan.decisionShadowMaximumStateAgeMs) === preregistration.maximumShadowStateAgeMs,
     correctRecentTradeCap: Number(plan.decisionShadowRecentTradeCap) === preregistration.semanticAlignment.recentTradeCap,
     accountStateEnrichmentEnabled: plan.decisionShadowAccountStateEnrichment === 'finalist_account_verifier_latest_update',
@@ -762,6 +807,23 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     sameTelemetryAsParity: sourceMatches,
     concurrentV5ParityPassed: parity.verdict === preregistration.concurrentRequirements.heliusV5ParityVerdict,
     cleanHeliusLifecycle: parity.checks?.cleanHeliusLifecycle === true,
+    comparableRawTransportProvenance:
+      comparableRawTransportProvenance.length === comparable.length,
+    comparableTransportFieldsPresent:
+      comparableTransportFieldsPresent.length === comparable.length,
+    noComparableTransportGapRows:
+      comparableRawTransportGaps.length === 0 && comparableAccountTransportGaps.length === 0,
+    accountTransportGapUpdatesNotConsumed: accountTransportGapEvaluations.every(
+      (row) => row.shadowAccountEnriched !== true
+    ),
+    accountEnrichmentTransportProvenance: accountEnriched.every((row) => (
+      row.accountTransportInspectable === true
+      && row.accountTransportGapAffected === false
+    )),
+    comparableExecutedTransportProvenance:
+      comparableExecutedTransportProvenance.length === comparableExecuted.length,
+    comparableExecutedTransportFieldsPresent:
+      comparableExecutedTransportFieldsPresent.length === comparableExecuted.length,
     minimumComparableGateEvaluations: comparable.length >= preregistration.minimumComparableGateEvaluations,
     comparableEvaluationCoverage: ratio(comparable.length, evaluations.length)
       >= preregistration.minimumComparableEvaluationCoverageRate,
@@ -807,6 +869,10 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     'correctExecutedActionComparator',
     'correctMarketInputSemantics',
     'correctComparabilitySemantics',
+    'correctTransportComparabilitySemantics',
+    'correctSubscriptionAckTimeout',
+    'correctPongTimeout',
+    'correctTransportGapExclusionWindow',
     'correctMaximumStateAge',
     'correctRecentTradeCap',
     'accountStateEnrichmentEnabled',
@@ -834,6 +900,13 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
     'sameTelemetryAsParity',
     'concurrentV5ParityPassed',
     'cleanHeliusLifecycle',
+    'comparableRawTransportProvenance',
+    'comparableTransportFieldsPresent',
+    'noComparableTransportGapRows',
+    'accountTransportGapUpdatesNotConsumed',
+    'accountEnrichmentTransportProvenance',
+    'comparableExecutedTransportProvenance',
+    'comparableExecutedTransportFieldsPresent',
     'comparableMarketInputTelemetryComplete'
   ];
   const validityPassed = validityChecks.every((key) => checks[key]);
@@ -910,6 +983,14 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       comparableGateEvaluationsWithCompleteMarketInputTelemetry:
         comparableWithCompleteMarketInputTelemetry.length,
       unavailableGateEvaluations: evaluations.length - comparable.length,
+      transportGapUnavailableEvaluations: transportGapUnavailable.length,
+      comparableRawTransportGapEvaluations: comparableRawTransportGaps.length,
+      comparableAccountTransportGapEvaluations: comparableAccountTransportGaps.length,
+      accountTransportGapEvaluations: accountTransportGapEvaluations.length,
+      comparableRawTransportProvenanceEvaluations:
+        comparableRawTransportProvenance.length,
+      comparableTransportFieldsPresentEvaluations:
+        comparableTransportFieldsPresent.length,
       actualMarketInputIncompleteEvaluations:
         actualMarketInputIncompleteEvaluations.length,
       shadowMarketInputIncompleteEvaluations:
@@ -936,6 +1017,10 @@ function buildReport({ state, preregistration, parity = {}, sourceTelemetry = nu
       rawHeliusEventUserWalletTrades: rawHeliusWalletTrades,
       executedActions: executed.length,
       comparableExecutedActions: comparableExecuted.length,
+      comparableExecutedTransportProvenanceActions:
+        comparableExecutedTransportProvenance.length,
+      comparableExecutedTransportFieldsPresentActions:
+        comparableExecutedTransportFieldsPresent.length,
       unavailableExecutedActions: executed.length - comparableExecuted.length,
       executedActionMatches: executedMatches.length,
       observedExecutedEntries: executed.filter((row) => row.action === 'ENTRY').length,

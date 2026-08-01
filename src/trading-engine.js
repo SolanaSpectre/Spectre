@@ -565,7 +565,12 @@ class TradingEngine {
         decisionShadowMarketInputSemantics:
           'complete_source_attributed_market_and_window_provenance_missing_score_wallet_or_anchor_features_incomparable',
         decisionShadowComparabilitySemantics:
-          'complete_market_inputs_and_consumed_baseline_only'
+          'complete_market_inputs_consumed_baseline_and_current_gap_free_transport_only',
+        decisionShadowTransportComparabilitySemantics:
+          'raw_logs_current_ack_epoch_no_active_or_recent_window_gap_account_updates_current_web3_generation_only',
+        decisionShadowTransportGapExclusionWindowMs: this.heliusDecisionShadowState.windowMs,
+        subscriptionAckTimeoutMs: this.config.heliusPumpfunShadowSubscriptionAckTimeoutMs,
+        pongTimeoutMs: this.config.heliusPumpfunShadowPongTimeoutMs
       },
       strategyPreregistration: {
         id: 'runner_watch_full_coverage_v5_2026-07-26',
@@ -3986,12 +3991,20 @@ class TradingEngine {
       subscribed: false,
       hasUpdate: false,
       selectionClass: null,
-      lastUpdateAt: null
+      lastUpdateAt: null,
+      accountTransportInspectable: null,
+      accountTransportConnected: null,
+      accountTransportGeneration: null,
+      latestUpdateTransportGeneration: null,
+      transportGapAffected: false
     };
+    const rawTransportStatus = this.heliusPumpfunShadowListener?.getTransportStatus?.() || null;
     const snapshot = this.heliusDecisionShadowState.snapshot({
       portalToken,
       portalState: result.state,
       accountState: this.finalistAccountVerifier?.getLatestUpdate?.(result.state.mint) || null,
+      accountStatus: accountVerifierStatus,
+      transportStatus: rawTransportStatus,
       timestamp,
       resolveWallet: (wallet) => this.resolveHeliusDecisionShadowWallet(wallet)
     });
@@ -4081,6 +4094,9 @@ class TradingEngine {
       const comparisonUnavailableReason = decisionShadowComparisonUnavailableReason({
         shadowStateFresh,
         shadowUnavailableReason: unavailableReason,
+        rawTransportGapAffected: snapshot.rawTransportGapAffected,
+        accountTransportGapAffected: snapshot.accountTransportGapAffected,
+        accountStateEnriched: snapshot.accountEnriched,
         counterfactual,
         actualGuardFamilyInputs,
         shadowGuardFamilyInputs,
@@ -4232,6 +4248,22 @@ class TradingEngine {
         shadowTradeStateAgeMs: snapshot.tradeStateAgeMs ?? null,
         shadowRecentTapeCaptured: snapshot.recentTapeCaptured === true,
         shadowRecentTradeCap: snapshot.recentTradeCap ?? null,
+        rawTransportEpoch: snapshot.rawTransportEpoch ?? null,
+        rawStateTransportEpoch: snapshot.rawStateTransportEpoch ?? null,
+        rawTransportConnected: snapshot.rawTransportConnected,
+        rawTransportSubscriptionReady: snapshot.rawTransportSubscriptionReady,
+        rawTransportGapActive: snapshot.rawTransportGapActive === true,
+        rawTransportGapSequence: snapshot.rawTransportGapSequence ?? null,
+        rawTransportGapAffected: snapshot.rawTransportGapAffected === true,
+        rawTransportRecoveryWindowActive: snapshot.rawTransportRecoveryWindowActive === true,
+        lastRecoveredTransportGapAtMs: snapshot.lastRecoveredGapAtMs ?? null,
+        lastRecoveredTransportGapDurationMs: snapshot.lastRecoveredGapDurationMs ?? null,
+        accountTransportInspectable: snapshot.accountTransportInspectable,
+        accountTransportConnected: snapshot.accountTransportConnected,
+        accountTransportGeneration: snapshot.accountTransportGeneration ?? null,
+        accountLatestUpdateTransportGeneration:
+          snapshot.accountLatestUpdateTransportGeneration ?? null,
+        accountTransportGapAffected: snapshot.accountTransportGapAffected === true,
         accountVerifierSubscribed: accountVerifierStatus.subscribed === true,
         accountVerifierHasUpdate: accountVerifierStatus.hasUpdate === true,
         accountVerifierSelectionClass: accountVerifierStatus.selectionClass,
@@ -4414,6 +4446,22 @@ class TradingEngine {
         shadowTradeStateAgeMs: snapshot.tradeStateAgeMs ?? null,
         shadowRecentTapeCaptured: snapshot.recentTapeCaptured === true,
         shadowRecentTradeCap: snapshot.recentTradeCap ?? null,
+        rawTransportEpoch: snapshot.rawTransportEpoch ?? null,
+        rawStateTransportEpoch: snapshot.rawStateTransportEpoch ?? null,
+        rawTransportConnected: snapshot.rawTransportConnected,
+        rawTransportSubscriptionReady: snapshot.rawTransportSubscriptionReady,
+        rawTransportGapActive: snapshot.rawTransportGapActive === true,
+        rawTransportGapSequence: snapshot.rawTransportGapSequence ?? null,
+        rawTransportGapAffected: snapshot.rawTransportGapAffected === true,
+        rawTransportRecoveryWindowActive: snapshot.rawTransportRecoveryWindowActive === true,
+        lastRecoveredTransportGapAtMs: snapshot.lastRecoveredGapAtMs ?? null,
+        lastRecoveredTransportGapDurationMs: snapshot.lastRecoveredGapDurationMs ?? null,
+        accountTransportInspectable: snapshot.accountTransportInspectable,
+        accountTransportConnected: snapshot.accountTransportConnected,
+        accountTransportGeneration: snapshot.accountTransportGeneration ?? null,
+        accountLatestUpdateTransportGeneration:
+          snapshot.accountLatestUpdateTransportGeneration ?? null,
+        accountTransportGapAffected: snapshot.accountTransportGapAffected === true,
         accountVerifierSubscribed: accountVerifierStatus.subscribed === true,
         accountVerifierHasUpdate: accountVerifierStatus.hasUpdate === true,
         accountVerifierSelectionClass: accountVerifierStatus.selectionClass,

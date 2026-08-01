@@ -23,6 +23,11 @@ class HeliusPumpfunShadowListener {
     this.programId = config.pumpBondingCurveProgramId;
     this.commitment = config.heliusPumpfunShadowCommitment || 'processed';
     this.pingIntervalMs = Number(config.heliusPumpfunShadowPingIntervalMs || 25000);
+    this.pongTimeoutMs = Math.max(1000, Number(config.heliusPumpfunShadowPongTimeoutMs || 10000));
+    this.subscriptionAckTimeoutMs = Math.max(
+      1000,
+      Number(config.heliusPumpfunShadowSubscriptionAckTimeoutMs || 5000)
+    );
     this.reconnectDelayMs = Number(config.heliusPumpfunShadowReconnectDelayMs || 1000);
     this.maxReconnectDelayMs = Number(config.heliusPumpfunShadowMaxReconnectDelayMs || 30000);
     this.currentReconnectDelayMs = this.reconnectDelayMs;
@@ -32,8 +37,26 @@ class HeliusPumpfunShadowListener {
     this.stopInitiatedAtMs = null;
     this.shutdownGraceMs = 1000;
     this.pingTimer = null;
+    this.pongDeadlineTimer = null;
+    this.awaitingPong = false;
     this.reconnectTimer = null;
-    this.subscriptionRequestId = 7101;
+    this.subscriptionAckTimer = null;
+    this.subscriptionRequestId = 7100;
+    this.activeSubscriptionRequestId = null;
+    this.subscriptionReady = false;
+    this.currentSubscriptionId = null;
+    this.connectionEpoch = 0;
+    this.currentEpochOpenedAtMs = null;
+    this.currentEpochAckAtMs = null;
+    this.transportGapSequence = 0;
+    this.transportGapStartedAtMs = null;
+    this.transportGapStartedAfterEpoch = null;
+    this.lastRecoveredGapAtMs = null;
+    this.lastRecoveredGapDurationMs = null;
+    this.pendingFirstNotificationGap = null;
+    this.highestNotificationSlot = null;
+    this.seenNotificationKeys = new Map();
+    this.maxSeenNotificationKeys = 100_000;
     this.eventQueue = [];
     this.eventQueueHead = 0;
     this.eventQueueDrainScheduled = false;
@@ -54,6 +77,14 @@ class HeliusPumpfunShadowListener {
       parseErrors: 0,
       subscriptionAcks: 0,
       subscriptionErrors: 0,
+      subscriptionAckTimeouts: 0,
+      staleSubscriptionResponses: 0,
+      notificationsBeforeSubscriptionAck: 0,
+      subscriptionReady: false,
+      subscriptionAckTimeoutMs: this.subscriptionAckTimeoutMs,
+      subscriptionAckLatencySamples: 0,
+      subscriptionAckLatencyTotalMs: 0,
+      subscriptionAckLatencyMaxMs: 0,
       messages: 0,
       eventQueueEnqueued: 0,
       eventQueueProcessed: 0,
@@ -99,6 +130,24 @@ class HeliusPumpfunShadowListener {
       quoteUnsupportedEvents: 0,
       pingsSent: 0,
       pongsReceived: 0,
+      pongTimeouts: 0,
+      pongTimeoutMs: this.pongTimeoutMs,
+      connectionEpoch: 0,
+      transportGapsStarted: 0,
+      transportGapsRecovered: 0,
+      transportGapActive: false,
+      transportGapDurationSamples: 0,
+      transportGapDurationTotalMs: 0,
+      transportGapDurationMaxMs: 0,
+      lastTransportGapSequence: null,
+      lastTransportGapStartedAt: null,
+      lastTransportGapRecoveredAt: null,
+      lastTransportGapDurationMs: null,
+      firstNotificationsAfterGap: 0,
+      duplicateNotifications: 0,
+      outOfOrderNotifications: 0,
+      highestNotificationSlot: null,
+      notificationDedupMaxKeys: this.maxSeenNotificationKeys,
       lastConnectedAt: null,
       lastDisconnectedAt: null,
       lastMessageAt: null,
@@ -139,8 +188,14 @@ class HeliusPumpfunShadowListener {
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.stopHeartbeat();
+    this.clearSubscriptionAckTimer();
     const socket = this.ws;
     this.ws = null;
+    this.subscriptionReady = false;
+    this.currentSubscriptionId = null;
+    this.activeSubscriptionRequestId = null;
+    this.stats.connected = false;
+    this.stats.subscriptionReady = false;
     try {
       if (socket) await this.closeSocketForStop(socket);
       await this.drainEventQueueBeforeStop();
@@ -154,34 +209,42 @@ class HeliusPumpfunShadowListener {
     this.stats.connectionAttempts += 1;
     const socket = new WebSocket(this.url, { perMessageDeflate: false, maxPayload: 16 * 1024 * 1024 });
     this.ws = socket;
+    let socketEpoch = null;
+    let socketSubscriptionRequestId = null;
 
     socket.on('open', () => {
       if (!this.running || this.ws !== socket) return;
+      socketEpoch = this.connectionEpoch + 1;
+      this.connectionEpoch = socketEpoch;
+      socketSubscriptionRequestId = this.subscriptionRequestId + 1;
+      this.subscriptionRequestId = socketSubscriptionRequestId;
+      this.activeSubscriptionRequestId = socketSubscriptionRequestId;
+      this.subscriptionReady = false;
+      this.currentSubscriptionId = null;
+      this.currentEpochOpenedAtMs = Date.now();
+      this.currentEpochAckAtMs = null;
       this.stats.connected = true;
+      this.stats.subscriptionReady = false;
+      this.stats.connectionEpoch = socketEpoch;
       this.stats.openEvents += 1;
       this.stats.lastConnectedAt = new Date().toISOString();
       this.currentReconnectDelayMs = this.reconnectDelayMs;
-      socket.send(JSON.stringify({
-        jsonrpc: '2.0',
-        id: this.subscriptionRequestId,
-        method: 'logsSubscribe',
-        params: [
-          { mentions: [this.programId] },
-          { commitment: this.commitment }
-        ]
-      }));
-      this.startHeartbeat(socket);
+      this.sendSubscriptionRequest(socket, socketEpoch, socketSubscriptionRequestId);
+      this.startHeartbeat(socket, socketEpoch);
       this.emitLifecycle('provider.helius_pumpfun.shadow_connected', {
         commitment: this.commitment,
-        programId: this.programId
+        programId: this.programId,
+        connectionEpoch: socketEpoch,
+        subscriptionRequestId: socketSubscriptionRequestId,
+        subscriptionReady: false
       });
     });
 
-    socket.on('message', (raw) => this.enqueueRawMessage(raw, Date.now()));
-    socket.on('pong', () => {
-      this.stats.pongsReceived += 1;
-      this.stats.lastPongAt = new Date().toISOString();
-    });
+    socket.on('message', (raw) => this.enqueueRawMessage(raw, Date.now(), {
+      connectionEpoch: socketEpoch,
+      subscriptionRequestId: socketSubscriptionRequestId
+    }));
+    socket.on('pong', () => this.handlePong(socket, socketEpoch));
     socket.on('error', (error) => {
       const lifecycle = this.lifecyclePhase();
       if (lifecycle.shutdownPhase) this.stats.shutdownPhaseErrors += 1;
@@ -192,18 +255,30 @@ class HeliusPumpfunShadowListener {
         errorMessage: error.message,
         sessionPhase: lifecycle.sessionPhase,
         shutdownError: lifecycle.shutdownPhase,
-        shutdownAgeMs: lifecycle.shutdownAgeMs
+        shutdownAgeMs: lifecycle.shutdownAgeMs,
+        connectionEpoch: socketEpoch,
+        subscriptionReady: socketEpoch === this.connectionEpoch && this.subscriptionReady
       });
     });
     socket.on('close', (code, reasonBuffer) => {
       const lifecycle = this.lifecyclePhase();
-      this.stopHeartbeat();
-      this.stats.connected = false;
+      const isCurrentSocket = this.ws === socket;
+      if (isCurrentSocket) {
+        this.stopHeartbeat();
+        this.clearSubscriptionAckTimer();
+        this.subscriptionReady = false;
+        this.currentSubscriptionId = null;
+        this.stats.connected = false;
+        this.stats.subscriptionReady = false;
+      }
       this.stats.closeEvents += 1;
       this.stats.lastDisconnectedAt = new Date().toISOString();
       this.stats.lastCloseCode = Number(code || 0) || 0;
       this.stats.lastCloseReason = reasonBuffer ? reasonBuffer.toString() : '';
       if (lifecycle.shutdownPhase) this.stats.shutdownPhaseDisconnects += 1;
+      const gap = !lifecycle.shutdownPhase && this.running && isCurrentSocket
+        ? this.startTransportGap(socketEpoch)
+        : null;
       this.emitLifecycle('provider.helius_pumpfun.shadow_disconnected', {
         code: this.stats.lastCloseCode,
         reason: this.stats.lastCloseReason,
@@ -212,10 +287,184 @@ class HeliusPumpfunShadowListener {
         shutdownInitiatedAt: Number.isFinite(this.stopInitiatedAtMs)
           ? new Date(this.stopInitiatedAtMs).toISOString()
           : null,
-        shutdownAgeMs: lifecycle.shutdownAgeMs
+        shutdownAgeMs: lifecycle.shutdownAgeMs,
+        connectionEpoch: socketEpoch,
+        subscriptionRequestId: socketSubscriptionRequestId,
+        subscriptionReadyAtClose: this.currentEpochAckAtMs !== null,
+        transportGapSequence: gap?.sequence ?? null,
+        transportGapStartedAt: gap?.startedAt ?? null,
+        lastNotificationSlot: this.highestNotificationSlot
       });
-      if (this.running && this.ws === socket) this.scheduleReconnect();
+      if (this.running && isCurrentSocket) this.scheduleReconnect();
     });
+  }
+
+  sendSubscriptionRequest(socket, connectionEpoch, requestId) {
+    const request = JSON.stringify({
+      jsonrpc: '2.0',
+      id: requestId,
+      method: 'logsSubscribe',
+      params: [
+        { mentions: [this.programId] },
+        { commitment: this.commitment }
+      ]
+    });
+    try {
+      socket.send(request, (error) => {
+        if (!error) return;
+        this.recordSubscriptionFailure('SEND_FAILED', connectionEpoch, requestId, null);
+        if (this.ws === socket && socket.readyState !== WebSocket.CLOSED) socket.terminate();
+      });
+      this.armSubscriptionAckTimer(socket, connectionEpoch, requestId);
+    } catch {
+      this.recordSubscriptionFailure('SEND_FAILED', connectionEpoch, requestId, null);
+      if (this.ws === socket && socket.readyState !== WebSocket.CLOSED) socket.terminate();
+    }
+  }
+
+  armSubscriptionAckTimer(socket, connectionEpoch, requestId) {
+    this.clearSubscriptionAckTimer();
+    this.subscriptionAckTimer = setTimeout(() => {
+      if (
+        !this.running
+        || this.ws !== socket
+        || this.connectionEpoch !== connectionEpoch
+        || this.activeSubscriptionRequestId !== requestId
+        || this.subscriptionReady
+      ) return;
+      this.stats.subscriptionAckTimeouts += 1;
+      this.recordSubscriptionFailure('ACK_TIMEOUT', connectionEpoch, requestId, null);
+      if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+    }, this.subscriptionAckTimeoutMs);
+    this.subscriptionAckTimer.unref?.();
+  }
+
+  clearSubscriptionAckTimer() {
+    clearTimeout(this.subscriptionAckTimer);
+    this.subscriptionAckTimer = null;
+  }
+
+  recordSubscriptionFailure(reason, connectionEpoch, requestId, code = null) {
+    if (
+      connectionEpoch !== this.connectionEpoch
+      || requestId !== this.activeSubscriptionRequestId
+      || this.subscriptionReady
+    ) return false;
+    this.clearSubscriptionAckTimer();
+    this.activeSubscriptionRequestId = null;
+    this.stats.subscriptionErrors += 1;
+    this.emitLifecycle('provider.helius_pumpfun.shadow_subscription_error', {
+      reason,
+      code,
+      connectionEpoch,
+      subscriptionRequestId: requestId,
+      subscriptionReady: false
+    });
+    return true;
+  }
+
+  handleSubscriptionResponse(payload, transport = {}) {
+    const connectionEpoch = Number(transport.connectionEpoch);
+    const requestId = Number(payload.id);
+    const current = Number.isFinite(connectionEpoch)
+      && connectionEpoch === this.connectionEpoch
+      && requestId === this.activeSubscriptionRequestId;
+    if (!current) {
+      this.stats.staleSubscriptionResponses += 1;
+      return false;
+    }
+    if (payload.error || payload.result === null || payload.result === undefined) {
+      this.recordSubscriptionFailure(
+        payload.error ? 'JSON_RPC_REJECTED' : 'MISSING_SUBSCRIPTION_ID',
+        connectionEpoch,
+        requestId,
+        payload.error?.code ?? null
+      );
+      const socket = this.ws;
+      if (socket && socket.readyState !== WebSocket.CLOSED) socket.terminate();
+      return false;
+    }
+
+    this.clearSubscriptionAckTimer();
+    const now = Date.now();
+    const ackLatencyMs = Number.isFinite(this.currentEpochOpenedAtMs)
+      ? Math.max(0, now - this.currentEpochOpenedAtMs)
+      : null;
+    this.subscriptionReady = true;
+    this.currentSubscriptionId = payload.result;
+    this.activeSubscriptionRequestId = null;
+    this.currentEpochAckAtMs = now;
+    this.stats.subscriptionReady = true;
+    this.stats.subscriptionAcks += 1;
+    if (ackLatencyMs !== null) {
+      this.stats.subscriptionAckLatencySamples += 1;
+      this.stats.subscriptionAckLatencyTotalMs += ackLatencyMs;
+      this.stats.subscriptionAckLatencyMaxMs = Math.max(
+        this.stats.subscriptionAckLatencyMaxMs,
+        ackLatencyMs
+      );
+    }
+    const recoveredGap = this.recoverTransportGap(connectionEpoch, now);
+    this.emitLifecycle('provider.helius_pumpfun.shadow_subscription_ack', {
+      connectionEpoch,
+      subscriptionRequestId: requestId,
+      subscriptionId: payload.result,
+      ackLatencyMs,
+      subscriptionReady: true,
+      recoveredTransportGapSequence: recoveredGap?.sequence ?? null,
+      recoveredTransportGapDurationMs: recoveredGap?.durationMs ?? null
+    });
+    if (recoveredGap) {
+      this.emitLifecycle('provider.helius_pumpfun.shadow_transport_gap_closed', recoveredGap);
+    }
+    return true;
+  }
+
+  startTransportGap(afterEpoch, now = Date.now()) {
+    if (Number.isFinite(this.transportGapStartedAtMs)) {
+      return {
+        sequence: this.transportGapSequence,
+        startedAt: new Date(this.transportGapStartedAtMs).toISOString()
+      };
+    }
+    this.transportGapSequence += 1;
+    this.transportGapStartedAtMs = now;
+    this.transportGapStartedAfterEpoch = afterEpoch;
+    this.stats.transportGapsStarted += 1;
+    this.stats.transportGapActive = true;
+    this.stats.lastTransportGapSequence = this.transportGapSequence;
+    this.stats.lastTransportGapStartedAt = new Date(now).toISOString();
+    return {
+      sequence: this.transportGapSequence,
+      startedAt: new Date(now).toISOString()
+    };
+  }
+
+  recoverTransportGap(connectionEpoch, now = Date.now()) {
+    if (!Number.isFinite(this.transportGapStartedAtMs)) return null;
+    const durationMs = Math.max(0, now - this.transportGapStartedAtMs);
+    const gap = {
+      sequence: this.transportGapSequence,
+      startedAt: new Date(this.transportGapStartedAtMs).toISOString(),
+      recoveredAt: new Date(now).toISOString(),
+      durationMs,
+      disconnectedAfterEpoch: this.transportGapStartedAfterEpoch,
+      recoveredConnectionEpoch: connectionEpoch,
+      lastNotificationSlotBeforeGap: this.highestNotificationSlot
+    };
+    this.lastRecoveredGapAtMs = now;
+    this.lastRecoveredGapDurationMs = durationMs;
+    this.pendingFirstNotificationGap = gap;
+    this.transportGapStartedAtMs = null;
+    this.transportGapStartedAfterEpoch = null;
+    this.stats.transportGapsRecovered += 1;
+    this.stats.transportGapActive = false;
+    this.stats.transportGapDurationSamples += 1;
+    this.stats.transportGapDurationTotalMs += durationMs;
+    this.stats.transportGapDurationMaxMs = Math.max(this.stats.transportGapDurationMaxMs, durationMs);
+    this.stats.lastTransportGapRecoveredAt = gap.recoveredAt;
+    this.stats.lastTransportGapDurationMs = durationMs;
+    return gap;
   }
 
   lifecyclePhase(nowMs = Date.now()) {
@@ -262,22 +511,66 @@ class HeliusPumpfunShadowListener {
     this.reconnectTimer = setTimeout(() => this.connect(), delayMs);
   }
 
-  startHeartbeat(socket) {
+  startHeartbeat(socket, connectionEpoch) {
     this.stopHeartbeat();
     this.pingTimer = setInterval(() => {
       if (!this.running || this.ws !== socket || socket.readyState !== WebSocket.OPEN) return;
+      if (this.awaitingPong) {
+        this.handlePongTimeout(socket, connectionEpoch);
+        return;
+      }
+      this.awaitingPong = true;
       this.stats.pingsSent += 1;
       this.stats.lastPingAt = new Date().toISOString();
       socket.ping();
+      this.pongDeadlineTimer = setTimeout(
+        () => this.handlePongTimeout(socket, connectionEpoch),
+        this.pongTimeoutMs
+      );
+      this.pongDeadlineTimer.unref?.();
     }, this.pingIntervalMs);
+    this.pingTimer.unref?.();
+  }
+
+  handlePong(socket, connectionEpoch) {
+    if (this.ws !== socket || connectionEpoch !== this.connectionEpoch) return;
+    this.awaitingPong = false;
+    clearTimeout(this.pongDeadlineTimer);
+    this.pongDeadlineTimer = null;
+    this.stats.pongsReceived += 1;
+    this.stats.lastPongAt = new Date().toISOString();
+  }
+
+  handlePongTimeout(socket, connectionEpoch) {
+    if (
+      !this.running
+      || this.ws !== socket
+      || connectionEpoch !== this.connectionEpoch
+      || !this.awaitingPong
+    ) return false;
+    this.awaitingPong = false;
+    clearTimeout(this.pongDeadlineTimer);
+    this.pongDeadlineTimer = null;
+    this.stats.pongTimeouts += 1;
+    this.emitLifecycle('provider.helius_pumpfun.shadow_pong_timeout', {
+      connectionEpoch,
+      pongTimeoutMs: this.pongTimeoutMs,
+      lastPingAt: this.stats.lastPingAt,
+      lastPongAt: this.stats.lastPongAt
+    });
+    if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+    return true;
   }
 
   stopHeartbeat() {
     clearInterval(this.pingTimer);
+    clearTimeout(this.pongDeadlineTimer);
     this.pingTimer = null;
+    this.pongDeadlineTimer = null;
+    this.awaitingPong = false;
   }
 
-  enqueueRawMessage(raw, receivedAtMs = Date.now()) {
+  enqueueRawMessage(raw, receivedAtMs = Date.now(), transport = {}) {
     const bytes = Buffer.byteLength(raw);
     this.stats.messages += 1;
     this.stats.bytes += bytes;
@@ -294,7 +587,7 @@ class HeliusPumpfunShadowListener {
       }
       return false;
     }
-    this.eventQueue.push({ raw, receivedAtMs, bytes });
+    this.eventQueue.push({ raw, receivedAtMs, bytes, transport });
     this.stats.eventQueueEnqueued += 1;
     this.syncEventQueueStats();
     this.scheduleEventQueueDrain();
@@ -325,7 +618,7 @@ class HeliusPumpfunShadowListener {
       this.stats.eventQueueLatencyTotalMs += latencyMs;
       this.stats.eventQueueLatencyMaxMs = Math.max(this.stats.eventQueueLatencyMaxMs, latencyMs);
       try {
-        this.handleRawMessage(item.raw, item.receivedAtMs, item.bytes);
+        this.handleRawMessage(item.raw, item.receivedAtMs, item.bytes, item.transport);
         this.stats.eventQueueProcessed += 1;
       } catch (error) {
         this.stats.eventQueueHandlerErrors += 1;
@@ -385,7 +678,7 @@ class HeliusPumpfunShadowListener {
     }
   }
 
-  handleRawMessage(raw, receivedAtMs = Date.now(), rawBytes = null) {
+  handleRawMessage(raw, receivedAtMs = Date.now(), rawBytes = null, transport = {}) {
     const bytes = Number.isFinite(Number(rawBytes)) ? Number(rawBytes) : Buffer.byteLength(raw);
     let payload;
     try {
@@ -395,19 +688,18 @@ class HeliusPumpfunShadowListener {
       return;
     }
 
-    if (payload.id === this.subscriptionRequestId) {
-      if (payload.error) {
-        this.stats.subscriptionErrors += 1;
-        this.emitLifecycle('provider.helius_pumpfun.shadow_subscription_error', {
-          code: payload.error.code ?? null,
-          message: String(payload.error.message || 'unknown subscription error').slice(0, 500)
-        });
-      } else {
-        this.stats.subscriptionAcks += 1;
-      }
+    if (payload.id !== null && payload.id !== undefined) {
+      this.handleSubscriptionResponse(payload, transport);
       return;
     }
     if (payload.method !== 'logsNotification') return;
+    const transportEpoch = Number(transport.connectionEpoch);
+    if (Number.isFinite(transportEpoch) && (
+      transportEpoch !== this.connectionEpoch || !this.subscriptionReady
+    )) {
+      this.stats.notificationsBeforeSubscriptionAck += 1;
+      return;
+    }
     this.stats.notifications += 1;
     const result = payload.params?.result;
     const value = result?.value;
@@ -418,12 +710,57 @@ class HeliusPumpfunShadowListener {
       return;
     }
 
+    const slot = Number(result?.context?.slot);
+    const signature = value.signature || null;
+    const notificationKey = Number.isFinite(slot) && signature ? `${slot}|${signature}` : null;
+    if (notificationKey && this.seenNotificationKeys.has(notificationKey)) {
+      this.stats.duplicateNotifications += 1;
+      return;
+    }
+    if (notificationKey) {
+      this.seenNotificationKeys.set(notificationKey, true);
+      while (this.seenNotificationKeys.size > this.maxSeenNotificationKeys) {
+        this.seenNotificationKeys.delete(this.seenNotificationKeys.keys().next().value);
+      }
+    }
+    const notificationOutOfOrder = Number.isFinite(slot)
+      && Number.isFinite(this.highestNotificationSlot)
+      && slot < this.highestNotificationSlot;
+    if (notificationOutOfOrder) this.stats.outOfOrderNotifications += 1;
+    if (Number.isFinite(slot)) {
+      this.highestNotificationSlot = Number.isFinite(this.highestNotificationSlot)
+        ? Math.max(this.highestNotificationSlot, slot)
+        : slot;
+      this.stats.highestNotificationSlot = this.highestNotificationSlot;
+    }
+
+    if (this.pendingFirstNotificationGap) {
+      const recoveredGap = this.pendingFirstNotificationGap;
+      this.pendingFirstNotificationGap = null;
+      this.stats.firstNotificationsAfterGap += 1;
+      this.emitLifecycle('provider.helius_pumpfun.shadow_transport_gap_first_notification', {
+        ...recoveredGap,
+        firstNotificationAt: new Date(receivedAtMs).toISOString(),
+        firstNotificationSlot: Number.isFinite(slot) ? slot : null,
+        slotDelta: Number.isFinite(slot) && Number.isFinite(recoveredGap.lastNotificationSlotBeforeGap)
+          ? slot - recoveredGap.lastNotificationSlotBeforeGap
+          : null
+      });
+    }
+
     this.stats.successfulNotifications += 1;
     const context = {
-      signature: value.signature || null,
-      slot: result?.context?.slot ?? null,
+      signature,
+      slot: Number.isFinite(slot) ? slot : null,
       receivedAt: new Date(receivedAtMs).toISOString(),
-      queueDelayMs: Math.max(0, Date.now() - receivedAtMs)
+      queueDelayMs: Math.max(0, Date.now() - receivedAtMs),
+      connectionEpoch: Number.isFinite(transportEpoch) ? transportEpoch : null,
+      subscriptionId: this.currentSubscriptionId,
+      transportGapSequence: this.transportGapSequence || null,
+      notificationOutOfOrder,
+      slotLagFromHighWater: notificationOutOfOrder && Number.isFinite(slot)
+        ? this.highestNotificationSlot - slot
+        : 0
     };
     const logs = Array.isArray(value.logs) ? value.logs : [];
     this.stats.logLines += logs.length;
@@ -657,13 +994,38 @@ class HeliusPumpfunShadowListener {
     return {
       ...this.stats,
       connected: Boolean(this.ws && this.ws.readyState === WebSocket.OPEN),
+      subscriptionReady: this.subscriptionReady,
+      connectionEpoch: this.connectionEpoch,
+      activeSubscriptionRequestId: this.activeSubscriptionRequestId,
+      currentSubscriptionId: this.currentSubscriptionId,
+      transportGapActive: Number.isFinite(this.transportGapStartedAtMs),
+      activeTransportGapDurationMs: Number.isFinite(this.transportGapStartedAtMs)
+        ? Math.max(0, Date.now() - this.transportGapStartedAtMs)
+        : null,
       currentReconnectDelayMs: this.currentReconnectDelayMs,
+      subscriptionAckLatencyMeanMs: this.stats.subscriptionAckLatencySamples > 0
+        ? this.stats.subscriptionAckLatencyTotalMs / this.stats.subscriptionAckLatencySamples
+        : null,
       eventQueueLatencyMeanMs: this.stats.eventQueueLatencySamples > 0
         ? this.stats.eventQueueLatencyTotalMs / this.stats.eventQueueLatencySamples
         : null,
       eventQueueDrainMeanMs: this.stats.eventQueueDrainCalls > 0
         ? this.stats.eventQueueDrainTotalMs / this.stats.eventQueueDrainCalls
         : null
+    };
+  }
+
+  getTransportStatus() {
+    return {
+      connected: Boolean(this.ws && this.ws.readyState === WebSocket.OPEN),
+      subscriptionReady: this.subscriptionReady === true,
+      connectionEpoch: this.connectionEpoch,
+      subscriptionId: this.currentSubscriptionId,
+      transportGapActive: Number.isFinite(this.transportGapStartedAtMs),
+      transportGapSequence: this.transportGapSequence || null,
+      transportGapStartedAtMs: this.transportGapStartedAtMs,
+      lastRecoveredGapAtMs: this.lastRecoveredGapAtMs,
+      lastRecoveredGapDurationMs: this.lastRecoveredGapDurationMs
     };
   }
 }

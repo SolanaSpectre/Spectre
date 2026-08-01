@@ -192,4 +192,55 @@ assert.strictEqual(listener.getStats().foreignProgramDataLines, 1);
 assert.strictEqual(lifecycleEvents[1].type, 'provider.helius_pumpfun.shadow_discriminator_collision_ignored');
 assert.strictEqual(lifecycleEvents[1].payload.emittingProgramId, 'LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj');
 
+listener.handleRawMessage(Buffer.from(JSON.stringify({
+  method: 'logsNotification',
+  params: {
+    result: {
+      context: { slot: 5 },
+      value: {
+        signature: 'QJUfcA66PfnoubgE68V21dSxHWHSg7j17Hxy93x9vmiCYowvBbBJyvcT7tNZ6Bx16j1oC4V9GN7uTfbUtfEou4H',
+        err: null,
+        logs: []
+      }
+    }
+  }
+})));
+assert.strictEqual(listener.getStats().duplicateNotifications, 1);
+
+listener.connectionEpoch = 2;
+listener.activeSubscriptionRequestId = 7102;
+listener.currentEpochOpenedAtMs = Date.now() - 100;
+listener.startTransportGap(1, Date.now() - 75);
+listener.handleRawMessage(Buffer.from(JSON.stringify({
+  jsonrpc: '2.0',
+  id: 7102,
+  result: 444
+})), Date.now(), null, {
+  connectionEpoch: 2,
+  subscriptionRequestId: 7102
+});
+const ack = lifecycleEvents.find((row) => row.type === 'provider.helius_pumpfun.shadow_subscription_ack');
+const recoveredGap = lifecycleEvents.find(
+  (row) => row.type === 'provider.helius_pumpfun.shadow_transport_gap_closed'
+);
+assert(ack);
+assert.strictEqual(ack.payload.connectionEpoch, 2);
+assert.strictEqual(ack.payload.subscriptionId, 444);
+assert(recoveredGap);
+assert(recoveredGap.payload.durationMs >= 75);
+assert.strictEqual(listener.getTransportStatus().subscriptionReady, true);
+assert.strictEqual(listener.getTransportStatus().transportGapActive, false);
+assert.strictEqual(listener.getStats().activeSubscriptionRequestId, null);
+const ackCount = listener.getStats().subscriptionAcks;
+listener.handleRawMessage(Buffer.from(JSON.stringify({
+  jsonrpc: '2.0',
+  id: 7102,
+  result: 444
+})), Date.now(), null, {
+  connectionEpoch: 2,
+  subscriptionRequestId: 7102
+});
+assert.strictEqual(listener.getStats().subscriptionAcks, ackCount);
+assert.strictEqual(listener.getStats().staleSubscriptionResponses, 1);
+
 console.log('Helius Pump.fun shadow listener smoke passed');

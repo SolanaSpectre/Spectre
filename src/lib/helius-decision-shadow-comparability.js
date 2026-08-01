@@ -45,11 +45,20 @@ function marketInputTelemetryComplete(inputs = {}) {
 function decisionShadowComparisonUnavailableReason({
   shadowStateFresh,
   shadowUnavailableReason = null,
+  rawTransportGapAffected = false,
+  accountTransportGapAffected = false,
+  accountStateEnriched = false,
   counterfactual = null,
   actualGuardFamilyInputs = {},
   shadowGuardFamilyInputs = {},
   baselineControlConsumed = false
 } = {}) {
+  if (rawTransportGapAffected === true) {
+    return 'HELIUS_SHADOW_TRANSPORT_GAP';
+  }
+  if (accountStateEnriched === true && accountTransportGapAffected === true) {
+    return 'FINALIST_ACCOUNT_TRANSPORT_GAP';
+  }
   if (shadowStateFresh !== true) {
     return shadowUnavailableReason || 'HELIUS_SHADOW_STATE_UNAVAILABLE';
   }

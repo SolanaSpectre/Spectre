@@ -46,6 +46,14 @@ const PREREGISTERED = Object.freeze({
   v5BurstDiagnostic: 'recall_autopsy_emits_selective_vs_global_absence_and_high_vs_lower_burst_miss_rates_without_a_gate_until_replicated',
   v5EvidenceStart: 'first_completed_run_after_v5_semantic_identity_comparator_was_committed',
   v5FrozenAt: '2026-07-19T21:42:00.000Z',
+  boundedReconnectLifecycleAmendment:
+    'before_first_v11_run_allow_only_measured_bounded_reconnects_with_ack_per_epoch_and_gap_affected_decisions_excluded',
+  boundedReconnectLifecycleAmendedAt: '2026-07-31T22:50:00.000-05:00',
+  maximumUnexpectedReconnectsPerHour: 3,
+  maximumSingleTransportGapMs: 5_000,
+  maximumCumulativeTransportGapMsPerHour: 15_000,
+  subscriptionAckRequiredForEveryConnectionEpoch: true,
+  transportGapDecisionExclusionWindowMs: 60_000,
   duplicatePolicy: 'dedupe_helius_by_signature_mint_log_index_and_amounts_before_parity_aggregation',
   solQuotedMinimumTradesPerMintHour: 20,
   eligibleMintHourMinimum: 10,
@@ -64,6 +72,12 @@ const PREREGISTERED = Object.freeze({
   quoteLabelCoverageMinimumRate: 1,
   mayhemClassificationCoverageMinimumRate: 1,
   unsupportedQuoteEventsMaximum: 0,
+  websocketCreditRate: {
+    creditsPerUnit: 2,
+    bytesPerUnit: 100_000,
+    developerMonthlyCredits: 10_000_000,
+    estimateBoundary: 'application_payload_bytes_with_per_message_deflate_disabled; provider_invoice_may_include_different_wire_accounting'
+  },
   processedForkRisk: 'diagnostic_only_signature_overlap',
   diagnosticOnlyMetrics: ['symmetric_trade_count_delta', 'trader_identity_agreement', 'burst_miss_differential', 'buy_ratio', 'unique_buyers', 'pumpdev_overlap', 'extra_helius_signatures'],
   passVerdict: 'HELIUS_SHADOW_PARITY_PASSED',
@@ -132,6 +146,44 @@ function stats(values, digits = 6) {
 
 function ratio(numerator, denominator) {
   return denominator > 0 ? numerator / denominator : null;
+}
+
+function round(value, digits = 3) {
+  if (value === null || value === undefined || value === '') return null;
+  return Number.isFinite(Number(value)) ? Number(Number(value).toFixed(digits)) : null;
+}
+
+function websocketCreditEstimate(bytes, durationMs) {
+  const measuredBytes = Number(bytes);
+  const elapsedMs = Number(durationMs);
+  const rate = PREREGISTERED.websocketCreditRate;
+  const measured = bytes !== null && bytes !== undefined && bytes !== ''
+    && Number.isFinite(measuredBytes) && measuredBytes >= 0;
+  const elapsed = durationMs !== null && durationMs !== undefined && durationMs !== ''
+    && Number.isFinite(elapsedMs) && elapsedMs > 0;
+  const credits = measured ? (measuredBytes / rate.bytesPerUnit) * rate.creditsPerUnit : null;
+  const creditsPerHour = measured && elapsed ? credits * (3_600_000 / elapsedMs) : null;
+  return {
+    applicationPayloadBytes: measured ? measuredBytes : null,
+    applicationPayloadMegabytesDecimal: measured ? round(measuredBytes / 1_000_000, 3) : null,
+    measuredSessionCreditsEstimate: round(credits, 3),
+    creditsPerHourEstimate: round(creditsPerHour, 3),
+    paper480CreditsEstimate: round(creditsPerHour === null ? null : creditsPerHour * 8, 3),
+    continuous730HourCreditsEstimate: round(
+      creditsPerHour === null ? null : creditsPerHour * 730,
+      3
+    ),
+    continuousMonthlyPlanUtilizationEstimate: round(
+      creditsPerHour === null
+        ? null
+        : (creditsPerHour * 730) / rate.developerMonthlyCredits,
+      6
+    ),
+    creditsPerUnit: rate.creditsPerUnit,
+    bytesPerUnit: rate.bytesPerUnit,
+    developerMonthlyCredits: rate.developerMonthlyCredits,
+    estimateBoundary: rate.estimateBoundary
+  };
 }
 
 function relativeDelta(left, right) {
@@ -247,6 +299,7 @@ function createState() {
     sessionStartMs: null,
     sessionStarted: null,
     sessionStopping: null,
+    sessionStopMs: null,
     malformedLines: 0,
     eventCounts: {},
     lastEventMs: null,
@@ -263,13 +316,20 @@ function createState() {
     pumpDevMints: new Set(),
     heliusLifecycle: {
       connections: 0,
+      subscriptionAcks: 0,
       errors: 0,
       subscriptionErrors: 0,
+      subscriptionAckTimeouts: 0,
+      pongTimeouts: 0,
       decodeErrors: 0,
       unexpectedDisconnects: 0,
       normalDisconnects: 0,
       shutdownPhaseDisconnects: 0,
-      shutdownPhaseErrors: 0
+      shutdownPhaseErrors: 0,
+      transportGapsStarted: 0,
+      transportGapsClosed: 0,
+      transportGapDurationsMs: [],
+      activeTransportGapSequences: new Set()
     }
   };
 }
@@ -287,10 +347,15 @@ function ingestEvent(state, event) {
   }
   if (type === 'session.stopping' || type === 'session.stopped') {
     state.sessionStopping = payload;
+    state.sessionStopMs = atMs;
     return;
   }
   if (type === 'provider.helius_pumpfun.shadow_connected') {
     state.heliusLifecycle.connections += 1;
+    return;
+  }
+  if (type === 'provider.helius_pumpfun.shadow_subscription_ack') {
+    state.heliusLifecycle.subscriptionAcks += 1;
     return;
   }
   if (type === 'provider.helius_pumpfun.shadow_error'
@@ -306,6 +371,21 @@ function ingestEvent(state, event) {
   }
   if (type === 'provider.helius_pumpfun.shadow_subscription_error') {
     state.heliusLifecycle.subscriptionErrors += 1;
+    if (payload.reason === 'ACK_TIMEOUT') state.heliusLifecycle.subscriptionAckTimeouts += 1;
+    return;
+  }
+  if (type === 'provider.helius_pumpfun.shadow_pong_timeout') {
+    state.heliusLifecycle.pongTimeouts += 1;
+    return;
+  }
+  if (type === 'provider.helius_pumpfun.shadow_transport_gap_closed') {
+    state.heliusLifecycle.transportGapsClosed += 1;
+    if (Number.isFinite(Number(payload.durationMs))) {
+      state.heliusLifecycle.transportGapDurationsMs.push(Number(payload.durationMs));
+    }
+    if (payload.sequence !== null && payload.sequence !== undefined) {
+      state.heliusLifecycle.activeTransportGapSequences.delete(String(payload.sequence));
+    }
     return;
   }
   if (type === 'provider.helius_pumpfun.shadow_decode_error') {
@@ -322,7 +402,16 @@ function ingestEvent(state, event) {
       state.heliusLifecycle.shutdownPhaseDisconnects += 1;
       state.heliusLifecycle.normalDisconnects += 1;
     } else if (normalStop) state.heliusLifecycle.normalDisconnects += 1;
-    else state.heliusLifecycle.unexpectedDisconnects += 1;
+    else {
+      state.heliusLifecycle.unexpectedDisconnects += 1;
+      if (payload.transportGapSequence !== null && payload.transportGapSequence !== undefined) {
+        const sequence = String(payload.transportGapSequence);
+        if (!state.heliusLifecycle.activeTransportGapSequences.has(sequence)) {
+          state.heliusLifecycle.transportGapsStarted += 1;
+          state.heliusLifecycle.activeTransportGapSequences.add(sequence);
+        }
+      }
+    }
     return;
   }
   if ((type === 'provider.pumpportal.connected' || type === 'provider.pumpportal.closed')
@@ -730,10 +819,62 @@ function buildReport(state, sourceTelemetry = null) {
   const completedLifecycle = Boolean(state.sessionStopping);
   const postV5Freeze = Number.isFinite(sessionStartMs)
     && sessionStartMs >= timestampMs(PREREGISTERED.v5FrozenAt);
+  const postBoundedLifecycleAmendment = Number.isFinite(sessionStartMs)
+    && sessionStartMs >= timestampMs(PREREGISTERED.boundedReconnectLifecycleAmendedAt);
+  const sessionDurationMs = Number.isFinite(sessionStartMs) && Number.isFinite(state.sessionStopMs)
+    ? Math.max(0, state.sessionStopMs - sessionStartMs)
+    : null;
+  const sessionDurationHours = Number.isFinite(sessionDurationMs) && sessionDurationMs > 0
+    ? sessionDurationMs / 3_600_000
+    : null;
+  const maximumUnexpectedReconnects = Number.isFinite(sessionDurationHours)
+    ? Math.max(
+      1,
+      Math.ceil(sessionDurationHours * PREREGISTERED.maximumUnexpectedReconnectsPerHour)
+    )
+    : 0;
+  const maximumCumulativeTransportGapMs = Number.isFinite(sessionDurationHours)
+    ? Math.max(
+      PREREGISTERED.maximumSingleTransportGapMs,
+      sessionDurationHours * PREREGISTERED.maximumCumulativeTransportGapMsPerHour
+    )
+    : 0;
+  const gapDurationStats = stats(state.heliusLifecycle.transportGapDurationsMs, 0);
+  const activeTransportGaps = state.heliusLifecycle.activeTransportGapSequences.size;
+  const everyConnectionAcknowledged = state.heliusLifecycle.subscriptionAcks
+    === state.heliusLifecycle.connections;
+  const boundedReconnects = state.heliusLifecycle.unexpectedDisconnects
+    <= maximumUnexpectedReconnects;
+  const measuredTransportGaps = state.heliusLifecycle.transportGapsStarted
+    === state.heliusLifecycle.unexpectedDisconnects
+    && state.heliusLifecycle.transportGapsClosed === state.heliusLifecycle.transportGapsStarted
+    && activeTransportGaps === 0;
+  const boundedTransportGaps = (gapDurationStats.max ?? 0)
+    <= PREREGISTERED.maximumSingleTransportGapMs
+    && state.heliusLifecycle.transportGapDurationsMs.reduce((sum, value) => sum + value, 0)
+      <= maximumCumulativeTransportGapMs;
   const cleanHeliusLifecycle = state.heliusLifecycle.connections >= 1
     && state.heliusLifecycle.errors === 0
     && state.heliusLifecycle.subscriptionErrors === 0
-    && state.heliusLifecycle.unexpectedDisconnects === 0;
+    && everyConnectionAcknowledged
+    && boundedReconnects
+    && measuredTransportGaps
+    && boundedTransportGaps;
+  const finalHeliusStats = state.sessionStopping?.stats?.heliusPumpfunShadow || {};
+  const creditEstimate = websocketCreditEstimate(finalHeliusStats.bytes, sessionDurationMs);
+  const heliusLifecycleSummary = {
+    ...state.heliusLifecycle,
+    transportGapDurationsMs: state.heliusLifecycle.transportGapDurationsMs.slice(),
+    activeTransportGapSequences: [...state.heliusLifecycle.activeTransportGapSequences],
+    sessionDurationMs,
+    maximumUnexpectedReconnects,
+    maximumCumulativeTransportGapMs,
+    everyConnectionAcknowledged,
+    boundedReconnects,
+    measuredTransportGaps,
+    boundedTransportGaps,
+    transportGapDurationStats: gapDurationStats
+  };
   const enoughEvidence = mintHours.length >= PREREGISTERED.eligibleMintHourMinimum
     && standardVolumeMintHours.length >= PREREGISTERED.eligibleMintHourMinimum
     && curveComparisons.length >= PREREGISTERED.curveComparisonMinimum
@@ -741,6 +882,7 @@ function buildReport(state, sourceTelemetry = null) {
   const checks = {
     runEnabled: enabled,
     postV5Freeze,
+    postBoundedLifecycleAmendment,
     completedLifecycle,
     cleanHeliusLifecycle,
     strategyConsumptionDisabled,
@@ -764,7 +906,14 @@ function buildReport(state, sourceTelemetry = null) {
     && checks.unsupportedQuoteEvents;
 
   let verdict = PREREGISTERED.invalidVerdict;
-  if (enabled && postV5Freeze && strategyConsumptionDisabled && completedLifecycle && state.heliusTrades.length > 0) {
+  if (
+    enabled
+    && postV5Freeze
+    && postBoundedLifecycleAmendment
+    && strategyConsumptionDisabled
+    && completedLifecycle
+    && state.heliusTrades.length > 0
+  ) {
     if (!hardAdapterChecksPassed) verdict = PREREGISTERED.failVerdict;
     else if (!enoughEvidence) verdict = PREREGISTERED.insufficientVerdict;
     else verdict = Object.values(checks).every(Boolean)
@@ -791,7 +940,7 @@ function buildReport(state, sourceTelemetry = null) {
       mayhemClassifiedTradeEvents,
       mayhemTradeEvents,
       standardTradeEvents,
-      heliusLifecycle: state.heliusLifecycle,
+      heliusLifecycle: heliusLifecycleSummary,
       curveComparisons: curveComparisons.length,
       discoveryMatches: discoveryLags.length,
       decoderTailErrors,
@@ -828,6 +977,21 @@ function buildReport(state, sourceTelemetry = null) {
       discoveryHeliusMinusPumpPortalMs: discoveryStats
     },
     diagnostics: {
+      websocketCreditEstimate: creditEstimate,
+      boundedReconnectLifecycle: {
+        everyConnectionAcknowledged,
+        boundedReconnects,
+        measuredTransportGaps,
+        boundedTransportGaps,
+        activeTransportGaps,
+        unexpectedDisconnects: state.heliusLifecycle.unexpectedDisconnects,
+        maximumUnexpectedReconnects,
+        gapDuration: gapDurationStats,
+        maximumSingleTransportGapMs: PREREGISTERED.maximumSingleTransportGapMs,
+        cumulativeTransportGapMs:
+          state.heliusLifecycle.transportGapDurationsMs.reduce((sum, value) => sum + value, 0),
+        maximumCumulativeTransportGapMs
+      },
       portalCoverageWindowSourceCounts: portalCoverage.sourceCounts,
       buyRatioAbsoluteDelta: stats(mintHours.map((row) => {
         if (!Number.isFinite(row.heliusBuyRatio) || !Number.isFinite(row.pumpPortalBuyRatio)) return null;

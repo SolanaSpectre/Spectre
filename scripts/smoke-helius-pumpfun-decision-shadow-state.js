@@ -350,4 +350,64 @@ assert.strictEqual(durableWalletSnapshot.state.recentTradeCount, 1);
 assert.strictEqual(durableWalletSnapshot.walletContext.touched, true);
 assert.strictEqual(durableWalletSnapshot.walletContext.wallets[0].wallet, 'DurableTrackedWallet');
 
+const transportAware = new HeliusDecisionShadowState({ pumpMomentumWindowMs: 60_000 });
+transportAware.ingest('provider.helius_pumpfun.shadow_trade', {
+  mint: 'TransportMint',
+  signature: 'epoch-one',
+  receivedAt: '2026-07-20T05:00:00.000Z',
+  connectionEpoch: 1,
+  txType: 'buy',
+  solAmount: 0.25,
+  traderPublicKey: 'TransportWallet',
+  curveProgress: 0.4,
+  priceSol: 0.000001,
+  pairBase: 'SOL'
+});
+const gapAffected = transportAware.snapshot({
+  portalToken: { mint: 'TransportMint' },
+  portalState: { mint: 'TransportMint' },
+  timestamp: '2026-07-20T05:00:02.000Z',
+  transportStatus: {
+    connected: true,
+    subscriptionReady: true,
+    connectionEpoch: 2,
+    transportGapActive: false,
+    transportGapSequence: 1,
+    lastRecoveredGapAtMs: Date.parse('2026-07-20T05:00:01.500Z'),
+    lastRecoveredGapDurationMs: 1500
+  }
+});
+assert.strictEqual(gapAffected.available, false);
+assert.strictEqual(gapAffected.reason, 'HELIUS_SHADOW_TRANSPORT_GAP');
+assert.strictEqual(gapAffected.rawTransportGapAffected, true);
+
+transportAware.ingest('provider.helius_pumpfun.shadow_trade', {
+  mint: 'TransportMint',
+  signature: 'epoch-two',
+  receivedAt: '2026-07-20T05:01:02.000Z',
+  connectionEpoch: 2,
+  txType: 'buy',
+  solAmount: 0.25,
+  traderPublicKey: 'TransportWallet',
+  curveProgress: 0.5,
+  priceSol: 0.0000012,
+  pairBase: 'SOL'
+});
+const recovered = transportAware.snapshot({
+  portalToken: { mint: 'TransportMint' },
+  portalState: { mint: 'TransportMint' },
+  timestamp: '2026-07-20T05:01:02.500Z',
+  transportStatus: {
+    connected: true,
+    subscriptionReady: true,
+    connectionEpoch: 2,
+    transportGapActive: false,
+    transportGapSequence: 1,
+    lastRecoveredGapAtMs: Date.parse('2026-07-20T05:00:01.500Z'),
+    lastRecoveredGapDurationMs: 1500
+  }
+});
+assert.strictEqual(recovered.available, true);
+assert.strictEqual(recovered.rawTransportGapAffected, false);
+
 console.log('Helius Pump.fun decision shadow state smoke passed');

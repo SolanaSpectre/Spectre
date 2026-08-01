@@ -54,6 +54,7 @@ class FinalistAccountVerifier {
     this.updateTelemetryMinIntervalMs = Math.max(100, Number(config.finalistAccountVerifierUpdateTelemetryMinIntervalMs || 1000));
     this.updateTelemetryMinCurveDelta = Math.max(0, Number(config.finalistAccountVerifierUpdateTelemetryMinCurveDelta || 0.001));
     this.subscriptions = new Map();
+    this.lastObservedTransportState = null;
     this.stats = {
       enabled: this.enabled,
       attempts: 0,
@@ -90,7 +91,15 @@ class FinalistAccountVerifier {
       commitment: this.commitment,
       updateTelemetrySuppressed: 0,
       updateTelemetryMinIntervalMs: this.updateTelemetryMinIntervalMs,
-      updateTelemetryMinCurveDelta: this.updateTelemetryMinCurveDelta
+      updateTelemetryMinCurveDelta: this.updateTelemetryMinCurveDelta,
+      transportStateObservations: 0,
+      transportGenerationChanges: 0,
+      transportDisconnectObservations: 0,
+      transportReconnectObservations: 0,
+      transportInspectable: false,
+      transportConnected: null,
+      transportGeneration: null,
+      lastTransportTransitionAt: null
     };
   }
 
@@ -101,6 +110,68 @@ class FinalistAccountVerifier {
     } catch {
       // Report-only telemetry must never affect trading behavior.
     }
+  }
+
+  readTransportState() {
+    const rawGeneration = this.connection?._rpcWebSocketGeneration;
+    const generation = Number(rawGeneration);
+    const connected = this.connection?._rpcWebSocketConnected;
+    const generationInspectable = rawGeneration !== null
+      && rawGeneration !== undefined
+      && rawGeneration !== ''
+      && Number.isFinite(generation);
+    const connectedInspectable = typeof connected === 'boolean';
+    return {
+      inspectable: generationInspectable && connectedInspectable,
+      generation: generationInspectable ? generation : null,
+      connected: connectedInspectable ? connected : null
+    };
+  }
+
+  observeTransportState(trigger = 'status') {
+    const current = this.readTransportState();
+    this.stats.transportStateObservations += 1;
+    this.stats.transportInspectable = current.inspectable;
+    this.stats.transportConnected = current.connected;
+    this.stats.transportGeneration = current.generation;
+    const previous = this.lastObservedTransportState;
+    const changed = !previous
+      || previous.inspectable !== current.inspectable
+      || previous.generation !== current.generation
+      || previous.connected !== current.connected;
+    if (!changed) return current;
+
+    const now = new Date().toISOString();
+    if (previous) {
+      if (previous.generation !== current.generation) this.stats.transportGenerationChanges += 1;
+      if (previous.connected === true && current.connected === false) {
+        this.stats.transportDisconnectObservations += 1;
+      }
+      if (previous.connected !== true && current.connected === true) {
+        this.stats.transportReconnectObservations += 1;
+      }
+    }
+    this.stats.lastTransportTransitionAt = now;
+    this.lastObservedTransportState = { ...current };
+    this.emit('finalist_account_verifier.transport_state', {
+      trigger,
+      observedAt: now,
+      inspectable: current.inspectable,
+      connected: current.connected,
+      generation: current.generation,
+      previousConnected: previous?.connected ?? null,
+      previousGeneration: previous?.generation ?? null,
+      activeSubscriptions: this.subscriptions.size
+    });
+    return current;
+  }
+
+  transportGapAffected(update, transportState) {
+    if (!update || update.updateSource === 'initial_snapshot') return false;
+    if (transportState?.inspectable !== true) return true;
+    return transportState.connected !== true
+      || !Number.isFinite(Number(update.transportGeneration))
+      || Number(update.transportGeneration) !== Number(transportState.generation);
   }
 
   qualifies(state = {}) {
@@ -128,6 +199,7 @@ class FinalistAccountVerifier {
       return false;
     }
 
+    const transportState = this.observeTransportState('subscribe_request');
     const decisionShadowCandidate = meta.reportOnlyDecisionShadowCandidate === true;
     const decisionShadowPrewarm = meta.reportOnlyDecisionShadowPrewarm === true;
     const rawPrewarmTriggerReasons = Array.isArray(meta.decisionShadowPrewarmTriggerReasons)
@@ -286,6 +358,8 @@ class FinalistAccountVerifier {
         providerCurveProgressAtSubscribe: Number.isFinite(Number(state.curveProgress)) ? Number(state.curveProgress) : null,
         scoreAtSubscribe: Number.isFinite(Number(state.score)) ? Number(state.score) : null,
         subscriptionId,
+        transportGenerationAtSubscribe: transportState.generation,
+        transportInspectableAtSubscribe: transportState.inspectable,
         subscribedAt,
         lastRequestedAt: subscribedAt,
         expiresAt: subscribedAt + this.ttlMs,
@@ -314,6 +388,9 @@ class FinalistAccountVerifier {
           ? 'DIRECT_COMPARISON_SUBSCRIPTION'
           : decisionShadowPrewarm ? 'PREWARM_ONLY' : 'NON_DECISION_SHADOW_SUBSCRIPTION',
         subscriptionId,
+        accountTransportInspectable: transportState.inspectable,
+        accountTransportConnected: transportState.connected,
+        accountTransportGeneration: transportState.generation,
         score: Number.isFinite(Number(state.score)) ? Number(state.score) : null,
         curveProgress: Number.isFinite(Number(state.curveProgress)) ? Number(state.curveProgress) : null,
         commitment: this.commitment,
@@ -408,6 +485,8 @@ class FinalistAccountVerifier {
 
   handleAccountUpdate(mint, bondingCurveAddress, accountInfo, context = {}) {
     const now = Date.now();
+    const updateSource = context.source || 'account_subscribe';
+    const transportState = this.observeTransportState(`account_update:${updateSource}`);
     const subscription = this.subscriptions.get(mint);
     if (subscription) {
       subscription.lastUpdateAt = now;
@@ -425,9 +504,17 @@ class FinalistAccountVerifier {
         bondingCurveAddress,
         owner,
         expectedOwner: this.programId.toBase58(),
-      slot: context.slot ?? null,
-      updateSource: context.source || 'account_subscribe',
-      reason: 'UNEXPECTED_OWNER'
+        slot: context.slot ?? null,
+        updateSource,
+        transportInspectable: transportState.inspectable,
+        transportConnectedAtUpdate: transportState.connected,
+        transportGeneration: updateSource === 'initial_snapshot'
+          ? null
+          : transportState.generation,
+        transportDependency: updateSource === 'initial_snapshot'
+          ? 'http_snapshot'
+          : 'websocket_account_subscription',
+        reason: 'UNEXPECTED_OWNER'
       });
       this.unsubscribeMint(mint, 'INVALID_OWNER');
       return;
@@ -443,7 +530,15 @@ class FinalistAccountVerifier {
         bondingCurveAddress,
         owner,
         slot: context.slot ?? null,
-        updateSource: context.source || 'account_subscribe',
+        updateSource,
+        transportInspectable: transportState.inspectable,
+        transportConnectedAtUpdate: transportState.connected,
+        transportGeneration: updateSource === 'initial_snapshot'
+          ? null
+          : transportState.generation,
+        transportDependency: updateSource === 'initial_snapshot'
+          ? 'http_snapshot'
+          : 'websocket_account_subscription',
         reason: 'DECODE_FAILED',
         errorMessage: error.message
       });
@@ -463,7 +558,15 @@ class FinalistAccountVerifier {
       selectionClass: subscription?.selectionClass || null,
       owner,
       slot: context.slot ?? null,
-      updateSource: context.source || 'account_subscribe',
+      updateSource,
+      transportInspectable: transportState.inspectable,
+      transportConnectedAtUpdate: transportState.connected,
+      transportGeneration: updateSource === 'initial_snapshot'
+        ? null
+        : transportState.generation,
+      transportDependency: updateSource === 'initial_snapshot'
+        ? 'http_snapshot'
+        : 'websocket_account_subscription',
       commitment: this.commitment,
       receivedAt: new Date(now).toISOString(),
       receivedAtMs: now,
@@ -484,7 +587,7 @@ class FinalistAccountVerifier {
     if (subscription) {
       subscription.latestUpdate = updatePayload;
     }
-    if (this.shouldEmitUpdateTelemetry(subscription, updatePayload, context.source || 'account_subscribe', now)) {
+    if (this.shouldEmitUpdateTelemetry(subscription, updatePayload, updateSource, now)) {
       if (subscription) {
         subscription.lastTelemetryUpdateAt = now;
         subscription.lastTelemetryCurveProgress = Number.isFinite(Number(decoded.curveProgress)) ? Number(decoded.curveProgress) : null;
@@ -516,12 +619,21 @@ class FinalistAccountVerifier {
 
   getSubscriptionStatus(mint) {
     const subscription = mint ? this.subscriptions.get(mint) : null;
+    const transportState = this.observeTransportState('comparison_status');
+    const latestUpdate = subscription?.latestUpdate || null;
+    const transportGapAffected = this.transportGapAffected(latestUpdate, transportState);
     const comparisonRequestedAt = Number(subscription?.comparisonRequestedAt || 0) || null;
     const prewarmRequestedAt = Number(subscription?.prewarmRequestedAt || 0) || null;
     const firstUpdateAt = Number(subscription?.firstUpdateAt || 0) || null;
     return {
       subscribed: Boolean(subscription),
       hasUpdate: Boolean(subscription?.latestUpdate),
+      accountTransportInspectable: transportState.inspectable,
+      accountTransportConnected: transportState.connected,
+      accountTransportGeneration: transportState.generation,
+      latestUpdateTransportGeneration: latestUpdate?.transportGeneration ?? null,
+      latestUpdateTransportDependency: latestUpdate?.transportDependency || null,
+      transportGapAffected,
       selectionClass: subscription?.selectionClass || null,
       lastUpdateAt: subscription?.lastUpdateAt || null,
       prewarmed: prewarmRequestedAt !== null,
@@ -661,9 +773,13 @@ class FinalistAccountVerifier {
   }
 
   getStats() {
+    const transportState = this.observeTransportState('stats');
     this.stats.active = this.subscriptions.size;
     return {
       ...this.stats,
+      transportInspectable: transportState.inspectable,
+      transportConnected: transportState.connected,
+      transportGeneration: transportState.generation,
       subscriptions: Array.from(this.subscriptions.values()).map((subscription) => ({
         mint: subscription.mint,
         symbol: subscription.symbol,
@@ -688,11 +804,16 @@ class FinalistAccountVerifier {
         prewarmToComparisonPath: prewarmToComparisonPath(subscription),
         providerCurveProgressAtSubscribe: subscription.providerCurveProgressAtSubscribe,
         scoreAtSubscribe: subscription.scoreAtSubscribe,
+        transportGenerationAtSubscribe: subscription.transportGenerationAtSubscribe ?? null,
+        transportInspectableAtSubscribe: subscription.transportInspectableAtSubscribe === true,
         subscribedAt: new Date(subscription.subscribedAt).toISOString(),
         lastUpdateAt: subscription.lastUpdateAt ? new Date(subscription.lastUpdateAt).toISOString() : null,
         firstUpdateAt: subscription.firstUpdateAt ? new Date(subscription.firstUpdateAt).toISOString() : null,
         latestCurveProgress: subscription.latestUpdate?.curveProgress ?? null,
         latestSlot: subscription.latestUpdate?.slot ?? null,
+        latestUpdateSource: subscription.latestUpdate?.updateSource || null,
+        latestUpdateTransportGeneration: subscription.latestUpdate?.transportGeneration ?? null,
+        transportGapAffected: this.transportGapAffected(subscription.latestUpdate, transportState),
         expiresAt: new Date(subscription.expiresAt).toISOString()
       }))
     };

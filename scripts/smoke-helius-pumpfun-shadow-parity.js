@@ -10,7 +10,7 @@ const {
   timestampMs
 } = require('./helius-pumpfun-shadow-parity-report');
 
-const startMs = Date.parse('2026-07-20T12:00:00.000Z');
+const startMs = Date.parse('2026-08-01T12:00:00.000Z');
 const iso = (offsetMs) => new Date(startMs + offsetMs).toISOString();
 const event = (type, timestamp, payload) => ({ type, timestamp, payload });
 const events = [event('session.started', iso(0), {
@@ -22,13 +22,24 @@ const events = [event('session.started', iso(0), {
   }
 })];
 events.push(event('provider.helius_pumpfun.shadow_connected', iso(1), {
-  commitment: 'processed'
+  commitment: 'processed',
+  connectionEpoch: 1,
+  subscriptionRequestId: 7101
+}));
+events.push(event('provider.helius_pumpfun.shadow_subscription_ack', iso(2), {
+  connectionEpoch: 1,
+  subscriptionRequestId: 7101,
+  subscriptionId: 99,
+  ackLatencyMs: 1
 }));
 events.push(event('provider.helius_pumpfun.shadow_disconnected', iso(3_598_999), {
   code: 1000,
   reason: 'shadow listener stop'
 }));
-events.push(event('session.stopped', iso(3_599_000), { reason: 'SESSION_DURATION_EXCEEDED' }));
+events.push(event('session.stopped', iso(3_599_000), {
+  reason: 'SESSION_DURATION_EXCEEDED',
+  stats: { heliusPumpfunShadow: { bytes: 200_000 } }
+}));
 
 for (let mintIndex = 0; mintIndex < 20; mintIndex += 1) {
   const mint = `Mint${mintIndex}`;
@@ -93,6 +104,8 @@ assert.strictEqual(report.counts.curveComparisons, 100);
 assert.strictEqual(report.counts.discoveryMatches, 20);
 assert.strictEqual(report.checks.strategyConsumptionDisabled, true);
 assert.strictEqual(report.checks.cleanHeliusLifecycle, true);
+assert.strictEqual(report.counts.heliusLifecycle.subscriptionAcks, 1);
+assert.strictEqual(report.diagnostics.websocketCreditEstimate.measuredSessionCreditsEstimate, 4);
 assert.strictEqual(report.checks.portalTradeIdentityRecall, true);
 assert.strictEqual(report.agreement.traderIdentityAgreementRate, 1);
 assert.strictEqual(report.counts.rawHeliusTradeEvents, 401);
@@ -149,6 +162,10 @@ partialCoverageEvents.push(event('provider.pumpportal.targeted_unsubscription', 
 }));
 const partialCoverage = analyzeEvents(partialCoverageEvents);
 assert.strictEqual(partialCoverage.counts.eligibleMintHours, 1);
+assert.strictEqual(
+  partialCoverage.diagnostics.websocketCreditEstimate.measuredSessionCreditsEstimate,
+  null
+);
 assert.strictEqual(partialCoverage.worstMintHours[0].heliusTrades, 20);
 assert.strictEqual(partialCoverage.worstMintHours[0].pumpPortalTrades, 20);
 assert.deepStrictEqual(partialCoverage.worstMintHours[0].coverageSources, [
@@ -170,6 +187,48 @@ const unexpectedDisconnect = analyzeEvents([
 ]);
 assert.strictEqual(unexpectedDisconnect.checks.cleanHeliusLifecycle, false);
 assert.strictEqual(unexpectedDisconnect.verdict, PREREGISTERED.failVerdict);
+
+const boundedReconnectEvents = events.filter((row) => (
+  row.type !== 'provider.helius_pumpfun.shadow_disconnected'
+  && row.type !== 'session.stopped'
+));
+boundedReconnectEvents.push(event('provider.helius_pumpfun.shadow_disconnected', iso(100_000), {
+  code: 1006,
+  reason: '',
+  connectionEpoch: 1,
+  transportGapSequence: 1
+}));
+boundedReconnectEvents.push(event('provider.helius_pumpfun.shadow_connected', iso(101_000), {
+  commitment: 'processed',
+  connectionEpoch: 2,
+  subscriptionRequestId: 7102
+}));
+boundedReconnectEvents.push(event('provider.helius_pumpfun.shadow_subscription_ack', iso(101_500), {
+  connectionEpoch: 2,
+  subscriptionRequestId: 7102,
+  subscriptionId: 100,
+  ackLatencyMs: 500,
+  recoveredTransportGapSequence: 1,
+  recoveredTransportGapDurationMs: 1500
+}));
+boundedReconnectEvents.push(event('provider.helius_pumpfun.shadow_transport_gap_closed', iso(101_500), {
+  sequence: 1,
+  durationMs: 1500,
+  recoveredConnectionEpoch: 2
+}));
+boundedReconnectEvents.push(event('provider.helius_pumpfun.shadow_disconnected', iso(3_598_999), {
+  code: 1000,
+  reason: 'shadow listener stop'
+}));
+boundedReconnectEvents.push(event('session.stopped', iso(3_599_000), {
+  reason: 'SESSION_DURATION_EXCEEDED',
+  stats: { heliusPumpfunShadow: { bytes: 200_000 } }
+}));
+const boundedReconnect = analyzeEvents(boundedReconnectEvents);
+assert.strictEqual(boundedReconnect.checks.cleanHeliusLifecycle, true);
+assert.strictEqual(boundedReconnect.counts.heliusLifecycle.unexpectedDisconnects, 1);
+assert.strictEqual(boundedReconnect.counts.heliusLifecycle.transportGapsClosed, 1);
+assert.strictEqual(boundedReconnect.counts.heliusLifecycle.transportGapDurationStats.max, 1500);
 
 const explicitShutdownDisconnect = analyzeEvents([
   ...events,

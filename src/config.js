@@ -131,6 +131,14 @@ class Config {
     return parseInt(process.env.HELIUS_PUMPFUN_SHADOW_PING_INTERVAL_MS || '25000', 10);
   }
 
+  static get heliusPumpfunShadowPongTimeoutMs() {
+    return parseInt(process.env.HELIUS_PUMPFUN_SHADOW_PONG_TIMEOUT_MS || '10000', 10);
+  }
+
+  static get heliusPumpfunShadowSubscriptionAckTimeoutMs() {
+    return parseInt(process.env.HELIUS_PUMPFUN_SHADOW_SUBSCRIPTION_ACK_TIMEOUT_MS || '5000', 10);
+  }
+
   static get heliusPumpfunShadowReconnectDelayMs() {
     return parseInt(process.env.HELIUS_PUMPFUN_SHADOW_RECONNECT_DELAY_MS || '1000', 10);
   }
@@ -2598,6 +2606,8 @@ class Config {
       { key: 'finalistAccountVerifierMaxCurveDelta', value: this.finalistAccountVerifierMaxCurveDelta, min: 0, max: 1 },
       { key: 'heliusPumpfunShadowEventQueueMaxSize', value: this.heliusPumpfunShadowEventQueueMaxSize, min: 100 },
       { key: 'heliusPumpfunShadowEventQueueBatchSize', value: this.heliusPumpfunShadowEventQueueBatchSize, min: 1 },
+      { key: 'heliusPumpfunShadowPongTimeoutMs', value: this.heliusPumpfunShadowPongTimeoutMs, min: 1000 },
+      { key: 'heliusPumpfunShadowSubscriptionAckTimeoutMs', value: this.heliusPumpfunShadowSubscriptionAckTimeoutMs, min: 1000 },
       { key: 'liveDryRunAmountSol', value: this.liveDryRunAmountSol, min: 0.001 },
       { key: 'liveDryRunMaxAccountAgeMs', value: this.liveDryRunMaxAccountAgeMs, min: 100 },
       { key: 'liveDryRunMaxPriceImpactPct', value: this.liveDryRunMaxPriceImpactPct, min: 0 },

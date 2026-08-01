@@ -33,7 +33,13 @@ class HeliusDecisionShadowState {
     existing.name = payload.name || existing.name || null;
     existing.quoteMint = payload.quoteMint || existing.quoteMint || null;
     existing.pairBase = payload.pairBase || existing.pairBase || null;
-    existing.lastEventAtMs = atMs;
+    existing.lastEventAtMs = Number.isFinite(existing.lastEventAtMs)
+      ? Math.max(existing.lastEventAtMs, atMs)
+      : atMs;
+    const connectionEpoch = this.finite(payload.connectionEpoch);
+    if (connectionEpoch !== null) existing.lastTransportEpoch = connectionEpoch;
+    const transportGapSequence = this.finite(payload.transportGapSequence);
+    if (transportGapSequence !== null) existing.lastTransportGapSequence = transportGapSequence;
 
     if (type.endsWith('shadow_new_token')) {
       existing.createdAtMs = this.timestampMs(payload.eventAt) || atMs;
@@ -46,6 +52,10 @@ class HeliusDecisionShadowState {
       const trade = {
         atMs,
         signature,
+        slot: this.finite(payload.slot),
+        connectionEpoch,
+        transportGapSequence,
+        notificationOutOfOrder: payload.notificationOutOfOrder === true,
         side: side === 'sell' ? 'sell' : 'buy',
         volumeSol: this.finite(payload.solAmount),
         trader: portalTrader || eventUser,
@@ -100,7 +110,15 @@ class HeliusDecisionShadowState {
     return true;
   }
 
-  snapshot({ portalToken = {}, portalState = {}, accountState = null, timestamp, resolveWallet = null } = {}) {
+  snapshot({
+    portalToken = {},
+    portalState = {},
+    accountState = null,
+    accountStatus = null,
+    transportStatus = null,
+    timestamp,
+    resolveWallet = null
+  } = {}) {
     const mint = portalState.mint || portalToken.mint || null;
     const source = mint ? (this.mints.get(mint) || (accountState ? { mint, trades: [] } : null)) : null;
     const atMs = this.timestampMs(timestamp) || Date.now();
@@ -146,9 +164,25 @@ class HeliusDecisionShadowState {
     const accountPriceSol = accountAtMs !== null && accountAtMs <= atMs
       ? this.finite(accountState?.priceSol)
       : null;
+    const rawTransportEpoch = this.finite(transportStatus?.connectionEpoch);
+    const rawStateTransportEpoch = this.finite(source.lastTransportEpoch);
+    const lastRecoveredGapAtMs = this.finite(transportStatus?.lastRecoveredGapAtMs);
+    const rawTransportRecoveryWindowActive = lastRecoveredGapAtMs !== null
+      && atMs >= lastRecoveredGapAtMs
+      && atMs - lastRecoveredGapAtMs <= this.windowMs;
+    const rawTransportGapAffected = rawTransportEpoch !== null && (
+      transportStatus?.connected !== true
+      || transportStatus?.subscriptionReady !== true
+      || transportStatus?.transportGapActive === true
+      || rawStateTransportEpoch === null
+      || rawStateTransportEpoch !== rawTransportEpoch
+      || rawTransportRecoveryWindowActive
+    );
+    const accountTransportGapAffected = accountStatus?.transportGapAffected === true;
     const accountUsable = accountCurveProgress !== null
       && accountPriceSol !== null
       && accountPriceSol > 0
+      && !accountTransportGapAffected
       && (tradeCurveAtMs === null || accountAtMs >= tradeCurveAtMs);
     const curveProgress = accountUsable ? accountCurveProgress : tradeCurveProgress;
     const priceSol = accountUsable ? accountPriceSol : tradePriceSol;
@@ -212,19 +246,44 @@ class HeliusDecisionShadowState {
       sniperWindowAnchorKind,
       sniperWindowMs: this.sniperWindowMs,
       bundlerCandidate: false,
-      walletClassificationContext: walletContext
+      walletClassificationContext: walletContext,
+      rawTransportEpoch,
+      rawStateTransportEpoch,
+      rawTransportGapAffected,
+      accountTransportGapAffected
     };
+    const stateAvailable = Number.isFinite(curveProgress)
+      && Number.isFinite(priceSol)
+      && !rawTransportGapAffected;
     return {
-      available: Number.isFinite(curveProgress) && Number.isFinite(priceSol),
-      reason: !Number.isFinite(curveProgress)
-        ? 'HELIUS_CURVE_MISSING'
-        : (!Number.isFinite(priceSol) ? 'HELIUS_PRICE_MISSING' : null),
+      available: stateAvailable,
+      reason: rawTransportGapAffected
+        ? 'HELIUS_SHADOW_TRANSPORT_GAP'
+        : (!Number.isFinite(curveProgress)
+          ? 'HELIUS_CURVE_MISSING'
+          : (!Number.isFinite(priceSol) ? 'HELIUS_PRICE_MISSING' : null)),
       ageMs,
       curveStateSource,
       curveStateAt: lastCurveUpdateAt,
       accountEnriched: accountUsable,
       accountStateAgeMs,
       tradeStateAgeMs,
+      rawTransportEpoch,
+      rawStateTransportEpoch,
+      rawTransportConnected: transportStatus?.connected ?? null,
+      rawTransportSubscriptionReady: transportStatus?.subscriptionReady ?? null,
+      rawTransportGapActive: transportStatus?.transportGapActive === true,
+      rawTransportGapSequence: transportStatus?.transportGapSequence ?? null,
+      rawTransportGapAffected,
+      rawTransportRecoveryWindowActive,
+      lastRecoveredGapAtMs,
+      lastRecoveredGapDurationMs: this.finite(transportStatus?.lastRecoveredGapDurationMs),
+      accountTransportInspectable: accountStatus?.accountTransportInspectable ?? null,
+      accountTransportConnected: accountStatus?.accountTransportConnected ?? null,
+      accountTransportGeneration: accountStatus?.accountTransportGeneration ?? null,
+      accountLatestUpdateTransportGeneration:
+        accountStatus?.latestUpdateTransportGeneration ?? null,
+      accountTransportGapAffected,
       recentTapeCaptured: recentTrades.length > 0,
       recentTradeCap: this.recentTradeCap,
       state,
@@ -249,6 +308,10 @@ class HeliusDecisionShadowState {
         sniperWindowMs: this.sniperWindowMs,
         curveStateSource,
         accountEnriched: accountUsable,
+        rawTransportEpoch,
+        rawStateTransportEpoch,
+        rawTransportGapAffected,
+        accountTransportGapAffected,
         recentTapeCaptured: recentTrades.length > 0,
         recentTradeCap: this.recentTradeCap
       }

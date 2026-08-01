@@ -138,6 +138,29 @@ assert.strictEqual(
   }),
   'COUNTERFACTUAL_BASELINE_NOT_CONSUMED'
 );
+assert.strictEqual(
+  decisionShadowComparisonUnavailableReason({
+    shadowStateFresh: true,
+    rawTransportGapAffected: true,
+    counterfactual: { comparable: true },
+    actualGuardFamilyInputs: guardInputs,
+    shadowGuardFamilyInputs: guardInputs,
+    baselineControlConsumed: true
+  }),
+  'HELIUS_SHADOW_TRANSPORT_GAP'
+);
+assert.strictEqual(
+  decisionShadowComparisonUnavailableReason({
+    shadowStateFresh: true,
+    accountStateEnriched: true,
+    accountTransportGapAffected: true,
+    counterfactual: { comparable: true },
+    actualGuardFamilyInputs: guardInputs,
+    shadowGuardFamilyInputs: guardInputs,
+    baselineControlConsumed: true
+  }),
+  'FINALIST_ACCOUNT_TRANSPORT_GAP'
+);
 comparatorHarness.extractProviderCurveProgressForParity = (state) => state.curveProgress ?? null;
 comparatorHarness.extractProviderPriceForParity = (state) => state.priceSol ?? null;
 assert.deepStrictEqual(
@@ -213,7 +236,8 @@ for (const field of preregistration.decisionComparabilityDiagnostics.requiredFie
 for (const field of [
   ...preregistration.baselineControl.requiredComparableFields,
   ...preregistration.prewarmDiagnostics.requiredActiveSubscriptionFields,
-  ...preregistration.prewarmDiagnostics.requiredPrewarmedFields
+  ...preregistration.prewarmDiagnostics.requiredPrewarmedFields,
+  ...preregistration.transportComparability.requiredComparableFields
 ]) {
   assert(
     new RegExp(`\\b${field}\\s*[, :]`).test(evaluationEmitter),
@@ -229,6 +253,12 @@ assert(/\bpositionContextPolicy\s*:/.test(executedEmitter));
 assert(/\bindependentShadowPositionStateAvailable\s*:\s*false/.test(executedEmitter));
 assert.strictEqual(executedEmitter.includes('shadowPositionOccupiedAtDecision'), false);
 assert.strictEqual(executedEmitter.includes('actualPositionOccupiedAtDecision'), false);
+for (const field of preregistration.transportComparability.requiredComparableFields) {
+  assert(
+    new RegExp(`\\b${field}\\s*[, :]`).test(executedEmitter),
+    `V11 required executed transport field must be emitted: ${field}`
+  );
+}
 
 const sourceTelemetry = 'run-logs/synthetic-decision-shadow.jsonl';
 const events = [{
@@ -262,7 +292,13 @@ const events = [{
       decisionShadowMarketInputSemantics:
         preregistration.gateDecisionComparator.marketInputTelemetrySemantics,
       decisionShadowComparabilitySemantics:
-        preregistration.comparabilityPlanSemantics
+        preregistration.comparabilityPlanSemantics,
+      decisionShadowTransportComparabilitySemantics:
+        preregistration.transportComparability.planSemantics,
+      decisionShadowTransportGapExclusionWindowMs:
+        preregistration.transportComparability.rawGapExclusionWindowMs,
+      subscriptionAckTimeoutMs: preregistration.transportComparability.subscriptionAckTimeoutMs,
+      pongTimeoutMs: preregistration.transportComparability.pongTimeoutMs
     }
   }
 }];
@@ -286,6 +322,21 @@ for (let index = 0; index < 500; index += 1) {
       bestAvailableStateAgeMs: 25,
       bestAvailableStateSource: 'finalist_account_verifier',
       shadowCurveStateSource: 'finalist_account_verifier',
+      rawTransportEpoch: 1,
+      rawStateTransportEpoch: 1,
+      rawTransportConnected: true,
+      rawTransportSubscriptionReady: true,
+      rawTransportGapActive: false,
+      rawTransportGapSequence: null,
+      rawTransportGapAffected: false,
+      rawTransportRecoveryWindowActive: false,
+      lastRecoveredTransportGapAtMs: null,
+      lastRecoveredTransportGapDurationMs: null,
+      accountTransportInspectable: true,
+      accountTransportConnected: true,
+      accountTransportGeneration: 0,
+      accountLatestUpdateTransportGeneration: 0,
+      accountTransportGapAffected: false,
       actualEvaluatedPreset: 'runnerWatch',
       shadowEvaluatedPreset: 'runnerWatch',
       guardOverrideAllowListAgreement: true,
@@ -407,6 +458,20 @@ for (const action of ['ENTRY', 'EXIT']) {
       bestAvailableStateSource: 'finalist_account_verifier',
       shadowCurveStateSource: 'finalist_account_verifier',
       shadowAccountEnriched: true,
+      rawTransportEpoch: 1,
+      rawStateTransportEpoch: 1,
+      rawTransportConnected: true,
+      rawTransportSubscriptionReady: true,
+      rawTransportGapActive: false,
+      rawTransportGapAffected: false,
+      rawTransportRecoveryWindowActive: false,
+      lastRecoveredTransportGapAtMs: null,
+      lastRecoveredTransportGapDurationMs: null,
+      accountTransportInspectable: true,
+      accountTransportConnected: true,
+      accountTransportGeneration: 0,
+      accountLatestUpdateTransportGeneration: 0,
+      accountTransportGapAffected: false,
       positionContextOccupiedAtDecision: false,
       positionContextPresetAtDecision: null,
       positionContextPolicy: 'actual_pre_observation_context_held_constant',
@@ -467,6 +532,12 @@ assert.strictEqual(report.agreement.walletFeatureAgreementRate, 1);
 assert.strictEqual(report.checks.correctPaidTapeBudget, true);
 assert.strictEqual(report.checks.correctMarketInputSemantics, true);
 assert.strictEqual(report.checks.correctComparabilitySemantics, true);
+assert.strictEqual(report.checks.correctTransportComparabilitySemantics, true);
+assert.strictEqual(report.checks.correctTransportGapExclusionWindow, true);
+assert.strictEqual(report.checks.comparableRawTransportProvenance, true);
+assert.strictEqual(report.checks.noComparableTransportGapRows, true);
+assert.strictEqual(report.checks.accountEnrichmentTransportProvenance, true);
+assert.strictEqual(report.checks.comparableExecutedTransportProvenance, true);
 assert.strictEqual(report.checks.comparableMarketInputTelemetryComplete, true);
 assert.strictEqual(report.counts.comparableGateEvaluationsWithCompleteMarketInputTelemetry, 500);
 assert.strictEqual(
