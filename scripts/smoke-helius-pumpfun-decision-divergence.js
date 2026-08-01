@@ -15,18 +15,26 @@ const {
 const {
   analyzeEvents,
   buildEntryMismatchAttribution,
-  loadPreregistration
+  loadPreregistration,
+  preregistrationByteHashes
 } = require('./helius-pumpfun-decision-divergence-report');
+const lfHashes = preregistrationByteHashes(Buffer.from('{\n  "ok": true\n}\n'));
+const crlfHashes = preregistrationByteHashes(Buffer.from('{\r\n  "ok": true\r\n}\r\n'));
+assert.strictEqual(lfHashes.canonicalLfSha256, crlfHashes.canonicalLfSha256);
+assert.notStrictEqual(lfHashes.rawSha256, crlfHashes.rawSha256);
 const preregistration = loadPreregistration();
-assert.strictEqual(preregistration.id, 'helius_pumpfun_decision_divergence_v11_2026-07-31');
+assert.strictEqual(preregistration.id, 'helius_pumpfun_decision_divergence_v12_2026-08-01');
 assert.deepStrictEqual(
   preregistration.preregistrationInheritance.map((item) => item.id),
   [
     'helius_pumpfun_decision_divergence_v7_2026-07-25',
     'helius_pumpfun_decision_divergence_v9_2026-07-26',
-    'helius_pumpfun_decision_divergence_v10_2026-07-31'
+    'helius_pumpfun_decision_divergence_v10_2026-07-31',
+    'helius_pumpfun_decision_divergence_v11_2026-07-31'
   ]
 );
+assert.strictEqual(preregistration.transportComparability.rawGapExclusionWindowMs, 120000);
+assert.strictEqual(preregistration.supersedes.evidenceReuseAllowed, false);
 assert.deepStrictEqual(
   preregistration.prewarmDiagnostics.triggerPriority,
   PREWARM_TRIGGER_REASON_ORDER

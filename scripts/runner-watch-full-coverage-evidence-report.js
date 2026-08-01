@@ -266,6 +266,10 @@ function appendCoverageAnnotation(row) {
   return { appended: true, rows: [...rows, row] };
 }
 
+function evidenceCollectionClosed(prereg) {
+  return prereg?.terminalDisposition?.closedToFurtherLedgerAppends === true;
+}
+
 function summarizeLedger(rows, prereg) {
   const runRows = rows.filter((row) => row.recordType !== 'coverage_annotation');
   const coverageAnnotations = new Map(
@@ -313,11 +317,11 @@ function summarizeLedger(rows, prereg) {
     runConcentration: largestPositiveRunShare !== null && largestPositiveRunShare <= 0.6
   };
   const concentrationDependent = totalPnlSol > 0 && pnlAfterRemovingTop3WinnersSol <= 0;
-  let verdict = 'COLLECTING_RUNTIME_EVIDENCE';
-  if (economicReady) verdict = Object.values(requirements).every(Boolean)
+  let verdict = prereg.terminalDisposition?.disposition || 'COLLECTING_RUNTIME_EVIDENCE';
+  if (!prereg.terminalDisposition && economicReady) verdict = Object.values(requirements).every(Boolean)
     ? 'RUNTIME_CHECKPOINT_PASSED_PAPER_ONLY'
     : 'FAILED_RUNTIME_CHECKPOINT';
-  else if (validRuns.length >= prereg.stoppingRule.validRuns
+  else if (!prereg.terminalDisposition && validRuns.length >= prereg.stoppingRule.validRuns
     && episodes.length < prereg.economicCheckpoint.minimumUniqueMintEpisodes) {
     verdict = 'INSUFFICIENT_THROUGHPUT_FOR_LIVE_GRADUATION';
   }
@@ -341,6 +345,8 @@ function summarizeLedger(rows, prereg) {
     largestPositiveRunShare: round(largestPositiveRunShare, 6),
     economicCheckpointReady: economicReady,
     economicRequirements: requirements,
+    evidenceCollectionClosed: evidenceCollectionClosed(prereg),
+    terminalDisposition: prereg.terminalDisposition || null,
     liveAction: 'KEEP_LIVE_DISABLED'
   };
 }
@@ -378,9 +384,12 @@ function main() {
   };
   let ledgerRows = readLedger();
   let appended = false;
-  if (validation.checks.postRegistration) ({ rows: ledgerRows, appended } = appendRun(runRow));
+  const collectionClosed = evidenceCollectionClosed(prereg);
+  if (validation.checks.postRegistration && !collectionClosed) {
+    ({ rows: ledgerRows, appended } = appendRun(runRow));
+  }
   let coverageAnnotationAppended = false;
-  if (validation.checks.postRegistration && coverage.paidTapeCoverageTruncated === true) {
+  if (validation.checks.postRegistration && !collectionClosed && coverage.paidTapeCoverageTruncated === true) {
     ({ rows: ledgerRows, appended: coverageAnnotationAppended } = appendCoverageAnnotation({
       recordType: 'coverage_annotation',
       telemetryPath: relative(telemetryPath),
@@ -403,6 +412,9 @@ function main() {
       episodes,
       economics: currentRunEconomics,
       ledgerAppended: appended,
+      ledgerAppendDisposition: collectionClosed
+        ? prereg.terminalDisposition.disposition
+        : (appended ? 'APPENDED' : 'ALREADY_RECORDED'),
       coverageAnnotationAppended
     },
     cumulative,
@@ -424,5 +436,6 @@ module.exports = {
   validateRun,
   summarizeLedger,
   summarizeEpisodes,
+  evidenceCollectionClosed,
   appendCoverageAnnotation
 };

@@ -94,6 +94,22 @@
     "ifDurabilityFailsAtCheckpoint": "FAILED_RUNTIME_CHECKPOINT",
     "noGateLooseningFromStarvation": true
   },
+  "terminalDisposition": {
+    "disposition": "FAILED_RUNTIME_CHECKPOINT",
+    "latchedAt": "2026-08-01T01:00:19.660-05:00",
+    "sourceTelemetry": "run-logs/telemetry-2026-08-01T04-52-02-802Z.jsonl",
+    "closedToFurtherLedgerAppends": true,
+    "validRunsAtCheckpoint": 6,
+    "excludedRunsAtCheckpoint": 1,
+    "realizedUniqueMintEpisodesAtCheckpoint": 41,
+    "episodesPerFullCoverageHourAtCheckpoint": 6.833713,
+    "totalPnlSolAtCheckpoint": -0.070938513,
+    "medianEpisodePnlSolAtCheckpoint": -0.013537168,
+    "pnlAfterRemovingTop3WinnersSolAtCheckpoint": -0.253706324,
+    "reason": "The frozen throughput requirement passed, but all three frozen economic durability checks failed after the minimum 20 episodes and 5 valid runs. The lane is terminal and later cumulative data cannot reopen it.",
+    "nextExperimentRule": "Any runner-watch successor must be a new preregistration with a future-only evidence window; V5 evidence cannot be extended or regraded.",
+    "liveAction": "KEEP_LIVE_DISABLED"
+  },
   "freezePolicy": {
     "minimumConsecutiveFutureValidRunsBeforeSchemaChange": 3,
     "allowedEarlyAmendmentReasons": [

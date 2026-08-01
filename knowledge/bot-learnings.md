@@ -49,6 +49,7 @@ These are local lessons from this bot's own paper-trading research.
 
 - Capital preservation matters more than forcing trades.
 - MFE and excursion shape at `n=10` predicted nothing for the frozen wallet lane: realizable replay reversed the seductive excursion picture into a median-negative, ex-top-3-negative failure. Never grade a strategy lane on excursions; require realizable exits plus frozen median and ex-top-winner durability checks.
+- Runner-watch V5 also failed after its sample expanded to 41 unique episodes across 6 valid full-coverage runs: throughput passed, but total, median, and ex-top-3 PnL were all negative. Small early winning streaks are not promotion evidence; the frozen durability checkpoint decides.
 - A valid response to uncertainty is no trade.
 - One isolated threshold change is better than panic-tuning multiple gates at once.
 - The bot should prefer trustworthy structure over exciting noise.

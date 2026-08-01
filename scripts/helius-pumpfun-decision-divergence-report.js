@@ -12,13 +12,20 @@ const {
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
-const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v11.json');
+const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'helius-decision-divergence-v12.json');
 const PARITY_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity-latest.json');
 const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence');
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-decision-divergence-latest.json');
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
+}
+
+function preregistrationByteHashes(bytes) {
+  const rawSha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+  const canonicalLfBytes = Buffer.from(bytes.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
+  const canonicalLfSha256 = crypto.createHash('sha256').update(canonicalLfBytes).digest('hex');
+  return { rawSha256, canonicalLfSha256 };
 }
 
 function loadPreregistration(filePath = PREREG_PATH, ancestors = new Set()) {
@@ -30,8 +37,9 @@ function loadPreregistration(filePath = PREREG_PATH, ancestors = new Set()) {
   if (!extension.extends) return extension;
   const basePath = path.resolve(ROOT, extension.extends);
   const baseBytes = fs.readFileSync(basePath);
-  const actualHash = crypto.createHash('sha256').update(baseBytes).digest('hex');
-  if (actualHash !== extension.basePreregistrationSha256) {
+  const baseHashes = preregistrationByteHashes(baseBytes);
+  const expectedHash = extension.basePreregistrationSha256;
+  if (![baseHashes.rawSha256, baseHashes.canonicalLfSha256].includes(expectedHash)) {
     throw new Error(`Helius decision preregistration base hash mismatch: ${extension.extends}`);
   }
   const nextAncestors = new Set(ancestors);
@@ -42,14 +50,16 @@ function loadPreregistration(filePath = PREREG_PATH, ancestors = new Set()) {
     ...extension,
     basePreregistration: {
       path: extension.extends,
-      sha256: actualHash
+      sha256: expectedHash,
+      lineEndingNormalized: expectedHash !== baseHashes.rawSha256
     },
     preregistrationInheritance: [
       ...(base.preregistrationInheritance || []),
       {
         id: readJson(basePath).id || null,
         path: extension.extends,
-        sha256: actualHash
+        sha256: expectedHash,
+        lineEndingNormalized: expectedHash !== baseHashes.rawSha256
       }
     ]
   };
@@ -1399,6 +1409,7 @@ module.exports = {
   marketInputTelemetryComplete,
   marketInputTelemetryMissingFields,
   offlineComparabilityByBound,
+  preregistrationByteHashes,
   stats,
   withoutMarketProvenance
 };

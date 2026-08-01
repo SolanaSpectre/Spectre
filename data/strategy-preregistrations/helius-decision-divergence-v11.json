@@ -124,7 +124,16 @@
       "postV11Rows": 0
     }
   },
-  "checkpointDisposition": null,
+  "checkpointDisposition": {
+    "disposition": "INVALID_RUN_TRANSPORT_GAP_WINDOW_PLAN_MISMATCH",
+    "latchedAt": "2026-08-01T01:00:19.660-05:00",
+    "sourceTelemetry": "run-logs/telemetry-2026-08-01T04-52-02-802Z.jsonl",
+    "evidenceReuseAllowed": false,
+    "frozenRawGapExclusionWindowMs": 60000,
+    "observedRuntimeGapExclusionWindowMs": 120000,
+    "concurrentTransportParityVerdict": "HELIUS_SHADOW_PARITY_PASSED",
+    "interpretation": "The Helius transport lifecycle passed with no gaps or reconnects, but V11 is invalid because its frozen 60-second recovery window did not match the runtime's 120-second PUMP_MOMENTUM_WINDOW_MS. Entry mismatch rows remain diagnostic context only and cannot grade V11."
+  },
   "passVerdict": "HELIUS_DECISION_SHADOW_V11_SAME_PATH_MISMATCHES_ATTRIBUTED_REPORT_ONLY",
   "failVerdict": "HELIUS_DECISION_SHADOW_V11_UNATTRIBUTED_SAME_PATH_ENTRY_MISMATCH",
   "insufficientVerdict": "HELIUS_DECISION_SHADOW_V11_INSUFFICIENT_SAME_PATH_ATTRIBUTION_EVIDENCE",

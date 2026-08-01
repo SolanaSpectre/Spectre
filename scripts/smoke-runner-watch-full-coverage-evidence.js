@@ -11,7 +11,8 @@ const {
   buildEpisodes,
   validateRun,
   summarizeLedger,
-  summarizeEpisodes
+  summarizeEpisodes,
+  evidenceCollectionClosed
 } = require('./runner-watch-full-coverage-evidence-report');
 const frozenPrereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v5.json');
 
@@ -19,6 +20,8 @@ const engineSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'trading-
 const envExample = fs.readFileSync(path.join(__dirname, '..', '.env.example'), 'utf8');
 assert.strictEqual(frozenPrereg.subscriptionPlan.paidEventBudgetPerSession, 105000);
 assert.strictEqual(frozenPrereg.subscriptionPlan.requiredStartingBalanceSol, 0.125);
+assert.strictEqual(evidenceCollectionClosed(frozenPrereg), true);
+assert.strictEqual(frozenPrereg.terminalDisposition.disposition, 'FAILED_RUNTIME_CHECKPOINT');
 assert(engineSource.includes(`id: '${frozenPrereg.id}'`), 'runtime must emit the V5 strategy preregistration id');
 assert(
   envExample.includes('PUMPPORTAL_MAX_METERED_TRADE_EVENTS_PER_SESSION=105000'),
@@ -179,7 +182,18 @@ assert.strictEqual(summary.validRunPnlSol, 0.025);
 assert.strictEqual(summary.excludedRunPnlSol, 0);
 assert.strictEqual(summary.episodesPerFullCoverageHour, 2);
 assert.strictEqual(summary.economicCheckpointReady, true);
+assert.strictEqual(summary.evidenceCollectionClosed, false);
 assert.strictEqual(summary.liveAction, 'KEEP_LIVE_DISABLED');
+
+const terminalSummary = summarizeLedger([], {
+  ...prereg,
+  terminalDisposition: {
+    disposition: 'FAILED_RUNTIME_CHECKPOINT',
+    closedToFurtherLedgerAppends: true
+  }
+});
+assert.strictEqual(terminalSummary.verdict, 'FAILED_RUNTIME_CHECKPOINT');
+assert.strictEqual(terminalSummary.evidenceCollectionClosed, true);
 
 const correctedSummary = summarizeLedger([
   {

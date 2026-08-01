@@ -49,6 +49,15 @@ These lessons come from this bot's own paper-trading outcomes.
 - Any attempt to apply trailing-giveback or runner-watch-style confirmation to a failed curve-advancement population must be treated as a new pre-registered hypothesis with its own future-only confirmation.
 - The strongest live-shaped evidence remains selective `RUNNER_WATCH` entries with confirmation plus trailing exits, not raw proximity to curve60/curve90.
 
+## Runner-Watch V5 Failed Its Runtime Checkpoint
+
+- On 2026-08-01, `RUNNER_WATCH` V5 reached its frozen economic checkpoint with 6 valid full-coverage runs and 41 unique mint episodes.
+- Throughput was not the problem: the lane produced 6.833713 episodes per full-coverage hour, comfortably above its one-episode-per-hour requirement.
+- Durability failed mechanically: total PnL was `-0.070938513 SOL`, median episode PnL was `-0.013537168 SOL`, and ex-top-3 PnL was `-0.253706324 SOL`.
+- The earlier small winning sample did not survive expansion. Confirmation plus trailing exits is therefore not a proven edge under V5, and the lane is terminal at `FAILED_RUNTIME_CHECKPOINT`.
+- Do not reopen V5 by accumulating more rows or retuning it in place. Any successor is a new hypothesis with a new preregistration and future-only evidence.
+- Live remains disabled. Passing infrastructure and adequate entry throughput do not compensate for negative runtime economics.
+
 ## Wallet Shadow Checkpoint Discipline
 
 - The `all_low_score_first_sight__tracked_first_touch_buy` wallet shadow lane reached its first 10-sample checkpoint on 2026-07-13, but it was not promoted.
