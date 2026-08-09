@@ -3,8 +3,15 @@
   "id": "runner_watch_helius_primary_v6_2026-08-08",
   "preregisteredAt": "2026-08-08T16:50:29.9443113-05:00",
   "status": "PREREGISTERED_BEFORE_FIRST_HELIUS_PRIMARY_RUN",
-  "amendmentStatus": "CONFIG_AND_SOURCE_FREEZE_ADDED_BEFORE_FIRST_ELIGIBLE_V6_RUN",
+  "amendmentStatus": "CONFIG_SOURCE_AND_RUN_DURATION_FROZEN_BEFORE_FIRST_ELIGIBLE_V6_RUN",
   "amendedAtBeforeFirstEligibleRun": "2026-08-09T02:13:59.620Z",
+  "runDurationAlignmentAmendment": {
+    "status": "AMENDED_BEFORE_FIRST_ELIGIBLE_V6_RUN",
+    "amendedAt": "2026-08-09T03:01:19.829Z",
+    "reason": "The original config hash captured SESSION_DURATION_MINUTES=15 while validRunDefinition requires a 60-minute request and at least 55 covered minutes. No eligible V6 run or evidence artifact existed before this correction.",
+    "previousExpectedConfigHash": "27798bc26b8175e32f192b0b854f879358b24c479e845bde52187684cea21588",
+    "correctedSessionDurationMinutes": 60
+  },
   "mode": "paper_only",
   "liveBehaviorChanged": false,
   "question": "Under a Helius-only, gap-accounted runtime feed, does PRE_MIGRATION_RUNNER_WATCH produce at least one independent mint episode per covered hour and durable realizable paper outcomes?",
@@ -32,7 +39,8 @@
   },
   "configFreeze": {
     "algorithm": "sha256_canonical_allowlisted_config_v1",
-    "expectedConfigHash": "27798bc26b8175e32f192b0b854f879358b24c479e845bde52187684cea21588",
+    "expectedConfigHash": "934e64ad131f5b8e8ce84eb4fbc9e43ea5a1fedc2cddeab0245370d272bfaf12",
+    "sessionDurationMinutes": 60,
     "snapshotSource": "allowlisted_config_getters",
     "secretValuesExcluded": true
   },
