@@ -35,6 +35,15 @@ class Position {
     this.grossPnL = (exitPrice - this.entryPrice) * this.size;
     this.netPnL = this.grossPnL - this.fees - exitFees;
   }
+
+  closeByValue(exitValueSol, exitPrice = null, exitFees = 0) {
+    this.exitPrice = exitPrice;
+    this.exitValueSol = exitValueSol;
+    this.exitTime = Date.now();
+    this.status = 'CLOSED';
+    this.grossPnL = exitValueSol - this.entryValueSol;
+    this.netPnL = this.grossPnL - this.fees - exitFees;
+  }
 }
 
 module.exports = Position;

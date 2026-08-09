@@ -8,10 +8,10 @@ const { scanHeliusRuntimeCoverage } = require('./lib/helius-runtime-coverage');
 const { isRuntimeProviderEvent } = require('./lib/runtime-provider-events');
 
 const ROOT = path.join(__dirname, '..');
-const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'runner-watch-full-coverage-v7.json');
+const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'runner-watch-full-coverage-v8.json');
 const BATTLEFIELD_PATH = path.join(ROOT, 'data', 'reports', 'run-battlefield-latest.json');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'runner-watch-full-coverage-evidence-latest.json');
-const LEDGER_PATH = path.join(ROOT, 'data', 'runner-watch-ledgers', 'full-coverage-v7.jsonl');
+const LEDGER_PATH = path.join(ROOT, 'data', 'runner-watch-ledgers', 'full-coverage-v8.jsonl');
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
@@ -74,6 +74,19 @@ function scanRun(telemetryPath) {
     paperDecisionsWithPositiveTradeVelocityPerMin: 0,
     heliusCandidatesMisroutedAsNonPump: 0
   };
+  const paperExecutableExitDiagnostics = {
+    positionsOpened: 0,
+    positionsOpenedWithExactTokenAmount: 0,
+    positionsMarked: 0,
+    positionsClosed: 0,
+    positionsClosedWithExecutableMark: 0,
+    markSkips: 0,
+    markFailures: 0
+  };
+  const openedPositionIds = new Set();
+  const markedPositionIds = new Set();
+  const closedPositionIds = new Set();
+  const executableClosedPositionIds = new Set();
   forEachJsonlSync(telemetryPath, (event) => {
     const payload = event.payload || event.data || {};
     if (event.type === 'session.started') started = { timestamp: event.timestamp, payload };
@@ -98,6 +111,33 @@ function scanRun(telemetryPath) {
     ) {
       pumpFamilySemanticDiagnostics.heliusCandidatesMisroutedAsNonPump += 1;
     }
+    if (event.type === 'paper.position.opened') {
+      paperExecutableExitDiagnostics.positionsOpened += 1;
+      if (payload.positionId) openedPositionIds.add(payload.positionId);
+      try {
+        if (BigInt(String(payload.tokenAmountRaw || 0)) > 0n) {
+          paperExecutableExitDiagnostics.positionsOpenedWithExactTokenAmount += 1;
+        }
+      } catch {
+        // Invalid amounts remain visible as a failed contract count.
+      }
+    } else if (event.type === 'paper.position.marked') {
+      paperExecutableExitDiagnostics.positionsMarked += 1;
+      if (payload.positionId && payload.markSource === 'JUPITER_EXECUTABLE_SELL_QUOTE') {
+        markedPositionIds.add(payload.positionId);
+      }
+    } else if (event.type === 'paper.position.closed') {
+      paperExecutableExitDiagnostics.positionsClosed += 1;
+      if (payload.positionId) closedPositionIds.add(payload.positionId);
+      if (payload.markSource === 'JUPITER_EXECUTABLE_SELL_QUOTE') {
+        paperExecutableExitDiagnostics.positionsClosedWithExecutableMark += 1;
+        if (payload.positionId) executableClosedPositionIds.add(payload.positionId);
+      }
+    } else if (event.type === 'paper.position.mark_skipped') {
+      paperExecutableExitDiagnostics.markSkips += 1;
+    } else if (event.type === 'paper.position.mark_failed') {
+      paperExecutableExitDiagnostics.markFailures += 1;
+    }
     if (event.type === 'provider.helius_pumpfun.runtime_trade') {
       pumpFamilySemanticDiagnostics.runtimeTradesObserved += 1;
       if (payload.pumpFamilyClassified === true) {
@@ -121,6 +161,10 @@ function scanRun(telemetryPath) {
     counts[row.reason || 'UNKNOWN'] = (counts[row.reason || 'UNKNOWN'] || 0) + 1;
     return counts;
   }, {});
+  paperExecutableExitDiagnostics.uniquePositionsOpened = openedPositionIds.size;
+  paperExecutableExitDiagnostics.uniquePositionsWithExecutableMark = markedPositionIds.size;
+  paperExecutableExitDiagnostics.uniquePositionsClosed = closedPositionIds.size;
+  paperExecutableExitDiagnostics.uniquePositionsClosedWithExecutableMark = executableClosedPositionIds.size;
   return {
     started,
     stopping,
@@ -130,7 +174,8 @@ function scanRun(telemetryPath) {
       runtimeProviderEvents,
       paperDecisions: paperDecisions.length,
       paperDecisionReasons: skipReasons,
-      pumpFamilySemanticDiagnostics
+      pumpFamilySemanticDiagnostics,
+      paperExecutableExitDiagnostics
     }
   };
 }
@@ -198,6 +243,23 @@ function validateRun(prereg, telemetryPath, run, coverage) {
   const requested = prereg.validRunDefinition;
   const runtimeEvents = number(coverage.runtimeEvents, 0);
   const semantic = run.coverageDiagnostics?.pumpFamilySemanticDiagnostics || {};
+  const paperExit = run.coverageDiagnostics?.paperExecutableExitDiagnostics || {};
+  const generalPaperPositionsOpened = number(paperExit.positionsOpened, 0);
+  const noGeneralPaperPositionEvents = generalPaperPositionsOpened === 0
+    && number(paperExit.positionsMarked, 0) === 0
+    && number(paperExit.positionsClosed, 0) === 0
+    && number(paperExit.markSkips, 0) === 0
+    && number(paperExit.markFailures, 0) === 0;
+  const paperExitContractSatisfied = noGeneralPaperPositionEvents || (
+    generalPaperPositionsOpened > 0
+    && number(paperExit.positionsOpenedWithExactTokenAmount, 0) === generalPaperPositionsOpened
+    && number(paperExit.uniquePositionsOpened, 0) === generalPaperPositionsOpened
+    && number(paperExit.uniquePositionsWithExecutableMark, 0) === generalPaperPositionsOpened
+    && number(paperExit.positionsClosed, 0) === generalPaperPositionsOpened
+    && number(paperExit.positionsClosedWithExecutableMark, 0) === generalPaperPositionsOpened
+    && number(paperExit.uniquePositionsClosed, 0) === generalPaperPositionsOpened
+    && number(paperExit.uniquePositionsClosedWithExecutableMark, 0) === generalPaperPositionsOpened
+  );
   const queueIntegrityClean = number(coverage.listenerQueueDropped, 0) === 0
     && number(coverage.listenerQueueHandlerErrors, 0) === 0
     && coverage.listenerQueueStopDrainTimedOut !== true
@@ -264,6 +326,9 @@ function validateRun(prereg, telemetryPath, run, coverage) {
         >= requested.minimumPaperDecisionsWithPositiveTradeVelocityPerMin,
     noHeliusCandidatesMisroutedAsNonPump: requested.heliusPumpFamilyNonPumpRejectionsMustBeZero !== true
       || number(semantic.heliusCandidatesMisroutedAsNonPump, 0) === 0,
+    paperExecutableExitMarkContract:
+      requested.paperExecutableMarkTelemetryRequiredWhenGeneralPaperPositionOpens !== true
+      || paperExitContractSatisfied,
     noLegacyRuntimeEvents: requested.legacyRuntimeEventsMustBeZero === true
       && number(coverage.legacyRuntimeEvents, 0) === 0,
     runtimeQueueIntegrity: requested.queueDropsErrorsOverflowsAndDrainTimeoutsMustBeZero === true
@@ -327,6 +392,7 @@ function validateRun(prereg, telemetryPath, run, coverage) {
         runtimeQueueDrainTimeouts: coverage.runtimeQueueDrainTimeouts
       },
       pumpFamilySemanticDiagnostics: semantic,
+      paperExecutableExitDiagnostics: paperExit,
       runtimeRpcCurveErrors: curveErrors,
       activeRuntimeRpcCurveErrors: activeCurveErrors,
       stoppingRuntimeRpcCurveErrors: stoppingCurveErrors,
@@ -470,7 +536,7 @@ function main() {
     },
     cumulative,
     ledgerPath: relative(LEDGER_PATH),
-    note: 'Only post-registration runs matching the frozen config hash, source fingerprint, clean Git state, Helius-primary plan, semantic-health checks, and gap-accounted full-coverage definition enter the cumulative evidence ledger. V1-V6 remain separate and terminal. Same-mint reentries are one episode per run.',
+    note: 'Only post-registration runs matching the frozen config hash, source fingerprint, clean Git state, Helius-primary plan, semantic-health checks, PAPER executable-exit contract, and gap-accounted full-coverage definition enter the cumulative evidence ledger. V1-V7 remain separate and terminal. Same-mint reentries are one episode per run.',
     prohibitions: prereg.prohibitions
   };
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });

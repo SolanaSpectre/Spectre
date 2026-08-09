@@ -6,9 +6,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { buildSourceFingerprint } = require('../src/lib/runtime-source-provenance');
-const prereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v7.json');
+const priorPrereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v7.json');
+const prereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v8.json');
 
 const ROOT = path.join(__dirname, '..');
+assert.strictEqual(priorPrereg.terminalDisposition.closedToFurtherLedgerAppends, true);
 const actual = buildSourceFingerprint(ROOT, prereg.sourceFreeze.files);
 assert.strictEqual(actual.algorithm, prereg.sourceFreeze.algorithm);
 assert.strictEqual(actual.sourceFingerprint, prereg.sourceFreeze.expectedSourceFingerprint);

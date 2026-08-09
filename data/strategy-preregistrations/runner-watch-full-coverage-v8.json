@@ -1,40 +1,58 @@
 {
   "schemaVersion": 1,
-  "id": "runner_watch_helius_pump_family_v7_2026-08-09",
-  "preregisteredAt": "2026-08-09T04:24:02.9438665-05:00",
-  "status": "PREREGISTERED_BEFORE_FIRST_HELIUS_PUMP_FAMILY_RUN",
+  "id": "runner_watch_helius_executable_exit_v8_2026-08-09",
+  "preregisteredAt": "2026-08-09T08:57:34.8594923-05:00",
+  "status": "PREREGISTERED_BEFORE_FIRST_EXECUTABLE_EXIT_MARK_RUN",
   "mode": "paper_only",
   "liveBehaviorChanged": false,
-  "question": "After correcting provider-neutral Pump-family classification, does PRE_MIGRATION_RUNNER_WATCH produce at least one independent mint episode per covered hour and durable realizable paper outcomes under a Helius-only runtime feed?",
+  "question": "After correcting general PAPER exit valuation and accounting without changing runner-watch strategy behavior, does PRE_MIGRATION_RUNNER_WATCH produce at least one independent mint episode per covered hour and durable realizable paper outcomes under a Helius-only runtime feed?",
   "priorEvidence": {
-    "id": "runner_watch_helius_primary_v6_2026-08-08",
-    "disposition": "SUPERSEDED_RUNTIME_DATA_INTEGRITY_DEFECT",
+    "id": "runner_watch_helius_pump_family_v7_2026-08-09",
+    "disposition": "SUPERSEDED_SOURCE_FREEZE_EXIT_MEASUREMENT_CORRECTION",
     "acceptedEvidenceReuseAllowed": false,
-    "validRuns": 1,
-    "fullCoverageMinutes": 58.6289,
-    "runtimeProviderEvents": 128606,
-    "paperDecisions": 4452,
-    "runnerCandidates": 329,
+    "validRuns": 2,
+    "fullCoverageMinutes": 119.6213,
+    "runtimeProviderEvents": 215815,
+    "paperDecisions": 21018,
     "realizedUniqueMintEpisodes": 0,
-    "interpretation": "V6 remains valid transport evidence, but its strategy evidence is unusable because Helius Pump.fun sources were routed through vendor-specific non-Pump branches. V7 starts a future-only evidence window after the classifier and semantic-health correction."
+    "interpretation": "V7 remains valid historical evidence for Helius transport and two zero-throughput hours. Its rows cannot count toward V8 because the frozen protocol required a new era after any exit or source change."
   },
   "correctionScope": {
-    "defectClass": "runtime_data_integrity_defect",
-    "sourceCause": "The isPumpPortalToken classifier excluded helius_logs_* and helius_pumpfun_* Pump.fun sources.",
+    "defectClass": "paper_exit_measurement_integrity_defect",
+    "sourceCause": "General PAPER positions reused a 120-second cached analysis price for stop checks, did not retain the accepted buy quote token output amount, and closed accounting with incompatible token-price-by-SOL-size units.",
     "allowedChanges": [
-      "replace vendor-specific Pump classification with provider-neutral Pump-family classification",
-      "reuse the existing rolling Pump trade-window calculation for Helius runtime events",
-      "emit semantic-health fields on existing Helius runtime trade telemetry",
-      "validate classified trades, positive rolling activity, decision propagation, and zero Helius-to-non-Pump misroutes"
+      "retain the exact positive token output amount from the accepted Jupiter buy quote before debiting the paper wallet",
+      "request a fresh Jupiter executable sell quote for that exact token amount on each general PAPER position cycle",
+      "evaluate existing PAPER exit rules from executable position value rather than cached analysis price",
+      "close PAPER accounting by exit value so accounting and engine realized PnL use the same units",
+      "emit bounded PAPER position mark provenance and integrity diagnostics",
+      "add regression tests and evidence-report contract validation for the corrected path"
     ],
     "unchanged": [
       "entry thresholds",
       "wallet gates",
-      "exit rules",
+      "configured stop-loss, take-profit, trailing, breakeven, and time-exit thresholds",
       "position sizing",
       "provider selection",
       "coverage minimum",
-      "economic checkpoint"
+      "runner-watch episode identity",
+      "throughput checkpoint",
+      "economic checkpoint",
+      "live execution behavior"
+    ]
+  },
+  "paperExitMeasurementContract": {
+    "scope": "general PAPER positions only; PRE_MIGRATION_RUNNER_WATCH lane behavior is unchanged",
+    "entryTokenAmountSource": "accepted Jupiter buy quote output amount",
+    "markSource": "fresh Jupiter executable sell quote for exact entry token amount",
+    "markCadence": "each general PAPER position update cycle",
+    "analysisPriceCacheAllowedForExitDecisions": false,
+    "accountingPnLFormula": "executable exit value SOL - entry value SOL - fees",
+    "liveBehaviorChanged": false,
+    "requiredTelemetryWhenPositionOpens": [
+      "paper.position.opened with positive tokenAmountRaw and positionId",
+      "paper.position.marked with JUPITER_EXECUTABLE_SELL_QUOTE for the same positionId",
+      "paper.position.closed with JUPITER_EXECUTABLE_SELL_QUOTE when the position closes"
     ]
   },
   "providerPlan": {
@@ -57,7 +75,7 @@
   },
   "sourceFreeze": {
     "algorithm": "sha256_canonical_lf_v1",
-    "expectedSourceFingerprint": "d2073e3df39c73d76cec95a1f083bce9a8f64dd7cb53777fc6e1f55e132a3c5a",
+    "expectedSourceFingerprint": "201d8f42ebdcac0f6dc27379b4821d592f9ec7d5682c422f9360ea3c02e7f32a",
     "requireGitCommitRecorded": true,
     "requireCleanWorkingTree": true,
     "files": [
@@ -66,6 +84,7 @@
       "scripts/runner-watch-full-coverage-evidence-report.js",
       "src/config.js",
       "src/helius-pumpfun-shadow-listener.js",
+      "src/lib/accounting.js",
       "src/lib/execution-modes.js",
       "src/lib/finalist-account-verifier.js",
       "src/lib/helius-decision-shadow-comparability.js",
@@ -84,6 +103,7 @@
       "src/lib/safety-gates.js",
       "src/lib/wallet-context.js",
       "src/market-data.js",
+      "src/models/Position.js",
       "src/trading-engine.js"
     ]
   },
@@ -113,12 +133,13 @@
     "minimumPaperDecisionsWithPositiveRecentVolumeSol": 1,
     "minimumPaperDecisionsWithPositiveTradeVelocityPerMin": 1,
     "heliusPumpFamilyNonPumpRejectionsMustBeZero": true,
+    "paperExecutableMarkTelemetryRequiredWhenGeneralPaperPositionOpens": true,
     "interruptedRunsExcluded": true
   },
   "episodeIdentity": "telemetry_run|mint; same-mint reentries within a run count as one episode",
   "throughputCheckpoint": {
     "minimumUniqueMintEpisodesPerFullCoverageHour": 1,
-    "gradeOn": "cumulative future-only valid V7 Helius Pump-family sessions"
+    "gradeOn": "cumulative future-only valid V8 Helius executable-exit sessions"
   },
   "economicCheckpoint": {
     "minimumUniqueMintEpisodes": 20,
@@ -137,43 +158,13 @@
     "ifDurabilityFailsAtCheckpoint": "FAILED_RUNTIME_CHECKPOINT",
     "noGateLooseningFromStarvation": true
   },
-  "terminalDisposition": {
-    "disposition": "SUPERSEDED_SOURCE_FREEZE_EXIT_MEASUREMENT_CORRECTION",
-    "latchedAt": "2026-08-09T08:57:34.8594923-05:00",
-    "sourceTelemetry": "run-logs/telemetry-2026-08-09T11-43-40-250Z.jsonl",
-    "ledgerPath": "data/runner-watch-ledgers/full-coverage-v7.jsonl",
-    "closedToFurtherLedgerAppends": true,
-    "validRunsAtClosure": 2,
-    "fullCoverageMinutesAtClosure": 119.6213,
-    "runtimeProviderEventsAtClosure": 215815,
-    "paperDecisionsAtClosure": 21018,
-    "realizedUniqueMintEpisodesAtClosure": 0,
-    "defectEvidence": {
-      "affectedPath": "general RUNNER_HUNTER PAPER positions",
-      "positionsObserved": 2,
-      "configuredStopLossPercent": 0.022,
-      "observedLossPercents": [
-        -0.2195049782473392,
-        -0.6713366878699564
-      ],
-      "observedHoldMilliseconds": [
-        122907,
-        123568
-      ],
-      "sourceCause": "PAPER position monitoring called the 120-second cached analysis-price accessor. The accepted buy quote token output amount was not retained, so the engine could not request a fresh executable sell quote for the acquired quantity on each position cycle. Accounting separately multiplied token price by SOL size and understated the same realized losses."
-    },
-    "interpretation": "The two V7 rows remain valid Helius transport and zero-throughput observations under the V7 source freeze. They contained no PRE_MIGRATION_RUNNER_WATCH episodes, but they cannot be combined with post-correction evidence because V7 explicitly required a new pre-registration after any exit or frozen-source change.",
-    "acceptedEvidenceReuseAllowed": false,
-    "nextExperimentRule": "Retain exact PAPER entry token quantity, mark it with a fresh executable Jupiter sell quote each position cycle, align accounting to exit value, add contract telemetry and tests, then start future-only V8 evidence. V7 rows remain historical context only.",
-    "liveAction": "KEEP_LIVE_DISABLED"
-  },
   "prohibitions": [
     "No live broadcast enablement from this experiment.",
-    "No entry-gate, exit-rule, or provider-coverage changes while evidence is collecting.",
+    "No entry-gate, configured exit-threshold, or provider-coverage changes while evidence is collecting.",
     "No grading on MFE, maximum excursion, or duplicate same-mint reentries.",
-    "V1 through V6 rows cannot count as V7 evidence.",
-    "PumpPortal and PumpDev runtime events invalidate a V7 run rather than becoming fallback evidence.",
-    "Any strategy, threshold, provider, coverage, semantic-health, or exit change starts a new pre-registration.",
-    "A config-hash, source-fingerprint, missing-Git-commit, or dirty-working-tree mismatch excludes the run from V7 evidence."
+    "V1 through V7 rows cannot count as V8 evidence.",
+    "PumpPortal and PumpDev runtime events invalidate a V8 run rather than becoming fallback evidence.",
+    "Any strategy, threshold, provider, coverage, PAPER exit-measurement, semantic-health, or frozen-source change starts a new pre-registration.",
+    "A config-hash, source-fingerprint, missing-Git-commit, dirty-working-tree, or PAPER executable-exit contract mismatch excludes the run from V8 evidence."
   ]
 }

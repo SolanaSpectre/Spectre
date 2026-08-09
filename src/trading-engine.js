@@ -67,7 +67,7 @@ const {
 } = require('./lib/helius-decision-shadow-comparability');
 const { buildRuntimeSourceProvenance } = require('./lib/runtime-source-provenance');
 const RUNNER_WATCH_FULL_COVERAGE_PREREGISTRATION = require(
-  '../data/strategy-preregistrations/runner-watch-full-coverage-v7.json'
+  '../data/strategy-preregistrations/runner-watch-full-coverage-v8.json'
 );
 
 const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
@@ -79,6 +79,12 @@ const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
 const HELIUS_DECISION_SHADOW_PREREGISTRATION_ID = 'helius_pumpfun_decision_divergence_v13_2026-08-01';
 const HELIUS_DECISION_SHADOW_MAX_STATE_AGE_MS = 1000;
 const HELIUS_DECISION_SHADOW_RECENT_TRADE_CAP = 201;
+const SAFE_ERROR_TYPES = new Set(['AbortError', 'Error', 'FetchError', 'RangeError', 'TypeError']);
+
+function safeErrorType(error) {
+  const name = String(error?.name || 'Error');
+  return SAFE_ERROR_TYPES.has(name) ? name : 'Error';
+}
 
 function validProviderBondingCurveAddress(value) {
   if (!value) return null;
@@ -635,7 +641,7 @@ class TradingEngine {
       },
       strategyPreregistration: {
         id: RUNNER_WATCH_FULL_COVERAGE_PREREGISTRATION.id,
-        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v7.json',
+        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v8.json',
         configHash: replayConfigSnapshot.configHash,
         expectedConfigHash: runnerWatchExpectedConfigHash,
         configHashMatches: replayConfigSnapshot.configHash === runnerWatchExpectedConfigHash,
@@ -2791,8 +2797,17 @@ class TradingEngine {
       };
     }
 
+    const tokenAmountRaw = this.getQuoteOutputAmountRaw(quote);
+    if (!tokenAmountRaw) {
+      return {
+        success: false,
+        reason: 'PAPER_ENTRY_QUOTE_NO_OUTPUT'
+      };
+    }
+
     this.paperWalletBalanceSol -= signal.amount;
     const paperExitProfile = this.buildPaperExitProfile(aiDecision);
+    const openedAt = Date.now();
 
     const position = this.accounting.openPosition({
       mint: signal.token,
@@ -2807,6 +2822,7 @@ class TradingEngine {
     this.paperPositions.set(signal.token, {
       token: signal.token,
       amount: signal.amount,
+      tokenAmountRaw,
       entryPrice: signal.tokenInfo.price || 1,
       paperPositionId: position.id,
       costBasisSol: signal.amount,
@@ -2822,12 +2838,51 @@ class TradingEngine {
       paperExitProfile,
       peakPnlPercent: 0,
       trailingActivated: false,
-      openedAt: Date.now(),
-      timestamp: new Date().toISOString()
+      openedAt,
+      timestamp: new Date(openedAt).toISOString(),
+      lastMarkAt: openedAt,
+      lastMarkSource: 'ENTRY_COST_BASIS',
+      markFailureCount: 0,
+      markSuccessCount: 0
     });
 
+    this.telemetry.record('paper.position.opened', {
+      positionId: position.id,
+      token: signal.token,
+      entryValueSol: signal.amount,
+      tokenAmountRaw,
+      entryQuoteFetchedAt: Number.isFinite(Number(quote?._fetchTimestamp))
+        ? new Date(Number(quote._fetchTimestamp)).toISOString()
+        : null,
+      markPolicy: 'FRESH_JUPITER_EXECUTABLE_SELL_QUOTE_EACH_POSITION_CYCLE',
+      paperExitProfile
+    });
     this.logger.trade(`PAPER BUY: ${signal.token} - ${signal.amount.toFixed(4)} SOL`);
-    return { success: true, mode: 'PAPER', positionId: position.id };
+    return {
+      success: true,
+      mode: 'PAPER',
+      positionId: position.id,
+      tokenAmountRaw,
+      markPolicy: 'FRESH_JUPITER_EXECUTABLE_SELL_QUOTE_EACH_POSITION_CYCLE'
+    };
+  }
+
+  getQuoteOutputAmountRaw(quote = {}) {
+    const raw = quote?.outAmount
+      ?? quote?.outputAmount
+      ?? quote?.totalOutputAmount
+      ?? quote?.outAmountWithSlippage
+      ?? null;
+    if (raw === null || raw === undefined || raw === '') {
+      return null;
+    }
+
+    try {
+      const amount = BigInt(String(raw));
+      return amount > 0n ? amount.toString() : null;
+    } catch {
+      return null;
+    }
   }
 
   async updatePositions() {
@@ -2848,16 +2903,65 @@ class TradingEngine {
 
     for (const [token, paperPosition] of this.paperPositions) {
       try {
-        const currentPriceSol = await this.marketData.getTokenPrice(token);
-        if (currentPriceSol > 0 && paperPosition.entryPrice > 0) {
-          const priceRatio = currentPriceSol / paperPosition.entryPrice;
-          paperPosition.lastPriceSol = currentPriceSol;
-          paperPosition.marketValueSol = paperPosition.costBasisSol * priceRatio;
-          paperPosition.unrealizedPnLSol = paperPosition.marketValueSol - paperPosition.costBasisSol;
-          await this.maybeClosePaperPosition(token, paperPosition);
+        if (!paperPosition.tokenAmountRaw) {
+          this.telemetry.record('paper.position.mark_skipped', {
+            positionId: paperPosition.paperPositionId || null,
+            token,
+            reason: 'MISSING_ENTRY_QUOTE_TOKEN_AMOUNT',
+            openedAt: paperPosition.timestamp || null
+          });
+          continue;
         }
+
+        const marketValueSol = await this.marketData.getTokenValueInSol(
+          token,
+          paperPosition.tokenAmountRaw
+        );
+        if (!Number.isFinite(Number(marketValueSol)) || Number(marketValueSol) <= 0) {
+          paperPosition.markFailureCount = Number(paperPosition.markFailureCount || 0) + 1;
+          this.telemetry.record('paper.position.mark_skipped', {
+            positionId: paperPosition.paperPositionId || null,
+            token,
+            reason: 'EXECUTABLE_SELL_QUOTE_NO_OUTPUT',
+            tokenAmountRaw: paperPosition.tokenAmountRaw,
+            markFailureCount: paperPosition.markFailureCount
+          });
+          continue;
+        }
+
+        const markedAt = Date.now();
+        paperPosition.marketValueSol = Number(marketValueSol);
+        paperPosition.unrealizedPnLSol = paperPosition.marketValueSol - paperPosition.costBasisSol;
+        paperPosition.lastPriceSol = paperPosition.entryPrice > 0 && paperPosition.costBasisSol > 0
+          ? paperPosition.entryPrice * (paperPosition.marketValueSol / paperPosition.costBasisSol)
+          : 0;
+        paperPosition.lastMarkAt = markedAt;
+        paperPosition.lastMarkSource = 'JUPITER_EXECUTABLE_SELL_QUOTE';
+        paperPosition.markFailureCount = 0;
+        paperPosition.markSuccessCount = Number(paperPosition.markSuccessCount || 0) + 1;
+        if (paperPosition.markSuccessCount === 1) {
+          this.telemetry.record('paper.position.marked', {
+            positionId: paperPosition.paperPositionId || null,
+            token,
+            tokenAmountRaw: paperPosition.tokenAmountRaw,
+            markSource: paperPosition.lastMarkSource,
+            markAt: new Date(markedAt).toISOString(),
+            marketValueSol: paperPosition.marketValueSol,
+            unrealizedPnLSol: paperPosition.unrealizedPnLSol
+          });
+        }
+        await this.maybeClosePaperPosition(token, paperPosition);
       } catch (error) {
         this.logger.warn(`Failed to update paper position for ${token}`, error.message);
+        paperPosition.markFailureCount = Number(paperPosition.markFailureCount || 0) + 1;
+        this.telemetry.record('paper.position.mark_failed', {
+          positionId: paperPosition.paperPositionId || null,
+          token,
+          reason: 'EXECUTABLE_SELL_QUOTE_FAILED',
+          errorType: safeErrorType(error),
+          tokenAmountRaw: paperPosition.tokenAmountRaw || null,
+          markFailureCount: paperPosition.markFailureCount
+        });
       }
     }
   }
@@ -3139,15 +3243,18 @@ class TradingEngine {
   }
 
   closePaperPosition(token, position, reason) {
+    const closedAt = Date.now();
     const exitValueSol = Math.max(position.marketValueSol || 0, 0);
     const realizedPnLSol = exitValueSol - position.costBasisSol;
+    const exitProfile = this.getPaperExitProfile(position);
 
     this.paperWalletBalanceSol += exitValueSol;
     this.paperPositions.delete(token);
     this.applyExitCooldown(token, reason, realizedPnLSol, position);
 
-    this.accounting.closePosition(
+    this.accounting.closePositionByValue(
       position.paperPositionId,
+      exitValueSol,
       position.lastPriceSol || position.entryPrice || 0
     );
 
@@ -3155,12 +3262,23 @@ class TradingEngine {
     this.dailyPnL += realizedPnLSol;
 
     this.telemetry.record('paper.position.closed', {
+      positionId: position.paperPositionId || null,
       token,
       reason,
       entryValueSol: position.costBasisSol,
       exitValueSol,
       realizedPnLSol,
       pnlPercent: position.costBasisSol === 0 ? 0 : realizedPnLSol / position.costBasisSol,
+      holdMs: closedAt - this.getPositionOpenedAtMs(position),
+      tokenAmountRaw: position.tokenAmountRaw || null,
+      markSource: position.lastMarkSource || null,
+      markAt: Number.isFinite(Number(position.lastMarkAt))
+        ? new Date(Number(position.lastMarkAt)).toISOString()
+        : null,
+      markAgeMs: Number.isFinite(Number(position.lastMarkAt))
+        ? Math.max(0, closedAt - Number(position.lastMarkAt))
+        : null,
+      configuredStopLossPercent: exitProfile.stopLossPercent,
       peakPnlPercent: position.peakPnlPercent || 0,
       trailingActivated: Boolean(position.trailingActivated),
       breakevenActivated: Boolean(position.breakevenActivated),

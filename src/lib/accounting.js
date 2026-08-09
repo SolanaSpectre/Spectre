@@ -25,6 +25,17 @@ class AccountingService {
     return position;
   }
 
+  closePositionByValue(positionId, exitValueSol, exitPrice = null, fees = 0) {
+    const position = this.positions.get(positionId);
+    if (!position) {
+      return null;
+    }
+
+    position.closeByValue(exitValueSol, exitPrice, fees);
+    this.realizedPnL += position.netPnL;
+    return position;
+  }
+
   recordSimulatedTrade(record) {
     SimulatedTrade.store(record);
   }

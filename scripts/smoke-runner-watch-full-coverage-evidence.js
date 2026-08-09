@@ -15,22 +15,29 @@ const {
   evidenceCollectionClosed
 } = require('./runner-watch-full-coverage-evidence-report');
 const { scanHeliusRuntimeCoverage } = require('./lib/helius-runtime-coverage');
-const priorPrereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v6.json');
-const frozenPrereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v7.json');
+const priorPrereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v7.json');
+const frozenPrereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v8.json');
 
 const engineSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'trading-engine.js'), 'utf8');
 assert.strictEqual(evidenceCollectionClosed(priorPrereg), true);
-assert.strictEqual(priorPrereg.terminalDisposition.disposition, 'SUPERSEDED_RUNTIME_DATA_INTEGRITY_DEFECT');
+assert.strictEqual(
+  priorPrereg.terminalDisposition.disposition,
+  'SUPERSEDED_SOURCE_FREEZE_EXIT_MEASUREMENT_CORRECTION'
+);
 assert.strictEqual(frozenPrereg.priorEvidence.id, priorPrereg.id);
 assert.strictEqual(frozenPrereg.priorEvidence.acceptedEvidenceReuseAllowed, false);
 assert.strictEqual(frozenPrereg.providerPlan.provider, 'helius');
 assert.strictEqual(frozenPrereg.validRunDefinition.legacyRuntimeEventsMustBeZero, true);
 assert.strictEqual(frozenPrereg.validRunDefinition.pumpFamilySemanticTelemetryRequired, true);
+assert.strictEqual(
+  frozenPrereg.validRunDefinition.paperExecutableMarkTelemetryRequiredWhenGeneralPaperPositionOpens,
+  true
+);
 assert(/^[0-9a-f]{64}$/.test(frozenPrereg.configFreeze.expectedConfigHash));
 assert(/^[0-9a-f]{64}$/.test(frozenPrereg.sourceFreeze.expectedSourceFingerprint));
 assert(
   engineSource.includes('id: RUNNER_WATCH_FULL_COVERAGE_PREREGISTRATION.id'),
-  'runtime must emit the V7 strategy preregistration id from the frozen artifact'
+  'runtime must emit the V8 strategy preregistration id from the frozen artifact'
 );
 
 const checkpointPrereg = {
@@ -64,7 +71,7 @@ assert.strictEqual(concentrated.concentrationDependent, true);
 
 const futureRun = {
   started: {
-    timestamp: '2026-08-09T12:00:00.000Z',
+    timestamp: '2026-08-10T12:00:00.000Z',
     payload: {
       mode: 'PAPER',
       sessionDurationMinutes: 60,
@@ -106,7 +113,7 @@ const futureRun = {
     }
   },
   stopping: {
-    timestamp: '2026-08-09T13:00:00.000Z',
+    timestamp: '2026-08-10T13:00:00.000Z',
     payload: {
       reason: 'SESSION_DURATION_EXCEEDED',
       stats: {
@@ -129,7 +136,7 @@ const fullCoverage = {
   launchIntelSource: 'helius',
   fullCoverageMinutes: 59.9,
   uncoveredMinutes: 0.1,
-  coverageStartedAt: '2026-08-09T12:00:06.000Z',
+  coverageStartedAt: '2026-08-10T12:00:06.000Z',
   subscriptionAcks: 1,
   disconnects: 0,
   transportGapsStarted: 0,
@@ -161,6 +168,30 @@ assert.strictEqual(phaseAwareValidation.valid, true, 'clean Helius coverage must
 assert.strictEqual(phaseAwareValidation.actual.activeRuntimeRpcCurveErrors, 0);
 assert.strictEqual(phaseAwareValidation.actual.shutdownCancelledCurveErrors, 4);
 assert.strictEqual(phaseAwareValidation.actual.shutdownPhaseErrorsClassified, true);
+
+const brokenPaperExitContractValidation = validateRun(
+  frozenPrereg,
+  path.join(__dirname, '..', 'run-logs', 'broken-paper-exit-contract.jsonl'),
+  {
+    ...futureRun,
+    coverageDiagnostics: {
+      ...futureRun.coverageDiagnostics,
+      paperExecutableExitDiagnostics: {
+        positionsOpened: 1,
+        positionsOpenedWithExactTokenAmount: 1,
+        uniquePositionsOpened: 1,
+        uniquePositionsWithExecutableMark: 0,
+        positionsClosed: 1,
+        positionsClosedWithExecutableMark: 0,
+        markSkips: 0,
+        markFailures: 1
+      }
+    }
+  },
+  fullCoverage
+);
+assert.strictEqual(brokenPaperExitContractValidation.checks.paperExecutableExitMarkContract, false);
+assert(brokenPaperExitContractValidation.failedChecks.includes('paperExecutableExitMarkContract'));
 
 const changedConfigValidation = validateRun(
   frozenPrereg,
@@ -336,17 +367,17 @@ const finalStats = {
 fs.writeFileSync(telemetryPath, [
   {
     type: 'session.started',
-    timestamp: '2026-08-09T12:00:00.000Z',
+    timestamp: '2026-08-10T12:00:00.000Z',
     payload: {
       mode: 'PAPER',
       pumpDataPlan: { provider: 'helius', launchIntelSource: 'helius' }
     }
   },
-  { type: 'provider.helius_pumpfun.shadow_subscription_ack', timestamp: '2026-08-09T12:00:05.000Z', payload: {} },
-  { type: 'provider.helius_pumpfun.runtime_new_token', timestamp: '2026-08-09T12:01:00.000Z', payload: { mint: 'A' } },
+  { type: 'provider.helius_pumpfun.shadow_subscription_ack', timestamp: '2026-08-10T12:00:05.000Z', payload: {} },
+  { type: 'provider.helius_pumpfun.runtime_new_token', timestamp: '2026-08-10T12:01:00.000Z', payload: { mint: 'A' } },
   {
     type: 'provider.helius_pumpfun.runtime_trade',
-    timestamp: '2026-08-09T12:01:01.000Z',
+    timestamp: '2026-08-10T12:01:01.000Z',
     payload: {
       mint: 'A',
       pumpFamilyClassified: true,
@@ -355,14 +386,29 @@ fs.writeFileSync(telemetryPath, [
       tradeVelocityPerMin: 1
     }
   },
-  { type: 'provider.helius_pumpfun.runtime_complete', timestamp: '2026-08-09T12:40:00.000Z', payload: { mint: 'A' } },
+  { type: 'provider.helius_pumpfun.runtime_complete', timestamp: '2026-08-10T12:40:00.000Z', payload: { mint: 'A' } },
   {
     type: 'pre_migration_paper.decision',
-    timestamp: '2026-08-09T12:41:00.000Z',
+    timestamp: '2026-08-10T12:41:00.000Z',
     payload: { reason: 'CURVE_NOT_ADVANCING', recentVolumeSol: 0.5, tradeVelocityPerMin: 1 }
   },
-  { type: 'session.stopping', timestamp: '2026-08-09T13:00:00.000Z', payload: { reason: 'SESSION_DURATION_EXCEEDED', stats: finalStats } },
-  { type: 'session.stopped', timestamp: '2026-08-09T13:00:02.000Z', payload: { reason: 'SESSION_DURATION_EXCEEDED', stats: finalStats } }
+  {
+    type: 'paper.position.opened',
+    timestamp: '2026-08-10T12:42:00.000Z',
+    payload: { positionId: 'paper-fixture-1', tokenAmountRaw: '250000000000' }
+  },
+  {
+    type: 'paper.position.marked',
+    timestamp: '2026-08-10T12:42:05.000Z',
+    payload: { positionId: 'paper-fixture-1', markSource: 'JUPITER_EXECUTABLE_SELL_QUOTE' }
+  },
+  {
+    type: 'paper.position.closed',
+    timestamp: '2026-08-10T12:42:05.001Z',
+    payload: { positionId: 'paper-fixture-1', markSource: 'JUPITER_EXECUTABLE_SELL_QUOTE' }
+  },
+  { type: 'session.stopping', timestamp: '2026-08-10T13:00:00.000Z', payload: { reason: 'SESSION_DURATION_EXCEEDED', stats: finalStats } },
+  { type: 'session.stopped', timestamp: '2026-08-10T13:00:02.000Z', payload: { reason: 'SESSION_DURATION_EXCEEDED', stats: finalStats } }
 ].map((row) => JSON.stringify(row)).join('\n') + '\n', 'utf8');
 
 try {
@@ -381,6 +427,19 @@ try {
     scannedRun.coverageDiagnostics.pumpFamilySemanticDiagnostics.paperDecisionsWithPositiveRecentVolumeSol,
     1
   );
+  assert.deepStrictEqual(scannedRun.coverageDiagnostics.paperExecutableExitDiagnostics, {
+    positionsOpened: 1,
+    positionsOpenedWithExactTokenAmount: 1,
+    positionsMarked: 1,
+    positionsClosed: 1,
+    positionsClosedWithExecutableMark: 1,
+    markSkips: 0,
+    markFailures: 0,
+    uniquePositionsOpened: 1,
+    uniquePositionsWithExecutableMark: 1,
+    uniquePositionsClosed: 1,
+    uniquePositionsClosedWithExecutableMark: 1
+  });
 
   const scannedCoverage = scanHeliusRuntimeCoverage(telemetryPath);
   assert(scannedCoverage.fullCoverageMinutes > 59.9);
@@ -388,8 +447,8 @@ try {
   assert.strictEqual(scannedCoverage.runtimeEvents, 3);
   assert.strictEqual(scannedCoverage.legacyRuntimeEvents, 0);
   assert.strictEqual(scannedCoverage.runtimeQueuePendingAtStop, 0);
-  assert.strictEqual(scannedCoverage.sessionCoverageEndedAt, '2026-08-09T13:00:00.000Z');
-  assert.strictEqual(scannedCoverage.sessionStoppedAt, '2026-08-09T13:00:02.000Z');
+  assert.strictEqual(scannedCoverage.sessionCoverageEndedAt, '2026-08-10T13:00:00.000Z');
+  assert.strictEqual(scannedCoverage.sessionStoppedAt, '2026-08-10T13:00:02.000Z');
 
   const gapStats = {
     ...finalStats,
@@ -402,28 +461,28 @@ try {
   fs.writeFileSync(telemetryPath, [
     {
       type: 'session.started',
-      timestamp: '2026-08-09T12:00:00.000Z',
+      timestamp: '2026-08-10T12:00:00.000Z',
       payload: { pumpDataPlan: { provider: 'helius', launchIntelSource: 'helius' } }
     },
-    { type: 'provider.helius_pumpfun.shadow_subscription_ack', timestamp: '2026-08-09T12:00:05.000Z', payload: {} },
+    { type: 'provider.helius_pumpfun.shadow_subscription_ack', timestamp: '2026-08-10T12:00:05.000Z', payload: {} },
     {
       type: 'provider.helius_pumpfun.shadow_disconnected',
-      timestamp: '2026-08-09T12:10:00.000Z',
-      payload: { shutdownDisconnect: false, transportGapSequence: 1, transportGapStartedAt: '2026-08-09T12:10:00.000Z' }
+      timestamp: '2026-08-10T12:10:00.000Z',
+      payload: { shutdownDisconnect: false, transportGapSequence: 1, transportGapStartedAt: '2026-08-10T12:10:00.000Z' }
     },
     {
       type: 'provider.helius_pumpfun.shadow_subscription_ack',
-      timestamp: '2026-08-09T12:15:00.000Z',
+      timestamp: '2026-08-10T12:15:00.000Z',
       payload: { recoveredTransportGapSequence: 1, recoveredTransportGapDurationMs: 300000 }
     },
     {
       type: 'provider.helius_pumpfun.shadow_transport_gap_closed',
-      timestamp: '2026-08-09T12:15:00.001Z',
+      timestamp: '2026-08-10T12:15:00.001Z',
       payload: { sequence: 1, durationMs: 300000 }
     },
-    { type: 'provider.helius_pumpfun.runtime_trade', timestamp: '2026-08-09T12:20:00.000Z', payload: { mint: 'A' } },
-    { type: 'session.stopping', timestamp: '2026-08-09T13:00:00.000Z', payload: { reason: 'SESSION_DURATION_EXCEEDED', stats: gapStats } },
-    { type: 'session.stopped', timestamp: '2026-08-09T13:00:02.000Z', payload: { reason: 'SESSION_DURATION_EXCEEDED', stats: gapStats } }
+    { type: 'provider.helius_pumpfun.runtime_trade', timestamp: '2026-08-10T12:20:00.000Z', payload: { mint: 'A' } },
+    { type: 'session.stopping', timestamp: '2026-08-10T13:00:00.000Z', payload: { reason: 'SESSION_DURATION_EXCEEDED', stats: gapStats } },
+    { type: 'session.stopped', timestamp: '2026-08-10T13:00:02.000Z', payload: { reason: 'SESSION_DURATION_EXCEEDED', stats: gapStats } }
   ].map((row) => JSON.stringify(row)).join('\n') + '\n', 'utf8');
   const gapCoverage = scanHeliusRuntimeCoverage(telemetryPath);
   assert(gapCoverage.fullCoverageMinutes > 54.9 && gapCoverage.fullCoverageMinutes < 55);
@@ -435,4 +494,4 @@ try {
   fs.rmSync(telemetryPath, { force: true });
 }
 
-console.log('Runner-watch Helius full-coverage V7 evidence smoke passed');
+console.log('Runner-watch Helius full-coverage V8 evidence smoke passed');

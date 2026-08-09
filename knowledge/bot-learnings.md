@@ -48,6 +48,7 @@ These are local lessons from this bot's own paper-trading research.
 ## Decision Discipline
 
 - Capital preservation matters more than forcing trades.
+- PAPER exits must value the exact token quantity returned by the accepted entry quote with a fresh executable sell quote on each position cycle. A cached analysis price masked two 2.2% stops for roughly 123 seconds and turned them into 21.95% and 67.13% losses; accounting must also close by exit value, not token-price-by-SOL-size units.
 - MFE and excursion shape at `n=10` predicted nothing for the frozen wallet lane: realizable replay reversed the seductive excursion picture into a median-negative, ex-top-3-negative failure. Never grade a strategy lane on excursions; require realizable exits plus frozen median and ex-top-winner durability checks.
 - Runner-watch V5 also failed after its sample expanded to 41 unique episodes across 6 valid full-coverage runs: throughput passed, but total, median, and ex-top-3 PnL were all negative. Small early winning streaks are not promotion evidence; the frozen durability checkpoint decides.
 - A valid response to uncertainty is no trade.
