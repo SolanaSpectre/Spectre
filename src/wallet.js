@@ -5,7 +5,7 @@ const {
   SystemProgram,
   Transaction
 } = require('@solana/web3.js');
-const { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } = require('@solana/spl-token');
+const { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } = require('./lib/spl-token-primitives');
 const bs58 = require('bs58');
 const { assertLiveBroadcastAllowed } = require('./lib/live-broadcast-guard');
 
