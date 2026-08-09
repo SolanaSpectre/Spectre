@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "runner_watch_helius_primary_v6_2026-08-08",
   "preregisteredAt": "2026-08-08T16:50:29.9443113-05:00",
-  "status": "PREREGISTERED_BEFORE_FIRST_HELIUS_PRIMARY_RUN",
+  "status": "SUPERSEDED_RUNTIME_DATA_INTEGRITY_DEFECT_AFTER_ONE_VALID_RUN",
   "amendmentStatus": "CONFIG_SOURCE_AND_RUN_DURATION_FROZEN_BEFORE_FIRST_ELIGIBLE_V6_RUN",
   "amendedAtBeforeFirstEligibleRun": "2026-08-09T02:13:59.620Z",
   "runDurationAlignmentAmendment": {
@@ -116,6 +116,33 @@
     "ifEpisodeTargetNotReached": "INSUFFICIENT_THROUGHPUT_FOR_LIVE_GRADUATION",
     "ifDurabilityFailsAtCheckpoint": "FAILED_RUNTIME_CHECKPOINT",
     "noGateLooseningFromStarvation": true
+  },
+  "terminalDisposition": {
+    "disposition": "SUPERSEDED_RUNTIME_DATA_INTEGRITY_DEFECT",
+    "latchedAt": "2026-08-09T04:19:29.6773775-05:00",
+    "sourceTelemetry": "run-logs/telemetry-2026-08-09T03-08-08-799Z.jsonl",
+    "ledgerPath": "data/runner-watch-ledgers/full-coverage-v6.jsonl",
+    "closedToFurtherLedgerAppends": true,
+    "validRunsAtClosure": 1,
+    "fullCoverageMinutesAtClosure": 58.6289,
+    "runtimeProviderEventsAtClosure": 128606,
+    "paperDecisionsAtClosure": 4452,
+    "runnerCandidatesAtClosure": 329,
+    "realizedUniqueMintEpisodesAtClosure": 0,
+    "defectEvidence": {
+      "paperDecisionsWithPositiveRecentVolumeSol": 0,
+      "paperDecisionsWithPositiveTradeVelocityPerMin": 0,
+      "runnerCandidatesWithPositiveMomentumScore": 0,
+      "excludedHeliusSourceExamples": [
+        "helius_logs_create_runtime",
+        "helius_logs_trade_runtime"
+      ],
+      "sourceCause": "The vendor-specific isPumpPortalToken classifier recognized pumpportal and pumpdev sources but excluded Helius Pump.fun runtime sources. This bypassed rolling Pump activity summaries, forced scoreMomentum to zero, and routed Helius Pump.fun candidates through the non-Pump runner rejection branch."
+    },
+    "interpretation": "The V6 run remains valid evidence that the Helius transport, queue, RPC, and lifecycle paths work. It cannot grade strategy throughput or economics because the strategy-consumption classifier suppressed the decision features under test.",
+    "acceptedEvidenceReuseAllowed": false,
+    "nextExperimentRule": "Correct the provider-neutral Pump-family classifier, add semantic-health telemetry and tests, then start a future-only V7 preregistration. V6 rows cannot count toward V7 throughput or economics.",
+    "liveAction": "KEEP_LIVE_DISABLED"
   },
   "prohibitions": [
     "No live broadcast enablement from this experiment.",
