@@ -4,6 +4,7 @@
   "description": "Paper-only Solana memecoin research and diagnostics bot",
   "main": "src/index.js",
   "scripts": {
+    "pretest": "node scripts/smoke-config-walletless-paper.js && node scripts/smoke-runtime-source-provenance.js",
     "start": "node scripts/run-with-lifecycle.js",
     "start:legacy": "node scripts/run-with-context-and-reports.js",
     "start:core": "node src/index.js",
@@ -207,15 +208,15 @@
   "author": "SolanaSpectre",
   "license": "MIT",
   "dependencies": {
-    "@solana/spl-token": "^0.4.14",
+    "@solana/spl-token": "^0.4.15",
     "@solana/web3.js": "^1.98.4",
-    "axios": "^1.15.0",
+    "axios": "^1.19.0",
     "bs58": "^5.0.0",
     "chalk": "^4.1.2",
     "dotenv": "^16.6.1",
     "input": "^1.0.1",
     "telegram": "^2.26.22",
-    "ws": "^8.18.0"
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "eslint": "^8.50.0"

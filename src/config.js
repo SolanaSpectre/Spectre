@@ -185,17 +185,11 @@ class Config {
 
   // Wallet Configuration
   static get hotWalletPrivateKey() {
-    if (!process.env.HOT_WALLET_PRIVATE_KEY) {
-      throw new Error('HOT_WALLET_PRIVATE_KEY environment variable is required');
-    }
-    return process.env.HOT_WALLET_PRIVATE_KEY;
+    return process.env.HOT_WALLET_PRIVATE_KEY || null;
   }
 
   static get coldWalletAddress() {
-    if (!process.env.COLD_WALLET_ADDRESS) {
-      throw new Error('COLD_WALLET_ADDRESS environment variable is required');
-    }
-    return process.env.COLD_WALLET_ADDRESS;
+    return process.env.COLD_WALLET_ADDRESS || null;
   }
 
   static get coldWalletPrivateKey() {
@@ -2805,7 +2799,10 @@ class Config {
     ];
 
     for (const check of numericChecks) {
-      if (check.value < check.min || (check.max && check.value > check.max)) {
+      if (!Number.isFinite(check.value)) {
+        throw new Error(`${check.key} must be a finite number, got ${check.value}`);
+      }
+      if (check.value < check.min || (check.max !== undefined && check.value > check.max)) {
         throw new Error(`${check.key} must be between ${check.min} and ${check.max || 'infinity'}, got ${check.value}`);
       }
     }

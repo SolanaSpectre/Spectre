@@ -25,7 +25,12 @@ assert.strictEqual(frozenPrereg.priorEvidence.id, priorPrereg.id);
 assert.strictEqual(frozenPrereg.priorEvidence.acceptedEvidenceReuseAllowed, false);
 assert.strictEqual(frozenPrereg.providerPlan.provider, 'helius');
 assert.strictEqual(frozenPrereg.validRunDefinition.legacyRuntimeEventsMustBeZero, true);
-assert(engineSource.includes(`id: '${frozenPrereg.id}'`), 'runtime must emit the V6 strategy preregistration id');
+assert(/^[0-9a-f]{64}$/.test(frozenPrereg.configFreeze.expectedConfigHash));
+assert(/^[0-9a-f]{64}$/.test(frozenPrereg.sourceFreeze.expectedSourceFingerprint));
+assert(
+  engineSource.includes('id: RUNNER_WATCH_FULL_COVERAGE_PREREGISTRATION.id'),
+  'runtime must emit the V6 strategy preregistration id from the frozen artifact'
+);
 
 const checkpointPrereg = {
   throughputCheckpoint: { minimumUniqueMintEpisodesPerFullCoverageHour: 1 },
@@ -62,7 +67,20 @@ const futureRun = {
     payload: {
       mode: 'PAPER',
       sessionDurationMinutes: 60,
-      strategyPreregistration: { id: frozenPrereg.id },
+      configHash: frozenPrereg.configFreeze.expectedConfigHash,
+      strategyPreregistration: {
+        id: frozenPrereg.id,
+        configHash: frozenPrereg.configFreeze.expectedConfigHash,
+        expectedConfigHash: frozenPrereg.configFreeze.expectedConfigHash,
+        configHashMatches: true,
+        sourceFingerprint: frozenPrereg.sourceFreeze.expectedSourceFingerprint,
+        expectedSourceFingerprint: frozenPrereg.sourceFreeze.expectedSourceFingerprint,
+        sourceFingerprintMatches: true,
+        sourceFingerprintAlgorithm: frozenPrereg.sourceFreeze.algorithm,
+        gitCommit: 'a'.repeat(40),
+        gitWorkingTreeDirty: false,
+        gitStateAvailable: true
+      },
       pumpDataPlan: {
         provider: 'helius',
         launchIntelSource: 'helius',
@@ -129,6 +147,50 @@ assert.strictEqual(phaseAwareValidation.valid, true, 'clean Helius coverage must
 assert.strictEqual(phaseAwareValidation.actual.activeRuntimeRpcCurveErrors, 0);
 assert.strictEqual(phaseAwareValidation.actual.shutdownCancelledCurveErrors, 4);
 assert.strictEqual(phaseAwareValidation.actual.shutdownPhaseErrorsClassified, true);
+
+const changedConfigValidation = validateRun(
+  frozenPrereg,
+  path.join(__dirname, '..', 'run-logs', 'changed-config.jsonl'),
+  {
+    ...futureRun,
+    started: {
+      ...futureRun.started,
+      payload: {
+        ...futureRun.started.payload,
+        configHash: 'b'.repeat(64),
+        strategyPreregistration: {
+          ...futureRun.started.payload.strategyPreregistration,
+          configHash: 'b'.repeat(64),
+          configHashMatches: false
+        }
+      }
+    }
+  },
+  fullCoverage
+);
+assert.strictEqual(changedConfigValidation.checks.frozenConfigHash, false);
+assert.strictEqual(changedConfigValidation.valid, false);
+
+const dirtySourceValidation = validateRun(
+  frozenPrereg,
+  path.join(__dirname, '..', 'run-logs', 'dirty-source.jsonl'),
+  {
+    ...futureRun,
+    started: {
+      ...futureRun.started,
+      payload: {
+        ...futureRun.started.payload,
+        strategyPreregistration: {
+          ...futureRun.started.payload.strategyPreregistration,
+          gitWorkingTreeDirty: true
+        }
+      }
+    }
+  },
+  fullCoverage
+);
+assert.strictEqual(dirtySourceValidation.checks.cleanSourceWorkingTree, false);
+assert.strictEqual(dirtySourceValidation.valid, false);
 
 const legacyProviderValidation = validateRun(
   frozenPrereg,

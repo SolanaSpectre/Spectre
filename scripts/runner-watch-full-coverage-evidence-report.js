@@ -133,6 +133,7 @@ function summarizeEpisodes(episodes = []) {
 
 function validateRun(prereg, telemetryPath, run, coverage) {
   const plan = run.started?.payload?.pumpDataPlan || {};
+  const strategyPreregistration = run.started?.payload?.strategyPreregistration || {};
   const stats = run.stopping?.payload?.stats || {};
   const curveStats = stats.pumpBondingCurveLane || {};
   const curveErrors = number(curveStats.errors, null);
@@ -167,7 +168,24 @@ function validateRun(prereg, telemetryPath, run, coverage) {
   const checks = {
     postRegistration: Boolean(run.started?.timestamp && new Date(run.started.timestamp) > new Date(prereg.preregisteredAt)),
     paperMode: run.started?.payload?.mode === 'PAPER',
-    correctStrategyPreregistration: run.started?.payload?.strategyPreregistration?.id === prereg.id,
+    correctStrategyPreregistration: strategyPreregistration.id === prereg.id,
+    frozenConfigHash: Boolean(prereg.configFreeze?.expectedConfigHash)
+      && run.started?.payload?.configHash === prereg.configFreeze.expectedConfigHash
+      && strategyPreregistration.configHash === prereg.configFreeze.expectedConfigHash
+      && strategyPreregistration.expectedConfigHash === prereg.configFreeze.expectedConfigHash
+      && strategyPreregistration.configHashMatches === true,
+    frozenSourceFingerprint: Boolean(prereg.sourceFreeze?.expectedSourceFingerprint)
+      && strategyPreregistration.sourceFingerprint === prereg.sourceFreeze.expectedSourceFingerprint
+      && strategyPreregistration.expectedSourceFingerprint === prereg.sourceFreeze.expectedSourceFingerprint
+      && strategyPreregistration.sourceFingerprintAlgorithm === prereg.sourceFreeze.algorithm
+      && strategyPreregistration.sourceFingerprintMatches === true,
+    sourceCommitRecorded: prereg.sourceFreeze?.requireGitCommitRecorded !== true
+      || /^[0-9a-f]{40}$/i.test(String(strategyPreregistration.gitCommit || '')),
+    cleanSourceWorkingTree: prereg.sourceFreeze?.requireCleanWorkingTree !== true
+      || (
+        strategyPreregistration.gitStateAvailable === true
+        && strategyPreregistration.gitWorkingTreeDirty === false
+      ),
     requestedDuration: number(run.started?.payload?.sessionDurationMinutes) === requested.requestedRunMinutes,
     selectedProvider: requested.selectedProviderMustBeHelius === true
       && plan.provider === expected.provider
@@ -210,6 +228,17 @@ function validateRun(prereg, telemetryPath, run, coverage) {
       startedAt: run.started?.timestamp || null,
       stoppedAt: run.stopping?.timestamp || null,
       stopReason: run.stopping?.payload?.reason || null,
+      strategyProvenance: {
+        id: strategyPreregistration.id || null,
+        configHash: strategyPreregistration.configHash || run.started?.payload?.configHash || null,
+        expectedConfigHash: prereg.configFreeze?.expectedConfigHash || null,
+        sourceFingerprint: strategyPreregistration.sourceFingerprint || null,
+        expectedSourceFingerprint: prereg.sourceFreeze?.expectedSourceFingerprint || null,
+        sourceFingerprintAlgorithm: strategyPreregistration.sourceFingerprintAlgorithm || null,
+        gitCommit: strategyPreregistration.gitCommit || null,
+        gitWorkingTreeDirty: strategyPreregistration.gitWorkingTreeDirty ?? null,
+        gitStateAvailable: strategyPreregistration.gitStateAvailable ?? null
+      },
       providerPlan: plan,
       providerCoverage: {
         selectedProvider: coverage.selectedProvider,
@@ -349,6 +378,7 @@ function main() {
     failedChecks: validation.failedChecks,
     fullCoverageMinutes: round(coverage.fullCoverageMinutes, 4),
     providerCoverage: validation.actual.providerCoverage,
+    strategyProvenance: validation.actual.strategyProvenance,
     coverageDiagnostics: run.coverageDiagnostics,
     episodes,
     pnlSol: currentRunEconomics.totalPnlSol
@@ -377,7 +407,7 @@ function main() {
     },
     cumulative,
     ledgerPath: relative(LEDGER_PATH),
-    note: 'Only post-registration runs matching the frozen Helius-primary plan and gap-accounted full-coverage definition enter the cumulative evidence ledger. V1-V5 remain separate and terminal. Same-mint reentries are one episode per run.',
+    note: 'Only post-registration runs matching the frozen config hash, source fingerprint, clean Git state, Helius-primary plan, and gap-accounted full-coverage definition enter the cumulative evidence ledger. V1-V5 remain separate and terminal. Same-mint reentries are one episode per run.',
     prohibitions: prereg.prohibitions
   };
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });

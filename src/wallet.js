@@ -123,6 +123,55 @@ class WalletManager {
 
     return signature;
   }
+
+  static fromKeypair(keypair) {
+    if (!keypair?.publicKey || !keypair?.secretKey) {
+      throw new Error('A valid Solana keypair is required');
+    }
+    const wallet = Object.create(WalletManager.prototype);
+    wallet.keypair = keypair;
+    wallet.address = keypair.publicKey.toBase58();
+    return wallet;
+  }
+
+  static createRuntimeWallet({ privateKey = null, executionMode = 'PAPER' } = {}) {
+    if (privateKey) {
+      return {
+        wallet: new WalletManager(privateKey),
+        identitySource: 'CONFIGURED'
+      };
+    }
+
+    if (String(executionMode || '').toUpperCase() !== 'PAPER') {
+      throw new Error('HOT_WALLET_PRIVATE_KEY is required outside PAPER mode');
+    }
+
+    return {
+      wallet: WalletManager.fromKeypair(Keypair.generate()),
+      identitySource: 'EPHEMERAL_PAPER'
+    };
+  }
+
+  static resolveRuntimeColdWallet({ address = null, executionMode = 'PAPER', paperFallbackAddress = null } = {}) {
+    if (address) {
+      return {
+        address,
+        identitySource: 'CONFIGURED'
+      };
+    }
+
+    if (String(executionMode || '').toUpperCase() !== 'PAPER') {
+      throw new Error('COLD_WALLET_ADDRESS is required outside PAPER mode');
+    }
+    if (!paperFallbackAddress) {
+      throw new Error('PAPER cold-wallet fallback address is required');
+    }
+
+    return {
+      address: paperFallbackAddress,
+      identitySource: 'PAPER_HOT_WALLET_FALLBACK'
+    };
+  }
 }
 
 module.exports = WalletManager;

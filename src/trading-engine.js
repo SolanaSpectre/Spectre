@@ -61,6 +61,10 @@ const {
   marketInputTelemetryMissingFields,
   sniperWindowAnchorControlMatches
 } = require('./lib/helius-decision-shadow-comparability');
+const { buildRuntimeSourceProvenance } = require('./lib/runtime-source-provenance');
+const RUNNER_WATCH_FULL_COVERAGE_PREREGISTRATION = require(
+  '../data/strategy-preregistrations/runner-watch-full-coverage-v6.json'
+);
 
 const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
   '11111111111111111111111111111111',
@@ -95,8 +99,19 @@ class TradingEngine {
     this.marketData = new MarketData(config, logger);
     this.aiAgent = new AIAgent(config, logger);
     this.capitalAllocation = new CapitalAllocation(config, logger);
-    this.hotWallet = new WalletManager(config.hotWalletPrivateKey);
-    this.coldWalletAddress = config.coldWalletAddress;
+    const runtimeWallet = WalletManager.createRuntimeWallet({
+      privateKey: config.hotWalletPrivateKey,
+      executionMode: config.executionMode
+    });
+    this.hotWallet = runtimeWallet.wallet;
+    this.hotWalletIdentitySource = runtimeWallet.identitySource;
+    const runtimeColdWallet = WalletManager.resolveRuntimeColdWallet({
+      address: config.coldWalletAddress,
+      executionMode: config.executionMode,
+      paperFallbackAddress: this.hotWallet.getAddress()
+    });
+    this.coldWalletAddress = runtimeColdWallet.address;
+    this.coldWalletIdentitySource = runtimeColdWallet.identitySource;
     this.pumpPortalListener = new PumpPortalListener(config, logger, {
       onNewToken: async (event) => this.measureEventLoopWork(
         'provider.pumpportal.new_token_sync_prefix',
@@ -545,6 +560,14 @@ class TradingEngine {
     this.sessionId = `session_${sessionStartTime}`;
     this.active = true;
     const replayConfigSnapshot = buildSanitizedConfigSnapshot(this.config);
+    const runnerWatchSourceProvenance = buildRuntimeSourceProvenance(
+      path.join(__dirname, '..'),
+      RUNNER_WATCH_FULL_COVERAGE_PREREGISTRATION.sourceFreeze.files
+    );
+    const runnerWatchExpectedConfigHash = RUNNER_WATCH_FULL_COVERAGE_PREREGISTRATION
+      .configFreeze.expectedConfigHash;
+    const runnerWatchExpectedSourceFingerprint = RUNNER_WATCH_FULL_COVERAGE_PREREGISTRATION
+      .sourceFreeze.expectedSourceFingerprint;
     const shadowWalletProvenance = fileProvenance(this.config.shadowWalletFilePath, {
       jsonArrayPath: 'wallets'
     });
@@ -607,11 +630,26 @@ class TradingEngine {
         pongTimeoutMs: this.config.heliusPumpfunShadowPongTimeoutMs
       },
       strategyPreregistration: {
-        id: 'runner_watch_helius_primary_v6_2026-08-08',
-        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v6.json'
+        id: RUNNER_WATCH_FULL_COVERAGE_PREREGISTRATION.id,
+        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v6.json',
+        configHash: replayConfigSnapshot.configHash,
+        expectedConfigHash: runnerWatchExpectedConfigHash,
+        configHashMatches: replayConfigSnapshot.configHash === runnerWatchExpectedConfigHash,
+        sourceFingerprint: runnerWatchSourceProvenance.sourceFingerprint,
+        expectedSourceFingerprint: runnerWatchExpectedSourceFingerprint,
+        sourceFingerprintMatches:
+          runnerWatchSourceProvenance.sourceFingerprint === runnerWatchExpectedSourceFingerprint,
+        sourceFingerprintAlgorithm: runnerWatchSourceProvenance.algorithm,
+        gitCommit: runnerWatchSourceProvenance.git.commit,
+        gitWorkingTreeDirty: runnerWatchSourceProvenance.git.workingTreeDirty,
+        gitStateAvailable: runnerWatchSourceProvenance.git.available
       },
       replayConfigSnapshot,
       configHash: replayConfigSnapshot.configHash,
+      walletPlan: {
+        hotWalletIdentitySource: this.hotWalletIdentitySource,
+        coldWalletIdentitySource: this.coldWalletIdentitySource
+      },
       shadowWalletFile: {
         ...shadowWalletProvenance,
         path: shadowWalletProvenance.path

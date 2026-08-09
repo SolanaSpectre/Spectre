@@ -3,6 +3,8 @@
   "id": "runner_watch_helius_primary_v6_2026-08-08",
   "preregisteredAt": "2026-08-08T16:50:29.9443113-05:00",
   "status": "PREREGISTERED_BEFORE_FIRST_HELIUS_PRIMARY_RUN",
+  "amendmentStatus": "CONFIG_AND_SOURCE_FREEZE_ADDED_BEFORE_FIRST_ELIGIBLE_V6_RUN",
+  "amendedAtBeforeFirstEligibleRun": "2026-08-09T02:13:59.620Z",
   "mode": "paper_only",
   "liveBehaviorChanged": false,
   "question": "Under a Helius-only, gap-accounted runtime feed, does PRE_MIGRATION_RUNNER_WATCH produce at least one independent mint episode per covered hour and durable realizable paper outcomes?",
@@ -28,12 +30,53 @@
     "legacyRuntimeProvidersAllowed": false,
     "coverageSemantics": "Time counts only after a current Helius subscription acknowledgement and excludes disconnected or transport-gap intervals."
   },
+  "configFreeze": {
+    "algorithm": "sha256_canonical_allowlisted_config_v1",
+    "expectedConfigHash": "27798bc26b8175e32f192b0b854f879358b24c479e845bde52187684cea21588",
+    "snapshotSource": "allowlisted_config_getters",
+    "secretValuesExcluded": true
+  },
+  "sourceFreeze": {
+    "algorithm": "sha256_canonical_lf_v1",
+    "expectedSourceFingerprint": "d7bcfd9df8933b4792498638bb27c8e290b9f0d8a1321096248f8fcf4d6b65d8",
+    "requireGitCommitRecorded": true,
+    "requireCleanWorkingTree": true,
+    "files": [
+      "scripts/lib/helius-runtime-coverage.js",
+      "scripts/lib/runtime-provider-events.js",
+      "scripts/runner-watch-full-coverage-evidence-report.js",
+      "src/config.js",
+      "src/helius-pumpfun-shadow-listener.js",
+      "src/lib/execution-modes.js",
+      "src/lib/finalist-account-verifier.js",
+      "src/lib/helius-decision-shadow-comparability.js",
+      "src/lib/helius-decision-shadow-state.js",
+      "src/lib/helius-decision-shadow-subscription-policy.js",
+      "src/lib/helius-launch-intel-adapter.js",
+      "src/lib/helius-runtime-event-queue.js",
+      "src/lib/launch-intel-store.js",
+      "src/lib/pre-migration-paper-lane.js",
+      "src/lib/pre-migration-watch-lane.js",
+      "src/lib/pump-bonding-curve-lane.js",
+      "src/lib/quality-scorer.js",
+      "src/lib/runtime-replay-snapshot.js",
+      "src/lib/runtime-source-provenance.js",
+      "src/lib/safety-gates.js",
+      "src/lib/wallet-context.js",
+      "src/market-data.js",
+      "src/trading-engine.js"
+    ]
+  },
   "validRunDefinition": {
     "requestedRunMinutes": 60,
     "minimumFullCoverageMinutes": 55,
     "selectedProviderMustBeHelius": true,
     "launchIntelSourceMustBeHelius": true,
     "listenerAndRuntimeQueueMustBeEnabled": true,
+    "frozenConfigHashMustMatch": true,
+    "frozenSourceFingerprintMustMatch": true,
+    "gitCommitMustBeRecorded": true,
+    "workingTreeMustBeClean": true,
     "minimumSubscriptionAcks": 1,
     "minimumRuntimeEvents": 1,
     "legacyRuntimeEventsMustBeZero": true,
@@ -72,6 +115,7 @@
     "No grading on MFE, maximum excursion, or duplicate same-mint reentries.",
     "V1 through V5 rows cannot count as V6 evidence.",
     "PumpPortal and PumpDev runtime events invalidate a V6 run rather than becoming fallback evidence.",
-    "Any strategy, threshold, provider, coverage, or exit change starts a new pre-registration."
+    "Any strategy, threshold, provider, coverage, or exit change starts a new pre-registration.",
+    "A config-hash, source-fingerprint, missing-Git-commit, or dirty-working-tree mismatch excludes the run from V6 evidence."
   ]
 }
