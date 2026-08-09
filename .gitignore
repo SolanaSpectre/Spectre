@@ -35,6 +35,11 @@ data/wallet-watchlists/kolscan-leaderboard.json
 data/wallet-watchlists/shadow-untracked-wallets.json
 data/wallet-watchlists/venum-social-wallets.json
 data/wallet-events/
+data/milo/
+data/kolscan/
+
+# Local Milo co-pilot configuration (public wallet linkage is kept off GitHub).
+config/milo-scout.local.json
 
 # Generated stream overlay/runtime artifacts
 paper-results.json

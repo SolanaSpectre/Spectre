@@ -10,6 +10,11 @@ const PumpPortalListener = require('./pumpportal-listener');
 const PumpDevListener = require('./pumpdev-listener');
 const HeliusPumpfunShadowListener = require('./helius-pumpfun-shadow-listener');
 const HeliusDecisionShadowState = require('./lib/helius-decision-shadow-state');
+const { HeliusRuntimeEventQueue } = require('./lib/helius-runtime-event-queue');
+const {
+  mapHeliusCreateToLaunchIntelEvent,
+  mapHeliusTradeToLaunchIntelEvent
+} = require('./lib/helius-launch-intel-adapter');
 const SafetyGate = require('./lib/safety-gates');
 const ExecutionModeManager = require('./lib/execution-modes');
 const SessionManager = require('./lib/session-manager');
@@ -143,13 +148,7 @@ class TradingEngine {
       }
     });
     this.heliusPumpfunShadowListener = new HeliusPumpfunShadowListener(config, logger, {
-      onLifecycle: (type, payload) => {
-        try {
-          this.telemetry.record(type, payload);
-        } catch {
-          // Helius lifecycle telemetry is report-only and must not affect intake.
-        }
-      },
+      onLifecycle: (type, payload) => this.handleHeliusLifecycleEvent(type, payload),
       onShadowEvent: (type, payload) => {
         this.measureEventLoopWork('provider.helius.shadow_event_callback', () => {
           try {
@@ -158,10 +157,18 @@ class TradingEngine {
             // Decision-shadow state is report-only and must not suppress raw provider telemetry.
           }
           try {
-            this.telemetry.record(type, payload);
+            this.registerHeliusLaunchIntel(type, payload);
           } catch {
-            // Helius shadow events must never enter provider runtime handlers.
+            // Launch-intel registration must not suppress raw provider telemetry either.
           }
+          if (this.config.heliusPumpfunRuntimeEnabled !== true) {
+            try {
+              this.telemetry.record(type, payload);
+            } catch {
+              // Report-only Helius telemetry must not block strategy consumption.
+            }
+          }
+          this.heliusRuntimeEventQueue?.enqueue(type, payload);
         }, { type });
       }
     });
@@ -193,6 +200,19 @@ class TradingEngine {
     this.telegramContext = new TelegramContext(config, logger);
     this.rickContext = new RickContext(config, logger);
     this.launchIntelStore = new LaunchIntelStore(config, logger);
+    this.heliusLaunchIntelStats = {
+      source: config.launchIntelSource,
+      creates: 0,
+      trades: 0,
+      skippedNonSolQuote: 0,
+      skippedUnmappable: 0
+    };
+    this.heliusRuntimeEventQueue = new HeliusRuntimeEventQueue({
+      enabled: config.heliusPumpfunRuntimeEnabled === true,
+      maxPending: config.heliusPumpfunRuntimeQueueMaxSize,
+      handler: (mapped) => this.handleHeliusRuntimeEvent(mapped),
+      onError: (context) => this.handleHeliusRuntimeQueueError(context)
+    });
     this.launchIntelShortlistWallets = this.loadLaunchIntelShortlistWallets();
     this.positionStore = new PositionStore(config, logger);
     this.eventFlow = new TradingEventFlow();
@@ -271,6 +291,7 @@ class TradingEngine {
     this.preMigrationLaneInputSeq = 0;
     this.preMigrationLaneInputDropped = 0;
     this.syntheticBondingCurveMigrations = new Set();
+    this.heliusRuntimeMigrations = new Set();
     this.lastTelegramSightingSyncAt = null;
     this.preMigrationDecisionLogWindowStartedAt = 0;
     this.preMigrationDecisionLogCount = 0;
@@ -531,7 +552,16 @@ class TradingEngine {
       mode: this.executionModeManager.mode,
       sessionDurationMinutes: this.config.sessionDurationMinutes,
       entryWarmupMs: this.getEffectiveEntryWarmupMs(),
+      pumpDataPlan: {
+        provider: this.config.pumpDataProvider,
+        launchIntelSource: this.config.launchIntelSource,
+        providerCurveVerificationEnabled: this.config.providerCurveVerificationEnabled === true,
+        pumpPortalRuntimeEnabled: this.config.pumpPortalRuntimeEnabled === true,
+        pumpDevRuntimeEnabled: this.config.pumpDevRuntimeEnabled === true,
+        heliusRuntimeEnabled: this.config.heliusPumpfunRuntimeEnabled === true
+      },
       pumpPortalPaidTapePlan: {
+        enabled: this.config.pumpPortalRuntimeEnabled === true,
         tradeSubscriptionMode: this.config.pumpPortalTradeSubscriptionMode,
         targetedMinCurveProgress: this.config.pumpPortalTargetedMinCurveProgress,
         targetedMaxCurveProgress: this.config.pumpPortalTargetedMaxCurveProgress,
@@ -543,8 +573,8 @@ class TradingEngine {
       },
       heliusPumpfunShadowPlan: {
         enabled: this.config.heliusPumpfunShadowEnabled === true,
-        reportOnly: true,
-        strategyConsumptionEnabled: false,
+        reportOnly: this.config.heliusPumpfunRuntimeEnabled !== true,
+        strategyConsumptionEnabled: this.config.heliusPumpfunRuntimeEnabled === true,
         commitment: this.config.heliusPumpfunShadowCommitment,
         decisionShadowEnabled: this.config.heliusPumpfunShadowEnabled === true
           && this.config.heliusPumpfunDecisionShadowEnabled !== false,
@@ -561,6 +591,7 @@ class TradingEngine {
         decisionShadowWalletEvidenceTradeCapPerMint: this.heliusDecisionShadowState.maxWalletEvidenceTradesPerMint,
         eventQueueMaxSize: this.config.heliusPumpfunShadowEventQueueMaxSize,
         eventQueueBatchSize: this.config.heliusPumpfunShadowEventQueueBatchSize,
+        runtimeQueueMaxSize: this.config.heliusPumpfunRuntimeQueueMaxSize,
         gateDecisionComparator: 'same_instant_account_enriched_window_aligned_helius_state_with_actual_lane_context_and_controlled_sniper_anchor',
         executedActionComparator: 'gate_coupled_same_guard_path_entry_and_same_instant_exit_with_actual_lane_context',
         decisionShadowMarketInputSemantics:
@@ -576,8 +607,8 @@ class TradingEngine {
         pongTimeoutMs: this.config.heliusPumpfunShadowPongTimeoutMs
       },
       strategyPreregistration: {
-        id: 'runner_watch_full_coverage_v5_2026-07-26',
-        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v5.json'
+        id: 'runner_watch_helius_primary_v6_2026-08-08',
+        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v6.json'
       },
       replayConfigSnapshot,
       configHash: replayConfigSnapshot.configHash,
@@ -597,12 +628,57 @@ class TradingEngine {
     this.startEventLoopMonitor();
     this.armSessionTimeout();
     this.logger.info('Starting trading engine...');
-    await this.pumpPortalListener.start();
-    await this.pumpDevListener.start();
-    await this.heliusPumpfunShadowListener.start();
-    this.armPumpDevPrimarySilenceWatchdog(sessionStartTime);
+    await this.startSelectedPumpDataProvider(sessionStartTime);
     this.entryStartTime = Date.now();
     this.tradingLoop();
+  }
+
+  async startSelectedPumpDataProvider(sessionStartTime) {
+    const provider = this.config.pumpDataProvider;
+    this.logger.info(`Starting ${provider} as the exclusive Pump.fun data provider`);
+    if (provider === 'helius') {
+      await this.heliusPumpfunShadowListener.start();
+      return;
+    }
+    if (provider === 'pumpportal') {
+      await this.pumpPortalListener.start();
+      return;
+    }
+    if (provider === 'pumpdev') {
+      await this.pumpDevListener.start();
+      this.armPumpDevPrimarySilenceWatchdog(sessionStartTime);
+      return;
+    }
+    throw new Error(`Unsupported Pump.fun data provider: ${provider}`);
+  }
+
+  handleHeliusLifecycleEvent(type, payload = {}) {
+    try {
+      this.telemetry.record(type, payload);
+    } catch {
+      // Provider lifecycle telemetry must not create another intake failure.
+    }
+    if (
+      this.config.heliusPumpfunRuntimeEnabled === true
+      && type === 'provider.helius_pumpfun.shadow_event_queue_overflow'
+      && this.active
+      && !this.stopInProgress
+    ) {
+      this.stop('HELIUS_LISTENER_QUEUE_OVERFLOW').catch(() => undefined);
+    }
+  }
+
+  handleHeliusRuntimeQueueError(context = {}) {
+    try {
+      this.telemetry.record('provider.helius_pumpfun.runtime_handler_error', context);
+    } catch {
+      // Runtime error telemetry must not create another provider failure.
+    }
+    if (!this.active || this.stopInProgress) return;
+    const reason = context.errorName === 'QueueOverflowError'
+      ? 'HELIUS_RUNTIME_QUEUE_OVERFLOW'
+      : 'HELIUS_RUNTIME_HANDLER_ERROR';
+    this.stop(reason).catch(() => undefined);
   }
 
   armSessionTimeout() {
@@ -682,6 +758,13 @@ class TradingEngine {
       this.pumpDevListener.stop(),
       this.heliusPumpfunShadowListener.stop()
     ]);
+    const heliusRuntimeDrained = await this.heliusRuntimeEventQueue?.drain?.(5000);
+    if (heliusRuntimeDrained === false) {
+      this.telemetry.record('provider.helius_pumpfun.runtime_queue_drain_timeout', {
+        reason,
+        stats: this.heliusRuntimeEventQueue.getStats()
+      });
+    }
     this.persistLivePositions();
     this.launchIntelStore.flush(true);
     this.sessionManager.stop(reason);
@@ -4571,13 +4654,68 @@ class TradingEngine {
         sniperWindowAnchorAtMs: shadowState?.sniperWindowAnchorAtMs ?? null,
         sniperWindowAnchorKind: shadowState?.sniperWindowAnchorKind || null,
         sniperWindowMs: shadowState?.sniperWindowMs ?? null,
+        // Reverted to 0 on 2026-08-03. A Helius-tape derivation was tried and measured wrong:
+        // launch-intel counts first-wave wallets with cross-launch history (totalLaunches > 1)
+        // capped at 5, not wallets that bought this mint repeatedly. The attribution run showed
+        // delta median +13 and max +315 against the runtime. The correct definition needs a
+        // cross-launch wallet index the shadow does not maintain, so this stays a known
+        // understatement rather than a confidently wrong number. Score impact is bounded at 6
+        // points by Math.min(count * 2, 6) in the watch lane.
         repeatedEarlyBuyerCount: 0,
+        // Reverted to false on 2026-08-03. Deriving this from Helius slot clustering worked, but
+        // it made the comparison unfair in the opposite direction: PumpPortal payloads carry no
+        // slot, so the runtime's slotBuyCounts never populates and bundlerCandidate is ALWAYS
+        // false there. The shadow scored true on 2,096 of 2,458 evaluations, taking a free +8 the
+        // runtime structurally cannot earn. A like-for-like counterfactual must not hold features
+        // the oracle cannot compute.
         bundlerCandidate: false,
-        kolOverlap: {
-          firstWaveCount: 0,
-          trustedCount: 0
-        }
+        // First-wave wallets come from the Helius tape; the KOL classification is a pure lookup
+        // against kolWalletProfiles, which is loaded from wallet-intel/kolscan/manual files and is
+        // therefore source-independent reference data rather than PumpPortal-derived intel. Same
+        // counting rule as launch-intel-store: wallets with a profile, and of those, TRUSTED.
+        kolOverlap: this.buildHeliusShadowKolOverlap(shadowState)
       }
+    };
+  }
+
+  // Feeds LaunchIntelStore from the selected Helius tape. Counters are exposed so a run can prove
+  // registration happened rather than silently starving every wallet-conditioned gate.
+  registerHeliusLaunchIntel(type, payload) {
+    if (this.config.launchIntelSource !== 'helius') return;
+    const eventType = String(type || '');
+    if (eventType.endsWith('shadow_new_token')) {
+      const mapped = mapHeliusCreateToLaunchIntelEvent(payload);
+      if (!mapped) return;
+      this.launchIntelStore.registerNewToken(mapped);
+      this.heliusLaunchIntelStats.creates += 1;
+      return;
+    }
+    if (!eventType.endsWith('shadow_trade')) return;
+    // Non-SOL-quoted rows are excluded because strategy volume and sizing are denominated in SOL.
+    if (String(payload?.pairBase || '').toUpperCase() !== 'SOL') {
+      this.heliusLaunchIntelStats.skippedNonSolQuote += 1;
+      return;
+    }
+    const mapped = mapHeliusTradeToLaunchIntelEvent(payload);
+    if (!mapped) {
+      this.heliusLaunchIntelStats.skippedUnmappable += 1;
+      return;
+    }
+    this.launchIntelStore.registerTrade(mapped);
+    this.heliusLaunchIntelStats.trades += 1;
+  }
+
+  buildHeliusShadowKolOverlap(shadowState = null) {
+    const empty = { firstWaveCount: 0, trustedCount: 0, captured: false };
+    if (shadowState?.firstWaveCaptured !== true) return empty;
+    const wallets = Array.isArray(shadowState.firstWaveWallets) ? shadowState.firstWaveWallets : [];
+    const summaries = wallets
+      .map((wallet) => this.launchIntelStore.buildKolWalletSummary(wallet))
+      .filter(Boolean);
+    return {
+      firstWaveCount: summaries.length,
+      trustedCount: summaries.filter((entry) => entry.trustTier === 'TRUSTED').length,
+      captured: true
     };
   }
 
@@ -4666,7 +4804,15 @@ class TradingEngine {
         sniperWindowMs: marketValue('sniperWindowMs'),
         sniperWalletCountCaptured: typeof sniperWalletCountCaptured === 'boolean'
           ? sniperWalletCountCaptured
-          : null
+          : null,
+        // Launch-intel parity terms. This projection rebuilds market from an explicit key list
+        // rather than spreading marketState, so adding them to decisionShadowMarket alone left
+        // them invisible here - which is why the 2026-08-03 attribution run reported null on both
+        // sides for all three and could not attribute the score change to any single term.
+        repeatedEarlyBuyerCount: marketValue('repeatedEarlyBuyerCount'),
+        kolFirstWaveCount: marketValue('kolFirstWaveCount'),
+        kolTrustedCount: marketValue('kolTrustedCount'),
+        bundlerCandidate: marketValue('bundlerCandidate')
       },
       familySelected: {
         firstCurveSnapshotScalp: selectedFamily === 'FIRST_CURVE_SNAPSHOT_SCALP',
@@ -4742,7 +4888,16 @@ class TradingEngine {
         state.sniperWindowAnchoredAtFirstObservation === true,
       sniperWindowAnchorAtMs: finite(state.sniperWindowAnchorAtMs),
       sniperWindowAnchorKind: state.sniperWindowAnchorKind || null,
-      sniperWindowMs: finite(state.sniperWindowMs)
+      sniperWindowMs: finite(state.sniperWindowMs),
+      // Launch-intel parity terms. Emitted on both sides because this projection is built for the
+      // runtime state and the shadow state alike, so the pair is directly attributable. Without
+      // these the 2026-08-03 sessions could measure that shadow score moved but not which term
+      // moved it, and a silent capture failure would be indistinguishable from a working
+      // derivation. A non-zero shadow value is itself proof that capture fired.
+      repeatedEarlyBuyerCount: finite(state.repeatedEarlyBuyerCount),
+      kolFirstWaveCount: finite(state.kolFirstWaveCount),
+      kolTrustedCount: finite(state.kolTrustedCount),
+      bundlerCandidate: state.bundlerCandidate === true
     };
   }
 
@@ -7125,10 +7280,34 @@ class TradingEngine {
     }
   }
 
+  async handleHeliusRuntimeEvent(mapped) {
+    if (!mapped || this.config.heliusPumpfunRuntimeEnabled !== true) return;
+    if (mapped.kind === 'new_token') {
+      await this.handleProviderNewToken(mapped.event, mapped.options);
+      return;
+    }
+    if (mapped.kind === 'trade') {
+      await this.handleProviderTrade(mapped.event, mapped.options);
+      return;
+    }
+    if (mapped.kind !== 'migration') return;
+
+    if (this.heliusRuntimeMigrations.has(mapped.mint)) {
+      this.telemetry.record('provider.helius_pumpfun.runtime_migration_deduped', {
+        mint: mapped.mint,
+        sourceType: mapped.type
+      });
+      return;
+    }
+    await this.handleMigrationEvent(mapped.event, mapped.options);
+    this.heliusRuntimeMigrations.add(mapped.mint);
+  }
+
   async handlePumpPortalNewToken(event) {
     return this.handleProviderNewToken(event, {
       telemetryType: 'provider.pumpportal.new_token',
-      defaultSource: 'pumpportal_create'
+      defaultSource: 'pumpportal_create',
+      targetedRpcPrefilter: true
     });
   }
 
@@ -7149,16 +7328,18 @@ class TradingEngine {
       return;
     }
 
+    const existingToken = this.latestPumpPortalTokens.get(mint) || {};
     const nextToken = {
+      ...existingToken,
       mint,
-      source: event.source || options.defaultSource || 'provider_create',
-      createdAt: Date.now(),
-      symbol: event.symbol,
-      name: event.name,
-      quoteMint: event.quoteMint || null,
-      pairBase: event.pairBase || null,
-      marketCapSol: Number(event.marketCapSol || event.marketCap || 0),
-      bondingStage: this.inferBondingStage(event),
+      source: existingToken.source || event.source || options.defaultSource || 'provider_create',
+      createdAt: existingToken.createdAt || Date.now(),
+      symbol: event.symbol || existingToken.symbol || null,
+      name: event.name || existingToken.name || null,
+      quoteMint: event.quoteMint || existingToken.quoteMint || null,
+      pairBase: event.pairBase || existingToken.pairBase || null,
+      marketCapSol: Number(event.marketCapSol ?? event.marketCap ?? existingToken.marketCapSol ?? 0),
+      bondingStage: this.inferBondingStage(event, existingToken.bondingStage),
       rawEvent: event
     };
     const providerCurveSnapshotApplied = this.applyProviderCurveSnapshot(nextToken, event, 'new_token');
@@ -7174,14 +7355,19 @@ class TradingEngine {
       }
     });
     this.latestPumpPortalTokens.set(mint, nextToken);
-    const launchIntelSummary = this.launchIntelStore.registerNewToken(event);
+    // Skipped when launch intel is Helius-sourced; the Helius shadow handler registers instead.
+    // Registering from both tapes would double-count into the same records.
+    const launchIntelSummary = this.config.launchIntelSource === 'helius'
+      ? this.launchIntelStore.getMintSummary(mint)
+      : this.launchIntelStore.registerNewToken(event);
     if (launchIntelSummary) {
       const current = this.latestPumpPortalTokens.get(mint);
       current.launchIntelSummary = launchIntelSummary;
       this.latestPumpPortalTokens.set(mint, current);
     }
     const providerCurveProgress = Number(nextToken.curveProgress);
-    const targetedRpcPrefilterObservation = this.config.pumpPortalTradeSubscriptionMode === 'targeted_curve'
+    const targetedRpcPrefilterObservation = options.targetedRpcPrefilter === true
+      && this.config.pumpPortalTradeSubscriptionMode === 'targeted_curve'
       && Number.isFinite(providerCurveProgress);
     if (!providerCurveSnapshotApplied || targetedRpcPrefilterObservation) {
       await this.syncPumpBondingCurveBeforePreMigrationObservation(
@@ -7307,12 +7493,14 @@ class TradingEngine {
     let trader;
     this.measureEventLoopWork(phase('helius_identity_ingest'), () => {
       trader = this.extractProviderTradeWallet(event);
-      this.heliusDecisionShadowState?.ingestPortalTradeIdentity?.({
-        mint,
-        signature: event.signature || event.txSignature || event.transactionSignature || null,
-        trader,
-        receivedAt: current.lastTradeAt
-      });
+      if (provider === 'pumpportal') {
+        this.heliusDecisionShadowState?.ingestPortalTradeIdentity?.({
+          mint,
+          signature: event.signature || event.txSignature || event.transactionSignature || null,
+          trader,
+          receivedAt: current.lastTradeAt
+        });
+      }
     }, workDetails);
 
     let trackedAccountMatch;
@@ -7320,8 +7508,8 @@ class TradingEngine {
     let kolWalletProfileMatch;
     let shadowWalletProfileMatch;
     this.measureEventLoopWork(phase('wallet_profile_lookup'), () => {
-      const trackedAccounts = Array.isArray(this.config.pumpPortalTrackedAccounts)
-        ? this.config.pumpPortalTrackedAccounts
+      const trackedAccounts = Array.isArray(this.config.trackedWalletAccounts)
+        ? this.config.trackedWalletAccounts
         : [];
       trackedAccountMatch = Boolean(trader && trackedAccounts.includes(trader));
       tradeWalletProfile = trader ? this.launchIntelStore.buildKolWalletSummary(trader) : null;
@@ -7335,7 +7523,11 @@ class TradingEngine {
     let launchIntelSummary;
     this.measureEventLoopWork(phase('launch_intel_register'), () => {
       current.rawTrade = event;
-      launchIntelSummary = this.launchIntelStore.registerTrade(event);
+      // See registerNewToken above: only one tape registers. When Helius is the source the
+      // summary is read back rather than written, so the lane still receives launch intel.
+      launchIntelSummary = this.config.launchIntelSource === 'helius'
+        ? this.launchIntelStore.getMintSummary(mint)
+        : this.launchIntelStore.registerTrade(event);
       if (launchIntelSummary) {
         current.launchIntelSummary = launchIntelSummary;
       }
@@ -7394,6 +7586,16 @@ class TradingEngine {
         traderPublicKey: trader || null,
         quoteMint: event.quoteMint || null,
         pairBase: event.pairBase || 'SOL',
+        source: event.source || options.defaultSource || `${provider}_trade`,
+        priceSol: Number.isFinite(Number(event.priceSol ?? current.priceSol))
+          ? Number(event.priceSol ?? current.priceSol)
+          : null,
+        providerCurveProgress: Number.isFinite(Number(event.providerCurveProgress ?? event.curveProgress))
+          ? Number(event.providerCurveProgress ?? event.curveProgress)
+          : null,
+        providerCurvePriceSol: Number.isFinite(Number(event.providerCurvePriceSol ?? event.priceSol))
+          ? Number(event.providerCurvePriceSol ?? event.priceSol)
+          : null,
         curveProgress: Number.isFinite(Number(current.curveProgress))
           ? Number(current.curveProgress)
           : null,
@@ -7414,7 +7616,7 @@ class TradingEngine {
       return;
     }
 
-    if (!this.config.pumpDevProviderCurveVerificationEnabled) {
+    if (!this.config.providerCurveVerificationEnabled) {
       return;
     }
 
@@ -7818,10 +8020,12 @@ class TradingEngine {
     const source = options.source || event.source || 'pumpportal_migration';
     const telemetryType = options.telemetryType || 'provider.pumpportal.migration';
     const synthetic = Boolean(options.synthetic || event.synthetic);
-    this.pumpPortalListener?.unsubscribeTokenTrade?.(
-      mint,
-      synthetic ? 'bonding_curve_complete' : 'migration'
-    );
+    if (options.provider === 'pumpportal' || this.config.pumpPortalRuntimeEnabled === true) {
+      this.pumpPortalListener?.unsubscribeTokenTrade?.(
+        mint,
+        synthetic ? 'bonding_curve_complete' : 'migration'
+      );
+    }
     const current = this.latestPumpPortalTokens.get(mint) || {
       mint,
       createdAt: Date.now()
@@ -8204,6 +8408,11 @@ class TradingEngine {
       riskSizing: this.capitalAllocation.getRiskSizeByHotEquity(this.getAvailableTradingCapitalSol()),
       accounting: this.accounting.getStats(),
       solanaRpc: this.connection.getStatus(),
+      pumpData: {
+        provider: this.config.pumpDataProvider,
+        launchIntelSource: this.config.launchIntelSource,
+        providerCurveVerificationEnabled: this.config.providerCurveVerificationEnabled === true
+      },
       pumpPortal: this.pumpPortalListener.getStats(),
       pumpDev: {
         ...this.pumpDevListener.getStats(),
@@ -8213,6 +8422,9 @@ class TradingEngine {
         primarySilenceTripped: this.pumpDevPrimarySilenceTripped === true
       },
       heliusPumpfunShadow: this.heliusPumpfunShadowListener.getStats(),
+      heliusPumpfunRuntime: this.heliusRuntimeEventQueue.getStats(),
+      heliusLaunchIntel: { ...this.heliusLaunchIntelStats },
+      launchIntel: this.launchIntelStore.getStats?.() || null,
       poolStateLane: this.poolStateLane.getStats(),
       pumpBondingCurveLane: {
         ...this.pumpBondingCurveLane.getStats(),

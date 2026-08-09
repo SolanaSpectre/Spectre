@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { scanTelemetryCoverage, summarizeRows } = require('./lib/paid-tape-coverage-epochs');
+const { scanHeliusRuntimeCoverage } = require('./lib/helius-runtime-coverage');
 
 const ROOT = path.join(__dirname, '..');
 const REPORT_DIR = path.join(ROOT, 'data', 'reports');
@@ -87,9 +88,36 @@ function buildReport(docs) {
     && normalizedTelemetryPath(canonicalTelemetryPath) === normalizedTelemetryPath(runnerTelemetryPath)
   );
   const canonicalTelemetryFile = canonicalTelemetryPath ? path.resolve(ROOT, canonicalTelemetryPath) : null;
-  const paidTapeCoverage = canonicalTelemetryFile && fs.existsSync(canonicalTelemetryFile)
-    ? scanTelemetryCoverage(canonicalTelemetryFile)
+  const heliusCoverage = canonicalTelemetryFile && fs.existsSync(canonicalTelemetryFile)
+    ? scanHeliusRuntimeCoverage(canonicalTelemetryFile)
     : null;
+  const paidTapeCoverage = canonicalTelemetryFile
+    && fs.existsSync(canonicalTelemetryFile)
+    && heliusCoverage?.selectedProvider === 'pumpportal'
+      ? scanTelemetryCoverage(canonicalTelemetryFile)
+      : null;
+  const providerCoverage = heliusCoverage?.selectedProvider === 'helius'
+    ? {
+        provider: 'helius',
+        fullCoverageMinutes: round(heliusCoverage.fullCoverageMinutes, 4),
+        uncoveredMinutes: round(heliusCoverage.uncoveredMinutes, 4),
+        subscriptionAcks: heliusCoverage.subscriptionAcks,
+        runtimeEvents: heliusCoverage.runtimeEvents,
+        legacyRuntimeEvents: heliusCoverage.legacyRuntimeEvents,
+        transportGapsStarted: heliusCoverage.transportGapsStarted,
+        transportGapsRecovered: heliusCoverage.transportGapsRecovered,
+        transportGapActiveAtStop: heliusCoverage.transportGapActiveAtStop
+      }
+    : paidTapeCoverage
+      ? {
+          provider: 'pumpportal',
+          fullCoverageMinutes: paidTapeCoverage.fullPaidTapeMinutes,
+          uncoveredMinutes: paidTapeCoverage.discoveryRpcOnlyMinutes,
+          coverageTruncated: paidTapeCoverage.paidTapeCoverageTruncated,
+          coverageEndReason: paidTapeCoverage.coverageEndReason,
+          coverageEndedAt: paidTapeCoverage.coverageEndedAt
+        }
+      : null;
   const shadowCoverageEpochs = paidTapeCoverage
     ? summarizeRows(flaggedReplayRows, paidTapeCoverage.coverageEndedAtMs, 300)
     : null;
@@ -164,6 +192,7 @@ function buildReport(docs) {
       noEntryRunnerMints,
       admissionRates,
       runtimeToSimGap,
+      providerCoverage,
       paidTapeCoverage: paidTapeCoverage ? {
         paidTapeCapped: paidTapeCoverage.paidTapeCapped,
         paidTapeCoverageTruncated: paidTapeCoverage.paidTapeCoverageTruncated,
@@ -179,6 +208,8 @@ function buildReport(docs) {
       liveAction: scorecard.bestAction || 'KEEP_LIVE_DISABLED',
       interpretation: !runnerInputMatches
         ? 'Runner-watch funnel withheld curve60 metrics because its runner-no-entry input belongs to a different telemetry run.'
+        : providerCoverage?.provider === 'helius' && providerCoverage.transportGapActiveAtStop
+        ? 'Helius coverage ended with an open transport gap. Treat runtime and replay funnel counts as incomplete provider evidence.'
         : paidTapeCoverage?.paidTapeCoverageTruncated
         ? 'This is a mixed-coverage run. Interpret runtime and shadow funnel rates within their paid-tape epoch; coverage-truncated and discovery/RPC-only rows are labeled separately.'
         : enteredMints === 0 && simMeasured > 0

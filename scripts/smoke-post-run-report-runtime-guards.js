@@ -19,7 +19,10 @@ const {
   TERMINAL_POST_RUN_REPORTS,
   reportsForProfile
 } = require('./post-run-report-plan');
-const { buildPostRunReportOptions } = require('./run-with-context-and-reports');
+const {
+  buildPostRunReportOptions,
+  readPumpDataProviderFromTelemetry
+} = require('./run-with-context-and-reports');
 const {
   buildDecisiveSummary,
   buildSummaryManifest
@@ -39,6 +42,19 @@ assert(!DECISIVE_POST_RUN_REPORTS.some((report) => report.script.includes('runne
 assert(TERMINAL_POST_RUN_REPORTS.some((report) => report.script === 'runner-reject-entry-replay-report.js'));
 assert(!DEEP_POST_RUN_REPORTS.some((report) => report.script === 'runner-reject-entry-replay-report.js'));
 assert.strictEqual(reportsForProfile('decisive').length, DECISIVE_POST_RUN_REPORTS.length);
+const heliusDecisivePlan = reportsForProfile('decisive', { pumpDataProvider: 'helius' });
+assert.strictEqual(
+  heliusDecisivePlan.find((report) => report.script === 'runner-watch-full-coverage-evidence-report.js').applicable,
+  true
+);
+assert.strictEqual(
+  heliusDecisivePlan.find((report) => report.script === 'paid-tape-coverage-epoch-report.js').applicable,
+  false
+);
+assert.strictEqual(
+  heliusDecisivePlan.find((report) => report.script === 'helius-pumpfun-shadow-parity-report.js').applicable,
+  false
+);
 assert.strictEqual(
   reportsForProfile('all').length,
   DECISIVE_POST_RUN_REPORTS.length + DEEP_POST_RUN_REPORTS.length + TERMINAL_POST_RUN_REPORTS.length
@@ -51,7 +67,7 @@ const summaryPlan = DECISIVE_POST_RUN_REPORTS.find(
   (report) => report.script === 'latest-run-summary.js'
 );
 assert.strictEqual(scorecardPlan.artifactTelemetryJsonPaths.length, 2);
-assert.strictEqual(summaryPlan.artifactTelemetryJsonPaths.length, 10);
+assert.strictEqual(summaryPlan.artifactTelemetryJsonPaths.length, 6);
 assert.strictEqual(summaryPlan.artifactPath, 'data/reports/latest-run-summary-latest.json');
 assert.deepStrictEqual(summaryPlan.args, ['--decisive']);
 assert.deepStrictEqual(
@@ -84,6 +100,12 @@ const telemetryPath = path.join(tempDir, 'telemetry.jsonl');
 const artifactPath = path.join(tempDir, 'artifact.json');
 
 try {
+  fs.writeFileSync(telemetryPath, `${JSON.stringify({
+    type: 'session.started',
+    payload: { pumpDataPlan: { provider: 'helius' } }
+  })}\n`, 'utf8');
+  assert.strictEqual(readPumpDataProviderFromTelemetry(telemetryPath), 'helius');
+
   fs.writeFileSync(telemetryPath, [
     JSON.stringify({ type: 'keep', payload: { mint: 'mint-a', priceSol: 1 } }),
     JSON.stringify({ type: 'drop', payload: { mint: 'mint-a', priceSol: 2 } }),

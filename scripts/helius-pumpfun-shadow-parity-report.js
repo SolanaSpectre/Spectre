@@ -42,10 +42,35 @@ const PREREGISTERED = Object.freeze({
   v5TradeIdentity: 'signature_mint_side',
   v5IdentityAmendment: 'ground_truth_12_of_12_helius_users_matched_onchain_trade_event_user_while_pumpportal_trader_matched_neither_event_user_nor_fee_payer',
   v5VolumeRule: 'preserve_v4_signature_mint_trader_side_grouping_for_exact_amount_pairs; relaxed_identity_applies_to_recall_only',
-  v5TraderDiagnostic: 'permanent_named_diagnostic; never_part_of_recall_identity; wallet_feature_divergence_must_be_zero_before_source_promotion',
+  v5TraderDiagnostic:
+    'permanent_named_diagnostic; never_part_of_recall_identity; '
+    + 'SUPERSEDED_2026-08-03_by_traderGroundTruthRule; '
+    + 'original_rule_required_zero_wallet_feature_divergence_from_pumpportal',
   v5BurstDiagnostic: 'recall_autopsy_emits_selective_vs_global_absence_and_high_vs_lower_burst_miss_rates_without_a_gate_until_replicated',
   v5EvidenceStart: 'first_completed_run_after_v5_semantic_identity_comparator_was_committed',
   v5FrozenAt: '2026-07-19T21:42:00.000Z',
+  // The v5 trader gate required zero wallet-feature divergence from PumpPortal, but
+  // v5IdentityAmendment already established that PumpPortal's trader field matched
+  // neither the on-chain TradeEvent user nor the fee payer in 12 of 12 sampled cases,
+  // while Helius matched all 12. Requiring agreement with a comparator that is known
+  // to be wrong makes a correct Helius permanently unpromotable. Promotion now
+  // adjudicates disagreements against on-chain truth instead of against PumpPortal.
+  traderGroundTruthAmendment:
+    'replace_zero_divergence_from_pumpportal_with_agreement_against_onchain_trade_event_user; '
+    + 'pumpportal_trader_agreement_is_demoted_to_diagnostic_only',
+  traderGroundTruthAmendedAt: '2026-08-03T01:20:00.000-05:00',
+  traderGroundTruthRule:
+    'adjudicate_every_trader_identity_disagreement_against_TradeEvent_user_decoded_from_getTransaction_logMessages; '
+    + 'helius_must_match_onchain_ground_truth; pumpportal_agreement_is_diagnostic_only',
+  traderGroundTruthCohort: 'trader_identity_disagreements_and_identity_residues',
+  traderGroundTruthMinimumAdjudications: 12,
+  traderGroundTruthAgreementMinimumRate: 1,
+  // Fails closed. A run with no adjudications is INSUFFICIENT_EVIDENCE, never a pass,
+  // so perfect recall cannot silently satisfy the gate by starving its own cohort.
+  traderGroundTruthInsufficientDisposition:
+    'insufficient_evidence_not_pass; gate_fails_closed_when_no_adjudications_are_available',
+  traderGroundTruthEvidenceStart:
+    'first_completed_run_after_the_ground_truth_sampler_cohort_includes_trader_identity_disagreements',
   boundedReconnectLifecycleAmendment:
     'before_first_v11_run_allow_only_measured_bounded_reconnects_with_ack_per_epoch_and_gap_affected_decisions_excluded',
   boundedReconnectLifecycleAmendedAt: '2026-07-31T22:50:00.000-05:00',
@@ -615,6 +640,7 @@ function buildReport(state, sourceTelemetry = null) {
 
   const mintHours = [];
   const standardVolumeMintHours = [];
+  const traderIdentityDisagreements = [];
   for (const [key, coverage] of coverageByBucket.entries()) {
     const segments = mergeIntervals(coverage.segments);
     const heliusRows = (heliusTradesByMint.get(coverage.mint) || []).filter((row) => (
@@ -655,11 +681,28 @@ function buildReport(state, sourceTelemetry = null) {
     for (const identity of portalTradeIdentities) {
       const matchedHeliusRows = heliusRowsByIdentity.get(identity);
       if (!matchedHeliusRows) continue;
-      const portalTraders = new Set((portalRowsByIdentity.get(identity) || []).map((row) => traderOf(row.payload)).filter(Boolean));
+      const portalIdentityRows = portalRowsByIdentity.get(identity) || [];
+      const portalTraders = new Set(portalIdentityRows.map((row) => traderOf(row.payload)).filter(Boolean));
       const heliusTraders = new Set(matchedHeliusRows.map((row) => traderOf(row.payload)).filter(Boolean));
       if (!portalTraders.size || !heliusTraders.size) continue;
       traderIdentityComparisons += 1;
-      if ([...portalTraders].some((trader) => heliusTraders.has(trader))) traderIdentityMatches += 1;
+      if ([...portalTraders].some((trader) => heliusTraders.has(trader))) {
+        traderIdentityMatches += 1;
+        continue;
+      }
+      // Emitted so the ground-truth sampler can adjudicate the disagreement against the
+      // on-chain TradeEvent user. These rows were previously counted and discarded, which
+      // left traderGroundTruthRule with no cohort to read. Diagnostic only; no grading here.
+      const portalPayload = portalIdentityRows[0]?.payload || {};
+      traderIdentityDisagreements.push({
+        classification: 'TRADER_IDENTITY_DISAGREEMENT',
+        mint: coverage.mint,
+        signature: portalPayload.signature || null,
+        side: String(portalPayload.txType || '').toLowerCase() || null,
+        trader: [...portalTraders][0] || null,
+        pumpPortalTraderSamples: [...portalTraders].slice(0, 4),
+        heliusTraderSamples: [...heliusTraders].slice(0, 4)
+      });
     }
     const portalTradeIdentityRecall = ratio(matchedPortalTradeIdentities, portalTradeIdentities.size);
     const tradeCountRelativeDelta = relativeDelta(helius.trades, portal.trades);
@@ -958,6 +1001,7 @@ function buildReport(state, sourceTelemetry = null) {
       signatureOverlap,
       traderIdentityComparisons,
       traderIdentityMatches,
+      traderIdentityDisagreements: traderIdentityDisagreements.length,
       portalCoverageLifecycleFallbackMints: portalCoverage.lifecycleFallbackMints,
       portalTradestreamConnectionIntervals: portalCoverage.connectionIntervals.length,
       malformedLines: state.malformedLines
@@ -980,6 +1024,7 @@ function buildReport(state, sourceTelemetry = null) {
       curveMatchAgeMs: stats(curveComparisons.map((row) => row.ageMs), 0),
       discoveryHeliusMinusPumpPortalMs: discoveryStats
     },
+    traderIdentityDisagreementCohort: traderIdentityDisagreements,
     diagnostics: {
       websocketCreditEstimate: creditEstimate,
       boundedReconnectLifecycle: {

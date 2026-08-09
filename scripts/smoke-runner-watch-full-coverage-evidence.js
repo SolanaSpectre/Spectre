@@ -14,21 +14,20 @@ const {
   summarizeEpisodes,
   evidenceCollectionClosed
 } = require('./runner-watch-full-coverage-evidence-report');
-const frozenPrereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v5.json');
+const { scanHeliusRuntimeCoverage } = require('./lib/helius-runtime-coverage');
+const priorPrereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v5.json');
+const frozenPrereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v6.json');
 
 const engineSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'trading-engine.js'), 'utf8');
-const envExample = fs.readFileSync(path.join(__dirname, '..', '.env.example'), 'utf8');
-assert.strictEqual(frozenPrereg.subscriptionPlan.paidEventBudgetPerSession, 105000);
-assert.strictEqual(frozenPrereg.subscriptionPlan.requiredStartingBalanceSol, 0.125);
-assert.strictEqual(evidenceCollectionClosed(frozenPrereg), true);
-assert.strictEqual(frozenPrereg.terminalDisposition.disposition, 'FAILED_RUNTIME_CHECKPOINT');
-assert(engineSource.includes(`id: '${frozenPrereg.id}'`), 'runtime must emit the V5 strategy preregistration id');
-assert(
-  envExample.includes('PUMPPORTAL_MAX_METERED_TRADE_EVENTS_PER_SESSION=105000'),
-  '.env.example must publish the frozen V5 event budget'
-);
+assert.strictEqual(evidenceCollectionClosed(priorPrereg), true);
+assert.strictEqual(priorPrereg.terminalDisposition.disposition, 'FAILED_RUNTIME_CHECKPOINT');
+assert.strictEqual(frozenPrereg.priorEvidence.id, priorPrereg.id);
+assert.strictEqual(frozenPrereg.priorEvidence.acceptedEvidenceReuseAllowed, false);
+assert.strictEqual(frozenPrereg.providerPlan.provider, 'helius');
+assert.strictEqual(frozenPrereg.validRunDefinition.legacyRuntimeEventsMustBeZero, true);
+assert(engineSource.includes(`id: '${frozenPrereg.id}'`), 'runtime must emit the V6 strategy preregistration id');
 
-const prereg = {
+const checkpointPrereg = {
   throughputCheckpoint: { minimumUniqueMintEpisodesPerFullCoverageHour: 1 },
   economicCheckpoint: { minimumUniqueMintEpisodes: 2, minimumValidRuns: 1 },
   stoppingRule: { validRuns: 10 }
@@ -46,6 +45,7 @@ const episodes = buildEpisodes({
 });
 assert.strictEqual(episodes.length, 2, 'same-mint reentries must collapse to one episode');
 assert.strictEqual(episodes.find((row) => row.mint === 'A').pnlSol, 0.015);
+
 const concentrated = summarizeEpisodes([
   { exits: 1, pnlSol: 0.1 },
   { exits: 1, pnlSol: -0.01 },
@@ -58,25 +58,23 @@ assert.strictEqual(concentrated.concentrationDependent, true);
 
 const futureRun = {
   started: {
-    timestamp: '2026-07-27T12:00:00.000Z',
+    timestamp: '2026-08-09T12:00:00.000Z',
     payload: {
       mode: 'PAPER',
       sessionDurationMinutes: 60,
       strategyPreregistration: { id: frozenPrereg.id },
-      pumpPortalPaidTapePlan: {
-        tradeSubscriptionMode: frozenPrereg.subscriptionPlan.mode,
-        targetedMinCurveProgress: frozenPrereg.subscriptionPlan.minCurveProgressInclusive,
-        targetedMaxCurveProgress: frozenPrereg.subscriptionPlan.maxCurveProgressExclusive,
-        maxMeteredTradeEventsPerSession: frozenPrereg.subscriptionPlan.paidEventBudgetPerSession,
-        tokenTradeSubscriptionTtlMs: frozenPrereg.subscriptionPlan.tokenTradeSubscriptionTtlMs,
-        targetedPrefilterMaxAgeMs: frozenPrereg.subscriptionPlan.belowBandRpcRecheckMaxAgeMs,
-        targetedPrefilterCadenceMs: frozenPrereg.subscriptionPlan.belowBandRpcRecheckCadenceMs,
-        bondingCurveRuntimeRpcEnabled: true
+      pumpDataPlan: {
+        provider: 'helius',
+        launchIntelSource: 'helius',
+        providerCurveVerificationEnabled: true,
+        pumpPortalRuntimeEnabled: false,
+        pumpDevRuntimeEnabled: false,
+        heliusRuntimeEnabled: true
       }
     }
   },
   stopping: {
-    timestamp: '2026-07-27T13:00:00.000Z',
+    timestamp: '2026-08-09T13:00:00.000Z',
     payload: {
       reason: 'SESSION_DURATION_EXCEEDED',
       stats: {
@@ -93,28 +91,66 @@ const futureRun = {
     }
   }
 };
+
 const fullCoverage = {
-  fullPaidTapeMinutes: 60,
-  discoveryRpcOnlyMinutes: 0,
-  paidTapeCapped: false,
-  paidTapeCoverageTruncated: false,
-  coverageEndReason: null,
-  coverageEndedAt: null,
-  targetedTradeSubscriptionRejections: 0
+  selectedProvider: 'helius',
+  launchIntelSource: 'helius',
+  fullCoverageMinutes: 59.9,
+  uncoveredMinutes: 0.1,
+  coverageStartedAt: '2026-08-09T12:00:06.000Z',
+  subscriptionAcks: 1,
+  disconnects: 0,
+  transportGapsStarted: 0,
+  transportGapsRecovered: 0,
+  transportGapActiveAtStop: false,
+  runtimeNewTokens: 2,
+  runtimeTrades: 10,
+  runtimeMigrations: 1,
+  runtimeEvents: 13,
+  legacyRuntimeEvents: 0,
+  listenerEnabled: true,
+  strategyConsumptionEnabled: true,
+  listenerQueueDropped: 0,
+  listenerQueueHandlerErrors: 0,
+  listenerQueueStopDrainTimedOut: false,
+  runtimeQueueOverflowRejected: 0,
+  runtimeQueueHandlerErrors: 0,
+  runtimeQueuePendingAtStop: 0,
+  runtimeQueueDrainTimeouts: 0
 };
+
 const phaseAwareValidation = validateRun(
   frozenPrereg,
   path.join(__dirname, '..', 'run-logs', 'future.jsonl'),
   futureRun,
   fullCoverage
 );
-assert.strictEqual(phaseAwareValidation.valid, true, 'shutdown cancellations must not invalidate a future run');
+assert.strictEqual(phaseAwareValidation.valid, true, 'clean Helius coverage must validate');
 assert.strictEqual(phaseAwareValidation.actual.activeRuntimeRpcCurveErrors, 0);
 assert.strictEqual(phaseAwareValidation.actual.shutdownCancelledCurveErrors, 4);
 assert.strictEqual(phaseAwareValidation.actual.shutdownPhaseErrorsClassified, true);
-const legacyValidation = validateRun(
+
+const legacyProviderValidation = validateRun(
   frozenPrereg,
-  path.join(__dirname, '..', 'run-logs', 'legacy.jsonl'),
+  path.join(__dirname, '..', 'run-logs', 'legacy-provider.jsonl'),
+  futureRun,
+  { ...fullCoverage, legacyRuntimeEvents: 1 }
+);
+assert.strictEqual(legacyProviderValidation.checks.noLegacyRuntimeEvents, false);
+assert.strictEqual(legacyProviderValidation.valid, false);
+
+const queueFailureValidation = validateRun(
+  frozenPrereg,
+  path.join(__dirname, '..', 'run-logs', 'queue-overflow.jsonl'),
+  futureRun,
+  { ...fullCoverage, runtimeQueueOverflowRejected: 1 }
+);
+assert.strictEqual(queueFailureValidation.checks.runtimeQueueIntegrity, false);
+assert.strictEqual(queueFailureValidation.valid, false);
+
+const legacyCurveCountersValidation = validateRun(
+  frozenPrereg,
+  path.join(__dirname, '..', 'run-logs', 'legacy-counters.jsonl'),
   {
     ...futureRun,
     stopping: {
@@ -130,54 +166,19 @@ const legacyValidation = validateRun(
   },
   fullCoverage
 );
-assert.strictEqual(
-  legacyValidation.checks.phaseAwareCurveErrorAccounting,
-  false,
-  'future V5 runs must expose phase-aware curve error counters'
-);
-const unclassifiedShutdownValidation = validateRun(
-  frozenPrereg,
-  path.join(__dirname, '..', 'run-logs', 'unclassified-shutdown.jsonl'),
-  {
-    ...futureRun,
-    stopping: {
-      ...futureRun.stopping,
-      payload: {
-        ...futureRun.stopping.payload,
-        stats: {
-          ...futureRun.stopping.payload.stats,
-          pumpBondingCurveLane: {
-            ...futureRun.stopping.payload.stats.pumpBondingCurveLane,
-            shutdownCancelledErrors: 3
-          }
-        }
-      }
-    }
-  },
-  fullCoverage
-);
-assert.strictEqual(
-  unclassifiedShutdownValidation.checks.shutdownRuntimeRpcCurveErrorsClassified,
-  false,
-  'a non-cancellation shutdown error must invalidate the run'
-);
+assert.strictEqual(legacyCurveCountersValidation.checks.phaseAwareCurveErrorAccounting, false);
 
 const summary = summarizeLedger([
   {
     valid: true,
     telemetryPath: 'run-logs/test.jsonl',
-    fullPaidTapeMinutes: 60,
+    fullCoverageMinutes: 60,
     pnlSol: 0.025,
     episodes
-  },
-  {
-    recordType: 'coverage_annotation',
-    telemetryPath: 'run-logs/test.jsonl',
-    comparatorCoverage: { budgetTruncated: false }
   }
-], prereg);
+], checkpointPrereg);
 assert.strictEqual(summary.realizedUniqueMintEpisodes, 2);
-assert.strictEqual(summary.excludedRuns, 0, 'coverage annotations must not count as excluded runs');
+assert.strictEqual(summary.excludedRuns, 0);
 assert.strictEqual(summary.validRunPnlSol, 0.025);
 assert.strictEqual(summary.excludedRunPnlSol, 0);
 assert.strictEqual(summary.episodesPerFullCoverageHour, 2);
@@ -185,55 +186,22 @@ assert.strictEqual(summary.economicCheckpointReady, true);
 assert.strictEqual(summary.evidenceCollectionClosed, false);
 assert.strictEqual(summary.liveAction, 'KEEP_LIVE_DISABLED');
 
-const terminalSummary = summarizeLedger([], {
-  ...prereg,
-  terminalDisposition: {
-    disposition: 'FAILED_RUNTIME_CHECKPOINT',
-    closedToFurtherLedgerAppends: true
-  }
-});
-assert.strictEqual(terminalSummary.verdict, 'FAILED_RUNTIME_CHECKPOINT');
-assert.strictEqual(terminalSummary.evidenceCollectionClosed, true);
-
-const correctedSummary = summarizeLedger([
-  {
-    valid: true,
-    telemetryPath: 'run-logs/corrected.jsonl',
-    fullPaidTapeMinutes: 60,
-    pnlSol: 0.025,
-    episodes
-  },
-  {
-    recordType: 'coverage_annotation',
-    telemetryPath: 'run-logs/corrected.jsonl',
-    validOverride: false,
-    failedChecksOverride: ['fullPaidTapeMinutes'],
-    fullPaidTapeMinutesOverride: 40,
-    comparatorCoverage: { coverageEndReason: 'TARGETED_SUBSCRIPTION_REJECTED' }
-  }
-], prereg);
-assert.strictEqual(correctedSummary.validRuns, 0, 'coverage correction must exclude a previously accepted run');
-assert.strictEqual(correctedSummary.excludedRuns, 1);
-assert.strictEqual(correctedSummary.validRunPnlSol, 0);
-assert.strictEqual(correctedSummary.excludedRunPnlSol, 0.025);
-assert.strictEqual(correctedSummary.realizedUniqueMintEpisodes, 0);
-
 const splitPnlSummary = summarizeLedger([
   {
     valid: true,
     telemetryPath: 'run-logs/valid.jsonl',
-    fullPaidTapeMinutes: 60,
+    fullCoverageMinutes: 60,
     pnlSol: -0.0674,
     episodes
   },
   {
     valid: false,
     telemetryPath: 'run-logs/excluded.jsonl',
-    fullPaidTapeMinutes: 12,
+    fullCoverageMinutes: 12,
     pnlSol: 0.035469,
     episodes
   }
-], prereg);
+], checkpointPrereg);
 assert.strictEqual(splitPnlSummary.validRunPnlSol, -0.0674);
 assert.strictEqual(splitPnlSummary.excludedRunPnlSol, 0.035469);
 assert.strictEqual(
@@ -241,22 +209,102 @@ assert.strictEqual(
   'valid_run_pnl_drives_checkpoint_excluded_run_pnl_is_context_only'
 );
 
-const telemetryPath = path.join(os.tmpdir(), `spectre-runner-watch-coverage-${process.pid}.jsonl`);
+const telemetryPath = path.join(os.tmpdir(), `spectre-runner-watch-helius-coverage-${process.pid}.jsonl`);
+const finalStats = {
+  heliusPumpfunShadow: {
+    enabled: true,
+    strategyConsumptionEnabled: true,
+    subscriptionReady: false,
+    transportGapActive: false,
+    eventQueueDropped: 0,
+    eventQueueHandlerErrors: 0,
+    eventQueueStopDrainTimedOut: false
+  },
+  heliusPumpfunRuntime: {
+    overflowRejected: 0,
+    handlerErrors: 0,
+    pending: 0,
+    drainTimeouts: 0
+  }
+};
 fs.writeFileSync(telemetryPath, [
-  { type: 'provider.pumpportal.targeted_prefilter_first_rpc_observation', timestamp: '2026-07-18T12:00:00.000Z', payload: { mint: 'FAST', symbol: 'FAST', classification: 'ABOVE_BAND' } },
-  { type: 'pre_migration_paper.decision', timestamp: '2026-07-18T12:00:01.000Z', payload: { mint: 'FAST', symbol: 'FAST', decision: 'PAPER_SKIPPED', reason: 'MISSING_BUY_RATIO' } },
-  { type: 'provider.pumpportal.targeted_prefilter_refresh_expired', timestamp: '2026-07-18T12:03:00.000Z', payload: { mint: 'SLOW', curveProgress: 0.2, attempts: 12 } },
-  { type: 'provider.pumpportal.targeted_prefilter_expired_later_observed', timestamp: '2026-07-18T12:05:00.000Z', payload: { mint: 'SLOW', laterCurveProgress: 0.4, laterClassification: 'IN_BAND' } }
+  {
+    type: 'session.started',
+    timestamp: '2026-08-09T12:00:00.000Z',
+    payload: {
+      mode: 'PAPER',
+      pumpDataPlan: { provider: 'helius', launchIntelSource: 'helius' }
+    }
+  },
+  { type: 'provider.helius_pumpfun.shadow_subscription_ack', timestamp: '2026-08-09T12:00:05.000Z', payload: {} },
+  { type: 'provider.helius_pumpfun.runtime_new_token', timestamp: '2026-08-09T12:01:00.000Z', payload: { mint: 'A' } },
+  { type: 'provider.helius_pumpfun.runtime_trade', timestamp: '2026-08-09T12:01:01.000Z', payload: { mint: 'A' } },
+  { type: 'provider.helius_pumpfun.runtime_complete', timestamp: '2026-08-09T12:40:00.000Z', payload: { mint: 'A' } },
+  { type: 'pre_migration_paper.decision', timestamp: '2026-08-09T12:41:00.000Z', payload: { reason: 'CURVE_NOT_ADVANCING' } },
+  { type: 'session.stopping', timestamp: '2026-08-09T13:00:00.000Z', payload: { reason: 'SESSION_DURATION_EXCEEDED', stats: finalStats } },
+  { type: 'session.stopped', timestamp: '2026-08-09T13:00:02.000Z', payload: { reason: 'SESSION_DURATION_EXCEEDED', stats: finalStats } }
 ].map((row) => JSON.stringify(row)).join('\n') + '\n', 'utf8');
+
 try {
-  const scanned = scanRun(telemetryPath);
-  assert.strictEqual(scanned.coverageDiagnostics.firstObservedAboveBandMints, 1);
-  assert.strictEqual(scanned.coverageDiagnostics.coverageShapedPaperSkips, 1);
-  assert.strictEqual(scanned.coverageDiagnostics.coverageShapedPaperSkipReasons.MISSING_BUY_RATIO, 1);
-  assert.strictEqual(scanned.coverageDiagnostics.belowBandRecheckExpirations, 1);
-  assert.strictEqual(scanned.coverageDiagnostics.expiredLaterObservedInOrAboveBand, 1);
+  const scannedRun = scanRun(telemetryPath);
+  assert.deepStrictEqual(scannedRun.coverageDiagnostics.runtimeProviderEvents, {
+    newTokens: 1,
+    trades: 1,
+    migrations: 1
+  });
+  assert.strictEqual(scannedRun.coverageDiagnostics.paperDecisions, 1);
+
+  const scannedCoverage = scanHeliusRuntimeCoverage(telemetryPath);
+  assert(scannedCoverage.fullCoverageMinutes > 59.9);
+  assert(scannedCoverage.fullCoverageMinutes < 60);
+  assert.strictEqual(scannedCoverage.runtimeEvents, 3);
+  assert.strictEqual(scannedCoverage.legacyRuntimeEvents, 0);
+  assert.strictEqual(scannedCoverage.runtimeQueuePendingAtStop, 0);
+  assert.strictEqual(scannedCoverage.sessionCoverageEndedAt, '2026-08-09T13:00:00.000Z');
+  assert.strictEqual(scannedCoverage.sessionStoppedAt, '2026-08-09T13:00:02.000Z');
+
+  const gapStats = {
+    ...finalStats,
+    heliusPumpfunShadow: {
+      ...finalStats.heliusPumpfunShadow,
+      transportGapsStarted: 1,
+      transportGapsRecovered: 1
+    }
+  };
+  fs.writeFileSync(telemetryPath, [
+    {
+      type: 'session.started',
+      timestamp: '2026-08-09T12:00:00.000Z',
+      payload: { pumpDataPlan: { provider: 'helius', launchIntelSource: 'helius' } }
+    },
+    { type: 'provider.helius_pumpfun.shadow_subscription_ack', timestamp: '2026-08-09T12:00:05.000Z', payload: {} },
+    {
+      type: 'provider.helius_pumpfun.shadow_disconnected',
+      timestamp: '2026-08-09T12:10:00.000Z',
+      payload: { shutdownDisconnect: false, transportGapSequence: 1, transportGapStartedAt: '2026-08-09T12:10:00.000Z' }
+    },
+    {
+      type: 'provider.helius_pumpfun.shadow_subscription_ack',
+      timestamp: '2026-08-09T12:15:00.000Z',
+      payload: { recoveredTransportGapSequence: 1, recoveredTransportGapDurationMs: 300000 }
+    },
+    {
+      type: 'provider.helius_pumpfun.shadow_transport_gap_closed',
+      timestamp: '2026-08-09T12:15:00.001Z',
+      payload: { sequence: 1, durationMs: 300000 }
+    },
+    { type: 'provider.helius_pumpfun.runtime_trade', timestamp: '2026-08-09T12:20:00.000Z', payload: { mint: 'A' } },
+    { type: 'session.stopping', timestamp: '2026-08-09T13:00:00.000Z', payload: { reason: 'SESSION_DURATION_EXCEEDED', stats: gapStats } },
+    { type: 'session.stopped', timestamp: '2026-08-09T13:00:02.000Z', payload: { reason: 'SESSION_DURATION_EXCEEDED', stats: gapStats } }
+  ].map((row) => JSON.stringify(row)).join('\n') + '\n', 'utf8');
+  const gapCoverage = scanHeliusRuntimeCoverage(telemetryPath);
+  assert(gapCoverage.fullCoverageMinutes > 54.9 && gapCoverage.fullCoverageMinutes < 55);
+  assert.strictEqual(gapCoverage.disconnects, 1);
+  assert.strictEqual(gapCoverage.transportGapsStarted, 1);
+  assert.strictEqual(gapCoverage.transportGapsRecovered, 1);
+  assert.strictEqual(gapCoverage.transportGapActiveAtStop, false);
 } finally {
   fs.rmSync(telemetryPath, { force: true });
 }
 
-console.log('Runner-watch full-coverage evidence smoke passed');
+console.log('Runner-watch Helius full-coverage V6 evidence smoke passed');

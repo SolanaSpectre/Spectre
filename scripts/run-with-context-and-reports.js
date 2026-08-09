@@ -91,6 +91,52 @@ function latestTelemetrySignature() {
   return latest ? `${latest.name}:${latest.mtimeMs}:${latest.size}` : null;
 }
 
+function readPumpDataProviderFromTelemetry(telemetryPath, maxBytes = 4 * 1024 * 1024) {
+  if (!telemetryPath || !fs.existsSync(telemetryPath)) return null;
+  const fd = fs.openSync(telemetryPath, 'r');
+  const buffer = Buffer.allocUnsafe(64 * 1024);
+  let carry = '';
+  let offset = 0;
+  try {
+    while (offset < maxBytes) {
+      const bytesRead = fs.readSync(fd, buffer, 0, Math.min(buffer.length, maxBytes - offset), offset);
+      if (bytesRead <= 0) break;
+      offset += bytesRead;
+      carry += buffer.toString('utf8', 0, bytesRead);
+      const lines = carry.split(/\r?\n/);
+      carry = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const event = JSON.parse(line);
+          if (event.type === 'session.started') {
+            return event.payload?.pumpDataPlan?.provider
+              || event.data?.pumpDataPlan?.provider
+              || null;
+          }
+        } catch {
+          // A malformed early telemetry row must not make provider-specific reports run by accident.
+        }
+      }
+    }
+    if (carry.trim()) {
+      try {
+        const event = JSON.parse(carry);
+        if (event.type === 'session.started') {
+          return event.payload?.pumpDataPlan?.provider
+            || event.data?.pumpDataPlan?.provider
+            || null;
+        }
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function readJson(filePath, fallback) {
   if (!filePath || !fs.existsSync(filePath)) return fallback;
   try {
@@ -456,12 +502,14 @@ async function generatePostRunReports(options, telemetryPath = null) {
   }
 
   const profile = normalizeReportProfile(options.reportProfile || 'decisive');
-  const reports = reportsForProfile(profile);
+  const pumpDataProvider = readPumpDataProviderFromTelemetry(telemetryPath) || 'unknown';
+  const reports = reportsForProfile(profile, { pumpDataProvider });
   const startedAt = new Date().toISOString();
   const ledger = {
     schemaVersion: 1,
     mode: 'post_run_report_execution_ledger',
     profile,
+    pumpDataProvider,
     telemetryPath: path.relative(REPO_ROOT, telemetryPath).replace(/\\/g, '/'),
     startedAt,
     finishedAt: null,
@@ -475,6 +523,22 @@ async function generatePostRunReports(options, telemetryPath = null) {
 
   printSection(`Post-Run Reports: ${profile}`);
   for (const report of reports) {
+    if (report.applicable === false) {
+      printSection(report.title);
+      console.log(`[SKIP] ${report.script} is not applicable: ${report.applicabilityReason}`);
+      ledger.reports.push({
+        title: report.title,
+        script: report.script,
+        tier: report.tier,
+        required: report.required === true,
+        status: 'SKIPPED_NOT_APPLICABLE',
+        reason: report.applicabilityReason,
+        exitCode: null,
+        durationMs: 0
+      });
+      persistLedger();
+      continue;
+    }
     if (SKIPPED_POST_RUN_REPORTS.has(report.script) || SKIPPED_POST_RUN_REPORTS.has(report.title)) {
       printSection(report.title);
       console.log(`[SKIP] ${report.script} skipped by POST_RUN_SKIP_REPORTS`);
@@ -613,5 +677,6 @@ module.exports = {
   generatePostRunReports,
   getBotSessionTimeoutMs,
   main,
+  readPumpDataProviderFromTelemetry,
   runProcess
 };

@@ -13,8 +13,12 @@ assert.strictEqual(demandPrereg.pinnedCandidate.minCurveProgressInclusive, 0.3);
 assert.strictEqual(demandPrereg.confirmation.minimumFutureFullCoverageRuns, 2);
 const envExample = fs.readFileSync(path.join(__dirname, '..', '.env.example'), 'utf8');
 assert(
-  envExample.includes('PUMPPORTAL_TARGETED_MIN_CURVE_PROGRESS=0.25'),
-  'report-only demand candidate must not change the runtime curve floor'
+  envExample.includes('PUMP_DATA_PROVIDER=helius'),
+  'current runtime configuration must remain Helius-owned'
+);
+assert(
+  !envExample.includes('PUMPPORTAL_TARGETED_MIN_CURVE_PROGRESS='),
+  'legacy PumpPortal runtime tuning must not return to the public configuration'
 );
 
 const filePath = path.join(os.tmpdir(), `spectre-paid-demand-${process.pid}.jsonl`);

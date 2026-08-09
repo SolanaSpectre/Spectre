@@ -32,7 +32,7 @@ function main() {
       payload: { mint: wrappedSolMint }
     });
     rows.push({
-      type: 'provider.pumpdev.shadow_trade',
+      type: 'provider.helius_pumpfun.runtime_trade',
       payload: { mint: tokenProgramMint }
     });
     fs.writeFileSync(telemetryPath, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`);
@@ -46,7 +46,7 @@ function main() {
       maxBytes: 4096
     });
     assert.deepStrictEqual(reverseOrder, [
-      'provider.pumpdev.shadow_trade',
+      'provider.helius_pumpfun.runtime_trade',
       'provider.pumpdev.runtime_trade'
     ]);
     assert.strictEqual(scan.stoppedEarly, true);

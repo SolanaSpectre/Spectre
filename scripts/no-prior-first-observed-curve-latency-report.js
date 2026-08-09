@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { readJson, readJsonl } = require('./no-prior-replay-diagnostic');
+const { isRuntimeProviderEvent } = require('./lib/runtime-provider-events');
 
 const ROOT = path.join(__dirname, '..');
 const FIRST_OBSERVED_PATH = path.join(ROOT, 'data', 'reports', 'no-prior-first-observed-curve-latest.json');
@@ -70,14 +71,17 @@ function stats(values) {
   };
 }
 
-function firstEvent(events, mint, type) {
+function firstEvent(events, mint, typeOrPredicate) {
+  const predicate = typeof typeOrPredicate === 'function'
+    ? typeOrPredicate
+    : (event) => eventType(event) === typeOrPredicate;
   return events
-    .filter((event) => mintOf(event) === mint && eventType(event) === type)
+    .filter((event) => mintOf(event) === mint && predicate(event))
     .sort((a, b) => timestampMs(a.timestamp) - timestampMs(b.timestamp))[0] || null;
 }
 
 function buildRow(row, events) {
-  const providerNewToken = firstEvent(events, row.mint, 'provider.pumpportal.new_token');
+  const providerNewToken = firstEvent(events, row.mint, (event) => isRuntimeProviderEvent(event, 'newToken'));
   const preMigrationObserved = firstEvent(events, row.mint, 'pre_migration.observed');
   const bondingCurveUpdated = firstEvent(events, row.mint, 'pump_bonding_curve.updated');
 

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "mode": "READ_ONLY",
+  "strategyName": "Pocket Runner Scalper",
+  "miloWalletAddress": "",
+  "rickContextPath": "data/rick-context/latest.json",
+  "walletEvidencePath": "data/reports/kolscan-wallet-evidence-latest.json",
+  "maxSymbols": 16,
+  "maxWalletEvidenceMints": 5,
+  "walletEvidenceMaxAgeMinutes": 360,
+  "maxEnrichedCandidates": 10,
+  "maxPicks": 5,
+  "quoteSizesUsd": [10, 15],
+  "activityWindowMinutes": 5,
+  "enhancedTransactionLimit": 40,
+  "policy": {
+    "minLiquidityUsd": 25000,
+    "aMinLiquidityUsd": 50000,
+    "maxPriceImpactPct": 2,
+    "aMaxPriceImpactPct": 1.5,
+    "cautionTop10HolderPct": 65,
+    "aMinScore": 78,
+    "bMinScore": 62,
+    "aMinRecentTransactions": 10,
+    "bMinRecentTransactions": 3,
+    "aMinUniqueFeePayers": 5,
+    "bMinUniqueFeePayers": 2
+  }
+}

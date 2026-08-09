@@ -90,6 +90,8 @@ class SolanaTradingBot {
       this.logger = new Logger(this.config.logLevel);
       this.logger.info('Bot configuration loaded successfully', {
         executionMode: this.config.executionMode,
+        pumpDataProvider: this.config.pumpDataProvider,
+        launchIntelSource: this.config.launchIntelSource,
         sessionDurationMinutes: this.config.sessionDurationMinutes,
         aiTimeoutMs: this.config.aiTimeoutMs,
         maxQuoteAgeMs: this.config.maxQuoteAgeMs

@@ -15,6 +15,17 @@ const DEFAULT_STRATEGY = {
   takeProfitPct: 0.50,
   stopLossPct: 0.25,
   maxHoldSeconds: 600,
+  // Time-boxed profit requirement. 0 disables it, which is the default so existing reports and
+  // every prior sweep remain byte-identical. When set, a position that has not reached
+  // proveMinReturnPct by proveBySeconds is closed as FAILED_TO_PROVE.
+  //
+  // Motivated by 2026-08-03/04 telemetry: winners move fast (Daisy +63% in 16s, Pavelstein +44%
+  // by 59s) while the catastrophic losses drift first and then gap. wCat sat between -6% and +6%
+  // for 81 seconds, then fell from -6.6% to -34% in 200ms and exited at -78.5%. A stop cannot be
+  // honoured through that gap, but a position that has not proven itself can be exited before the
+  // gap is ever reached. This rule targets unpaid rug exposure, not adverse price movement.
+  proveBySeconds: 0,
+  proveMinReturnPct: 0.10,
   amountSol: 0.1
 };
 
@@ -246,6 +257,18 @@ function buildReport(events, telemetryPath, strategy, sourceRun = null) {
       });
     } else if (returnPct <= -strategy.stopLossPct) {
       closeTrade(trade, timestamp, price, 'STOP_LOSS', {
+        exitCurveProgress: compact(priceSample.curveProgress, 6)
+      });
+    } else if (
+      Number.isFinite(strategy.proveBySeconds)
+      && strategy.proveBySeconds > 0
+      && Number.isFinite(holdSeconds)
+      && holdSeconds >= strategy.proveBySeconds
+      && returnPct < strategy.proveMinReturnPct
+    ) {
+      // Checked after the hard targets so a position that has already hit take-profit or
+      // stop-loss is never reclassified, and before MAX_HOLD so the shorter deadline wins.
+      closeTrade(trade, timestamp, price, 'FAILED_TO_PROVE', {
         exitCurveProgress: compact(priceSample.curveProgress, 6)
       });
     } else if (Number.isFinite(holdSeconds) && holdSeconds >= strategy.maxHoldSeconds) {

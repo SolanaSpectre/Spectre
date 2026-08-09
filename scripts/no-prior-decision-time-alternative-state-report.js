@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { readJson, readJsonl } = require('./no-prior-replay-diagnostic');
+const { isRuntimeProviderEvent } = require('./lib/runtime-provider-events');
 
 const ROOT = path.join(__dirname, '..');
 const DECISION_SOURCE_PATH = path.join(ROOT, 'data', 'reports', 'no-prior-paper-decision-curve-source-latest.json');
@@ -58,7 +59,7 @@ function buildRow(row, events) {
   const decisionAt = row.firstPaperDecisionAt;
   const latestObserved = latestBefore(events, row.mint, decisionAt, (event) => event.type === 'pre_migration.observed');
   const latestFlagged = latestBefore(events, row.mint, decisionAt, (event) => event.type === 'pre_migration.flagged');
-  const latestNewToken = latestBefore(events, row.mint, decisionAt, (event) => event.type === 'provider.pumpportal.new_token');
+  const latestNewToken = latestBefore(events, row.mint, decisionAt, (event) => isRuntimeProviderEvent(event, 'newToken'));
   const latestBondingUpdate = latestBefore(events, row.mint, decisionAt, (event) => event.type === 'pump_bonding_curve.updated');
 
   const observedPayload = payloadOf(latestObserved);

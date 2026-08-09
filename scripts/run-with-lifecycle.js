@@ -74,6 +74,7 @@ function getLedgerPath() {
 
 function buildChildEnv() {
   const env = { ...process.env };
+  env.PUMP_DATA_PROVIDER = env.PUMP_DATA_PROVIDER || 'helius';
   if (env.SIMPLE_RUNTIME_AI_ENABLED !== 'false') {
     const preload = '--require ./src/simple-runtime-ai-patch.js';
     env.SIMPLE_RUNTIME_AI_ENABLED = env.SIMPLE_RUNTIME_AI_ENABLED || 'true';
@@ -99,6 +100,10 @@ function readLedgerEvents() {
 
 async function runPreRunProviderGuards() {
   const result = await checkPumpPortalFunding();
+  if (result.status === 'SKIPPED_PROVIDER_NOT_SELECTED') {
+    console.log(`[lifecycle] PumpPortal funding preflight skipped; provider=${result.selectedProvider}`);
+    return result;
+  }
   if (result.status === 'PASS') {
     console.log(
       `[lifecycle] PumpPortal funding preflight: ${result.addressLabel} has `
@@ -358,7 +363,7 @@ async function main() {
   } catch (error) {
     console.error(`[lifecycle] provider guard blocked run: ${error.message}`);
     write('session.interrupted', {
-      reason: `PUMPPORTAL_FUNDING_GUARD:${error.message}`,
+      reason: `PROVIDER_GUARD:${error.message}`,
       interruptedAt: new Date().toISOString(),
       shutdownClean: false
     });

@@ -166,12 +166,48 @@ function analyzeTelemetry(filePath) {
   const totalEvents = allMinutes.reduce((sum, minute) => sum + minute.events, 0);
   const heliusQueue = sessionRuntimeStats?.heliusPumpfunShadow || {};
   const pumpPortalQueue = sessionRuntimeStats?.pumpPortal || {};
+  const pumpDevQueue = sessionRuntimeStats?.pumpDev || {};
   const curveQueue = sessionRuntimeStats?.pumpBondingCurveLane?.engineQueueDrain || {};
   const eventLoopMonitor = sessionRuntimeStats?.eventLoopMonitor || {};
   const gcPauses = eventLoopMonitor.gcPauses || {};
   const workSamplerSummary = eventLoopMonitor.workSampler || {};
   const providerTradeTickBursts = eventLoopMonitor.providerTradeTickBursts || {};
   const pumpPortalTradeBursts = providerTradeTickBursts.byProvider?.pumpportal || {};
+  const selectedProvider = sessionRuntimeStats?.pumpData?.provider || 'unknown';
+  const selectedProviderQueue = selectedProvider === 'helius'
+    ? heliusQueue
+    : selectedProvider === 'pumpdev'
+      ? pumpDevQueue
+      : pumpPortalQueue;
+  const selectedProviderTradeBursts = providerTradeTickBursts.byProvider?.[selectedProvider] || {};
+  const selectedProviderBatchLimit = selectedProvider === 'helius'
+    ? selectedProviderQueue.eventQueueBatchSize
+    : selectedProviderQueue.eventHandlerConcurrency;
+  const selectedProviderDrainMaxBatch = selectedProviderQueue.eventQueueDrainMaxBatch;
+  const selectedProviderBoundedDrainMetricsAvailable = [
+    selectedProviderBatchLimit,
+    selectedProviderDrainMaxBatch,
+    selectedProviderQueue.eventQueueLatencySamples
+  ].every((value) => Number.isFinite(Number(value)));
+  const selectedProviderBoundedDrainChecks = selectedProviderBoundedDrainMetricsAvailable
+    ? {
+      maxBatchWithinConfiguredLimit:
+        Number(selectedProviderDrainMaxBatch) <= Number(selectedProviderBatchLimit),
+      noQueueDrops: Number(selectedProviderQueue.eventQueueDropped || 0) === 0,
+      noStopDrainTimeout: selectedProviderQueue.eventQueueStopDrainTimedOut !== true,
+      noHandlerErrors: Number(
+        selectedProviderQueue.eventQueueHandlerErrors
+          ?? selectedProviderQueue.eventQueueErrors
+          ?? 0
+      ) === 0,
+      queueLatencyObserved: Number(selectedProviderQueue.eventQueueLatencySamples || 0) > 0
+    }
+    : null;
+  const selectedProviderBoundedDrainVerdict = !selectedProviderBoundedDrainMetricsAvailable
+    ? 'PRE_BOUNDED_DRAIN_BASELINE'
+    : Object.values(selectedProviderBoundedDrainChecks).every(Boolean)
+      ? 'BOUNDED_DRAIN_VALIDATED'
+      : 'BOUNDED_DRAIN_VALIDATION_FAILED';
   const rpcChildTransport = sessionRuntimeStats?.solanaRpc?.transport?.childProcess || {};
   const boundedDrainMetricsAvailable = [
     pumpPortalQueue.eventHandlerConcurrency,
@@ -451,6 +487,18 @@ function analyzeTelemetry(filePath) {
         eventHandlerConcurrency: pumpPortalQueue.eventHandlerConcurrency ?? null,
         checks: boundedDrainChecks,
         note: 'A pass proves bounded callback scheduling and intact queue accounting. It does not by itself prove lower event-loop lag across unequal market loads.'
+      },
+      selectedProviderBurstControlValidation: {
+        provider: selectedProvider,
+        verdict: selectedProviderBoundedDrainVerdict,
+        reportOnly: true,
+        causalConclusionAllowed: false,
+        metricsAvailable: selectedProviderBoundedDrainMetricsAvailable,
+        configuredBatchLimit: selectedProviderBatchLimit ?? null,
+        maxObservedDrainBatch: selectedProviderDrainMaxBatch ?? null,
+        providerTradeTickBursts: selectedProviderTradeBursts,
+        checks: selectedProviderBoundedDrainChecks,
+        note: 'Selected-provider queue validation replaces PumpPortal-only assumptions for Helius-only runs.'
       }
     },
     interpretation

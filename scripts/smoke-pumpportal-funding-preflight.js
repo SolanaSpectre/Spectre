@@ -22,6 +22,7 @@ async function main() {
   assert.strictEqual(requiredStartingBalanceSol({ maxMeteredTradeEvents: 72000 }), 0.095);
 
   const baseEnv = {
+    PUMP_DATA_PROVIDER: 'pumpportal',
     PUMPPORTAL_ENABLED: 'true',
     PUMP_PORTAL_API_KEY: 'smoke-key',
     PUMPPORTAL_FUNDED_WALLET_ADDRESS: '11111111111111111111111111111111',
@@ -140,6 +141,20 @@ async function main() {
     }
   });
   assert.strictEqual(paidTapeDisabled.status, 'SKIPPED_PAID_TAPE_DISABLED');
+
+  const heliusSelected = await checkPumpPortalFunding({
+    env: {
+      ...baseEnv,
+      PUMP_DATA_PROVIDER: 'helius'
+    },
+    getBalanceSol: async () => {
+      throw new Error('must not query a PumpPortal wallet during a Helius-only run');
+    }
+  });
+  assert.deepStrictEqual(heliusSelected, {
+    status: 'SKIPPED_PROVIDER_NOT_SELECTED',
+    selectedProvider: 'helius'
+  });
 
   console.log('PumpPortal funding preflight smoke passed');
 }

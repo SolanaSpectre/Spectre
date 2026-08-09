@@ -196,6 +196,7 @@ class OutcomeLedger {
         returnPct: payload.returnPct ?? null,
         pnlSol: payload.pnlSol ?? null,
         holdSeconds: payload.holdSeconds ?? null,
+        peakReturnPct: payload.peakReturnPct ?? null,
         failedChecks: Array.isArray(payload.failedChecks) ? payload.failedChecks : []
       }
     });

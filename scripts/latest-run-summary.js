@@ -360,11 +360,50 @@ function buildDecisiveSummary(docs) {
   const lag = lagReport.summary || {};
   const live = docs.liveReadiness?.data || {};
   const liveMetrics = live.metrics || {};
+  const pumpDataProvider = liveMetrics.pumpDataProvider
+    || runnerWatchCurrent.providerCoverage?.selectedProvider
+    || null;
+  const providerCoverage = runnerWatchCurrent.providerCoverage || {};
   const scorecard = docs.strategyCandidateScorecard?.data?.summary || {};
   const telemetryPath = battlefield.files?.telemetryPath
     || coverageReport.telemetryPath
     || null;
   const failedRunnerChecks = runnerWatchValidation.failedChecks || [];
+  const coverageLines = pumpDataProvider === 'helius'
+    ? [
+        `Verdict: ${runnerWatchValidation.valid === true ? 'HELIUS_V6_FULL_COVERAGE_VALID' : 'HELIUS_V6_RUN_EXCLUDED'}`,
+        `Session: ${fmt(session.durationMinutes, 2)} / ${fmt(session.configuredDurationMinutes, 2)} min`,
+        `Gap-accounted Helius coverage: ${fmt(providerCoverage.fullCoverageMinutes, 2)} min; uncovered: ${fmt(providerCoverage.uncoveredMinutes, 2)} min`,
+        `Subscription ACKs/runtime events/legacy events: ${number(providerCoverage.subscriptionAcks)}/${number(providerCoverage.runtimeEvents)}/${number(providerCoverage.legacyRuntimeEvents)}`,
+        `Transport gaps started/recovered/active-at-stop: ${number(providerCoverage.transportGapsStarted)}/${number(providerCoverage.transportGapsRecovered)}/${providerCoverage.transportGapActiveAtStop === true ? 'yes' : 'no'}`
+      ]
+    : [
+        `Verdict: ${coverageReport.verdict || 'n/a'}`,
+        `Session: ${fmt(session.durationMinutes, 2)} / ${fmt(session.configuredDurationMinutes, 2)} min`,
+        `Full paid tape: ${fmt(coverage.fullPaidTapeMinutes, 2)} min; discovery-only: ${fmt(coverage.discoveryRpcOnlyMinutes, 2)} min`,
+        `Paid events: ${number(coverage.pumpPortalTradeEvents)}; subscriptions accepted/rejected: ${number(coverage.targetedTradeSubscriptionsAccepted)}/${number(coverage.targetedTradeSubscriptionRejections)}`,
+        `Budget reached: ${coverage.paidTapeCapped ? 'yes' : 'no'}`
+      ];
+  const heliusLines = pumpDataProvider === 'helius'
+    ? [
+        'Helius Runtime',
+        '--------------',
+        `Selected/ready/events: yes/${liveMetrics.pumpDataReady === true ? 'yes' : 'no'}/${number(liveMetrics.pumpDataMarketEvents)}`,
+        `New tokens/trades/migrations: ${number(liveMetrics.pumpDataNewTokens)}/${number(liveMetrics.pumpDataTrades)}/${number(liveMetrics.pumpDataMigrations)}`,
+        `Closes/errors/dropped/queue errors: ${number(liveMetrics.pumpDataCloses)}/${number(liveMetrics.pumpDataErrors)}/${number(liveMetrics.pumpDataDropped)}/${number(liveMetrics.pumpDataQueueErrors)}`,
+        'Legacy PumpPortal/PumpDev comparator artifacts: not applicable to this Helius-primary run.',
+        ''
+      ]
+    : [
+        'Helius Comparator',
+        '-----------------',
+        `Trade/curve parity: ${parity.verdict || 'n/a'}; eligible mint-hours: ${number(parity.counts?.eligibleMintHours)}; recall pass rate: ${pct(parity.agreement?.mintHourPortalTradeIdentityRecallPassRate)}`,
+        `Decision comparator: ${divergence.verdict || 'n/a'}; valid run: ${divergence.validRun === true ? 'yes' : 'no'}`,
+        `Comparable decisions: ${number(divergenceCounts.comparableGateEvaluations)}/${number(divergenceCounts.evaluations)} (${pct(divergenceAgreement.comparableEvaluationCoverageRate)})`,
+        `Executed entries observed/comparable: ${number(divergenceCounts.observedExecutedEntries ?? mismatchAttribution.observedExecutedEntries ?? mismatchAttribution.executedEntries ?? divergenceCounts.executedEntries)}/${number(divergenceCounts.comparableExecutedEntries ?? mismatchAttribution.comparableExecutedEntries ?? divergenceCounts.executedEntries)}; entry matches: ${number(divergenceCounts.executedEntryMatches)}; mismatches attributed/unattributed: ${number(mismatchAttribution.attributedMismatches)}/${number(mismatchAttribution.unattributedMismatches)}`,
+        `Entry mismatch causes: ${mismatchCauseText}`,
+        ''
+      ];
 
   return [
     'Spectre Decisive Post-Run Summary',
@@ -374,11 +413,7 @@ function buildDecisiveSummary(docs) {
     '',
     'Coverage',
     '--------',
-    `Verdict: ${coverageReport.verdict || 'n/a'}`,
-    `Session: ${fmt(session.durationMinutes, 2)} / ${fmt(session.configuredDurationMinutes, 2)} min`,
-    `Full paid tape: ${fmt(coverage.fullPaidTapeMinutes, 2)} min; discovery-only: ${fmt(coverage.discoveryRpcOnlyMinutes, 2)} min`,
-    `Paid events: ${number(coverage.pumpPortalTradeEvents)}; subscriptions accepted/rejected: ${number(coverage.targetedTradeSubscriptionsAccepted)}/${number(coverage.targetedTradeSubscriptionRejections)}`,
-    `Budget reached: ${coverage.paidTapeCapped ? 'yes' : 'no'}`,
+    ...coverageLines,
     '',
     'Paper Trading',
     '-------------',
@@ -401,19 +436,12 @@ function buildDecisiveSummary(docs) {
     '----------',
     `Audits attempted/completed/failed: ${aiAuditAttempts}/${aiAuditCompleted}/${aiAuditFailed} - ${aiEvidenceStatus}`,
     '',
-    'Helius',
-    '------',
-    `Trade/curve parity: ${parity.verdict || 'n/a'}; eligible mint-hours: ${number(parity.counts?.eligibleMintHours)}; recall pass rate: ${pct(parity.agreement?.mintHourPortalTradeIdentityRecallPassRate)}`,
-    `Decision comparator: ${divergence.verdict || 'n/a'}; valid run: ${divergence.validRun === true ? 'yes' : 'no'}`,
-    `Comparable decisions: ${number(divergenceCounts.comparableGateEvaluations)}/${number(divergenceCounts.evaluations)} (${pct(divergenceAgreement.comparableEvaluationCoverageRate)})`,
-    `Executed entries observed/comparable: ${number(divergenceCounts.observedExecutedEntries ?? mismatchAttribution.observedExecutedEntries ?? mismatchAttribution.executedEntries ?? divergenceCounts.executedEntries)}/${number(divergenceCounts.comparableExecutedEntries ?? mismatchAttribution.comparableExecutedEntries ?? divergenceCounts.executedEntries)}; entry matches: ${number(divergenceCounts.executedEntryMatches)}; mismatches attributed/unattributed: ${number(mismatchAttribution.attributedMismatches)}/${number(mismatchAttribution.unattributedMismatches)}`,
-    `Entry mismatch causes: ${mismatchCauseText}`,
-    '',
+    ...heliusLines,
     'Runtime Health',
     '--------------',
     `Event-loop diagnosis: ${lag.diagnosis || 'n/a'}`,
     `Lag events: ${number(lag.lagEvents)}; median/p90/max: ${ms(lag.lagMs?.median)}/${ms(lag.lagMs?.p90)}/${ms(lag.lagMs?.max)}`,
-    `RPC calls/failures: ${number(liveMetrics.rpcStarted)}/${number(liveMetrics.rpcFailures)}; PumpDev closes/errors: ${number(liveMetrics.pumpDevCloses)}/${number(liveMetrics.pumpDevErrors)}`,
+    `RPC calls/failures: ${number(liveMetrics.rpcStarted)}/${number(liveMetrics.rpcFailures)}; pump data (${liveMetrics.pumpDataProvider || 'unknown'}) closes/errors: ${number(liveMetrics.pumpDataCloses ?? liveMetrics.pumpDevCloses)}/${number(liveMetrics.pumpDataErrors ?? liveMetrics.pumpDevErrors)}`,
     '',
     'Decision',
     '--------',
@@ -1072,9 +1100,90 @@ function readRuntimeStatsFromTelemetry(battlefield = {}) {
   };
 }
 
+function buildHeliusRuntimeHealth(battlefield = {}) {
+  const telemetry = readRuntimeStatsFromTelemetry(battlefield);
+  const runtimeStats = telemetry.stats || {};
+  const listener = runtimeStats.heliusPumpfunShadow || {};
+  const queue = runtimeStats.heliusPumpfunRuntime || {};
+  const launchIntel = runtimeStats.heliusLaunchIntel || {};
+  const eventCounts = battlefield.eventCounts || {};
+  const selectedProvider = runtimeStats.pumpData?.provider || null;
+  const selected = selectedProvider === 'helius';
+  const newTokens = number(eventCounts['provider.helius_pumpfun.runtime_new_token'], 0);
+  const trades = number(eventCounts['provider.helius_pumpfun.runtime_trade'], 0);
+  const migrations = number(eventCounts['provider.helius_pumpfun.runtime_migration'], 0);
+  const completes = number(eventCounts['provider.helius_pumpfun.runtime_complete'], 0);
+  const runtimeEvents = newTokens + trades + migrations + completes;
+  const rawDecodedEvents = number(listener.decodedEvents, 0);
+  const errors = number(listener.errorEvents, 0)
+    + number(listener.subscriptionErrors, 0)
+    + number(listener.eventQueueHandlerErrors, 0)
+    + number(queue.handlerErrors, 0);
+  const dropped = number(listener.eventQueueDropped, 0) + number(queue.overflowRejected, 0);
+  const closes = number(listener.closeEvents, 0);
+  const enabled = listener.enabled === true && queue.enabled === true;
+
+  let status = selected ? 'unknown' : 'disabled';
+  let interpretation = selected
+    ? 'Helius is selected, but no runtime health snapshot was available.'
+    : 'Helius is not the selected runtime pump-data provider.';
+
+  if (selected && !enabled) {
+    status = 'misconfigured';
+    interpretation = 'Helius is selected, but the listener or strategy-consumption queue was disabled.';
+  } else if (selected && (errors > 0 || dropped > 0)) {
+    status = 'degraded';
+    interpretation = `Helius runtime intake recorded errors=${errors} and dropped/overflowed=${dropped}; provider-dependent evidence is partial.`;
+  } else if (selected && rawDecodedEvents > 0 && runtimeEvents === 0) {
+    status = 'runtime_gap';
+    interpretation = 'Helius decoded Pump.fun events, but none reached provider runtime telemetry; strategy-consumption evidence is invalid.';
+  } else if (selected && !listener.subscriptionReady && rawDecodedEvents === 0) {
+    status = 'outage';
+    interpretation = 'Helius never reached a ready subscription with decoded Pump.fun events.';
+  } else if (selected && runtimeEvents > 0) {
+    status = closes > 3 ? 'churn' : 'healthy';
+    interpretation = closes > 3
+      ? 'Helius fed the strategy, but websocket churn should be reviewed.'
+      : 'Helius decoded Pump.fun events and delivered them to the strategy runtime.';
+  } else if (selected && listener.subscriptionReady) {
+    status = 'quiet';
+    interpretation = 'Helius subscription was ready, but no Pump.fun runtime events were observed in this window.';
+  }
+
+  return {
+    status,
+    interpretation,
+    selectedProvider,
+    enabled,
+    connected: listener.connected === true,
+    subscriptionReady: listener.subscriptionReady === true,
+    rawDecodedEvents,
+    rawCreateEvents: number(listener.createEvents, 0),
+    rawTradeEvents: number(listener.tradeEvents, 0),
+    rawCompleteEvents: number(listener.completeEvents, 0),
+    rawMigrationEvents: number(listener.migrationEvents, 0),
+    newTokens,
+    trades,
+    migrations,
+    completes,
+    runtimeEvents,
+    closes,
+    reconnects: number(listener.reconnects, 0),
+    errors,
+    dropped,
+    listenerQueueDepth: number(listener.eventQueueDepth, 0),
+    listenerQueueMaxDepth: number(listener.eventQueueMaxDepth, 0),
+    runtimeQueuePending: number(queue.pending, 0),
+    runtimeQueueMaxPending: number(queue.maxPending, 0),
+    launchIntelCreates: number(launchIntel.creates, 0),
+    launchIntelTrades: number(launchIntel.trades, 0)
+  };
+}
+
 function buildPumpPortalHealth(battlefield = {}) {
   const eventCounts = battlefield.eventCounts || {};
   const telemetry = readPumpPortalStatsFromTelemetry(battlefield);
+  const selectedProvider = readRuntimeStatsFromTelemetry(battlefield).stats?.pumpData?.provider || null;
   const stats = telemetry.stats || {};
   const lifecycle = telemetry.lifecycle || {};
   const closeAgeBucketsFor = (values) => bucketCounts(values || [], [
@@ -1258,7 +1367,10 @@ function buildPumpPortalHealth(battlefield = {}) {
     ? 'PumpPortal telemetry was captured, but health is inconclusive.'
     : `PumpPortal stats unavailable: ${telemetry.error}.`;
 
-  if (telemetry.ok) {
+  if (selectedProvider && selectedProvider !== 'pumpportal') {
+    status = 'disabled';
+    interpretation = `PumpPortal was not selected for this run; ${selectedProvider} supplied runtime pump data.`;
+  } else if (telemetry.ok) {
     if (messages === 0 && newTokens === 0 && trades === 0) {
       status = 'outage';
       interpretation = 'No PumpPortal feed data was captured; treat PumpPortal-dependent evidence as unavailable.';
@@ -1302,6 +1414,7 @@ function buildPumpPortalHealth(battlefield = {}) {
   return {
     status,
     interpretation,
+    selectedProvider,
     telemetryPath: telemetry.telemetryPath,
     telemetryError: telemetry.error,
     messages,
@@ -2765,6 +2878,7 @@ function buildSummary(docs) {
   const aiReachability = buildAiReachability(battlefield);
   const aiHistoricalSummary = simpleRuntimeAiEvidence.summary || {};
   const qwenPaperTrial = simpleRuntimeAiEvidence.qwenPaperTrial || {};
+  const heliusRuntimeHealth = buildHeliusRuntimeHealth(battlefield);
   const pumpPortalHealth = buildPumpPortalHealth(battlefield);
   const pumpDevHealth = buildPumpDevHealth(battlefield);
   const bondingCurvePressure = buildBondingCurvePressure(battlefield);
@@ -3403,6 +3517,32 @@ function buildSummary(docs) {
     lines.push(`  - AI failure types: ${aiFailureTypeSummary}`);
   }
   lines.push(`  - interpretation: ${aiReachability.interpretation}`);
+  lines.push('- Selected pump-data runtime health:');
+  lines.push(`  - provider / status: ${heliusRuntimeHealth.selectedProvider || 'unknown'} / ${heliusRuntimeHealth.status}`);
+  lines.push(`  - Helius connected / subscription ready / strategy queue enabled: ${heliusRuntimeHealth.connected} / ${heliusRuntimeHealth.subscriptionReady} / ${heliusRuntimeHealth.enabled}`);
+  lines.push(`  - raw decoded create/trade/complete/migration: ${heliusRuntimeHealth.rawCreateEvents} / ${heliusRuntimeHealth.rawTradeEvents} / ${heliusRuntimeHealth.rawCompleteEvents} / ${heliusRuntimeHealth.rawMigrationEvents}`);
+  lines.push(`  - runtime new/trade/complete/migration: ${heliusRuntimeHealth.newTokens} / ${heliusRuntimeHealth.trades} / ${heliusRuntimeHealth.completes} / ${heliusRuntimeHealth.migrations}`);
+  lines.push(`  - listener queue depth/max; runtime queue pending/max: ${heliusRuntimeHealth.listenerQueueDepth}/${heliusRuntimeHealth.listenerQueueMaxDepth}; ${heliusRuntimeHealth.runtimeQueuePending}/${heliusRuntimeHealth.runtimeQueueMaxPending}`);
+  lines.push(`  - closes/reconnects/errors/dropped: ${heliusRuntimeHealth.closes} / ${heliusRuntimeHealth.reconnects} / ${heliusRuntimeHealth.errors} / ${heliusRuntimeHealth.dropped}`);
+  lines.push(`  - launch-intel creates/trades: ${heliusRuntimeHealth.launchIntelCreates} / ${heliusRuntimeHealth.launchIntelTrades}`);
+  lines.push(`  - interpretation: ${heliusRuntimeHealth.interpretation}`);
+  if (heliusRuntimeHealth.selectedProvider === 'helius' && runnerWatchFullCoverageEvidence.cumulative) {
+    const evidence = runnerWatchFullCoverageEvidence.cumulative;
+    const providerCoverage = runnerWatchFullCoverageEvidence.currentRun?.providerCoverage || {};
+    const concentrationLabel = evidence.concentrationDependent === true
+      ? 'CONCENTRATION_DEPENDENT'
+      : 'not_detected';
+    lines.push('- Helius-primary runner-watch V6 evidence:');
+    lines.push(`  - verdict: ${evidence.verdict || 'unknown'}; valid/excluded runs=${evidence.validRuns ?? 0}/${evidence.excludedRuns ?? 0}; valid/excluded PnL=${evidence.validRunPnlSol ?? 'n/a'}/${evidence.excludedRunPnlSol ?? 'n/a'} SOL`);
+    lines.push(`  - episodes=${evidence.realizedUniqueMintEpisodes ?? 0}/20; coveredHours=${evidence.fullCoverageHours ?? 'n/a'}; episodesPerHour=${evidence.episodesPerFullCoverageHour ?? 'n/a'}; total/median/exTop3=${evidence.totalPnlSol ?? 'n/a'}/${evidence.medianEpisodePnlSol ?? 'n/a'}/${evidence.pnlAfterRemovingTop3WinnersSol ?? 'n/a'} SOL; concentration=${concentrationLabel}`);
+    lines.push(`  - current coverage minutes/ACKs/runtime events/legacy events: ${providerCoverage.fullCoverageMinutes ?? 'n/a'} / ${providerCoverage.subscriptionAcks ?? 'n/a'} / ${providerCoverage.runtimeEvents ?? 'n/a'} / ${providerCoverage.legacyRuntimeEvents ?? 'n/a'}`);
+    lines.push(`  - current transport gaps started/recovered/active-at-stop: ${providerCoverage.transportGapsStarted ?? 'n/a'} / ${providerCoverage.transportGapsRecovered ?? 'n/a'} / ${providerCoverage.transportGapActiveAtStop ?? 'n/a'}`);
+    lines.push(`  - current listener dropped/errors/drain-timeout; runtime overflow/errors/pending/drain-timeouts: ${providerCoverage.listenerQueueDropped ?? 'n/a'} / ${providerCoverage.listenerQueueHandlerErrors ?? 'n/a'} / ${providerCoverage.listenerQueueStopDrainTimedOut ?? 'n/a'}; ${providerCoverage.runtimeQueueOverflowRejected ?? 'n/a'} / ${providerCoverage.runtimeQueueHandlerErrors ?? 'n/a'} / ${providerCoverage.runtimeQueuePendingAtStop ?? 'n/a'} / ${providerCoverage.runtimeQueueDrainTimeouts ?? 'n/a'}`);
+    lines.push(`  - live action: ${evidence.liveAction || 'KEEP_LIVE_DISABLED'}`);
+  }
+  if (heliusRuntimeHealth.selectedProvider === 'helius') {
+    lines.push('- Legacy provider diagnostics: not applicable to this Helius-primary run; PumpPortal paid-tape, PumpDev, and Helius-vs-legacy comparator artifacts are historical only.');
+  } else {
   lines.push('- PumpPortal feed health:');
   lines.push(`  - status: ${pumpPortalHealth.status}`);
   lines.push(`  - messages / new tokens / trades / migrations: ${pumpPortalHealth.messages} / ${pumpPortalHealth.newTokens} / ${pumpPortalHealth.trades} / ${pumpPortalHealth.migrations}`);
@@ -3612,6 +3752,7 @@ function buildSummary(docs) {
   lines.push(`  - new tokens / trades / migrations-or-mint-events: ${pumpPortalHealth.newTokens} vs ${pumpDevHealth.newTokens} / ${pumpPortalHealth.trades} vs ${pumpDevHealth.trades} / ${pumpPortalHealth.migrations} vs ${pumpDevHealth.mintEvents}`);
   lines.push(`  - closes / errors: ${pumpPortalHealth.closeEvents} / ${pumpPortalHealth.lifecycle?.websocketErrors || 0} vs ${pumpDevHealth.closeEvents} / ${pumpDevHealth.errorEvents}`);
   lines.push(`  - USDC pair events: ${pumpPortalHealth.pairUsdcEvents || 0} vs ${pumpDevHealth.pairUsdcEvents || 0}`);
+  }
   lines.push('- Bonding curve pressure:');
   lines.push(`  - fetches / updates / errors: ${bondingCurvePressure.fetches} / ${bondingCurvePressure.updates} / ${bondingCurvePressure.errors}`);
   lines.push(`  - batched RPC: enabled=${bondingCurvePressure.batchFetchEnabled} commitment=${bondingCurvePressure.rpcCommitment} batches/accounts/deduped/pending=${bondingCurvePressure.rpcBatches} / ${bondingCurvePressure.batchAccounts} / ${bondingCurvePressure.batchDedupedRequests} / ${bondingCurvePressure.pendingAccountFetches} (flush=${bondingCurvePressure.batchFlushMs}ms max=${bondingCurvePressure.batchMaxAccounts})`);
@@ -5975,18 +6116,29 @@ function writeJson(filePath, payload) {
 function buildSummaryManifest(docs, outputPath, summaryMode = 'full') {
   const battlefieldTelemetry = docs.battlefield.data?.files?.telemetryPath || null;
   const scorecardFreshness = docs.strategyCandidateScorecard.data?.summary?.inputFreshness || {};
+  const pumpDataProvider = docs.liveReadiness.data?.metrics?.pumpDataProvider || null;
+  const legacyComparatorApplicable = pumpDataProvider === null || pumpDataProvider !== 'helius';
   return {
     generatedAt: new Date().toISOString(),
     mode: 'latest_run_summary_manifest',
     summaryMode,
+    pumpDataProvider,
     telemetryPath: battlefieldTelemetry,
     summaryPath: path.relative(REPO_ROOT, outputPath).replace(/\\/g, '/'),
     criticalTelemetryPaths: {
-      paidTapeCoverage: docs.paidTapeCoverageEpoch.data?.telemetryPath || null,
+      paidTapeCoverage: pumpDataProvider === null || pumpDataProvider === 'pumpportal'
+        ? docs.paidTapeCoverageEpoch.data?.telemetryPath || null
+        : null,
       battlefield: battlefieldTelemetry,
-      runnerWatch: docs.runnerWatchFullCoverageEvidence.data?.currentRun?.validation?.actual?.telemetryPath || null,
-      heliusParity: docs.heliusPumpfunShadowParity.data?.sourceTelemetry || null,
-      heliusDecisionDivergence: docs.heliusPumpfunDecisionDivergence.data?.sourceTelemetry || null,
+      runnerWatch: pumpDataProvider === null || pumpDataProvider === 'helius'
+        ? docs.runnerWatchFullCoverageEvidence.data?.currentRun?.validation?.actual?.telemetryPath || null
+        : null,
+      heliusParity: legacyComparatorApplicable
+        ? docs.heliusPumpfunShadowParity.data?.sourceTelemetry || null
+        : null,
+      heliusDecisionDivergence: legacyComparatorApplicable
+        ? docs.heliusPumpfunDecisionDivergence.data?.sourceTelemetry || null
+        : null,
       eventLoopLag: docs.eventLoopLagDiagnostic.data?.sources?.telemetryPath || null,
       liveReadiness: docs.liveReadiness.data?.telemetryPath || null,
       scorecardLiveReadiness: scorecardFreshness.liveReadinessTelemetry || null,

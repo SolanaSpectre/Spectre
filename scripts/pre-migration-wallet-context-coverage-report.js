@@ -4,6 +4,10 @@
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const {
+  countRuntimeProviderEvents,
+  isRuntimeProviderEvent
+} = require('./lib/runtime-provider-events');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
@@ -1268,7 +1272,7 @@ async function summarizeTelemetry(filePath, promotionIndex, substrateIndex) {
       }
     }
 
-    if (type === 'provider.pumpdev.runtime_trade' || type === 'provider.pumpportal.trade') {
+    if (isRuntimeProviderEvent(type, 'trade')) {
       providerTradeDiagnostics.events += 1;
       if (payload.traderPresent !== undefined) providerTradeDiagnostics.withTraderFieldKnown += 1;
       if (payload.traderPresent === true) providerTradeDiagnostics.traderPresent += 1;
@@ -1489,8 +1493,7 @@ async function summarizeTelemetry(filePath, promotionIndex, substrateIndex) {
   const shadowJoinMissAmbiguity = summarizeShadowJoinMissAmbiguity(walletRelaxedShadowRows, joinMissRows);
   const overlap = [...walletMints].filter((mint) => decisionMints.has(mint)).length;
   const promoted = walletEvents.filter((event) => event.promotion);
-  const providerTradeEvents = Number(eventCounts['provider.pumpdev.runtime_trade'] || 0)
-    + Number(eventCounts['provider.pumpportal.trade'] || 0);
+  const providerTradeEvents = countRuntimeProviderEvents(eventCounts, 'trade');
   const finalizedWalletGateDiagnostics = {
     rows: walletGateDiagnostics.rows,
     traderPresent: walletGateDiagnostics.traderPresent,

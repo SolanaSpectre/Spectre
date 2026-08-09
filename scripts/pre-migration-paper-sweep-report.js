@@ -21,6 +21,10 @@ const DEFAULT_SWEEP = {
   takeProfitPcts: [0.35, 0.50, 0.75],
   stopLossPcts: [0.15, 0.20, 0.25],
   maxHoldSeconds: [300, 600],
+  // [0] keeps the default grid identical to every sweep run before 2026-08-04. Explore with
+  // --proveBy 0,30,45,60 --proveMin 0.05,0.10 to test the time-boxed profit requirement.
+  proveBySeconds: [0],
+  proveMinReturnPcts: [0.10],
   minRecentVolumeSol: [25],
   minTradeVelocityPerMin: [25],
   amountSol: DEFAULT_STRATEGY.amountSol,
@@ -43,6 +47,8 @@ function sweepFromArgs(args) {
     takeProfitPcts: parseList(args.takeProfits, DEFAULT_SWEEP.takeProfitPcts),
     stopLossPcts: parseList(args.stopLosses, DEFAULT_SWEEP.stopLossPcts),
     maxHoldSeconds: parseList(args.maxHolds, DEFAULT_SWEEP.maxHoldSeconds),
+    proveBySeconds: parseList(args.proveBy, DEFAULT_SWEEP.proveBySeconds),
+    proveMinReturnPcts: parseList(args.proveMin, DEFAULT_SWEEP.proveMinReturnPcts),
     minRecentVolumeSol: parseList(args.volumes, DEFAULT_SWEEP.minRecentVolumeSol),
     minTradeVelocityPerMin: parseList(args.velocities, DEFAULT_SWEEP.minTradeVelocityPerMin),
     amountSol: Number.isFinite(Number(args.amount)) ? Number(args.amount) : DEFAULT_SWEEP.amountSol,
@@ -60,16 +66,22 @@ function buildStrategies(sweep) {
           for (const takeProfitPct of sweep.takeProfitPcts) {
             for (const stopLossPct of sweep.stopLossPcts) {
               for (const maxHoldSeconds of sweep.maxHoldSeconds) {
-                strategies.push({
-                  minScore,
-                  minCurveProgress,
-                  minRecentVolumeSol,
-                  minTradeVelocityPerMin,
-                  takeProfitPct,
-                  stopLossPct,
-                  maxHoldSeconds,
-                  amountSol: sweep.amountSol
-                });
+                for (const proveBySeconds of sweep.proveBySeconds) {
+                  for (const proveMinReturnPct of sweep.proveMinReturnPcts) {
+                    strategies.push({
+                      minScore,
+                      minCurveProgress,
+                      minRecentVolumeSol,
+                      minTradeVelocityPerMin,
+                      takeProfitPct,
+                      stopLossPct,
+                      maxHoldSeconds,
+                      proveBySeconds,
+                      proveMinReturnPct,
+                      amountSol: sweep.amountSol
+                    });
+                  }
+                }
               }
             }
           }

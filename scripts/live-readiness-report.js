@@ -15,6 +15,10 @@ const {
   normalizeDryRunReason,
   summarizeSimulationFailureCounts
 } = require('../src/lib/simulation-error-classifier');
+const {
+  isRuntimeProviderEvent,
+  runtimeProviderName
+} = require('./lib/runtime-provider-events');
 
 const EXPECTED_QUOTE_RACE_POLICY = Object.freeze({
   maximumRate: 0.02,
@@ -205,6 +209,14 @@ async function readTelemetry(filePath) {
       closes: 0,
       errors: 0
     },
+    pumpData: {
+      provider: null,
+      newTokens: 0,
+      trades: 0,
+      migrations: 0,
+      closes: 0,
+      errors: 0
+    },
     eventLoop: {
       lagEvents: 0,
       maxLagMs: 0,
@@ -292,6 +304,31 @@ async function readTelemetry(filePath) {
 
     if (type === 'session.stopping') {
       stats.lastStopStats = payload.stats || null;
+    }
+    if (type === 'session.started' && payload.pumpDataPlan?.provider) {
+      stats.pumpData.provider = String(payload.pumpDataPlan.provider).toLowerCase();
+    }
+
+    if (isRuntimeProviderEvent(type, 'newToken')) stats.pumpData.newTokens += 1;
+    if (isRuntimeProviderEvent(type, 'trade')) stats.pumpData.trades += 1;
+    if (isRuntimeProviderEvent(type, 'migration')) stats.pumpData.migrations += 1;
+    if (!stats.pumpData.provider && isRuntimeProviderEvent(type)) {
+      stats.pumpData.provider = runtimeProviderName(type);
+    }
+    if ((type === 'provider.helius_pumpfun.shadow_disconnected' && payload.shutdownDisconnect !== true)
+      || type === 'provider.pumpportal.closed'
+      || type === 'provider.pumpdev.closed') {
+      stats.pumpData.closes += 1;
+    }
+    if (type === 'provider.helius_pumpfun.shadow_error'
+      || type === 'provider.helius_pumpfun.shadow_subscription_error'
+      || type === 'provider.helius_pumpfun.runtime_handler_error'
+      || type === 'provider.helius_pumpfun.runtime_queue_drain_timeout'
+      || type === 'provider.pumpportal.websocket_error'
+      || type === 'provider.pumpportal.runtime_handler_error'
+      || type === 'provider.pumpdev.websocket_error'
+      || type === 'provider.pumpdev.runtime_handler_error') {
+      stats.pumpData.errors += 1;
     }
 
     if (type === 'provider.pumpdev.shadow_new_token') stats.pumpDev.newTokens += 1;
@@ -498,6 +535,75 @@ async function readCurrentHotWalletBalanceSol() {
   }
 }
 
+function summarizePumpDataHealth(stats) {
+  const stop = stats.lastStopStats || {};
+  const observed = stats.pumpData || {};
+  const provider = String(stop.pumpData?.provider || observed.provider || 'pumpdev').toLowerCase();
+  let source = {};
+  let queue = {};
+  let enabled = true;
+  let ready = null;
+  let closes = number(observed.closes, 0);
+  let errors = number(observed.errors, 0);
+  let dropped = 0;
+  let queueErrors = 0;
+
+  if (provider === 'helius') {
+    source = stop.heliusPumpfunShadow || {};
+    queue = stop.heliusPumpfunRuntime || {};
+    enabled = source.enabled === true && queue.enabled === true;
+    ready = source.subscriptionReady === true;
+    closes = number(source.closeEvents, closes);
+    errors = number(source.errorEvents, 0)
+      + number(source.subscriptionErrors, 0)
+      + number(source.eventQueueHandlerErrors, 0)
+      + number(queue.handlerErrors, errors);
+    dropped = number(source.eventQueueDropped, 0) + number(queue.overflowRejected, 0);
+    queueErrors = number(source.eventQueueHandlerErrors, 0) + number(queue.handlerErrors, 0);
+  } else if (provider === 'pumpportal') {
+    source = stop.pumpPortal || {};
+    enabled = source.enabled !== false;
+    ready = source.connected === true || number(source.messages, 0) > 0;
+    closes = number(source.closeEvents, closes);
+    errors = number(source.eventQueueHandlerErrors, 0) + number(observed.errors, 0);
+    dropped = number(source.eventQueueDropped, 0);
+    queueErrors = number(source.eventQueueHandlerErrors, 0);
+  } else {
+    source = stop.pumpDev || {};
+    enabled = source.enabled !== false;
+    ready = source.connected === true || number(source.messages, 0) > 0;
+    closes = number(source.closeEvents, number(stats.pumpDev?.closes, closes));
+    errors = number(source.errorEvents, number(stats.pumpDev?.errors, errors));
+    dropped = number(source.eventQueueDropped, 0);
+    queueErrors = number(source.eventQueueErrors, 0);
+  }
+
+  const newTokens = number(observed.newTokens, 0);
+  const trades = number(observed.trades, 0);
+  const migrations = number(observed.migrations, 0);
+  const marketEvents = newTokens + trades + migrations;
+  if (provider === 'helius') {
+    // session.stopped is written after the listener intentionally clears its live connection
+    // flags. Readiness here means it became usable during the run, not that a stopped socket is
+    // still subscribed after shutdown.
+    ready = ready === true || number(source.subscriptionAcks, 0) > 0 || marketEvents > 0;
+  }
+
+  return {
+    provider,
+    enabled,
+    ready,
+    closes,
+    errors,
+    dropped,
+    queueErrors,
+    newTokens,
+    trades,
+    migrations,
+    marketEvents
+  };
+}
+
 function buildVerdict(stats) {
   const blockers = [];
   const launchBlocks = [];
@@ -505,7 +611,7 @@ function buildVerdict(stats) {
   const passes = [];
 
   const stop = stats.lastStopStats || {};
-  const pumpDevStop = stop.pumpDev || {};
+  const pumpDataHealth = summarizePumpDataHealth(stats);
   const rpcStop = stop.solanaRpc || {};
   const finalistStop = stop.finalistAccountVerifier || {};
   const dryRunStop = stop.liveExecutionDryRun || {};
@@ -513,10 +619,10 @@ function buildVerdict(stats) {
 
   const rpcFailures = number(rpcStop.stats && rpcStop.stats.callTelemetryFailed, stats.rpc.failed);
   const rpcStarted = number(rpcStop.stats && rpcStop.stats.callTelemetryStarted, stats.rpc.started);
-  const pumpDevCloses = number(pumpDevStop.closeEvents, stats.pumpDev.closes);
-  const pumpDevErrors = number(pumpDevStop.errorEvents, stats.pumpDev.errors);
-  const pumpDevDropped = number(pumpDevStop.eventQueueDropped, 0);
-  const pumpDevQueueErrors = number(pumpDevStop.eventQueueErrors, 0);
+  const pumpDataCloses = pumpDataHealth.closes;
+  const pumpDataErrors = pumpDataHealth.errors;
+  const pumpDataDropped = pumpDataHealth.dropped;
+  const pumpDataQueueErrors = pumpDataHealth.queueErrors;
   const eventLoopMaxLagMs = number(stats.eventLoop.summary && stats.eventLoop.summary.maxLagMs, stats.eventLoop.maxLagMs);
   const eventLoopLagEvents = number(stats.eventLoop.summary && stats.eventLoop.summary.lagEvents, stats.eventLoop.lagEvents);
   const telemetryDurationHours = stats.telemetryStartMs !== null && stats.telemetryEndMs !== null
@@ -657,12 +763,21 @@ function buildVerdict(stats) {
   }
   if (rpcFailures > 0) blockers.push(`RPC failures present (${rpcFailures}/${rpcStarted}); live final check cannot depend on this yet.`);
 
-  if (pumpDevCloses === 0 && pumpDevErrors === 0 && pumpDevDropped === 0 && pumpDevQueueErrors === 0) {
-    passes.push('PumpDev primary feed had no closes, errors, dropped events, or queue errors.');
-  } else if (pumpDevErrors === 0 && pumpDevDropped === 0 && pumpDevQueueErrors === 0) {
-    warnings.push(`PumpDev primary feed reconnected during the run (closes=${pumpDevCloses}) but had no errors, dropped events, or queue errors.`);
+  const pumpDataLabel = pumpDataHealth.provider === 'helius'
+    ? 'Helius Pump.fun runtime'
+    : `${pumpDataHealth.provider} pump-data`;
+  if (!pumpDataHealth.enabled) {
+    blockers.push(`${pumpDataLabel} is selected but disabled.`);
+  } else if (pumpDataHealth.ready === false && pumpDataHealth.marketEvents === 0) {
+    blockers.push(`${pumpDataLabel} never became ready and delivered no runtime market events.`);
+  } else if (pumpDataHealth.marketEvents === 0) {
+    blockers.push(`${pumpDataLabel} delivered no runtime new-token, trade, or migration events.`);
+  } else if (pumpDataCloses === 0 && pumpDataErrors === 0 && pumpDataDropped === 0 && pumpDataQueueErrors === 0) {
+    passes.push(`${pumpDataLabel} had no closes, errors, dropped events, or queue errors.`);
+  } else if (pumpDataErrors === 0 && pumpDataDropped === 0 && pumpDataQueueErrors === 0) {
+    warnings.push(`${pumpDataLabel} reconnected during the run (closes=${pumpDataCloses}) but had no errors, dropped events, or queue errors.`);
   } else {
-    blockers.push(`PumpDev feed instability: closes=${pumpDevCloses}, errors=${pumpDevErrors}, dropped=${pumpDevDropped}, queueErrors=${pumpDevQueueErrors}.`);
+    blockers.push(`${pumpDataLabel} instability: closes=${pumpDataCloses}, errors=${pumpDataErrors}, dropped=${pumpDataDropped}, queueErrors=${pumpDataQueueErrors}.`);
   }
 
   if (eventLoopMaxLagMs <= 500 && eventLoopLagEvents <= liveSafeLagEventBudget) {
@@ -775,8 +890,18 @@ function buildVerdict(stats) {
     metrics: {
       rpcStarted,
       rpcFailures,
-      pumpDevCloses,
-      pumpDevErrors,
+      pumpDataProvider: pumpDataHealth.provider,
+      pumpDataReady: pumpDataHealth.ready,
+      pumpDataMarketEvents: pumpDataHealth.marketEvents,
+      pumpDataNewTokens: pumpDataHealth.newTokens,
+      pumpDataTrades: pumpDataHealth.trades,
+      pumpDataMigrations: pumpDataHealth.migrations,
+      pumpDataCloses,
+      pumpDataErrors,
+      pumpDataDropped,
+      pumpDataQueueErrors,
+      pumpDevCloses: pumpDataHealth.provider === 'pumpdev' ? pumpDataCloses : 0,
+      pumpDevErrors: pumpDataHealth.provider === 'pumpdev' ? pumpDataErrors : 0,
       eventLoopMaxLagMs,
       eventLoopLagEvents,
       eventLoopLagRatePerHour,
@@ -952,7 +1077,9 @@ function writeText(report) {
   const m = report.metrics;
   lines.push('Key Metrics');
   lines.push(`- RPC started/failed: ${m.rpcStarted} / ${m.rpcFailures}`);
-  lines.push(`- PumpDev closes/errors: ${m.pumpDevCloses} / ${m.pumpDevErrors}`);
+  lines.push(`- Pump data provider/ready/events: ${m.pumpDataProvider} / ${m.pumpDataReady} / ${m.pumpDataMarketEvents}`);
+  lines.push(`- Pump data new/trade/migration: ${m.pumpDataNewTokens} / ${m.pumpDataTrades} / ${m.pumpDataMigrations}`);
+  lines.push(`- Pump data closes/errors/dropped/queue errors: ${m.pumpDataCloses} / ${m.pumpDataErrors} / ${m.pumpDataDropped} / ${m.pumpDataQueueErrors}`);
   lines.push(`- Event-loop lag events/max/rate: ${m.eventLoopLagEvents} / ${m.eventLoopMaxLagMs}ms / ${fmt(m.eventLoopLagRatePerHour, 2)}/hr`);
   lines.push(`- Finalist verifier subscribed/updates/ready/checks: ${m.finalistSubscribed} / ${m.finalistUpdates} / ${m.finalistReady} / ${m.finalistChecks}`);
   lines.push(`- Dry-run attempts/would_send/would_block/errors: ${m.dryAttempts} / ${m.dryWouldSend} / ${m.dryWouldBlock} / ${m.dryErrors}`);
@@ -1067,5 +1194,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  buildVerdict
+  buildVerdict,
+  summarizePumpDataHealth
 };

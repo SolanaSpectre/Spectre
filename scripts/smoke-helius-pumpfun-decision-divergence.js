@@ -233,7 +233,14 @@ assert.deepStrictEqual(
     sniperWindowAnchoredAtFirstObservation: true,
     sniperWindowAnchorAtMs: Date.parse('2026-07-20T01:00:00.250Z'),
     sniperWindowAnchorKind: 'first_referenced_trade',
-    sniperWindowMs: 4000
+    sniperWindowMs: 4000,
+    // Launch-intel parity terms are projected on both sides so shadow/runtime pairs stay
+    // attributable. Absent from this input, so they surface as null/false rather than 0 -
+    // an uncaptured term must be distinguishable from a captured zero.
+    repeatedEarlyBuyerCount: null,
+    kolFirstWaveCount: null,
+    kolTrustedCount: null,
+    bundlerCandidate: false
   }
 );
 

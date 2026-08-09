@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const { isRuntimeProviderEvent } = require('./lib/runtime-provider-events');
 
 const ROOT = path.join(__dirname, '..');
 const LOG_DIR = path.join(ROOT, 'run-logs');
@@ -339,7 +340,7 @@ async function readTelemetry(filePath, promotionIndex) {
     }
     const type = eventType(event);
     const payload = payloadOf(event);
-    if (type === 'provider.pumpdev.runtime_trade' || type === 'provider.pumpportal.trade') {
+    if (isRuntimeProviderEvent(type, 'trade')) {
       provider.trades += 1;
     }
     if (type === 'wallet.trade_gate_diagnostic') {

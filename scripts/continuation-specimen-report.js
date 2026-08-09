@@ -634,13 +634,59 @@ async function buildSpecimen(symbol, rickOverlap, dossierIndex, nowMs) {
   }
 
   const specimen = summarizePairGroup(best, symbol, rickOverlap, nowMs);
-  specimen.symbolCollision = collision.unresolved && !collision.activeExactMints.some((item) => item.mint === specimen.mint && item.volume1hUsd === specimen.volume1hUsd);
+  specimen.identitySource = 'symbol_search';
+  specimen.symbolCollision = collision.unresolved;
   specimen.collision = collision;
 
   const internalContext = summarizeInternalContext(specimen, dossierIndex);
   const scoreSummary = scoreContinuation(specimen, internalContext);
   const label = labelContinuation(specimen, scoreSummary);
 
+  return {
+    ...specimen,
+    status: 'resolved',
+    label,
+    continuationScore: scoreSummary.score,
+    reasons: scoreSummary.reasons,
+    riskFlags: scoreSummary.riskFlags,
+    internalContext,
+    shadowPaper: buildShadowPaper(specimen, label)
+  };
+}
+
+async function buildSpecimenForMint(mint, rickOverlap, dossierIndex, nowMs) {
+  const pairs = (await fetchDexPairs(mint)).filter((pair) => (
+    pair?.chainId === 'solana' && pair?.baseToken?.address === mint
+  ));
+  const groups = groupPairsByBaseMint(pairs);
+  const exactGroup = groups.find((group) => group.mint === mint) || null;
+  if (!exactGroup) {
+    return {
+      mint,
+      symbol: rickOverlap?.symbol || null,
+      status: 'unresolved',
+      identitySource: 'exact_mint',
+      rickOverlap,
+      label: 'continuation_rejected:exact_mint_not_found',
+      continuationScore: 0,
+      reasons: [],
+      riskFlags: ['exact_mint_not_found'],
+      shadowPaper: { enabled: false, reason: 'EXACT_MINT_NOT_FOUND' }
+    };
+  }
+
+  const primary = [...exactGroup.pairs]
+    .sort((left, right) => Number(right?.liquidity?.usd || 0) - Number(left?.liquidity?.usd || 0))[0] || {};
+  const symbol = normalizeSymbol(primary?.baseToken?.symbol || rickOverlap?.symbol || 'UNKNOWN');
+  const collision = collisionSummary(groups, symbol);
+  const specimen = summarizePairGroup(exactGroup, symbol, rickOverlap, nowMs);
+  specimen.identitySource = 'exact_mint';
+  specimen.symbolCollision = false;
+  specimen.collision = collision;
+
+  const internalContext = summarizeInternalContext(specimen, dossierIndex);
+  const scoreSummary = scoreContinuation(specimen, internalContext);
+  const label = labelContinuation(specimen, scoreSummary);
   return {
     ...specimen,
     status: 'resolved',
@@ -773,7 +819,10 @@ if (require.main === module) {
 
 module.exports = {
   buildSpecimen,
+  buildSpecimenForMint,
   scoreContinuation,
   labelContinuation,
-  parseAgeHintToHours
+  normalizeSymbol,
+  parseAgeHintToHours,
+  summarizeRickOverlap
 };

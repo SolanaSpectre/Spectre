@@ -1,99 +1,227 @@
-const fs = require('fs');
-const path = require('path');
+'use strict';
 
 const KOLSCAN_LEADERBOARD_URL = 'https://kolscan.io/leaderboard';
-const OUTPUT_DIR = path.join(__dirname, '..', 'data', 'wallet-watchlists');
-const OUTPUT_PATH = path.join(OUTPUT_DIR, 'kolscan-leaderboard.json');
+const TIMEFRAME_LABELS = Object.freeze({
+  1: 'daily',
+  7: 'weekly',
+  30: 'monthly'
+});
 
-function decodeKolscanValue(value) {
-  if (!value || value === 'null') {
-    return null;
+function compact(value, decimals = 8) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Number(numeric.toFixed(decimals)) : null;
+}
+
+function extractFlightPayloads(html) {
+  const payloads = [];
+  const pattern = /<script>self\.__next_f\.push\((\[[\s\S]*?\])\)<\/script>/g;
+  for (const match of String(html || '').matchAll(pattern)) {
+    try {
+      const tuple = JSON.parse(match[1]);
+      if (typeof tuple?.[1] === 'string') payloads.push(tuple[1]);
+    } catch {
+      // Ignore unrelated or non-JSON flight script payloads.
+    }
   }
+  return payloads;
+}
 
-  return value
-    .replace(/\\"/g, '"')
-    .replace(/\\\//g, '/')
-    .replace(/\\u002F/g, '/')
-    .replace(/\\\\/g, '\\');
+function extractJsonArrayAfterKey(text, key) {
+  const marker = `"${key}":`;
+  const markerIndex = text.indexOf(marker);
+  if (markerIndex < 0) return null;
+  const start = text.indexOf('[', markerIndex + marker.length);
+  if (start < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\') {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      inString = true;
+    } else if (character === '[') {
+      depth += 1;
+    } else if (character === ']') {
+      depth -= 1;
+      if (depth === 0) return JSON.parse(text.slice(start, index + 1));
+    }
+  }
+  return null;
 }
 
 function extractLeaderboardEntries(html) {
-  const entryPattern = /\{\\"wallet_address\\":\\"([^"]+)\\",\\"name\\":(null|\\"([^"]*)\\"),\\"pfp\\":(?:null|\\"[^"]*\\"),\\"telegram\\":(null|\\"([^"]*)\\"),\\"twitter\\":(null|\\"([^"]*)\\"),\\"transactions\\":\[\]\}/g;
-  const entries = [];
+  const payloads = extractFlightPayloads(html);
+  // Next.js may split one React Flight record across several push calls.
+  const entries = extractJsonArrayAfterKey(payloads.join(''), 'initLeaderboard');
+  if (Array.isArray(entries) && entries.length > 0) return entries;
+  throw new Error('Could not extract current Kolscan initLeaderboard rows from HTML');
+}
 
-  for (const match of html.matchAll(entryPattern)) {
-    entries.push({
-      wallet_address: match[1],
-      name: decodeKolscanValue(match[3]),
-      telegram: decodeKolscanValue(match[5]),
-      twitter: decodeKolscanValue(match[7])
+function normalizeLeaderboard(entries, fetchedAt = new Date().toISOString()) {
+  const byTimeframe = new Map();
+  for (const entry of entries || []) {
+    const days = Number(entry?.timeframe);
+    const walletAddress = String(entry?.wallet_address || '').trim();
+    if (!walletAddress || !TIMEFRAME_LABELS[days]) continue;
+    if (!byTimeframe.has(days)) byTimeframe.set(days, []);
+    byTimeframe.get(days).push(entry);
+  }
+
+  const normalizedEntries = [];
+  for (const [days, rows] of byTimeframe.entries()) {
+    const sorted = [...rows].sort((left, right) => Number(right.profit || 0) - Number(left.profit || 0));
+    sorted.forEach((entry, index) => {
+      const wins = Math.max(0, Number(entry.wins || 0));
+      const losses = Math.max(0, Number(entry.losses || 0));
+      const tradeCount = wins + losses;
+      normalizedEntries.push({
+        timeframe: TIMEFRAME_LABELS[days],
+        timeframeDays: days,
+        rank: index + 1,
+        walletAddress: String(entry.wallet_address).trim(),
+        name: entry.name || null,
+        twitter: entry.twitter || null,
+        telegram: entry.telegram || null,
+        reportedProfitSol: compact(entry.profit, 8),
+        wins,
+        losses,
+        tradeCount,
+        winRate: tradeCount > 0 ? compact(wins / tradeCount, 4) : null,
+        source: 'kolscan_leaderboard',
+        fetchedAt
+      });
+    });
+  }
+  return normalizedEntries;
+}
+
+function buildWalletWatchlist(normalizedEntries, fetchedAt = new Date().toISOString()) {
+  const walletsByAddress = new Map();
+  for (const entry of normalizedEntries) {
+    if (!walletsByAddress.has(entry.walletAddress)) {
+      walletsByAddress.set(entry.walletAddress, {
+        walletAddress: entry.walletAddress,
+        name: entry.name,
+        twitter: entry.twitter,
+        telegram: entry.telegram,
+        source: 'kolscan_leaderboard',
+        fetchedAt,
+        leaderboardAppearances: []
+      });
+    }
+    const wallet = walletsByAddress.get(entry.walletAddress);
+    wallet.name ||= entry.name;
+    wallet.twitter ||= entry.twitter;
+    wallet.telegram ||= entry.telegram;
+    wallet.leaderboardAppearances.push({
+      timeframe: entry.timeframe,
+      timeframeDays: entry.timeframeDays,
+      rank: entry.rank,
+      reportedProfitSol: entry.reportedProfitSol,
+      wins: entry.wins,
+      losses: entry.losses,
+      tradeCount: entry.tradeCount,
+      winRate: entry.winRate
     });
   }
 
-  if (entries.length === 0) {
-    throw new Error('Could not extract Kolscan leaderboard entries from HTML');
-  }
-
-  return entries;
+  return Array.from(walletsByAddress.values())
+    .map((wallet) => {
+      wallet.leaderboardAppearances.sort((left, right) => left.timeframeDays - right.timeframeDays);
+      const bestRank = Math.min(...wallet.leaderboardAppearances.map((row) => row.rank));
+      const maxReportedTrades = Math.max(...wallet.leaderboardAppearances.map((row) => row.tradeCount));
+      return {
+        rank: bestRank,
+        bestRank,
+        leaderboardTimeframeCount: wallet.leaderboardAppearances.length,
+        maxReportedTrades,
+        analysisPriorityScore: wallet.leaderboardAppearances.length * 1000
+          + Math.max(0, 101 - bestRank) * 10
+          + Math.min(maxReportedTrades, 100),
+        ...wallet
+      };
+    })
+    .sort((left, right) => (
+      Number(right.analysisPriorityScore) - Number(left.analysisPriorityScore)
+      || Number(left.bestRank) - Number(right.bestRank)
+    ));
 }
 
-function normalizeWallet(entry, rank) {
-  const walletAddress = entry.wallet_address || entry.walletAddress || entry.address;
-  if (!walletAddress) {
-    return null;
+function buildPayload(entries, fetchedAt = new Date().toISOString()) {
+  const normalizedEntries = normalizeLeaderboard(entries, fetchedAt);
+  if (normalizedEntries.length === 0) {
+    throw new Error('Kolscan current leaderboard contained no supported timeframe rows');
+  }
+  const wallets = buildWalletWatchlist(normalizedEntries, fetchedAt);
+  const timeframes = {};
+  for (const [daysText, label] of Object.entries(TIMEFRAME_LABELS)) {
+    const timeframeEntries = normalizedEntries.filter((entry) => entry.timeframe === label);
+    timeframes[label] = {
+      timeframeDays: Number(daysText),
+      available: timeframeEntries.length > 0,
+      entryCount: timeframeEntries.length,
+      entries: timeframeEntries
+    };
   }
 
   return {
-    rank,
-    walletAddress,
-    name: entry.name || null,
-    twitter: entry.twitter || null,
-    telegram: entry.telegram || null,
-    pfp: entry.pfp || null,
-    source: 'kolscan_leaderboard',
-    fetchedAt: new Date().toISOString()
+    schemaVersion: 2,
+    source: KOLSCAN_LEADERBOARD_URL,
+    fetchedAt,
+    methodology: {
+      sourceField: 'server_rendered_initLeaderboard',
+      leaderboardClaimsAreDiscoveryOnly: true,
+      profileHydrationOrderUsedAsRank: false,
+      unavailableTimeframesAreNotInferred: true
+    },
+    coverage: {
+      availableTimeframes: Object.entries(timeframes)
+        .filter(([, value]) => value.available)
+        .map(([label]) => label),
+      unavailableTimeframes: Object.entries(timeframes)
+        .filter(([, value]) => !value.available)
+        .map(([label]) => label)
+    },
+    count: wallets.length,
+    entryCount: normalizedEntries.length,
+    timeframes,
+    wallets
   };
-}
-
-async function fetchLeaderboardHtml() {
-  const response = await fetch(KOLSCAN_LEADERBOARD_URL, {
-    headers: {
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36'
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error(`Kolscan request failed with status ${response.status}`);
-  }
-
-  return response.text();
 }
 
 async function main() {
-  const html = await fetchLeaderboardHtml();
-  const rawEntries = extractLeaderboardEntries(html);
-  const wallets = rawEntries
-    .map((entry, index) => normalizeWallet(entry, index + 1))
-    .filter(Boolean);
+  throw new Error([
+    'Automated Kolscan fetching is disabled because Kolscan Terms of Use prohibit bots,',
+    'automation, scraping, and data mining. Use the manually curated wallet watchlist at',
+    'data/wallet-watchlists/manual-kol-wallets.json with Helius instead.'
+  ].join(' '));
+}
 
-  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-
-  const payload = {
-    source: KOLSCAN_LEADERBOARD_URL,
-    fetchedAt: new Date().toISOString(),
-    count: wallets.length,
-    wallets
-  };
-
-  fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-
-  console.log(`Saved ${wallets.length} Kolscan leaderboard wallets to ${OUTPUT_PATH}`);
-  wallets.slice(0, 10).forEach((wallet) => {
-    console.log(`#${wallet.rank} ${wallet.name || 'unknown'} ${wallet.walletAddress}`);
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(`Failed to fetch Kolscan leaderboard: ${error.message}`);
+    process.exitCode = 1;
   });
 }
 
-main().catch((error) => {
-  console.error(`Failed to fetch Kolscan leaderboard: ${error.message}`);
-  process.exit(1);
-});
+module.exports = {
+  TIMEFRAME_LABELS,
+  buildPayload,
+  buildWalletWatchlist,
+  extractFlightPayloads,
+  extractJsonArrayAfterKey,
+  extractLeaderboardEntries,
+  normalizeLeaderboard
+};

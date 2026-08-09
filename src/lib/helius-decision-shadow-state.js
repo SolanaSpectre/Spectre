@@ -9,6 +9,14 @@ class HeliusDecisionShadowState {
     this.maxTradeAgeMs = Math.max(this.windowMs * 3, 5 * 60_000);
     this.maxTrackedMints = Math.max(100, Number(config.preMigrationPaperMaxObservedStates || 5000));
     this.maxWalletEvidenceTradesPerMint = 10_000;
+    // Deliberately no fallback default. launch-intel-store computes bundlerCandidate against
+    // config.launchIntelBundlerMinWallets, so inventing a different threshold here would make the
+    // counterfactual disagree with the runtime for a reason unrelated to the data source. When the
+    // value is absent the shadow reports bundlerCandidateCaptured=false instead of guessing.
+    this.bundlerMinWallets = Number(config.launchIntelBundlerMinWallets);
+    // Same reasoning as bundlerMinWallets: mirror the runtime's values or report uncaptured.
+    this.bundlerWindowMs = Number(config.launchIntelBundlerWindowMs);
+    this.maxEarlyBuys = Number(config.launchIntelMaxEarlyBuys);
     this.mints = new Map();
     this.portalTraderBySignature = new Map();
   }
@@ -137,9 +145,47 @@ class HeliusDecisionShadowState {
     const allSells = eligibleTrades.filter((row) => row.side === 'sell');
     const recentVolumeSol = recentTrades.reduce((sum, row) => sum + Number(row.volumeSol || 0), 0);
     const totalVolumeSol = eligibleTrades.reduce((sum, row) => sum + Number(row.volumeSol || 0), 0);
-    const uniqueBuyers = new Set(recentBuys.map((row) => row.trader).filter(Boolean));
-    const uniqueBuyerCountCaptured = recentTrades.length > 0
-      && recentBuys.every((row) => Boolean(row.trader));
+    // The runtime lane carries uniqueBuyerCount forward as a monotonic high-water mark over the
+    // token's observed life (pre-migration-watch-lane takes Math.max against the stored value),
+    // so counting only the rolling windowMs slice is a different metric wearing the same name.
+    // On 2026-08-03 that mismatch read 109 against the runtime's 413 and 93 against 218, which
+    // dragged shadow score down 3.4 and 6.0 points and flipped two same-path executed entries.
+    // walletEvidenceTrades is the cumulative record: capped by count, never pruned by age the
+    // way trades is, and still filtered to atMs so the snapshot stays point-in-time correct.
+    const cumulativeBuys = eligibleWalletTrades.filter((row) => row.side === 'buy');
+    const uniqueBuyers = new Set(cumulativeBuys.map((row) => row.trader).filter(Boolean));
+    // Diagnostic only - NOT launch-intel's repeatedEarlyBuyerCount, and not fed to the
+    // counterfactual. launch-intel counts first-wave wallets with cross-launch history
+    // (getWalletSummary().totalLaunches > 1) capped at 5; this counts wallets that bought THIS
+    // mint more than once, uncapped. They are different metrics and measured wildly apart on
+    // 2026-08-03 (delta median +13, max +315). Named distinctly so the two are never conflated
+    // again. Reproducing the real metric needs a cross-launch wallet index the shadow lacks.
+    const buyCountsByTrader = new Map();
+    for (const row of cumulativeBuys) {
+      if (!row.trader) continue;
+      buyCountsByTrader.set(row.trader, (buyCountsByTrader.get(row.trader) || 0) + 1);
+    }
+    const perMintRepeatBuyerCount = [...buyCountsByTrader.values()]
+      .filter((count) => count > 1).length;
+    // Same shape as launch-intel-store.updateSummary: bucket buys by slot, count distinct wallets
+    // per slot, take the densest slot, and compare against the runtime's own bundlerMinWallets.
+    const walletsBySlot = new Map();
+    for (const row of cumulativeBuys) {
+      if (!row.trader || !Number.isFinite(row.slot)) continue;
+      const wallets = walletsBySlot.get(row.slot) || new Set();
+      wallets.add(row.trader);
+      walletsBySlot.set(row.slot, wallets);
+    }
+    const densestSlotWalletCount = walletsBySlot.size
+      ? Math.max(...[...walletsBySlot.values()].map((wallets) => wallets.size))
+      : 0;
+    const bundlerCandidateCaptured = Number.isFinite(this.bundlerMinWallets)
+      && cumulativeBuys.some((row) => Number.isFinite(row.slot));
+    const bundlerCandidate = bundlerCandidateCaptured
+      && densestSlotWalletCount >= this.bundlerMinWallets;
+    const windowedUniqueBuyers = new Set(recentBuys.map((row) => row.trader).filter(Boolean));
+    const uniqueBuyerCountCaptured = cumulativeBuys.length > 0
+      && cumulativeBuys.every((row) => Boolean(row.trader));
     const controlledAnchorMs = this.finite(
       portalState.sniperWindowAnchorAtMs ?? portalToken.sniperWindowAnchorAtMs
     );
@@ -176,6 +222,25 @@ class HeliusDecisionShadowState {
     const sniperWalletCount = sniperWalletCountCaptured
       ? new Set(earlyBuyWindow.map((row) => row.trader)).size
       : null;
+    // First-wave wallets for kolOverlap. launch-intel-store derives firstWaveDistinctWallets from
+    // record.earlyBuys (the first maxEarlyBuys buys chronologically) filtered to bundlerWindowMs
+    // from the first reference, so the cap is applied before the window to match. The KOL lookup
+    // itself stays in the engine because kolWalletProfiles is reference data loaded from
+    // wallet-intel/kolscan/manual files - it is not derived from either provider's tape.
+    const firstWaveCaptured = Number.isFinite(firstReferenceMs)
+      && Number.isFinite(this.bundlerWindowMs);
+    const cappedEarlyBuys = Number.isFinite(this.maxEarlyBuys)
+      ? cumulativeBuys.slice(0, this.maxEarlyBuys)
+      : cumulativeBuys;
+    const firstWaveWallets = firstWaveCaptured
+      ? [...new Set(cappedEarlyBuys
+        .filter((row) => (
+          row.atMs >= firstReferenceMs
+          && row.atMs - firstReferenceMs <= this.bundlerWindowMs
+        ))
+        .map((row) => row.trader)
+        .filter(Boolean))]
+      : [];
     const walletContext = this.buildWalletContext(eligibleWalletTrades, portalState, resolveWallet);
     const tradeCurveProgress = this.finite(source.curveProgress);
     const tradePriceSol = this.finite(source.priceSol);
@@ -258,7 +323,12 @@ class HeliusDecisionShadowState {
       buyRatioCaptured: recentTrades.length > 0,
       uniqueBuyerCount: uniqueBuyers.size,
       uniqueBuyerCountCaptured,
-      uniqueBuyerRatio: recentBuys.length ? Math.min(uniqueBuyers.size / recentBuys.length, 1) : null,
+      // Retains the pre-2026-08-03 rolling-window value as a named diagnostic so the
+      // cumulative/windowed gap stays measurable instead of disappearing into the fix.
+      windowedUniqueBuyerCount: windowedUniqueBuyers.size,
+      uniqueBuyerRatio: recentBuys.length
+        ? Math.min(windowedUniqueBuyers.size / recentBuys.length, 1)
+        : null,
       sniperWalletCount,
       sniperWalletCountCaptured,
       sniperWalletCountSource: sniperWalletCountCaptured
@@ -274,7 +344,15 @@ class HeliusDecisionShadowState {
       sniperWindowAnchorControlSource: sniperWindowAnchorControlApplied
         ? 'pumpportal_actual_lane_sniper_window'
         : null,
-      bundlerCandidate: false,
+      perMintRepeatBuyerCount,
+      // Diagnostic only. Not fed to the counterfactual: PumpPortal payloads carry no slot, so the
+      // runtime's slotBuyCounts never populates and its bundlerCandidate is always false. Scoring
+      // the shadow on a feature the oracle cannot compute breaks like-for-like comparison.
+      bundlerCandidate,
+      bundlerCandidateCaptured,
+      densestSlotWalletCount,
+      firstWaveWallets,
+      firstWaveCaptured,
       walletClassificationContext: walletContext,
       rawTransportEpoch,
       rawStateTransportEpoch,

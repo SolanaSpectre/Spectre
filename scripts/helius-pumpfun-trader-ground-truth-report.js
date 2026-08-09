@@ -15,14 +15,22 @@ const DEFAULT_INPUT = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-recall-
 const OUTPUT_DIR = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-trader-ground-truth');
 const LATEST_PATH = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-trader-ground-truth-latest.json');
 
+const DEFAULT_PARITY_INPUT = path.join(ROOT, 'data', 'reports', 'helius-pumpfun-shadow-parity-latest.json');
+
 const METHODOLOGY = Object.freeze({
-  id: 'helius_pumpfun_trader_ground_truth_v1_2026-07-19',
+  id: 'helius_pumpfun_trader_ground_truth_v2_2026-08-03',
   mode: 'read_only_rpc_report',
   sampleLimitDefault: 12,
-  sampling: 'deterministic_round_robin_across_identity_residue_cohorts',
+  sampling: 'deterministic_round_robin_across_identity_residue_and_trader_disagreement_cohorts',
   groundTruth: 'TradeEvent_user_fields_decoded_from_getTransaction_logMessages_plus_transaction_fee_payer',
   endpointPersistence: 'forbidden',
-  strategyConsumptionAllowed: false
+  strategyConsumptionAllowed: false,
+  // v1 sampled only IDENTITY_RESIDUE rows from the recall autopsy, so a run with perfect
+  // recall starved the cohort and produced zero adjudications. traderGroundTruthRule needs
+  // the trader disagreements themselves, which the parity report now emits.
+  v2CohortAmendment:
+    'add_trader_identity_disagreement_cohort_from_parity_report_so_perfect_recall_runs_still_adjudicate',
+  v2AmendedAt: '2026-08-03T02:20:00.000-05:00'
 });
 
 function parseCli(argv = process.argv.slice(2)) {
@@ -32,6 +40,7 @@ function parseCli(argv = process.argv.slice(2)) {
   };
   return {
     inputPath: path.resolve(valueAfter('--input') || DEFAULT_INPUT),
+    parityPath: path.resolve(valueAfter('--parity') || DEFAULT_PARITY_INPUT),
     limit: Math.max(1, Number(valueAfter('--limit')) || METHODOLOGY.sampleLimitDefault)
   };
 }
@@ -40,12 +49,25 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
 }
 
-function selectSamples(report, limit) {
-  const cohorts = (report.cohorts || []).map((cohort) => ({
+function groupDisagreementsByMint(parityReport) {
+  const byMint = new Map();
+  for (const row of parityReport?.traderIdentityDisagreementCohort || []) {
+    if (!row?.mint || !row?.signature) continue;
+    const rows = byMint.get(row.mint) || [];
+    rows.push(row);
+    byMint.set(row.mint, rows);
+  }
+  return [...byMint.entries()].map(([mint, rows]) => ({ mint, rows, index: 0 }));
+}
+
+function selectSamples(report, limit, parityReport = null) {
+  const residueCohorts = (report.cohorts || []).map((cohort) => ({
     mint: cohort.mint,
     rows: (cohort.samples || []).filter((row) => row.classification === 'IDENTITY_RESIDUE'),
     index: 0
-  })).filter((cohort) => cohort.rows.length);
+  }));
+  const cohorts = [...residueCohorts, ...groupDisagreementsByMint(parityReport)]
+    .filter((cohort) => cohort.rows.length);
   const selected = [];
   const seen = new Set();
   while (selected.length < limit && cohorts.some((cohort) => cohort.index < cohort.rows.length)) {
@@ -136,8 +158,8 @@ async function mapBounded(rows, concurrency, mapper) {
   return results;
 }
 
-async function buildReport(inputReport, connection, limit) {
-  const samples = selectSamples(inputReport, limit);
+async function buildReport(inputReport, connection, limit, parityReport = null) {
+  const samples = selectSamples(inputReport, limit, parityReport);
   const rows = await mapBounded(samples, 3, async (sample) => {
     const fetched = await fetchWithRetry(connection, sample.signature);
     const attribution = classifyAttribution(sample, fetched.transaction);
@@ -160,7 +182,16 @@ async function buildReport(inputReport, connection, limit) {
     generatedAt: new Date().toISOString(),
     sourceAutopsy: inputReport.sourceTelemetry || null,
     methodology: METHODOLOGY,
-    counts: { requested: limit, sampled: samples.length, fetched: rows.filter((row) => !row.fetchError).length },
+    sourceParity: parityReport?.sourceTelemetry || null,
+    counts: {
+      requested: limit,
+      sampled: samples.length,
+      fetched: rows.filter((row) => !row.fetchError).length,
+      identityResidueAvailable: (inputReport.cohorts || [])
+        .reduce((sum, cohort) => sum + (cohort.samples || [])
+          .filter((row) => row.classification === 'IDENTITY_RESIDUE').length, 0),
+      traderDisagreementsAvailable: (parityReport?.traderIdentityDisagreementCohort || []).length
+    },
     classifications,
     rows,
     interpretation: 'Read-only ground truth for comparator semantics. This artifact cannot authorize runtime source promotion.'
@@ -177,11 +208,12 @@ function writeReport(report) {
 }
 
 async function main() {
-  const { inputPath, limit } = parseCli();
+  const { inputPath, parityPath, limit } = parseCli();
   if (!fs.existsSync(inputPath)) throw new Error(`Autopsy report not found: ${inputPath}`);
+  const parityReport = fs.existsSync(parityPath) ? readJson(parityPath) : null;
   const endpoint = String(process.env.SOLANA_RPC_URL || '').trim();
   if (!endpoint) throw new Error('SOLANA_RPC_URL is required in the private .env.');
-  const report = await buildReport(readJson(inputPath), new Connection(endpoint, 'confirmed'), limit);
+  const report = await buildReport(readJson(inputPath), new Connection(endpoint, 'confirmed'), limit, parityReport);
   const paths = writeReport(report);
   console.log(`Wrote Helius trader ground-truth report: ${paths.stampedPath}`);
   console.log(`Wrote latest Helius trader ground-truth report: ${paths.latestPath}`);

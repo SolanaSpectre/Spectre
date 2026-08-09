@@ -61,6 +61,13 @@ async function checkPumpPortalFunding({
   env = process.env,
   getBalanceSol = readBalanceSol
 } = {}) {
+  const selectedProvider = String(env.PUMP_DATA_PROVIDER || 'helius').trim().toLowerCase();
+  if (selectedProvider !== 'pumpportal') {
+    return {
+      status: 'SKIPPED_PROVIDER_NOT_SELECTED',
+      selectedProvider
+    };
+  }
   const pumpPortalEnabled = env.PUMPPORTAL_ENABLED !== 'false';
   const paidStreamsConfigured = Boolean(env.PUMP_PORTAL_API_KEY);
   const address = String(env.PUMPPORTAL_FUNDED_WALLET_ADDRESS || '').trim();

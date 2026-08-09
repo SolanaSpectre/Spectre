@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "id": "runner_watch_helius_primary_v6_2026-08-08",
+  "preregisteredAt": "2026-08-08T16:50:29.9443113-05:00",
+  "status": "PREREGISTERED_BEFORE_FIRST_HELIUS_PRIMARY_RUN",
+  "mode": "paper_only",
+  "liveBehaviorChanged": false,
+  "question": "Under a Helius-only, gap-accounted runtime feed, does PRE_MIGRATION_RUNNER_WATCH produce at least one independent mint episode per covered hour and durable realizable paper outcomes?",
+  "priorEvidence": {
+    "id": "runner_watch_full_coverage_v5_2026-07-26",
+    "disposition": "FAILED_RUNTIME_CHECKPOINT",
+    "acceptedEvidenceReuseAllowed": false,
+    "validRuns": 6,
+    "realizedUniqueMintEpisodes": 41,
+    "totalPnlSol": -0.070938513,
+    "medianEpisodePnlSol": -0.013537168,
+    "pnlAfterRemovingTop3WinnersSol": -0.253706324,
+    "interpretation": "V5 remains terminal. V6 tests a materially different Helius-primary data substrate and cannot erase, pool with, or regrade V5 evidence."
+  },
+  "providerPlan": {
+    "provider": "helius",
+    "launchIntelSource": "helius",
+    "transport": "mainnet LaserStream WebSocket logsSubscribe",
+    "commitment": "processed",
+    "pumpProgramScope": "6EF8rrecthR5Dk3N9oy14vkbFKZPZX6WjF8VHPKSZvd",
+    "strategyConsumptionRequired": true,
+    "providerCurveVerificationRequired": true,
+    "legacyRuntimeProvidersAllowed": false,
+    "coverageSemantics": "Time counts only after a current Helius subscription acknowledgement and excludes disconnected or transport-gap intervals."
+  },
+  "validRunDefinition": {
+    "requestedRunMinutes": 60,
+    "minimumFullCoverageMinutes": 55,
+    "selectedProviderMustBeHelius": true,
+    "launchIntelSourceMustBeHelius": true,
+    "listenerAndRuntimeQueueMustBeEnabled": true,
+    "minimumSubscriptionAcks": 1,
+    "minimumRuntimeEvents": 1,
+    "legacyRuntimeEventsMustBeZero": true,
+    "queueDropsErrorsOverflowsAndDrainTimeoutsMustBeZero": true,
+    "transportGapMustBeClosedAtStop": true,
+    "phaseAwareCurveErrorAccountingRequired": true,
+    "activePhaseRuntimeRpcCurveErrorsMustBeZero": true,
+    "shutdownPhaseErrorsMustBeClassifiedAsCancelled": true,
+    "interruptedRunsExcluded": true
+  },
+  "episodeIdentity": "telemetry_run|mint; same-mint reentries within a run count as one episode",
+  "throughputCheckpoint": {
+    "minimumUniqueMintEpisodesPerFullCoverageHour": 1,
+    "gradeOn": "cumulative future-only valid V6 Helius-primary sessions"
+  },
+  "economicCheckpoint": {
+    "minimumUniqueMintEpisodes": 20,
+    "minimumValidRuns": 5,
+    "requirements": [
+      "total realized paper PnL SOL > 0",
+      "median realized episode PnL SOL > 0",
+      "realized PnL after removing top 3 winning episodes > 0",
+      "at least 3 positive runs",
+      "no single run contributes more than 60% of total positive PnL"
+    ]
+  },
+  "stoppingRule": {
+    "validRuns": 10,
+    "ifEpisodeTargetNotReached": "INSUFFICIENT_THROUGHPUT_FOR_LIVE_GRADUATION",
+    "ifDurabilityFailsAtCheckpoint": "FAILED_RUNTIME_CHECKPOINT",
+    "noGateLooseningFromStarvation": true
+  },
+  "prohibitions": [
+    "No live broadcast enablement from this experiment.",
+    "No entry-gate, exit-rule, or provider-coverage changes while evidence is collecting.",
+    "No grading on MFE, maximum excursion, or duplicate same-mint reentries.",
+    "V1 through V5 rows cannot count as V6 evidence.",
+    "PumpPortal and PumpDev runtime events invalidate a V6 run rather than becoming fallback evidence.",
+    "Any strategy, threshold, provider, coverage, or exit change starts a new pre-registration."
+  ]
+}

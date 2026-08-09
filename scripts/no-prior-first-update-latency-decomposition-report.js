@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { readJson, readJsonl } = require('./no-prior-replay-diagnostic');
+const { isRuntimeProviderEvent } = require('./lib/runtime-provider-events');
 
 const ROOT = path.join(__dirname, '..');
 const FIRST_OBSERVED_PATH = path.join(ROOT, 'data', 'reports', 'no-prior-first-observed-curve-latest.json');
@@ -77,7 +78,7 @@ function hasFiniteCurveProgress(event) {
 }
 
 function buildRow(row, events) {
-  const providerNewToken = firstEvent(events, row.mint, (event) => event.type === 'provider.pumpportal.new_token');
+  const providerNewToken = firstEvent(events, row.mint, (event) => isRuntimeProviderEvent(event, 'newToken'));
   const firstBondingUpdate = firstEvent(events, row.mint, (event) => event.type === 'pump_bonding_curve.updated');
   const firstFiniteCurve = firstEvent(events, row.mint, (event) => event.type === 'pump_bonding_curve.updated' && hasFiniteCurveProgress(event));
   const firstPaperDecision = firstEvent(events, row.mint, (event) => event.type === 'pre_migration_paper.decision');

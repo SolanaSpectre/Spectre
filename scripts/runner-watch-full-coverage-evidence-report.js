@@ -4,14 +4,14 @@
 const fs = require('fs');
 const path = require('path');
 const { forEachJsonlSync } = require('./lib/jsonl');
-const { scanTelemetryCoverage } = require('./lib/paid-tape-coverage-epochs');
+const { scanHeliusRuntimeCoverage } = require('./lib/helius-runtime-coverage');
+const { isRuntimeProviderEvent } = require('./lib/runtime-provider-events');
 
 const ROOT = path.join(__dirname, '..');
-const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'runner-watch-full-coverage-v5.json');
-const PAID_TAPE_COVERAGE_PATH = path.join(ROOT, 'data', 'reports', 'paid-tape-coverage-epoch-latest.json');
+const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'runner-watch-full-coverage-v6.json');
 const BATTLEFIELD_PATH = path.join(ROOT, 'data', 'reports', 'run-battlefield-latest.json');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'runner-watch-full-coverage-evidence-latest.json');
-const LEDGER_PATH = path.join(ROOT, 'data', 'runner-watch-ledgers', 'full-coverage-v5.jsonl');
+const LEDGER_PATH = path.join(ROOT, 'data', 'runner-watch-ledgers', 'full-coverage-v6.jsonl');
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
@@ -29,14 +29,9 @@ function resolveTelemetryPath(argv = process.argv.slice(2)) {
     return path.resolve(ROOT, explicitValue);
   }
 
-  if (fs.existsSync(PAID_TAPE_COVERAGE_PATH)) {
-    const coverage = readJson(PAID_TAPE_COVERAGE_PATH);
-    if (coverage.telemetryPath) return path.resolve(ROOT, coverage.telemetryPath);
-  }
-
   const battlefield = readJson(BATTLEFIELD_PATH);
   const telemetryValue = battlefield.files?.telemetryPath || battlefield.telemetryPath;
-  if (!telemetryValue) throw new Error('No telemetry path found in paid-tape coverage or battlefield reports.');
+  if (!telemetryValue) throw new Error('No telemetry path found in battlefield report.');
   return path.resolve(ROOT, telemetryValue);
 }
 
@@ -62,10 +57,12 @@ function scanRun(telemetryPath) {
   let stopping = null;
   const entries = [];
   const exits = [];
-  const prefilterObservations = [];
-  const prefilterExpirations = [];
-  const prefilterExpiredLaterObserved = [];
   const paperDecisions = [];
+  const runtimeProviderEvents = {
+    newTokens: 0,
+    trades: 0,
+    migrations: 0
+  };
   forEachJsonlSync(telemetryPath, (event) => {
     const payload = event.payload || event.data || {};
     if (event.type === 'session.started') started = { timestamp: event.timestamp, payload };
@@ -75,32 +72,14 @@ function scanRun(telemetryPath) {
       entries.push({ timestamp: event.timestamp, ...payload });
     } else if (event.type === 'pre_migration_paper.exit' && payload.lane === 'PRE_MIGRATION_RUNNER_WATCH') {
       exits.push({ timestamp: event.timestamp, ...payload });
-    } else if (event.type === 'provider.pumpportal.targeted_prefilter_first_rpc_observation') {
-      prefilterObservations.push({ timestamp: event.timestamp, ...payload });
-    } else if (event.type === 'provider.pumpportal.targeted_prefilter_refresh_expired') {
-      prefilterExpirations.push({ timestamp: event.timestamp, ...payload });
-    } else if (event.type === 'provider.pumpportal.targeted_prefilter_expired_later_observed') {
-      prefilterExpiredLaterObserved.push({ timestamp: event.timestamp, ...payload });
     } else if (event.type === 'pre_migration_paper.decision') {
       paperDecisions.push({ timestamp: event.timestamp, ...payload });
     }
+    if (isRuntimeProviderEvent(event, 'newToken')) runtimeProviderEvents.newTokens += 1;
+    if (isRuntimeProviderEvent(event, 'trade')) runtimeProviderEvents.trades += 1;
+    if (isRuntimeProviderEvent(event, 'migration')) runtimeProviderEvents.migrations += 1;
   });
-  const firstObservedAboveBand = prefilterObservations.filter((row) => row.classification === 'ABOVE_BAND');
-  const aboveBandMints = new Set(firstObservedAboveBand.map((row) => row.mint));
-  const coverageShapedSkips = paperDecisions
-    .filter((row) => aboveBandMints.has(row.mint) && row.decision === 'PAPER_SKIPPED')
-    .map((row) => ({
-      timestamp: row.timestamp,
-      mint: row.mint,
-      symbol: row.symbol || null,
-      reason: row.reason || null,
-      coverageTag: 'FIRST_RPC_OBSERVED_ABOVE_TARGETED_TAPE_BAND'
-    }));
-  const byClassification = prefilterObservations.reduce((counts, row) => {
-    counts[row.classification || 'UNKNOWN'] = (counts[row.classification || 'UNKNOWN'] || 0) + 1;
-    return counts;
-  }, {});
-  const skipReasons = coverageShapedSkips.reduce((counts, row) => {
+  const skipReasons = paperDecisions.reduce((counts, row) => {
     counts[row.reason || 'UNKNOWN'] = (counts[row.reason || 'UNKNOWN'] || 0) + 1;
     return counts;
   }, {});
@@ -110,17 +89,9 @@ function scanRun(telemetryPath) {
     entries,
     exits,
     coverageDiagnostics: {
-      firstRpcObservations: prefilterObservations.length,
-      byClassification,
-      firstObservedAboveBandMints: firstObservedAboveBand.length,
-      firstObservedAboveBand,
-      belowBandRecheckExpirations: prefilterExpirations.length,
-      belowBandRecheckExpirationRows: prefilterExpirations,
-      expiredLaterObservedInOrAboveBand: prefilterExpiredLaterObserved.length,
-      expiredLaterObservedRows: prefilterExpiredLaterObserved,
-      coverageShapedPaperSkips: coverageShapedSkips.length,
-      coverageShapedPaperSkipReasons: skipReasons,
-      coverageShapedSkips
+      runtimeProviderEvents,
+      paperDecisions: paperDecisions.length,
+      paperDecisionReasons: skipReasons
     }
   };
 }
@@ -161,7 +132,7 @@ function summarizeEpisodes(episodes = []) {
 }
 
 function validateRun(prereg, telemetryPath, run, coverage) {
-  const plan = run.started?.payload?.pumpPortalPaidTapePlan || {};
+  const plan = run.started?.payload?.pumpDataPlan || {};
   const stats = run.stopping?.payload?.stats || {};
   const curveStats = stats.pumpBondingCurveLane || {};
   const curveErrors = number(curveStats.errors, null);
@@ -183,23 +154,42 @@ function validateRun(prereg, telemetryPath, run, coverage) {
   const shutdownPhaseErrorsClassified = phaseAwareCurveErrorAccounting
     && shutdownCancelledCurveErrors === shutdownPhaseCurveErrors;
   const rpcFailures = number(stats.solanaRpc?.stats?.primaryFailures, 0) + number(stats.solanaRpc?.stats?.fallbackFailures, 0);
-  const expected = prereg.subscriptionPlan;
+  const expected = prereg.providerPlan;
   const requested = prereg.validRunDefinition;
-  const effectiveRegistrationAt = prereg.amendedBeforeFirstValidRunAt || prereg.preregisteredAt;
+  const runtimeEvents = number(coverage.runtimeEvents, 0);
+  const queueIntegrityClean = number(coverage.listenerQueueDropped, 0) === 0
+    && number(coverage.listenerQueueHandlerErrors, 0) === 0
+    && coverage.listenerQueueStopDrainTimedOut !== true
+    && number(coverage.runtimeQueueOverflowRejected, 0) === 0
+    && number(coverage.runtimeQueueHandlerErrors, 0) === 0
+    && number(coverage.runtimeQueuePendingAtStop, 0) === 0
+    && number(coverage.runtimeQueueDrainTimeouts, 0) === 0;
   const checks = {
-    postRegistration: Boolean(run.started?.timestamp && new Date(run.started.timestamp) > new Date(effectiveRegistrationAt)),
+    postRegistration: Boolean(run.started?.timestamp && new Date(run.started.timestamp) > new Date(prereg.preregisteredAt)),
     paperMode: run.started?.payload?.mode === 'PAPER',
     correctStrategyPreregistration: run.started?.payload?.strategyPreregistration?.id === prereg.id,
     requestedDuration: number(run.started?.payload?.sessionDurationMinutes) === requested.requestedRunMinutes,
-    targetedMode: plan.tradeSubscriptionMode === expected.mode,
-    minCurveProgress: number(plan.targetedMinCurveProgress) === expected.minCurveProgressInclusive,
-    maxCurveProgress: number(plan.targetedMaxCurveProgress) === expected.maxCurveProgressExclusive,
-    paidEventBudget: number(plan.maxMeteredTradeEventsPerSession) === expected.paidEventBudgetPerSession,
-    tokenTradeTtl: number(plan.tokenTradeSubscriptionTtlMs) === expected.tokenTradeSubscriptionTtlMs,
-    targetedPrefilterMaxAge: number(plan.targetedPrefilterMaxAgeMs) === expected.belowBandRpcRecheckMaxAgeMs,
-    targetedPrefilterCadence: number(plan.targetedPrefilterCadenceMs) === expected.belowBandRpcRecheckCadenceMs,
-    bondingCurveRuntimeRpcEnabled: plan.bondingCurveRuntimeRpcEnabled === expected.bondingCurveRuntimeRpcRequired,
-    fullPaidTapeMinutes: number(coverage.fullPaidTapeMinutes, 0) >= requested.minimumFullPaidTapeMinutes,
+    selectedProvider: requested.selectedProviderMustBeHelius === true
+      && plan.provider === expected.provider
+      && coverage.selectedProvider === expected.provider,
+    launchIntelSource: requested.launchIntelSourceMustBeHelius === true
+      && plan.launchIntelSource === expected.launchIntelSource
+      && coverage.launchIntelSource === expected.launchIntelSource,
+    heliusRuntimeEnabled: requested.listenerAndRuntimeQueueMustBeEnabled === true
+      && plan.heliusRuntimeEnabled === true
+      && coverage.listenerEnabled === true
+      && coverage.strategyConsumptionEnabled === true,
+    providerCurveVerification: expected.providerCurveVerificationRequired === true
+      && plan.providerCurveVerificationEnabled === true,
+    fullCoverageMinutes: number(coverage.fullCoverageMinutes, 0) >= requested.minimumFullCoverageMinutes,
+    subscriptionAcknowledged: number(coverage.subscriptionAcks, 0) >= requested.minimumSubscriptionAcks,
+    runtimeEvents: runtimeEvents >= requested.minimumRuntimeEvents,
+    noLegacyRuntimeEvents: requested.legacyRuntimeEventsMustBeZero === true
+      && number(coverage.legacyRuntimeEvents, 0) === 0,
+    runtimeQueueIntegrity: requested.queueDropsErrorsOverflowsAndDrainTimeoutsMustBeZero === true
+      && queueIntegrityClean,
+    transportGapClosedAtStop: requested.transportGapMustBeClosedAtStop === true
+      && coverage.transportGapActiveAtStop !== true,
     phaseAwareCurveErrorAccounting: requested.phaseAwareCurveErrorAccountingRequired === true
       && phaseAwareCurveErrorAccounting,
     activeRuntimeRpcCurveErrors: requested.activePhaseRuntimeRpcCurveErrorsMustBeZero === true
@@ -220,14 +210,31 @@ function validateRun(prereg, telemetryPath, run, coverage) {
       startedAt: run.started?.timestamp || null,
       stoppedAt: run.stopping?.timestamp || null,
       stopReason: run.stopping?.payload?.reason || null,
-      paidTapePlan: plan,
-      fullPaidTapeMinutes: coverage.fullPaidTapeMinutes,
-      discoveryRpcOnlyMinutes: coverage.discoveryRpcOnlyMinutes,
-      paidTapeCapped: coverage.paidTapeCapped,
-      paidTapeCoverageTruncated: coverage.paidTapeCoverageTruncated,
-      coverageEndReason: coverage.coverageEndReason,
-      coverageEndedAt: coverage.coverageEndedAt,
-      targetedTradeSubscriptionRejections: coverage.targetedTradeSubscriptionRejections,
+      providerPlan: plan,
+      providerCoverage: {
+        selectedProvider: coverage.selectedProvider,
+        launchIntelSource: coverage.launchIntelSource,
+        fullCoverageMinutes: round(coverage.fullCoverageMinutes, 4),
+        uncoveredMinutes: round(coverage.uncoveredMinutes, 4),
+        coverageStartedAt: coverage.coverageStartedAt,
+        subscriptionAcks: coverage.subscriptionAcks,
+        disconnects: coverage.disconnects,
+        transportGapsStarted: coverage.transportGapsStarted,
+        transportGapsRecovered: coverage.transportGapsRecovered,
+        transportGapActiveAtStop: coverage.transportGapActiveAtStop,
+        runtimeNewTokens: coverage.runtimeNewTokens,
+        runtimeTrades: coverage.runtimeTrades,
+        runtimeMigrations: coverage.runtimeMigrations,
+        runtimeEvents,
+        legacyRuntimeEvents: coverage.legacyRuntimeEvents,
+        listenerQueueDropped: coverage.listenerQueueDropped,
+        listenerQueueHandlerErrors: coverage.listenerQueueHandlerErrors,
+        listenerQueueStopDrainTimedOut: coverage.listenerQueueStopDrainTimedOut,
+        runtimeQueueOverflowRejected: coverage.runtimeQueueOverflowRejected,
+        runtimeQueueHandlerErrors: coverage.runtimeQueueHandlerErrors,
+        runtimeQueuePendingAtStop: coverage.runtimeQueuePendingAtStop,
+        runtimeQueueDrainTimeouts: coverage.runtimeQueueDrainTimeouts
+      },
       runtimeRpcCurveErrors: curveErrors,
       activeRuntimeRpcCurveErrors: activeCurveErrors,
       stoppingRuntimeRpcCurveErrors: stoppingCurveErrors,
@@ -256,42 +263,14 @@ function appendRun(row) {
   return { appended: true, rows: [...rows, row] };
 }
 
-function appendCoverageAnnotation(row) {
-  const rows = readLedger();
-  if (rows.some((item) => item.recordType === 'coverage_annotation' && item.telemetryPath === row.telemetryPath)) {
-    return { appended: false, rows };
-  }
-  fs.mkdirSync(path.dirname(LEDGER_PATH), { recursive: true });
-  fs.appendFileSync(LEDGER_PATH, `${JSON.stringify(row)}\n`, 'utf8');
-  return { appended: true, rows: [...rows, row] };
-}
-
 function evidenceCollectionClosed(prereg) {
   return prereg?.terminalDisposition?.closedToFurtherLedgerAppends === true;
 }
 
 function summarizeLedger(rows, prereg) {
   const runRows = rows.filter((row) => row.recordType !== 'coverage_annotation');
-  const coverageAnnotations = new Map(
-    rows.filter((row) => row.recordType === 'coverage_annotation' && row.telemetryPath)
-      .map((row) => [row.telemetryPath, row])
-  );
-  const effectiveRunRows = runRows.map((row) => {
-    const annotation = coverageAnnotations.get(row.telemetryPath);
-    if (!annotation) return row;
-    return {
-      ...row,
-      valid: Object.prototype.hasOwnProperty.call(annotation, 'validOverride')
-        ? annotation.validOverride
-        : row.valid,
-      failedChecks: annotation.failedChecksOverride || row.failedChecks,
-      fullPaidTapeMinutes: Number.isFinite(Number(annotation.fullPaidTapeMinutesOverride))
-        ? Number(annotation.fullPaidTapeMinutesOverride)
-        : row.fullPaidTapeMinutes
-    };
-  });
-  const validRuns = effectiveRunRows.filter((row) => row.valid);
-  const excludedRuns = effectiveRunRows.filter((row) => !row.valid);
+  const validRuns = runRows.filter((row) => row.valid);
+  const excludedRuns = runRows.filter((row) => !row.valid);
   const validRunPnlSol = validRuns.reduce((sum, row) => sum + number(row.pnlSol, 0), 0);
   const excludedRunPnlSol = excludedRuns.reduce((sum, row) => sum + number(row.pnlSol, 0), 0);
   const episodes = validRuns.flatMap((row) => row.episodes.map((episode) => ({ ...episode, telemetryPath: row.telemetryPath })))
@@ -305,7 +284,10 @@ function summarizeLedger(rows, prereg) {
   const largestPositiveRunShare = totalPositiveRunPnl > 0
     ? Math.max(0, ...validRuns.map((row) => Math.max(0, row.pnlSol))) / totalPositiveRunPnl
     : null;
-  const fullHours = validRuns.reduce((sum, row) => sum + number(row.fullPaidTapeMinutes, 0) / 60, 0);
+  const fullHours = validRuns.reduce(
+    (sum, row) => sum + number(row.fullCoverageMinutes ?? row.fullPaidTapeMinutes, 0) / 60,
+    0
+  );
   const episodesPerFullCoverageHour = fullHours > 0 ? episodes.length / fullHours : null;
   const economicReady = episodes.length >= prereg.economicCheckpoint.minimumUniqueMintEpisodes
     && validRuns.length >= prereg.economicCheckpoint.minimumValidRuns;
@@ -333,7 +315,7 @@ function summarizeLedger(rows, prereg) {
     excludedRunPnlSol: round(excludedRunPnlSol),
     pnlInclusionSemantics: 'valid_run_pnl_drives_checkpoint_excluded_run_pnl_is_context_only',
     realizedUniqueMintEpisodes: episodes.length,
-    fullPaidTapeHours: round(fullHours, 4),
+    fullCoverageHours: round(fullHours, 4),
     episodesPerFullCoverageHour: round(episodesPerFullCoverageHour, 6),
     throughputRequirementMet: episodesPerFullCoverageHour !== null
       && episodesPerFullCoverageHour >= prereg.throughputCheckpoint.minimumUniqueMintEpisodesPerFullCoverageHour,
@@ -355,7 +337,7 @@ function main() {
   const prereg = readJson(PREREG_PATH);
   const telemetryPath = resolveTelemetryPath();
   const run = scanRun(telemetryPath);
-  const coverage = scanTelemetryCoverage(telemetryPath);
+  const coverage = scanHeliusRuntimeCoverage(telemetryPath);
   const validation = validateRun(prereg, telemetryPath, run, coverage);
   const episodes = buildEpisodes(run);
   const currentRunEconomics = summarizeEpisodes(episodes);
@@ -365,19 +347,8 @@ function main() {
     startedAt: run.started?.timestamp || null,
     valid: validation.valid,
     failedChecks: validation.failedChecks,
-    fullPaidTapeMinutes: coverage.fullPaidTapeMinutes,
-    comparatorCoverage: {
-      budgetTruncated: coverage.paidTapeCapped === true,
-      coverageTruncated: coverage.paidTapeCoverageTruncated === true,
-      coverageEndReason: coverage.coverageEndReason || null,
-      coverageEndedAt: coverage.coverageEndedAt || null,
-      targetedTradeSubscriptionRejections: coverage.targetedTradeSubscriptionRejections,
-      fullPaidTapeMinutes: coverage.fullPaidTapeMinutes,
-      discoveryRpcOnlyMinutes: coverage.discoveryRpcOnlyMinutes,
-      annotation: coverage.paidTapeCoverageTruncated === true
-        ? `PumpPortal comparator evidence ends at ${coverage.coverageEndReason || 'UNKNOWN_COVERAGE_STOP'}; later operation is not comparator-covered.`
-        : 'PumpPortal comparator remained available for the requested evidence window.'
-    },
+    fullCoverageMinutes: round(coverage.fullCoverageMinutes, 4),
+    providerCoverage: validation.actual.providerCoverage,
     coverageDiagnostics: run.coverageDiagnostics,
     episodes,
     pnlSol: currentRunEconomics.totalPnlSol
@@ -388,18 +359,6 @@ function main() {
   if (validation.checks.postRegistration && !collectionClosed) {
     ({ rows: ledgerRows, appended } = appendRun(runRow));
   }
-  let coverageAnnotationAppended = false;
-  if (validation.checks.postRegistration && !collectionClosed && coverage.paidTapeCoverageTruncated === true) {
-    ({ rows: ledgerRows, appended: coverageAnnotationAppended } = appendCoverageAnnotation({
-      recordType: 'coverage_annotation',
-      telemetryPath: relative(telemetryPath),
-      annotatedAt: new Date().toISOString(),
-      validOverride: validation.valid,
-      failedChecksOverride: validation.failedChecks,
-      fullPaidTapeMinutesOverride: coverage.fullPaidTapeMinutes,
-      comparatorCoverage: runRow.comparatorCoverage
-    }));
-  }
   const cumulative = summarizeLedger(ledgerRows, prereg);
   const report = {
     generatedAt: new Date().toISOString(),
@@ -407,7 +366,7 @@ function main() {
     preregistration: prereg,
     currentRun: {
       validation,
-      comparatorCoverage: runRow.comparatorCoverage,
+      providerCoverage: runRow.providerCoverage,
       coverageDiagnostics: run.coverageDiagnostics,
       episodes,
       economics: currentRunEconomics,
@@ -415,11 +374,10 @@ function main() {
       ledgerAppendDisposition: collectionClosed
         ? prereg.terminalDisposition.disposition
         : (appended ? 'APPENDED' : 'ALREADY_RECORDED'),
-      coverageAnnotationAppended
     },
     cumulative,
     ledgerPath: relative(LEDGER_PATH),
-    note: 'Only post-registration runs matching the frozen targeted paid-tape plan and full-coverage definition enter the cumulative evidence ledger. Same-mint reentries are one episode per run.',
+    note: 'Only post-registration runs matching the frozen Helius-primary plan and gap-accounted full-coverage definition enter the cumulative evidence ledger. V1-V5 remain separate and terminal. Same-mint reentries are one episode per run.',
     prohibitions: prereg.prohibitions
   };
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
@@ -436,6 +394,5 @@ module.exports = {
   validateRun,
   summarizeLedger,
   summarizeEpisodes,
-  evidenceCollectionClosed,
-  appendCoverageAnnotation
+  evidenceCollectionClosed
 };

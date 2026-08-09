@@ -135,6 +135,11 @@ class PreMigrationPaperLane {
     this.unflaggedEntryShadowMinCurveProgress = Number(config.preMigrationPaperUnflaggedEntryShadowMinCurveProgress ?? 0.7);
     this.unflaggedEntryShadowMinRecentVolumeSol = Number(config.preMigrationPaperUnflaggedEntryShadowMinRecentVolumeSol ?? 12);
     this.unflaggedEntryShadowMinTradeVelocityPerMin = Number(config.preMigrationPaperUnflaggedEntryShadowMinTradeVelocityPerMin ?? 12);
+    // Lane-wide, not per preset: this is how the 2026-08-04 nine-session sweep validated it, and
+    // every preset shares the same failure mode - positions that drift flat before gapping.
+    // 0 disables, which is the default.
+    this.proveBySeconds = Number(config.preMigrationPaperProveBySeconds ?? 0);
+    this.proveMinReturnPct = Number(config.preMigrationPaperProveMinReturnPct ?? 0.05);
     this.presets = this.buildPresets(config);
     this.strategy = this.presets[0]?.strategy || {
       minScore: config.preMigrationPaperMinScore,
@@ -3425,6 +3430,19 @@ class PreMigrationPaperLane {
     const exitProfile = position.exitProfile || this.getExitProfile(position.presetName);
     position.peakReturnPct = Math.max(Number(position.peakReturnPct || 0), returnPct);
 
+    // Hard price targets are evaluated before discretionary exits. A position that
+    // gaps past the stop between price updates also satisfies the breakeven and
+    // trailing conditions; checking those first attributed real stop-losses to
+    // BREAKEVEN_STOP and made exit-reason reports unusable. Exit price is the same
+    // either way, so this changes attribution only, not realized PnL.
+    if (returnPct >= strategy.takeProfitPct) {
+      return 'TAKE_PROFIT';
+    }
+
+    if (returnPct <= -strategy.stopLossPct) {
+      return 'STOP_LOSS';
+    }
+
     if (
       exitProfile.trailingGivebackEnabled
       && Number(position.peakReturnPct || 0) >= Number(exitProfile.trailingActivationPct)
@@ -3467,12 +3485,23 @@ class PreMigrationPaperLane {
       }
     }
 
-    if (returnPct >= strategy.takeProfitPct) {
-      return 'TAKE_PROFIT';
-    }
-
-    if (returnPct <= -strategy.stopLossPct) {
-      return 'STOP_LOSS';
+    // Time-boxed profit requirement. Sits after the hard price targets so a position that already
+    // reached take-profit or stop-loss is never reclassified, and before TIME_LIMIT so the shorter
+    // deadline wins. Targets unpaid rug exposure rather than adverse movement: on 2026-08-04 wCat
+    // sat between -6% and +6% for 81 seconds, then fell -6.6% to -34% in 200ms and exited -78.5%.
+    // No stop survives that gap, but a position that has proven nothing can be closed before the
+    // gap arrives. Disabled unless proveBySeconds > 0.
+    // Uses current returnPct, not peakReturnPct, to match pre-migration-paper-sim-report exactly.
+    // Peak is arguably the better rule - a position that touched +8% and fell back has shown life -
+    // but it was not what the sweep measured, and shipping different logic than was validated
+    // would silently void the nine-session evidence. Change both together or neither.
+    if (
+      this.proveBySeconds > 0
+      && Number.isFinite(holdSeconds)
+      && holdSeconds >= this.proveBySeconds
+      && returnPct < this.proveMinReturnPct
+    ) {
+      return 'FAILED_TO_PROVE';
     }
 
     if (Number.isFinite(holdSeconds) && holdSeconds >= strategy.maxHoldSeconds) {

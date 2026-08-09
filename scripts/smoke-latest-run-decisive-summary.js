@@ -46,4 +46,61 @@ assert(
   'decisive summary must display the valid and excluded PnL split'
 );
 
+const heliusSummary = buildDecisiveSummary({
+  battlefield: {
+    data: {
+      session: { durationMinutes: 60, configuredDurationMinutes: 60 },
+      preMigrationPaper: {},
+      runnerLane: { simpleRuntimeAiLifecycle: {} },
+      watchLane: {}
+    }
+  },
+  runnerWatchFullCoverageEvidence: {
+    data: {
+      currentRun: {
+        validation: { valid: true, failedChecks: [] },
+        providerCoverage: {
+          selectedProvider: 'helius',
+          fullCoverageMinutes: 56,
+          uncoveredMinutes: 4,
+          subscriptionAcks: 2,
+          runtimeEvents: 120,
+          legacyRuntimeEvents: 0,
+          transportGapsStarted: 1,
+          transportGapsRecovered: 1,
+          transportGapActiveAtStop: false
+        }
+      },
+      cumulative: {}
+    }
+  },
+  liveReadiness: {
+    data: {
+      metrics: {
+        pumpDataProvider: 'helius',
+        pumpDataReady: true,
+        pumpDataMarketEvents: 120,
+        pumpDataNewTokens: 10,
+        pumpDataTrades: 109,
+        pumpDataMigrations: 1
+      }
+    }
+  },
+  eventLoopLagDiagnostic: { data: {} },
+  strategyCandidateScorecard: { data: {} }
+});
+assert(
+  heliusSummary.includes('Gap-accounted Helius coverage: 56 min; uncovered: 4 min'),
+  'Helius-primary summaries must use gap-accounted provider coverage'
+);
+assert(heliusSummary.includes('Helius Runtime'), 'Helius-primary summaries must label the active runtime');
+assert(
+  heliusSummary.includes('Legacy PumpPortal/PumpDev comparator artifacts: not applicable to this Helius-primary run.'),
+  'Helius-primary summaries must not present legacy comparators as current evidence'
+);
+assert(
+  !heliusSummary.includes('Full paid tape:'),
+  'Helius-primary summaries must not present PumpPortal paid-tape coverage'
+);
+
 console.log('Latest decisive run summary smoke passed');

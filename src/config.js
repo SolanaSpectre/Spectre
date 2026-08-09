@@ -7,6 +7,10 @@ if (process.env.SPECTRE_SKIP_DOTENV !== 'true') {
 }
 
 class Config {
+  static get pumpDataProvider() {
+    return String(process.env.PUMP_DATA_PROVIDER || 'helius').trim().toLowerCase();
+  }
+
   // Solana RPC Configuration
   static get solanaRpcUrl() {
     return process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
@@ -119,7 +123,14 @@ class Config {
   }
 
   static get heliusPumpfunShadowEnabled() {
-    return process.env.HELIUS_PUMPFUN_SHADOW_ENABLED === 'true';
+    if (process.env.HELIUS_PUMPFUN_SHADOW_ENABLED !== undefined) {
+      return process.env.HELIUS_PUMPFUN_SHADOW_ENABLED === 'true';
+    }
+    return this.pumpDataProvider === 'helius';
+  }
+
+  static get heliusPumpfunRuntimeEnabled() {
+    return this.pumpDataProvider === 'helius' && this.heliusPumpfunShadowEnabled;
   }
 
   static get heliusPumpfunShadowCommitment() {
@@ -153,6 +164,14 @@ class Config {
 
   static get heliusPumpfunShadowEventQueueBatchSize() {
     return parseInt(process.env.HELIUS_PUMPFUN_SHADOW_EVENT_QUEUE_BATCH_SIZE || '64', 10);
+  }
+
+  static get heliusPumpfunRuntimeQueueMaxSize() {
+    return parseInt(
+      process.env.HELIUS_PUMPFUN_RUNTIME_QUEUE_MAX_SIZE
+      || String(this.heliusPumpfunShadowEventQueueMaxSize),
+      10
+    );
   }
 
   static get heliusPumpfunDecisionShadowEnabled() {
@@ -656,6 +675,20 @@ class Config {
 
   static get preMigrationPaperMaxHoldSeconds() {
     return parseInt(process.env.PRE_MIGRATION_PAPER_MAX_HOLD_SECONDS || '300', 10);
+  }
+
+  // Time-boxed profit requirement, applied lane-wide rather than per preset because that is how
+  // it was validated. 0 disables it and is the default, so existing behaviour is unchanged until
+  // it is explicitly enabled. See knowledge/helius-promotion-plan.md and the 2026-08-04 sweep:
+  // 60s at +5% cut 18 stop-losses and 4 max-holds for the price of 3 take-profits across nine
+  // sessions, lifting replay PnL 0.5062 to 0.6348 at unchanged 7-of-8 session consistency.
+  // Tighter settings measured worse - 30s at +10% removed 51 positions and gave back most of it.
+  static get preMigrationPaperProveBySeconds() {
+    return parseInt(process.env.PRE_MIGRATION_PAPER_PROVE_BY_SECONDS || '0', 10);
+  }
+
+  static get preMigrationPaperProveMinReturnPct() {
+    return parseFloat(process.env.PRE_MIGRATION_PAPER_PROVE_MIN_RETURN_PCT || '0.05');
   }
 
   static get preMigrationPaperAmountSol() {
@@ -1387,8 +1420,17 @@ class Config {
     return process.env.PUMPPORTAL_ENABLED !== 'false';
   }
 
+  static get pumpPortalRuntimeEnabled() {
+    return this.pumpDataProvider === 'pumpportal' && this.pumpPortalEnabled;
+  }
+
   static get pumpPortalTrackedAccounts() {
     const accounts = process.env.PUMPPORTAL_TRACKED_ACCOUNTS || '';
+    return accounts.split(',').map((account) => account.trim()).filter(Boolean);
+  }
+
+  static get trackedWalletAccounts() {
+    const accounts = process.env.TRACKED_WALLET_ACCOUNTS || process.env.PUMPPORTAL_TRACKED_ACCOUNTS || '';
     return accounts.split(',').map((account) => account.trim()).filter(Boolean);
   }
 
@@ -1474,7 +1516,13 @@ class Config {
   }
 
   static get pumpDevDrivesPreMigration() {
-    return this.pumpDevShadowEnabled && this.pumpDevFeedMode === 'primary';
+    return this.pumpDataProvider === 'pumpdev'
+      && this.pumpDevShadowEnabled
+      && this.pumpDevFeedMode === 'primary';
+  }
+
+  static get pumpDevRuntimeEnabled() {
+    return this.pumpDataProvider === 'pumpdev' && this.pumpDevDrivesPreMigration;
   }
 
   static get pumpDevPrimarySilenceFailFastEnabled() {
@@ -1549,6 +1597,13 @@ class Config {
 
   static get pumpDevProviderCurveVerificationEnabled() {
     return process.env.PUMPDEV_PROVIDER_CURVE_VERIFICATION_ENABLED === 'true';
+  }
+
+  static get providerCurveVerificationEnabled() {
+    if (process.env.PROVIDER_CURVE_VERIFICATION_ENABLED !== undefined) {
+      return process.env.PROVIDER_CURVE_VERIFICATION_ENABLED !== 'false';
+    }
+    return this.pumpDataProvider === 'helius' || this.pumpDevProviderCurveVerificationEnabled;
   }
 
   static get pumpDevTargetedCurveParityEnabled() {
@@ -1877,20 +1932,51 @@ class Config {
     return process.env.LAUNCH_INTEL_ENABLED !== 'false';
   }
 
+  // The selected Helius runtime owns launch intel atomically. This prevents a stale private
+  // LAUNCH_INTEL_SOURCE value from mixing PumpPortal history into a Helius-only session.
+  static get launchIntelSource() {
+    if (this.pumpDataProvider === 'helius') return 'helius';
+    return String(process.env.LAUNCH_INTEL_SOURCE || 'pumpportal').trim().toLowerCase() === 'helius'
+      ? 'helius'
+      : 'pumpportal';
+  }
+
+  static get launchIntelDefaultDirectoryPath() {
+    return this.launchIntelSource === 'helius'
+      ? path.join(process.cwd(), 'data', 'launch-intel', 'helius')
+      : path.join(process.cwd(), 'data', 'launch-intel');
+  }
+
   static get launchIntelLatestFilePath() {
-    return process.env.LAUNCH_INTEL_LATEST_FILE_PATH || path.join(process.cwd(), 'data', 'launch-intel', 'latest.json');
+    if (this.launchIntelSource === 'helius') {
+      return process.env.HELIUS_LAUNCH_INTEL_LATEST_FILE_PATH
+        || path.join(this.launchIntelDefaultDirectoryPath, 'latest.json');
+    }
+    return process.env.LAUNCH_INTEL_LATEST_FILE_PATH || path.join(this.launchIntelDefaultDirectoryPath, 'latest.json');
   }
 
   static get launchIntelHistoryFilePath() {
-    return process.env.LAUNCH_INTEL_HISTORY_FILE_PATH || path.join(process.cwd(), 'data', 'launch-intel', 'history.jsonl');
+    if (this.launchIntelSource === 'helius') {
+      return process.env.HELIUS_LAUNCH_INTEL_HISTORY_FILE_PATH
+        || path.join(this.launchIntelDefaultDirectoryPath, 'history.jsonl');
+    }
+    return process.env.LAUNCH_INTEL_HISTORY_FILE_PATH || path.join(this.launchIntelDefaultDirectoryPath, 'history.jsonl');
   }
 
   static get launchIntelDeployerIndexFilePath() {
-    return process.env.LAUNCH_INTEL_DEPLOYER_INDEX_FILE_PATH || path.join(process.cwd(), 'data', 'launch-intel', 'deployer-index.json');
+    if (this.launchIntelSource === 'helius') {
+      return process.env.HELIUS_LAUNCH_INTEL_DEPLOYER_INDEX_FILE_PATH
+        || path.join(this.launchIntelDefaultDirectoryPath, 'deployer-index.json');
+    }
+    return process.env.LAUNCH_INTEL_DEPLOYER_INDEX_FILE_PATH || path.join(this.launchIntelDefaultDirectoryPath, 'deployer-index.json');
   }
 
   static get launchIntelWalletIndexFilePath() {
-    return process.env.LAUNCH_INTEL_WALLET_INDEX_FILE_PATH || path.join(process.cwd(), 'data', 'launch-intel', 'wallet-index.json');
+    if (this.launchIntelSource === 'helius') {
+      return process.env.HELIUS_LAUNCH_INTEL_WALLET_INDEX_FILE_PATH
+        || path.join(this.launchIntelDefaultDirectoryPath, 'wallet-index.json');
+    }
+    return process.env.LAUNCH_INTEL_WALLET_INDEX_FILE_PATH || path.join(this.launchIntelDefaultDirectoryPath, 'wallet-index.json');
   }
 
   static get positionStateFilePath() {
@@ -2606,6 +2692,7 @@ class Config {
       { key: 'finalistAccountVerifierMaxCurveDelta', value: this.finalistAccountVerifierMaxCurveDelta, min: 0, max: 1 },
       { key: 'heliusPumpfunShadowEventQueueMaxSize', value: this.heliusPumpfunShadowEventQueueMaxSize, min: 100 },
       { key: 'heliusPumpfunShadowEventQueueBatchSize', value: this.heliusPumpfunShadowEventQueueBatchSize, min: 1 },
+      { key: 'heliusPumpfunRuntimeQueueMaxSize', value: this.heliusPumpfunRuntimeQueueMaxSize, min: 100 },
       { key: 'heliusPumpfunShadowPongTimeoutMs', value: this.heliusPumpfunShadowPongTimeoutMs, min: 1000 },
       { key: 'heliusPumpfunShadowSubscriptionAckTimeoutMs', value: this.heliusPumpfunShadowSubscriptionAckTimeoutMs, min: 1000 },
       { key: 'liveDryRunAmountSol', value: this.liveDryRunAmountSol, min: 0.001 },
@@ -2726,23 +2813,46 @@ class Config {
     if (!['processed', 'confirmed', 'finalized'].includes(this.liveDryRunSimulationCommitment)) {
       throw new Error(`Unsupported LIVE_DRY_RUN_SIMULATION_COMMITMENT: ${this.liveDryRunSimulationCommitment}`);
     }
-    if (!['all_discovered', 'targeted_curve'].includes(this.pumpPortalTradeSubscriptionMode)) {
-      throw new Error(`Unsupported PUMPPORTAL_TRADE_SUBSCRIPTION_MODE: ${this.pumpPortalTradeSubscriptionMode}`);
+    if (!['helius', 'pumpportal', 'pumpdev'].includes(this.pumpDataProvider)) {
+      throw new Error(`Unsupported PUMP_DATA_PROVIDER: ${this.pumpDataProvider}`);
     }
-    if (this.pumpPortalTargetedMinCurveProgress >= this.pumpPortalTargetedMaxCurveProgress) {
-      throw new Error('PUMPPORTAL_TARGETED_MIN_CURVE_PROGRESS must be less than PUMPPORTAL_TARGETED_MAX_CURVE_PROGRESS');
+    if (this.pumpDataProvider === 'helius') {
+      if (!this.heliusPumpfunShadowEnabled) {
+        throw new Error('PUMP_DATA_PROVIDER=helius requires HELIUS_PUMPFUN_SHADOW_ENABLED=true');
+      }
+      if (!this.heliusStandardWebsocketUrl && !this.heliusEnhancedWebsocketUrl) {
+        throw new Error(
+          'PUMP_DATA_PROVIDER=helius requires HELIUS_STANDARD_WEBSOCKET_URL or HELIUS_ENHANCED_WEBSOCKET_URL'
+        );
+      }
     }
-    if (
-      this.pumpPortalTradeSubscriptionMode === 'targeted_curve'
-      && !this.pumpBondingCurveRuntimeRpcEnabled
-    ) {
+    if (this.pumpDataProvider === 'pumpportal') {
+      if (!this.pumpPortalEnabled) {
+        throw new Error('PUMP_DATA_PROVIDER=pumpportal requires PUMPPORTAL_ENABLED=true');
+      }
+      if (!['all_discovered', 'targeted_curve'].includes(this.pumpPortalTradeSubscriptionMode)) {
+        throw new Error(`Unsupported PUMPPORTAL_TRADE_SUBSCRIPTION_MODE: ${this.pumpPortalTradeSubscriptionMode}`);
+      }
+      if (this.pumpPortalTargetedMinCurveProgress >= this.pumpPortalTargetedMaxCurveProgress) {
+        throw new Error('PUMPPORTAL_TARGETED_MIN_CURVE_PROGRESS must be less than PUMPPORTAL_TARGETED_MAX_CURVE_PROGRESS');
+      }
+      if (
+        this.pumpPortalTradeSubscriptionMode === 'targeted_curve'
+        && !this.pumpBondingCurveRuntimeRpcEnabled
+      ) {
+        throw new Error(
+          'PUMPPORTAL_TRADE_SUBSCRIPTION_MODE=targeted_curve requires PUMP_BONDING_CURVE_RUNTIME_RPC_ENABLED=true; targeted subscriptions cannot activate without runtime curve truth.'
+        );
+      }
+    }
+    if (this.pumpDataProvider === 'pumpdev' && !this.pumpDevRuntimeEnabled) {
       throw new Error(
-        'PUMPPORTAL_TRADE_SUBSCRIPTION_MODE=targeted_curve requires PUMP_BONDING_CURVE_RUNTIME_RPC_ENABLED=true; targeted subscriptions cannot activate without runtime curve truth.'
+        'PUMP_DATA_PROVIDER=pumpdev requires PUMPDEV_SHADOW_ENABLED=true and PUMPDEV_FEED_MODE=primary'
       );
     }
     if (
       this.executionMode === 'PAPER'
-      && this.heliusPumpfunShadowEnabled
+      && this.heliusPumpfunRuntimeEnabled
       && this.heliusPumpfunDecisionShadowEnabled
       && this.finalistAccountVerifierMaxSubscriptions < 100
     ) {
@@ -2752,7 +2862,7 @@ class Config {
     }
     if (
       this.executionMode === 'PAPER'
-      && this.heliusPumpfunShadowEnabled
+      && this.heliusPumpfunRuntimeEnabled
       && this.heliusPumpfunDecisionShadowEnabled
       && this.finalistAccountVerifierTtlMs !== 120000
     ) {

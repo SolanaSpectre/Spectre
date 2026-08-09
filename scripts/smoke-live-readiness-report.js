@@ -9,6 +9,7 @@ const { buildVerdict } = require('./live-readiness-report');
 const stats = {
   lastStopStats: {
     hotWalletBalanceSol: 0,
+    pumpData: { provider: 'pumpdev' },
     pumpDev: {
       closeEvents: 0,
       errorEvents: 0,
@@ -46,6 +47,14 @@ const stats = {
   },
   rpc: { started: 25, failed: 0 },
   pumpDev: { closes: 0, errors: 0 },
+  pumpData: {
+    provider: 'pumpdev',
+    newTokens: 1,
+    trades: 1,
+    migrations: 0,
+    closes: 0,
+    errors: 0
+  },
   eventLoop: {
     summary: { maxLagMs: 0, lagEvents: 0 },
     maxLagMs: 0,
@@ -159,5 +168,43 @@ assert.deepStrictEqual(sessionEndExit.metrics.paperAggregation.stoppingSnapshot,
   exits: 1,
   pnlSol: 0.01
 });
+
+const heliusRuntimeStats = structuredClone(stats);
+heliusRuntimeStats.lastStopStats.pumpData = { provider: 'helius' };
+heliusRuntimeStats.lastStopStats.heliusPumpfunShadow = {
+  enabled: true,
+  subscriptionReady: false,
+  subscriptionAcks: 1,
+  closeEvents: 0,
+  errorEvents: 0,
+  subscriptionErrors: 0,
+  eventQueueDropped: 0,
+  eventQueueHandlerErrors: 0
+};
+heliusRuntimeStats.lastStopStats.heliusPumpfunRuntime = {
+  enabled: true,
+  handlerErrors: 0,
+  overflowRejected: 0
+};
+heliusRuntimeStats.pumpData = {
+  provider: 'helius',
+  newTokens: 2,
+  trades: 10,
+  migrations: 1,
+  closes: 0,
+  errors: 0
+};
+const heliusRuntime = buildVerdict(heliusRuntimeStats);
+assert.strictEqual(heliusRuntime.metrics.pumpDataProvider, 'helius');
+assert.strictEqual(
+  heliusRuntime.metrics.pumpDataReady,
+  true,
+  'a stopped Helius socket remains historically ready when the run observed a subscription ACK'
+);
+assert.strictEqual(heliusRuntime.metrics.pumpDataMarketEvents, 13);
+assert(
+  heliusRuntime.passes.some((line) => line.startsWith('Helius Pump.fun runtime had no closes')),
+  'clean Helius runtime intake should be recognized as the selected provider health pass'
+);
 
 console.log('Live-readiness report smoke passed');

@@ -7,6 +7,7 @@ class LaunchIntelStore {
     this.config = config;
     this.logger = logger;
     this.enabled = config.launchIntelEnabled !== false;
+    this.source = config.launchIntelSource || 'pumpportal';
     this.latestFilePath = config.launchIntelLatestFilePath;
     this.historyFilePath = config.launchIntelHistoryFilePath;
     this.deployerIndexFilePath = config.launchIntelDeployerIndexFilePath;
@@ -32,6 +33,12 @@ class LaunchIntelStore {
     this.lastIndexFlushAt = 0;
     this.dirty = false;
     this.isRehydrating = false;
+    this.stateLoadStats = {
+      source: this.source,
+      loadedFiles: 0,
+      skippedSourceMismatches: 0,
+      skippedLegacySourceLessFiles: 0
+    };
 
     if (!this.enabled) {
       return;
@@ -46,12 +53,34 @@ class LaunchIntelStore {
     this.loadExistingState();
   }
 
+  readCompatibleSnapshot(filePath) {
+    if (!filePath || !fs.existsSync(filePath)) return null;
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const snapshotSource = String(parsed?.source || '').trim().toLowerCase();
+    const expectedSource = String(this.source || '').trim().toLowerCase();
+
+    if (!snapshotSource && expectedSource === 'helius') {
+      this.stateLoadStats.skippedLegacySourceLessFiles += 1;
+      this.logger.warn(`Skipped source-less launch intel snapshot while Helius is active: ${path.basename(filePath)}`);
+      return null;
+    }
+    if (snapshotSource && snapshotSource !== expectedSource) {
+      this.stateLoadStats.skippedSourceMismatches += 1;
+      this.logger.warn(`Skipped launch intel snapshot for ${snapshotSource}; active source is ${expectedSource}`);
+      return null;
+    }
+
+    this.stateLoadStats.loadedFiles += 1;
+    return parsed;
+  }
+
   loadExistingState() {
     try {
       this.isRehydrating = true;
       let loadedWalletIndex = false;
-      if (fs.existsSync(this.latestFilePath)) {
-        const parsed = JSON.parse(fs.readFileSync(this.latestFilePath, 'utf8'));
+      const latestSnapshot = this.readCompatibleSnapshot(this.latestFilePath);
+      if (latestSnapshot) {
+        const parsed = latestSnapshot;
         const items = Array.isArray(parsed?.items) ? parsed.items : [];
         for (const item of items) {
           if (!item?.mint) {
@@ -98,8 +127,9 @@ class LaunchIntelStore {
         }
       }
 
-      if (fs.existsSync(this.deployerIndexFilePath)) {
-        const parsedIndex = JSON.parse(fs.readFileSync(this.deployerIndexFilePath, 'utf8'));
+      const deployerSnapshot = this.readCompatibleSnapshot(this.deployerIndexFilePath);
+      if (deployerSnapshot) {
+        const parsedIndex = deployerSnapshot;
         const items = Array.isArray(parsedIndex?.items) ? parsedIndex.items : [];
         for (const item of items) {
           if (!item?.wallet) {
@@ -116,8 +146,9 @@ class LaunchIntelStore {
         }
       }
 
-      if (fs.existsSync(this.walletIndexFilePath)) {
-        const parsedIndex = JSON.parse(fs.readFileSync(this.walletIndexFilePath, 'utf8'));
+      const walletSnapshot = this.readCompatibleSnapshot(this.walletIndexFilePath);
+      if (walletSnapshot) {
+        const parsedIndex = walletSnapshot;
         const items = Array.isArray(parsedIndex?.items) ? parsedIndex.items : [];
         for (const item of items) {
           if (!item?.wallet) {
@@ -1205,6 +1236,7 @@ class LaunchIntelStore {
 
     const payload = {
       generatedAt: new Date().toISOString(),
+      source: this.source,
       items: [...this.records.values()]
         .map((record) => record.summary)
         .filter(Boolean)
@@ -1216,6 +1248,7 @@ class LaunchIntelStore {
       if (shouldFlushIndexes) {
         fs.writeFileSync(this.deployerIndexFilePath, JSON.stringify({
           generatedAt: new Date().toISOString(),
+          source: this.source,
           items: [...this.deployerIndex.values()]
             .map((entry) => ({
               wallet: entry.wallet,
@@ -1230,6 +1263,7 @@ class LaunchIntelStore {
         }, null, 2), 'utf8');
         fs.writeFileSync(this.walletIndexFilePath, JSON.stringify({
           generatedAt: new Date().toISOString(),
+          source: this.source,
           items: [...this.walletIndex.values()]
             .map((entry) => ({
               wallet: entry.wallet,
@@ -1258,11 +1292,28 @@ class LaunchIntelStore {
       return;
     }
 
-    this.historyWriter?.append({ type, timestamp: new Date().toISOString(), payload }, 'launch intel history');
+    this.historyWriter?.append({
+      type,
+      timestamp: new Date().toISOString(),
+      source: this.source,
+      payload
+    }, 'launch intel history');
   }
 
   async flushAsync() {
     await this.historyWriter?.flush?.();
+  }
+
+  getStats() {
+    return {
+      enabled: this.enabled,
+      source: this.source,
+      records: this.records.size,
+      deployers: this.deployerIndex.size,
+      wallets: this.walletIndex.size,
+      dirty: this.dirty,
+      stateLoad: { ...this.stateLoadStats }
+    };
   }
 
   minIso(a, b) {

@@ -4,7 +4,6 @@ const fs = require('fs');
 const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '..');
-const DEFAULT_KOLSCAN_WATCHLIST_PATH = path.join(REPO_ROOT, 'data', 'wallet-watchlists', 'kolscan-leaderboard.json');
 const DEFAULT_MANUAL_WATCHLIST_PATH = path.join(REPO_ROOT, 'data', 'wallet-watchlists', 'manual-kol-wallets.json');
 const OUTPUT_DIR = path.join(REPO_ROOT, 'data', 'wallet-realized-pnl');
 const LATEST_PATH = path.join(OUTPUT_DIR, 'latest.json');
@@ -56,9 +55,7 @@ function resolveRepoPath(filePath) {
 }
 
 function defaultWatchlistPath() {
-  return fs.existsSync(DEFAULT_KOLSCAN_WATCHLIST_PATH)
-    ? DEFAULT_KOLSCAN_WATCHLIST_PATH
-    : DEFAULT_MANUAL_WATCHLIST_PATH;
+  return DEFAULT_MANUAL_WATCHLIST_PATH;
 }
 
 function looksNumeric(value) {
@@ -217,6 +214,10 @@ function ensureMintPosition(walletState, mint) {
       tokensRemaining: 0,
       firstTxAt: null,
       lastTxAt: null,
+      lastAction: null,
+      lastActionSignature: null,
+      lastActionTokenDelta: null,
+      lastActionSolDelta: null,
       txSamples: []
     });
   }
@@ -228,7 +229,10 @@ function applyTrade(position, tx, tokenDelta, solDelta) {
   if (!position.firstTxAt || timestamp < position.firstTxAt) position.firstTxAt = timestamp;
   if (!position.lastTxAt || timestamp > position.lastTxAt) position.lastTxAt = timestamp;
 
+  let action = null;
+
   if (tokenDelta > 0 && solDelta < 0) {
+    action = 'BUY';
     const spent = Math.abs(solDelta);
     position.buyCount += 1;
     position.tokenBought += tokenDelta;
@@ -236,6 +240,7 @@ function applyTrade(position, tx, tokenDelta, solDelta) {
     position.tokensRemaining += tokenDelta;
     position.costBasisRemainingSol += spent;
   } else if (tokenDelta < 0 && solDelta > 0) {
+    action = 'SELL';
     const soldTokens = Math.abs(tokenDelta);
     const received = solDelta;
     position.sellCount += 1;
@@ -258,6 +263,11 @@ function applyTrade(position, tx, tokenDelta, solDelta) {
   } else {
     return;
   }
+
+  position.lastAction = action;
+  position.lastActionSignature = tx.signature || null;
+  position.lastActionTokenDelta = compact(tokenDelta, 6);
+  position.lastActionSolDelta = compact(solDelta, 8);
 
   if (position.txSamples.length < 8) {
     position.txSamples.push({
@@ -300,6 +310,10 @@ function summarizePosition(position) {
     status,
     firstTxAt: position.firstTxAt,
     lastTxAt: position.lastTxAt,
+    lastAction: position.lastAction,
+    lastActionSignature: position.lastActionSignature,
+    lastActionTokenDelta: position.lastActionTokenDelta,
+    lastActionSolDelta: position.lastActionSolDelta,
     txSamples: position.txSamples
   };
 }
@@ -364,7 +378,9 @@ function summarizeWallet(wallet, transactions, pagesFetched = null) {
     winRate: compact(knownRealized.length > 0 ? winners.length / knownRealized.length : null, 4),
     realizedPnlSol: compact(realizedPnlSol, 8),
     proceedsOnlySol: compact(proceedsOnlySol, 8),
-    positions: positions.slice(0, 100)
+    positionsReturned: Math.min(positions.length, 500),
+    positionsTruncated: positions.length > 500,
+    positions: positions.slice(0, 500)
   };
 }
 

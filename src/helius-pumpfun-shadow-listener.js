@@ -20,6 +20,7 @@ class HeliusPumpfunShadowListener {
     this.logger = logger;
     this.handlers = handlers;
     this.url = config.heliusStandardWebsocketUrl || config.heliusEnhancedWebsocketUrl || null;
+    this.runtimeEnabled = config.heliusPumpfunRuntimeEnabled === true;
     this.programId = config.pumpBondingCurveProgramId;
     this.commitment = config.heliusPumpfunShadowCommitment || 'processed';
     this.pingIntervalMs = Number(config.heliusPumpfunShadowPingIntervalMs || 25000);
@@ -65,8 +66,8 @@ class HeliusPumpfunShadowListener {
     this.eventQueueBatchSize = Math.max(1, Number(config.heliusPumpfunShadowEventQueueBatchSize || 64));
     this.stats = {
       enabled: config.heliusPumpfunShadowEnabled === true,
-      reportOnly: true,
-      strategyConsumptionEnabled: false,
+      reportOnly: !this.runtimeEnabled,
+      strategyConsumptionEnabled: this.runtimeEnabled,
       commitment: this.commitment,
       connected: false,
       connectionAttempts: 0,
@@ -94,6 +95,7 @@ class HeliusPumpfunShadowListener {
       eventQueueDrainYields: 0,
       eventQueueDrainCalls: 0,
       eventQueueDrainItems: 0,
+      eventQueueDrainMaxBatch: 0,
       eventQueueDrainTotalMs: 0,
       eventQueueDrainMaxMs: 0,
       eventQueueDrainOver50Ms: 0,
@@ -656,6 +658,7 @@ class HeliusPumpfunShadowListener {
     const drainDurationMs = Number(process.hrtime.bigint() - drainStartedAt) / 1e6;
     this.stats.eventQueueDrainCalls += 1;
     this.stats.eventQueueDrainItems += processed;
+    this.stats.eventQueueDrainMaxBatch = Math.max(this.stats.eventQueueDrainMaxBatch, processed);
     this.stats.eventQueueDrainTotalMs += drainDurationMs;
     this.stats.eventQueueDrainMaxMs = Math.max(this.stats.eventQueueDrainMaxMs, drainDurationMs);
     if (drainDurationMs >= 50) this.stats.eventQueueDrainOver50Ms += 1;
@@ -900,7 +903,7 @@ class HeliusPumpfunShadowListener {
       : null;
     return {
       provider: 'helius_pumpfun',
-      source: 'helius_logs_trade_shadow',
+      source: this.runtimeEnabled ? 'helius_logs_trade_runtime' : 'helius_logs_trade_shadow',
       eventType: event.eventType,
       mint: event.mint,
       traderPublicKey: event.user,
@@ -945,7 +948,7 @@ class HeliusPumpfunShadowListener {
     const virtualTokenReservesTokens = this.uiAmount(event.virtualTokenReserves, PUMP_TOKEN_DECIMALS);
     return {
       provider: 'helius_pumpfun',
-      source: 'helius_logs_create_shadow',
+      source: this.runtimeEnabled ? 'helius_logs_create_runtime' : 'helius_logs_create_shadow',
       eventType: event.eventType,
       mint: event.mint,
       name: event.name,
@@ -975,8 +978,8 @@ class HeliusPumpfunShadowListener {
     return {
       provider: 'helius_pumpfun',
       source: event.eventType === 'CompleteEvent'
-        ? 'helius_logs_complete_shadow'
-        : 'helius_logs_migration_shadow',
+        ? (this.runtimeEnabled ? 'helius_logs_complete_runtime' : 'helius_logs_complete_shadow')
+        : (this.runtimeEnabled ? 'helius_logs_migration_runtime' : 'helius_logs_migration_shadow'),
       ...event,
       eventAt: this.eventTimestamp(event.timestamp),
       ...context,
@@ -1003,17 +1006,26 @@ class HeliusPumpfunShadowListener {
 
   emitLifecycle(type, payload = {}) {
     try {
-      this.handlers.onLifecycle?.(type, { ...payload, provider: 'helius_pumpfun', reportOnly: true });
+      this.handlers.onLifecycle?.(type, {
+        ...payload,
+        provider: 'helius_pumpfun',
+        reportOnly: !this.runtimeEnabled,
+        strategyConsumptionEnabled: this.runtimeEnabled
+      });
     } catch {
-      // Shadow telemetry must never affect runtime behavior.
+      // Provider lifecycle telemetry must never affect runtime behavior.
     }
   }
 
   emitShadowEvent(type, payload = {}) {
     try {
-      this.handlers.onShadowEvent?.(type, { ...payload, reportOnly: true });
+      this.handlers.onShadowEvent?.(type, {
+        ...payload,
+        reportOnly: !this.runtimeEnabled,
+        strategyConsumptionEnabled: this.runtimeEnabled
+      });
     } catch {
-      // Shadow telemetry must never affect runtime behavior.
+      // Provider callbacks are isolated from the websocket decoder and reconnect loop.
     }
   }
 

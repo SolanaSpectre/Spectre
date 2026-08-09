@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { isRuntimeProviderEvent } = require('./lib/runtime-provider-events');
 const https = require('https');
 const { Connection, PublicKey } = require('@solana/web3.js');
 const SolanaRpcRouter = require('../src/lib/solana-rpc-router');
@@ -234,13 +235,9 @@ function collectTargets(maxTargets, options = {}) {
   let telemetryScan = null;
   if (targets.size < maxTargets && telemetryPath && fs.existsSync(telemetryPath)) {
     telemetryScan = forEachRecentJsonlSync(telemetryPath, (event) => {
-      if (![
-        'pump_bonding_curve.provider_snapshot',
-        'provider.pumpdev.shadow_trade',
-        'provider.pumpdev.runtime_trade',
-        'provider.pumpdev.shadow_new_token',
-        'provider.pumpdev.runtime_new_token'
-      ].includes(event.type)) {
+      if (event.type !== 'pump_bonding_curve.provider_snapshot'
+        && !isRuntimeProviderEvent(event, 'trade')
+        && !isRuntimeProviderEvent(event, 'newToken')) {
         return true;
       }
       const payload = event.payload || event.data || {};

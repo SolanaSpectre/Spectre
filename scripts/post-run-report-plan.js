@@ -1,18 +1,18 @@
 const ALL_POST_RUN_REPORTS = [
-  { title: 'Paid-Tape Coverage Epoch', script: 'paid-tape-coverage-epoch-report.js' },
-  { title: 'PumpPortal Paid-Tape Demand Attribution', script: 'pumpportal-paid-tape-demand-report.js' },
-  { title: 'Runner-Watch Full-Coverage Evidence', script: 'runner-watch-full-coverage-evidence-report.js' },
+  { title: 'Paid-Tape Coverage Epoch', script: 'paid-tape-coverage-epoch-report.js', providers: ['pumpportal'] },
+  { title: 'PumpPortal Paid-Tape Demand Attribution', script: 'pumpportal-paid-tape-demand-report.js', providers: ['pumpportal'] },
+  { title: 'Runner-Watch Full-Coverage Evidence', script: 'runner-watch-full-coverage-evidence-report.js', providers: ['helius'] },
   { title: 'Macro Posture Report', script: 'macro-posture-report.js' },
   { title: 'Simple Runtime AI Evidence', script: 'simple-runtime-ai-evidence-report.js' },
   { title: 'Battlefield Report', script: 'run-battlefield-report.js' },
   { title: 'Report Telemetry Path Audit', script: 'report-telemetry-path-audit.js' },
-  { title: 'PumpDev Curve Parity Report', script: 'pumpdev-curve-parity-report.js' },
-  { title: 'Helius Pump.fun Shadow Parity', script: 'helius-pumpfun-shadow-parity-report.js' },
-  { title: 'Helius Pump.fun Recall Autopsy', script: 'helius-pumpfun-recall-autopsy-report.js' },
-  { title: 'Helius Pump.fun Decision Divergence', script: 'helius-pumpfun-decision-divergence-report.js' },
-  { title: 'PumpDev Targeted Curve Parity Report', script: 'pumpdev-targeted-curve-parity-report.js' },
+  { title: 'PumpDev Curve Parity Report', script: 'pumpdev-curve-parity-report.js', providers: ['pumpdev'] },
+  { title: 'Helius Pump.fun Shadow Parity', script: 'helius-pumpfun-shadow-parity-report.js', providers: ['pumpportal', 'pumpdev'] },
+  { title: 'Helius Pump.fun Recall Autopsy', script: 'helius-pumpfun-recall-autopsy-report.js', providers: ['pumpportal', 'pumpdev'] },
+  { title: 'Helius Pump.fun Decision Divergence', script: 'helius-pumpfun-decision-divergence-report.js', providers: ['pumpportal', 'pumpdev'] },
+  { title: 'PumpDev Targeted Curve Parity Report', script: 'pumpdev-targeted-curve-parity-report.js', providers: ['pumpdev'] },
   { title: 'Event Loop Lag Diagnostic', script: 'event-loop-lag-diagnostic-report.js' },
-  { title: 'PumpDev Subscription Lifecycle', script: 'pumpdev-subscription-lifecycle-report.js' },
+  { title: 'PumpDev Subscription Lifecycle', script: 'pumpdev-subscription-lifecycle-report.js', providers: ['pumpdev'] },
   { title: 'Runner Reject Follow-through', script: 'runner-reject-follow-through-report.js' },
   { title: 'Runner Reject Entry Replay', script: 'runner-reject-entry-replay-report.js' },
   { title: 'Runner Reject Runtime Shadow Outcome', script: 'runner-reject-runtime-shadow-outcome-report.js' },
@@ -200,11 +200,7 @@ const DECISIVE_REPORT_METADATA = {
     artifactPath: 'data/reports/latest-run-summary-latest.json',
     artifactTelemetryJsonPaths: [
       'telemetryPath',
-      'criticalTelemetryPaths.paidTapeCoverage',
       'criticalTelemetryPaths.battlefield',
-      'criticalTelemetryPaths.runnerWatch',
-      'criticalTelemetryPaths.heliusParity',
-      'criticalTelemetryPaths.heliusDecisionDivergence',
       'criticalTelemetryPaths.eventLoopLag',
       'criticalTelemetryPaths.liveReadiness',
       'criticalTelemetryPaths.scorecardLiveReadiness',
@@ -296,8 +292,19 @@ function normalizeReportProfile(profile = 'decisive') {
   return normalized;
 }
 
-function reportsForProfile(profile = 'decisive') {
-  return REPORT_PROFILES[normalizeReportProfile(profile)].map((report) => ({ ...report }));
+function reportsForProfile(profile = 'decisive', { pumpDataProvider = null } = {}) {
+  const selectedProvider = pumpDataProvider ? String(pumpDataProvider).trim().toLowerCase() : null;
+  return REPORT_PROFILES[normalizeReportProfile(profile)].map((report) => {
+    const providers = Array.isArray(report.providers) ? report.providers : [];
+    const applicable = !selectedProvider || providers.length === 0 || providers.includes(selectedProvider);
+    return {
+      ...report,
+      applicable,
+      applicabilityReason: applicable
+        ? null
+        : `selected pump-data provider is ${selectedProvider}; report requires ${providers.join(' or ')}`
+    };
+  });
 }
 
 const POST_RUN_REPORTS = DECISIVE_POST_RUN_REPORTS;

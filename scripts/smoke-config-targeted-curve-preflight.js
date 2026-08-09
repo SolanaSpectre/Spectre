@@ -6,10 +6,13 @@ const Config = require('../src/config');
 
 const original = {
   executionMode: process.env.EXECUTION_MODE,
+  pumpDataProvider: process.env.PUMP_DATA_PROVIDER,
+  pumpPortalEnabled: process.env.PUMPPORTAL_ENABLED,
   subscriptionMode: process.env.PUMPPORTAL_TRADE_SUBSCRIPTION_MODE,
   runtimeRpcEnabled: process.env.PUMP_BONDING_CURVE_RUNTIME_RPC_ENABLED,
   heliusShadowEnabled: process.env.HELIUS_PUMPFUN_SHADOW_ENABLED,
   heliusDecisionShadowEnabled: process.env.HELIUS_PUMPFUN_DECISION_SHADOW_ENABLED,
+  heliusStandardWebsocketUrl: process.env.HELIUS_STANDARD_WEBSOCKET_URL,
   finalistMaxSubscriptions: process.env.FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS,
   finalistTtlMs: process.env.FINALIST_ACCOUNT_VERIFIER_TTL_MS,
   pumpDevShadowEnabled: process.env.PUMPDEV_SHADOW_ENABLED,
@@ -23,6 +26,8 @@ function restore(name, value) {
 
 try {
   process.env.EXECUTION_MODE = 'PAPER';
+  process.env.PUMP_DATA_PROVIDER = 'pumpportal';
+  process.env.PUMPPORTAL_ENABLED = 'true';
   process.env.PUMPPORTAL_TRADE_SUBSCRIPTION_MODE = 'targeted_curve';
   process.env.PUMP_BONDING_CURVE_RUNTIME_RPC_ENABLED = 'false';
   process.env.HELIUS_PUMPFUN_SHADOW_ENABLED = 'false';
@@ -49,8 +54,10 @@ try {
 
   process.env.PUMPPORTAL_TRADE_SUBSCRIPTION_MODE = 'targeted_curve';
   process.env.PUMP_BONDING_CURVE_RUNTIME_RPC_ENABLED = 'true';
+  process.env.PUMP_DATA_PROVIDER = 'helius';
   process.env.HELIUS_PUMPFUN_SHADOW_ENABLED = 'true';
   process.env.HELIUS_PUMPFUN_DECISION_SHADOW_ENABLED = 'true';
+  process.env.HELIUS_STANDARD_WEBSOCKET_URL = 'wss://example.invalid';
   process.env.FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS = '99';
   process.env.FINALIST_ACCOUNT_VERIFIER_TTL_MS = '120000';
   assert.throws(
@@ -70,10 +77,13 @@ try {
   assert.doesNotThrow(() => Config.validate());
 } finally {
   restore('EXECUTION_MODE', original.executionMode);
+  restore('PUMP_DATA_PROVIDER', original.pumpDataProvider);
+  restore('PUMPPORTAL_ENABLED', original.pumpPortalEnabled);
   restore('PUMPPORTAL_TRADE_SUBSCRIPTION_MODE', original.subscriptionMode);
   restore('PUMP_BONDING_CURVE_RUNTIME_RPC_ENABLED', original.runtimeRpcEnabled);
   restore('HELIUS_PUMPFUN_SHADOW_ENABLED', original.heliusShadowEnabled);
   restore('HELIUS_PUMPFUN_DECISION_SHADOW_ENABLED', original.heliusDecisionShadowEnabled);
+  restore('HELIUS_STANDARD_WEBSOCKET_URL', original.heliusStandardWebsocketUrl);
   restore('FINALIST_ACCOUNT_VERIFIER_MAX_SUBSCRIPTIONS', original.finalistMaxSubscriptions);
   restore('FINALIST_ACCOUNT_VERIFIER_TTL_MS', original.finalistTtlMs);
   restore('PUMPDEV_SHADOW_ENABLED', original.pumpDevShadowEnabled);

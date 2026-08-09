@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { isRuntimeProviderEvent } = require('./lib/runtime-provider-events');
 
 const TELEMETRY_DIR = path.join(__dirname, '..', 'run-logs');
 const WALLET_ANALYSIS_DIR = path.join(__dirname, '..', 'data', 'wallet-analysis');
@@ -127,13 +128,10 @@ function collectBotMintData(telemetryFiles) {
         incrementMap(bucket.sources, payload.source);
       }
 
+      if (isRuntimeProviderEvent(event, 'newToken')) bucket.newTokenCount += 1;
+      if (isRuntimeProviderEvent(event, 'trade')) bucket.tradeTickCount += 1;
+
       switch (event.type) {
-        case 'provider.pumpportal.new_token':
-          bucket.newTokenCount += 1;
-          break;
-        case 'provider.pumpportal.trade':
-          bucket.tradeTickCount += 1;
-          break;
         case 'trade.rejected':
           bucket.rejectedCount += 1;
           if (payload.reason) {
