@@ -57,6 +57,9 @@ const heliusSummary = buildDecisiveSummary({
   },
   runnerWatchFullCoverageEvidence: {
     data: {
+      preregistration: {
+        id: 'runner_watch_helius_pump_family_v7_2026-08-09'
+      },
       currentRun: {
         validation: { valid: true, failedChecks: [] },
         providerCoverage: {
@@ -92,6 +95,14 @@ const heliusSummary = buildDecisiveSummary({
 assert(
   heliusSummary.includes('Gap-accounted Helius coverage: 56 min; uncovered: 4 min'),
   'Helius-primary summaries must use gap-accounted provider coverage'
+);
+assert(
+  heliusSummary.includes('Verdict: HELIUS_V7_FULL_COVERAGE_VALID'),
+  'Helius-primary summaries must derive the evidence version from the active preregistration'
+);
+assert(
+  !heliusSummary.includes('HELIUS_V6_'),
+  'Helius-primary summaries must not retain a stale hardcoded V6 label'
 );
 assert(heliusSummary.includes('Helius Runtime'), 'Helius-primary summaries must label the active runtime');
 assert(

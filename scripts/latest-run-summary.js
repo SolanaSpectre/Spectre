@@ -325,6 +325,12 @@ function summarizeCurrentRunPnl(exits = []) {
   };
 }
 
+function evidenceVersionLabel(preregistration = {}) {
+  const id = String(preregistration.id || '');
+  const match = id.match(/(?:^|_)v(\d+)(?:_|$)/i);
+  return match ? `V${match[1]}` : 'CURRENT';
+}
+
 function buildDecisiveSummary(docs) {
   const coverageReport = docs.paidTapeCoverageEpoch?.data || {};
   const coverage = coverageReport.coverage || {};
@@ -337,6 +343,7 @@ function buildDecisiveSummary(docs) {
   const runnerWatchCurrent = runnerWatch.currentRun || {};
   const runnerWatchValidation = runnerWatchCurrent.validation || {};
   const runnerWatchCumulative = runnerWatch.cumulative || {};
+  const runnerWatchEvidenceVersion = evidenceVersionLabel(runnerWatch.preregistration);
   const aiLifecycle = runner.simpleRuntimeAiLifecycle || {};
   const aiAuditAttempts = number(aiLifecycle.attempts);
   const aiAuditCompleted = number(aiLifecycle.completed);
@@ -371,7 +378,7 @@ function buildDecisiveSummary(docs) {
   const failedRunnerChecks = runnerWatchValidation.failedChecks || [];
   const coverageLines = pumpDataProvider === 'helius'
     ? [
-        `Verdict: ${runnerWatchValidation.valid === true ? 'HELIUS_V6_FULL_COVERAGE_VALID' : 'HELIUS_V6_RUN_EXCLUDED'}`,
+        `Verdict: HELIUS_${runnerWatchEvidenceVersion}_${runnerWatchValidation.valid === true ? 'FULL_COVERAGE_VALID' : 'RUN_EXCLUDED'}`,
         `Session: ${fmt(session.durationMinutes, 2)} / ${fmt(session.configuredDurationMinutes, 2)} min`,
         `Gap-accounted Helius coverage: ${fmt(providerCoverage.fullCoverageMinutes, 2)} min; uncovered: ${fmt(providerCoverage.uncoveredMinutes, 2)} min`,
         `Subscription ACKs/runtime events/legacy events: ${number(providerCoverage.subscriptionAcks)}/${number(providerCoverage.runtimeEvents)}/${number(providerCoverage.legacyRuntimeEvents)}`,
