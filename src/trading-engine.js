@@ -15,6 +15,10 @@ const {
   mapHeliusCreateToLaunchIntelEvent,
   mapHeliusTradeToLaunchIntelEvent
 } = require('./lib/helius-launch-intel-adapter');
+const {
+  isPumpFamilyToken,
+  summarizePumpFamilyMomentum
+} = require('./lib/pump-family-token');
 const SafetyGate = require('./lib/safety-gates');
 const ExecutionModeManager = require('./lib/execution-modes');
 const SessionManager = require('./lib/session-manager');
@@ -63,7 +67,7 @@ const {
 } = require('./lib/helius-decision-shadow-comparability');
 const { buildRuntimeSourceProvenance } = require('./lib/runtime-source-provenance');
 const RUNNER_WATCH_FULL_COVERAGE_PREREGISTRATION = require(
-  '../data/strategy-preregistrations/runner-watch-full-coverage-v6.json'
+  '../data/strategy-preregistrations/runner-watch-full-coverage-v7.json'
 );
 
 const SENTINEL_BONDING_CURVE_ADDRESSES = new Set([
@@ -631,7 +635,7 @@ class TradingEngine {
       },
       strategyPreregistration: {
         id: RUNNER_WATCH_FULL_COVERAGE_PREREGISTRATION.id,
-        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v6.json',
+        path: 'data/strategy-preregistrations/runner-watch-full-coverage-v7.json',
         configHash: replayConfigSnapshot.configHash,
         expectedConfigHash: runnerWatchExpectedConfigHash,
         configHashMatches: replayConfigSnapshot.configHash === runnerWatchExpectedConfigHash,
@@ -1620,7 +1624,7 @@ class TradingEngine {
       !this.config.runnerRaydiumShadowEnabled ||
       !this.executionModeManager.isPaper() ||
       !this.config.paperRunnerModeEnabled ||
-      this.isPumpPortalToken(token)
+      isPumpFamilyToken(token)
     ) {
       return;
     }
@@ -1852,7 +1856,7 @@ class TradingEngine {
           confidence: Math.max(Number(aiDecision.confidence || 0), 38),
           reason: `AI_FAILURE_FALLBACK_ALLOW:${aiDecision.reason || 'AI_REVIEW_FAILURE'}`,
           fallbackTrigger,
-          primaryStrategy: signal.tokenInfo?.source?.startsWith?.('pumpportal')
+          primaryStrategy: isPumpFamilyToken(signal.tokenInfo)
             ? 'RUNNER_HUNTER'
             : (aiDecision.primaryStrategy || 'SNIPER'),
           convergenceScore: Math.max(Number(aiDecision.convergenceScore || 0), 0.35),
@@ -1998,7 +2002,7 @@ class TradingEngine {
       const solPrice = Number(solPriceFallback?.value || 0);
       const pumpPortalTokens = Array.from(this.latestPumpPortalTokens.values())
         .map((token) => {
-          const momentum = this.summarizePumpPortalMomentum(token);
+          const momentum = summarizePumpFamilyMomentum(token, this.config.pumpMomentumWindowMs);
           const liquiditySol = Number(token.liquiditySol || 0);
           const liquidityUsd = Number(
             token.liquidityUsd
@@ -2116,7 +2120,7 @@ class TradingEngine {
 
     const pumpPortalTokens = Array.from(this.latestPumpPortalTokens.values())
       .map((token) => {
-        const momentum = this.summarizePumpPortalMomentum(token);
+        const momentum = summarizePumpFamilyMomentum(token, this.config.pumpMomentumWindowMs);
         const liquiditySol = Number(token.liquiditySol || 0);
         const liquidityUsd = Number(
           token.liquidityUsd
@@ -2297,7 +2301,7 @@ class TradingEngine {
       return false;
     }
 
-    if (String(pool.source || '').startsWith('pumpportal') && pool.type !== 'migration') {
+    if (isPumpFamilyToken(pool) && pool.type !== 'migration') {
       return false;
     }
 
@@ -2327,14 +2331,14 @@ class TradingEngine {
     const suppressOptionalHttp = this.shouldSuppressOptionalHttpEnrichment();
     const topPools = marketData.pools
       .filter((pool) => {
-        if (pool.source?.startsWith?.('pumpportal')) {
+        if (isPumpFamilyToken(pool)) {
           return (pool.tradeCount || 0) > 0 || pool.type === 'migration';
         }
 
         return (pool.volume24h || 0) > this.config.volumeThresholdSol;
       })
       .filter((pool) => {
-        if (pool.source?.startsWith?.('pumpportal')) {
+        if (isPumpFamilyToken(pool)) {
           return true;
         }
 
@@ -2455,7 +2459,7 @@ class TradingEngine {
 
   getPoolPriorityScore(pool) {
     let score = 0;
-    if (String(pool.source || '').startsWith('pumpportal')) score += 2_000_000;
+    if (isPumpFamilyToken(pool)) score += 2_000_000;
     if (pool.type === 'migration' || pool.bondingStage === 'recently_bonded') score += 500_000;
     if (pool.bondingStage === 'almost_bonded') score += 250_000;
     score += Number(pool.tradeVelocityPerMin || 0) * 50_000;
@@ -2523,7 +2527,7 @@ class TradingEngine {
       if (
         this.executionModeManager.isPaper() &&
         this.config.paperRunnerModeEnabled &&
-        !this.isPumpPortalToken(token)
+        !isPumpFamilyToken(token)
       ) {
         this.emitRaydiumRunnerShadowObservation({
           token,
@@ -2548,7 +2552,7 @@ class TradingEngine {
         continue;
       }
 
-      if (this.isPumpPortalToken(token)) {
+      if (isPumpFamilyToken(token)) {
         const pumpMomentumGate = this.evaluatePumpMomentumGate(token, momentum);
         if (!pumpMomentumGate.passed) {
           this.logger.decision(`PUMP GATE FAIL: ${token.mintAddress}`, {
@@ -3370,11 +3374,6 @@ class TradingEngine {
     return baseProfile;
   }
 
-  isPumpPortalToken(token) {
-    const source = String(token.source || '');
-    return source.startsWith('pumpportal') || source.startsWith('pumpdev');
-  }
-
   isMigratedPumpPortalToken(token = {}) {
     return token.routeType === 'migration' || token.bondingStage === 'recently_bonded';
   }
@@ -3771,7 +3770,7 @@ class TradingEngine {
   }
 
   scoreMomentum(token) {
-    if (!this.isPumpPortalToken(token)) {
+    if (!isPumpFamilyToken(token)) {
       return {
         score: 0,
         factors: {
@@ -3819,25 +3818,6 @@ class TradingEngine {
     };
   }
 
-  summarizePumpPortalMomentum(token) {
-    const now = Date.now();
-    const windowMs = this.config.pumpMomentumWindowMs;
-    const trades = (token.tradeWindow || []).filter((trade) => now - trade.timestamp <= windowMs);
-    const recentBuys = trades.filter((trade) => trade.side === 'buy').length;
-    const recentSells = trades.filter((trade) => trade.side === 'sell').length;
-    const recentVolumeSol = trades.reduce((sum, trade) => sum + Number(trade.volumeSol || 0), 0);
-    const minutes = Math.max(windowMs / 60000, 0.001);
-
-    return {
-      recentBuys,
-      recentSells,
-      recentTradeCount: trades.length,
-      recentVolumeSol,
-      tradeVelocityPerMin: trades.length / minutes,
-      tokenAgeSeconds: token.createdAt ? (now - token.createdAt) / 1000 : 0
-    };
-  }
-
   isEntryWarmupActive() {
     return this.getEntryWarmupRemainingMs() > 0;
   }
@@ -3864,10 +3844,10 @@ class TradingEngine {
   }
 
   observePreMigrationToken(token, launchIntelSummary = null) {
-    const observedToken = this.isPumpPortalToken(token)
+    const observedToken = isPumpFamilyToken(token)
       ? {
           ...token,
-          ...this.summarizePumpPortalMomentum(token)
+          ...summarizePumpFamilyMomentum(token, this.config.pumpMomentumWindowMs)
         }
       : token;
     const walletClassificationContext = this.buildWalletClassificationContextForMint(observedToken.mint);
@@ -7526,6 +7506,16 @@ class TradingEngine {
         side,
         volumeSol: tradeVolumeSol
       });
+      if (isPumpFamilyToken(current)) {
+        Object.assign(
+          current,
+          summarizePumpFamilyMomentum(
+            current,
+            this.config.pumpMomentumWindowMs,
+            current.lastTradeAt
+          )
+        );
+      }
     }, workDetails);
 
     let trader;
@@ -7625,6 +7615,7 @@ class TradingEngine {
         quoteMint: event.quoteMint || null,
         pairBase: event.pairBase || 'SOL',
         source: event.source || options.defaultSource || `${provider}_trade`,
+        pumpFamilyClassified: isPumpFamilyToken(current),
         priceSol: Number.isFinite(Number(event.priceSol ?? current.priceSol))
           ? Number(event.priceSol ?? current.priceSol)
           : null,
@@ -7638,6 +7629,9 @@ class TradingEngine {
           ? Number(current.curveProgress)
           : null,
         tradeCount: current.tradeCount,
+        recentTradeCount: Number(current.recentTradeCount || 0),
+        recentVolumeSol: Number(current.recentVolumeSol || 0),
+        tradeVelocityPerMin: Number(current.tradeVelocityPerMin || 0),
         traderPresent: Boolean(trader),
         trackedAccountMatch,
         kolWalletProfileMatch,

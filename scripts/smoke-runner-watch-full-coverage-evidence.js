@@ -15,21 +15,22 @@ const {
   evidenceCollectionClosed
 } = require('./runner-watch-full-coverage-evidence-report');
 const { scanHeliusRuntimeCoverage } = require('./lib/helius-runtime-coverage');
-const priorPrereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v5.json');
-const frozenPrereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v6.json');
+const priorPrereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v6.json');
+const frozenPrereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v7.json');
 
 const engineSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'trading-engine.js'), 'utf8');
 assert.strictEqual(evidenceCollectionClosed(priorPrereg), true);
-assert.strictEqual(priorPrereg.terminalDisposition.disposition, 'FAILED_RUNTIME_CHECKPOINT');
+assert.strictEqual(priorPrereg.terminalDisposition.disposition, 'SUPERSEDED_RUNTIME_DATA_INTEGRITY_DEFECT');
 assert.strictEqual(frozenPrereg.priorEvidence.id, priorPrereg.id);
 assert.strictEqual(frozenPrereg.priorEvidence.acceptedEvidenceReuseAllowed, false);
 assert.strictEqual(frozenPrereg.providerPlan.provider, 'helius');
 assert.strictEqual(frozenPrereg.validRunDefinition.legacyRuntimeEventsMustBeZero, true);
+assert.strictEqual(frozenPrereg.validRunDefinition.pumpFamilySemanticTelemetryRequired, true);
 assert(/^[0-9a-f]{64}$/.test(frozenPrereg.configFreeze.expectedConfigHash));
 assert(/^[0-9a-f]{64}$/.test(frozenPrereg.sourceFreeze.expectedSourceFingerprint));
 assert(
   engineSource.includes('id: RUNNER_WATCH_FULL_COVERAGE_PREREGISTRATION.id'),
-  'runtime must emit the V6 strategy preregistration id from the frozen artifact'
+  'runtime must emit the V7 strategy preregistration id from the frozen artifact'
 );
 
 const checkpointPrereg = {
@@ -89,6 +90,19 @@ const futureRun = {
         pumpDevRuntimeEnabled: false,
         heliusRuntimeEnabled: true
       }
+    }
+  },
+  coverageDiagnostics: {
+    pumpFamilySemanticDiagnostics: {
+      runtimeTradesObserved: 10,
+      runtimeTradesClassified: 10,
+      runtimeTradesWithPositiveRecentTradeCount: 10,
+      runtimeTradesWithPositiveRecentVolumeSol: 10,
+      runtimeTradesWithPositiveTradeVelocityPerMin: 10,
+      paperDecisionsObserved: 2,
+      paperDecisionsWithPositiveRecentVolumeSol: 2,
+      paperDecisionsWithPositiveTradeVelocityPerMin: 2,
+      heliusCandidatesMisroutedAsNonPump: 0
     }
   },
   stopping: {
@@ -210,6 +224,36 @@ const queueFailureValidation = validateRun(
 assert.strictEqual(queueFailureValidation.checks.runtimeQueueIntegrity, false);
 assert.strictEqual(queueFailureValidation.valid, false);
 
+const stalePumpSemanticsValidation = validateRun(
+  frozenPrereg,
+  path.join(__dirname, '..', 'run-logs', 'stale-pump-semantics.jsonl'),
+  {
+    ...futureRun,
+    coverageDiagnostics: {
+      pumpFamilySemanticDiagnostics: {
+        runtimeTradesObserved: 10,
+        runtimeTradesClassified: 0,
+        runtimeTradesWithPositiveRecentTradeCount: 0,
+        runtimeTradesWithPositiveRecentVolumeSol: 0,
+        runtimeTradesWithPositiveTradeVelocityPerMin: 0,
+        paperDecisionsObserved: 2,
+        paperDecisionsWithPositiveRecentVolumeSol: 0,
+        paperDecisionsWithPositiveTradeVelocityPerMin: 0,
+        heliusCandidatesMisroutedAsNonPump: 1
+      }
+    }
+  },
+  fullCoverage
+);
+assert.strictEqual(stalePumpSemanticsValidation.checks.pumpFamilyRuntimeClassification, false);
+assert.strictEqual(stalePumpSemanticsValidation.checks.pumpFamilyRuntimeRecentTradeCount, false);
+assert.strictEqual(stalePumpSemanticsValidation.checks.pumpFamilyRuntimeRecentVolume, false);
+assert.strictEqual(stalePumpSemanticsValidation.checks.pumpFamilyRuntimeTradeVelocity, false);
+assert.strictEqual(stalePumpSemanticsValidation.checks.pumpFamilyDecisionRecentVolume, false);
+assert.strictEqual(stalePumpSemanticsValidation.checks.pumpFamilyDecisionTradeVelocity, false);
+assert.strictEqual(stalePumpSemanticsValidation.checks.noHeliusCandidatesMisroutedAsNonPump, false);
+assert.strictEqual(stalePumpSemanticsValidation.valid, false);
+
 const legacyCurveCountersValidation = validateRun(
   frozenPrereg,
   path.join(__dirname, '..', 'run-logs', 'legacy-counters.jsonl'),
@@ -300,9 +344,23 @@ fs.writeFileSync(telemetryPath, [
   },
   { type: 'provider.helius_pumpfun.shadow_subscription_ack', timestamp: '2026-08-09T12:00:05.000Z', payload: {} },
   { type: 'provider.helius_pumpfun.runtime_new_token', timestamp: '2026-08-09T12:01:00.000Z', payload: { mint: 'A' } },
-  { type: 'provider.helius_pumpfun.runtime_trade', timestamp: '2026-08-09T12:01:01.000Z', payload: { mint: 'A' } },
+  {
+    type: 'provider.helius_pumpfun.runtime_trade',
+    timestamp: '2026-08-09T12:01:01.000Z',
+    payload: {
+      mint: 'A',
+      pumpFamilyClassified: true,
+      recentTradeCount: 1,
+      recentVolumeSol: 0.5,
+      tradeVelocityPerMin: 1
+    }
+  },
   { type: 'provider.helius_pumpfun.runtime_complete', timestamp: '2026-08-09T12:40:00.000Z', payload: { mint: 'A' } },
-  { type: 'pre_migration_paper.decision', timestamp: '2026-08-09T12:41:00.000Z', payload: { reason: 'CURVE_NOT_ADVANCING' } },
+  {
+    type: 'pre_migration_paper.decision',
+    timestamp: '2026-08-09T12:41:00.000Z',
+    payload: { reason: 'CURVE_NOT_ADVANCING', recentVolumeSol: 0.5, tradeVelocityPerMin: 1 }
+  },
   { type: 'session.stopping', timestamp: '2026-08-09T13:00:00.000Z', payload: { reason: 'SESSION_DURATION_EXCEEDED', stats: finalStats } },
   { type: 'session.stopped', timestamp: '2026-08-09T13:00:02.000Z', payload: { reason: 'SESSION_DURATION_EXCEEDED', stats: finalStats } }
 ].map((row) => JSON.stringify(row)).join('\n') + '\n', 'utf8');
@@ -315,6 +373,14 @@ try {
     migrations: 1
   });
   assert.strictEqual(scannedRun.coverageDiagnostics.paperDecisions, 1);
+  assert.strictEqual(
+    scannedRun.coverageDiagnostics.pumpFamilySemanticDiagnostics.runtimeTradesClassified,
+    1
+  );
+  assert.strictEqual(
+    scannedRun.coverageDiagnostics.pumpFamilySemanticDiagnostics.paperDecisionsWithPositiveRecentVolumeSol,
+    1
+  );
 
   const scannedCoverage = scanHeliusRuntimeCoverage(telemetryPath);
   assert(scannedCoverage.fullCoverageMinutes > 59.9);
@@ -369,4 +435,4 @@ try {
   fs.rmSync(telemetryPath, { force: true });
 }
 
-console.log('Runner-watch Helius full-coverage V6 evidence smoke passed');
+console.log('Runner-watch Helius full-coverage V7 evidence smoke passed');

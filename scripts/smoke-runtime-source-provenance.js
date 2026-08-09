@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { buildSourceFingerprint } = require('../src/lib/runtime-source-provenance');
-const prereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v6.json');
+const prereg = require('../data/strategy-preregistrations/runner-watch-full-coverage-v7.json');
 
 const ROOT = path.join(__dirname, '..');
 const actual = buildSourceFingerprint(ROOT, prereg.sourceFreeze.files);

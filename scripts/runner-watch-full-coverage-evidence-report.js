@@ -8,10 +8,10 @@ const { scanHeliusRuntimeCoverage } = require('./lib/helius-runtime-coverage');
 const { isRuntimeProviderEvent } = require('./lib/runtime-provider-events');
 
 const ROOT = path.join(__dirname, '..');
-const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'runner-watch-full-coverage-v6.json');
+const PREREG_PATH = path.join(ROOT, 'data', 'strategy-preregistrations', 'runner-watch-full-coverage-v7.json');
 const BATTLEFIELD_PATH = path.join(ROOT, 'data', 'reports', 'run-battlefield-latest.json');
 const OUTPUT_PATH = path.join(ROOT, 'data', 'reports', 'runner-watch-full-coverage-evidence-latest.json');
-const LEDGER_PATH = path.join(ROOT, 'data', 'runner-watch-ledgers', 'full-coverage-v6.jsonl');
+const LEDGER_PATH = path.join(ROOT, 'data', 'runner-watch-ledgers', 'full-coverage-v7.jsonl');
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
@@ -63,6 +63,17 @@ function scanRun(telemetryPath) {
     trades: 0,
     migrations: 0
   };
+  const pumpFamilySemanticDiagnostics = {
+    runtimeTradesObserved: 0,
+    runtimeTradesClassified: 0,
+    runtimeTradesWithPositiveRecentTradeCount: 0,
+    runtimeTradesWithPositiveRecentVolumeSol: 0,
+    runtimeTradesWithPositiveTradeVelocityPerMin: 0,
+    paperDecisionsObserved: 0,
+    paperDecisionsWithPositiveRecentVolumeSol: 0,
+    paperDecisionsWithPositiveTradeVelocityPerMin: 0,
+    heliusCandidatesMisroutedAsNonPump: 0
+  };
   forEachJsonlSync(telemetryPath, (event) => {
     const payload = event.payload || event.data || {};
     if (event.type === 'session.started') started = { timestamp: event.timestamp, payload };
@@ -74,6 +85,33 @@ function scanRun(telemetryPath) {
       exits.push({ timestamp: event.timestamp, ...payload });
     } else if (event.type === 'pre_migration_paper.decision') {
       paperDecisions.push({ timestamp: event.timestamp, ...payload });
+      pumpFamilySemanticDiagnostics.paperDecisionsObserved += 1;
+      if (number(payload.recentVolumeSol, 0) > 0) {
+        pumpFamilySemanticDiagnostics.paperDecisionsWithPositiveRecentVolumeSol += 1;
+      }
+      if (number(payload.tradeVelocityPerMin, 0) > 0) {
+        pumpFamilySemanticDiagnostics.paperDecisionsWithPositiveTradeVelocityPerMin += 1;
+      }
+    } else if (
+      event.type === 'runner.raydium_shadow.observed'
+      && String(payload.source || '').startsWith('helius_')
+    ) {
+      pumpFamilySemanticDiagnostics.heliusCandidatesMisroutedAsNonPump += 1;
+    }
+    if (event.type === 'provider.helius_pumpfun.runtime_trade') {
+      pumpFamilySemanticDiagnostics.runtimeTradesObserved += 1;
+      if (payload.pumpFamilyClassified === true) {
+        pumpFamilySemanticDiagnostics.runtimeTradesClassified += 1;
+      }
+      if (number(payload.recentTradeCount, 0) > 0) {
+        pumpFamilySemanticDiagnostics.runtimeTradesWithPositiveRecentTradeCount += 1;
+      }
+      if (number(payload.recentVolumeSol, 0) > 0) {
+        pumpFamilySemanticDiagnostics.runtimeTradesWithPositiveRecentVolumeSol += 1;
+      }
+      if (number(payload.tradeVelocityPerMin, 0) > 0) {
+        pumpFamilySemanticDiagnostics.runtimeTradesWithPositiveTradeVelocityPerMin += 1;
+      }
     }
     if (isRuntimeProviderEvent(event, 'newToken')) runtimeProviderEvents.newTokens += 1;
     if (isRuntimeProviderEvent(event, 'trade')) runtimeProviderEvents.trades += 1;
@@ -91,7 +129,8 @@ function scanRun(telemetryPath) {
     coverageDiagnostics: {
       runtimeProviderEvents,
       paperDecisions: paperDecisions.length,
-      paperDecisionReasons: skipReasons
+      paperDecisionReasons: skipReasons,
+      pumpFamilySemanticDiagnostics
     }
   };
 }
@@ -158,6 +197,7 @@ function validateRun(prereg, telemetryPath, run, coverage) {
   const expected = prereg.providerPlan;
   const requested = prereg.validRunDefinition;
   const runtimeEvents = number(coverage.runtimeEvents, 0);
+  const semantic = run.coverageDiagnostics?.pumpFamilySemanticDiagnostics || {};
   const queueIntegrityClean = number(coverage.listenerQueueDropped, 0) === 0
     && number(coverage.listenerQueueHandlerErrors, 0) === 0
     && coverage.listenerQueueStopDrainTimedOut !== true
@@ -202,6 +242,28 @@ function validateRun(prereg, telemetryPath, run, coverage) {
     fullCoverageMinutes: number(coverage.fullCoverageMinutes, 0) >= requested.minimumFullCoverageMinutes,
     subscriptionAcknowledged: number(coverage.subscriptionAcks, 0) >= requested.minimumSubscriptionAcks,
     runtimeEvents: runtimeEvents >= requested.minimumRuntimeEvents,
+    pumpFamilyRuntimeClassification: requested.pumpFamilySemanticTelemetryRequired !== true
+      || (
+        number(semantic.runtimeTradesObserved, 0) >= requested.minimumClassifiedRuntimeTrades
+        && number(semantic.runtimeTradesClassified, 0) >= requested.minimumClassifiedRuntimeTrades
+      ),
+    pumpFamilyRuntimeRecentTradeCount: requested.pumpFamilySemanticTelemetryRequired !== true
+      || number(semantic.runtimeTradesWithPositiveRecentTradeCount, 0)
+        >= requested.minimumRuntimeTradesWithPositiveRecentTradeCount,
+    pumpFamilyRuntimeRecentVolume: requested.pumpFamilySemanticTelemetryRequired !== true
+      || number(semantic.runtimeTradesWithPositiveRecentVolumeSol, 0)
+        >= requested.minimumRuntimeTradesWithPositiveRecentVolumeSol,
+    pumpFamilyRuntimeTradeVelocity: requested.pumpFamilySemanticTelemetryRequired !== true
+      || number(semantic.runtimeTradesWithPositiveTradeVelocityPerMin, 0)
+        >= requested.minimumRuntimeTradesWithPositiveTradeVelocityPerMin,
+    pumpFamilyDecisionRecentVolume: requested.pumpFamilySemanticTelemetryRequired !== true
+      || number(semantic.paperDecisionsWithPositiveRecentVolumeSol, 0)
+        >= requested.minimumPaperDecisionsWithPositiveRecentVolumeSol,
+    pumpFamilyDecisionTradeVelocity: requested.pumpFamilySemanticTelemetryRequired !== true
+      || number(semantic.paperDecisionsWithPositiveTradeVelocityPerMin, 0)
+        >= requested.minimumPaperDecisionsWithPositiveTradeVelocityPerMin,
+    noHeliusCandidatesMisroutedAsNonPump: requested.heliusPumpFamilyNonPumpRejectionsMustBeZero !== true
+      || number(semantic.heliusCandidatesMisroutedAsNonPump, 0) === 0,
     noLegacyRuntimeEvents: requested.legacyRuntimeEventsMustBeZero === true
       && number(coverage.legacyRuntimeEvents, 0) === 0,
     runtimeQueueIntegrity: requested.queueDropsErrorsOverflowsAndDrainTimeoutsMustBeZero === true
@@ -264,6 +326,7 @@ function validateRun(prereg, telemetryPath, run, coverage) {
         runtimeQueuePendingAtStop: coverage.runtimeQueuePendingAtStop,
         runtimeQueueDrainTimeouts: coverage.runtimeQueueDrainTimeouts
       },
+      pumpFamilySemanticDiagnostics: semantic,
       runtimeRpcCurveErrors: curveErrors,
       activeRuntimeRpcCurveErrors: activeCurveErrors,
       stoppingRuntimeRpcCurveErrors: stoppingCurveErrors,
@@ -407,7 +470,7 @@ function main() {
     },
     cumulative,
     ledgerPath: relative(LEDGER_PATH),
-    note: 'Only post-registration runs matching the frozen config hash, source fingerprint, clean Git state, Helius-primary plan, and gap-accounted full-coverage definition enter the cumulative evidence ledger. V1-V5 remain separate and terminal. Same-mint reentries are one episode per run.',
+    note: 'Only post-registration runs matching the frozen config hash, source fingerprint, clean Git state, Helius-primary plan, semantic-health checks, and gap-accounted full-coverage definition enter the cumulative evidence ledger. V1-V6 remain separate and terminal. Same-mint reentries are one episode per run.',
     prohibitions: prereg.prohibitions
   };
   fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
